@@ -9,6 +9,7 @@ import { TOTP, Secret } from "otpauth";
 
 const credentials = { username: "fixture", password: "test-password-for-web-access" };
 const { createWebAccessServer } = await import("../../server/web-access/index.js");
+const { PasswordStore } = await import("../../server/web-access/password-store.js");
 let gateway: ReturnType<typeof http.createServer>;
 let gate: ReturnType<typeof createWebAccessServer>;
 let upstream: string;
@@ -52,6 +53,57 @@ beforeEach(async () => {
   websocketServer.on("connection", ws => ws.send("mock connected"));
   upstream = await listen(gateway);
   await start();
+});
+
+describe("first password setup", () => {
+  async function setupForm() {
+    const response = await fetch(base + "/auth/password/setup");
+    const html = await response.text();
+    return { cookie: cookie(response), csrf: html.match(/name="csrf" value="([^"]+)"/)?.[1] || "", html };
+  }
+  async function save(form: Awaited<ReturnType<typeof setupForm>>, token: string, password: string, confirmation = password, origin = base) {
+    return fetch(base + "/auth/password/setup", { method: "POST", redirect: "manual", headers: { Cookie: form.cookie, Origin: origin }, body: new URLSearchParams({ csrf: form.csrf, setupToken: token, password, confirmation }) });
+  }
+  it("requires the owner invitation and CSRF, then goes to MFA enrollment without granting office access", async () => {
+    await stop(); await start(false, true);
+    const oldPending = await login();
+    const token = new PasswordStore(dataDir, credentials).issueSetup();
+    const form = await setupForm();
+    expect(form.html).toContain("设置你的密码");
+    expect(form.html).not.toContain(token);
+    expect((await fetch(base + "/auth/totp/setup", { headers: { Cookie: oldPending.cookie }, redirect: "manual" })).headers.get("location")).toBe("/login");
+    expect((await save(form, "wrong", "strong-fixture-password")).status).toBe(400);
+    expect((await save(form, token, "strong-fixture-password", "mismatch")).status).toBe(400);
+    expect((await save(form, token, "strong-fixture-password", "strong-fixture-password", "https://other.invalid")).status).toBe(403);
+    const saved = await save(form, token, "strong-fixture-password");
+    expect(saved.status).toBe(303);
+    expect(saved.headers.get("location")).toBe("/auth/totp/setup");
+    const pending = cookie(saved);
+    expect((await fetch(base + "/api/health", { headers: { Cookie: pending } })).status).toBe(401);
+    expect(await rejectedSocket({ Cookie: pending })).toBe(401);
+    expect(await (await fetch(base + "/auth/totp/setup", { headers: { Cookie: pending } })).text()).toContain("绑定你的验证器");
+    expect((await fetch(base + "/auth/password/setup")).status).toBe(410);
+    expect((await save(form, token, "other-fixture-password")).status).toBe(410);
+    await stop(); await start(false, true);
+    const nextPage = await fetch(base + "/login"); const csrf = (await nextPage.text()).match(/name="csrf" value="([^"]+)"/)?.[1] || "";
+    const result = await fetch(base + "/auth/login", { method: "POST", redirect: "manual", headers: { Cookie: cookie(nextPage), Origin: base }, body: new URLSearchParams({ username: credentials.username, password: "strong-fixture-password", csrf }) });
+    expect(result.status).toBe(303);
+    expect(result.headers.get("location")).toBe("/auth/totp/setup");
+  });
+  it("invalidates earlier password sessions and closes their sockets when the new password is saved", async () => {
+    const old = await login();
+    const ws = new WebSocket(base.replace("http:", "ws:") + "/api/gateway/ws", { headers: { Cookie: old.cookie }, origin: base });
+    await new Promise(resolve => ws.once("message", resolve));
+    const closed = new Promise(resolve => ws.once("close", resolve));
+    const token = new PasswordStore(dataDir, credentials).issueSetup();
+    const form = await setupForm(); const result = await save(form, token, "strong-fixture-password");
+    expect(result.status).toBe(303); await closed;
+    expect((await fetch(base + "/api/health", { headers: { Cookie: old.cookie } })).status).toBe(401);
+    expect(await rejectedSocket({ Cookie: old.cookie })).toBe(401);
+    const oldLoginPage = await fetch(base + "/login"); const csrf = (await oldLoginPage.text()).match(/name="csrf" value="([^"]+)"/)?.[1] || "";
+    const rejected = await fetch(base + "/auth/login", { method: "POST", headers: { Cookie: cookie(oldLoginPage), Origin: base }, body: new URLSearchParams({ username: credentials.username, password: credentials.password, csrf }) });
+    expect(rejected.status).toBe(401);
+  });
 });
 
 describe("Google Authenticator login", () => {

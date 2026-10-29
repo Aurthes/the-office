@@ -19,6 +19,42 @@ including for old password-only sessions.
 4. Save the eight recovery codes shown after confirmation. Each works once with
    the existing password. The full list is not stored for later redisplay.
 
+## First password setup
+
+For a fresh installation with a generated temporary password, the local machine
+owner can issue a one-time invitation:
+
+```sh
+node scripts/create-password-setup.js PRIVATE_ACCESS_DIR HTTPS_ORIGIN
+```
+
+The output is an owner credential, valid for 30 minutes. Send it only to the
+intended owner; do not publish or log it. A public, unprotected first-claim page
+would let a stranger claim the account, so the page cannot save a password without
+this invitation. The server stores only the token hash. The token is carried in
+the URL fragment, removed from the address by local page code, and retained in
+tab-scoped session storage to support refresh. It is submitted only with the
+same-origin CSRF-protected password form, not in an HTTP URL or referrer.
+
+The user enters a password twice (12–256 characters). The server replaces the
+temporary credential with a salted scrypt hash (`N=32768, r=8, p=3`, 16-byte salt,
+64-byte output); the new plaintext password is not stored. It rechecks invitation
+validity after the asynchronous hash computation, so concurrent submissions cannot
+consume the same grant twice. The new credential version invalidates all earlier
+password and enrollment sessions and their proxy sockets. Login attempts already
+being verified cannot acquire the new credential version.
+
+Issuing the initial invitation locks ordinary password login until setup finishes,
+including if that invitation expires. The local owner can reissue it before the
+first password is saved, invalidating the earlier link. Once saved, this initial
+setup route closes; it is not a public password-reset API. With mandatory TOTP and
+no existing binding, saving goes straight to restricted authenticator enrollment.
+An existing TOTP binding is preserved and still required at the subsequent login.
+
+Older source versions that expect a plaintext `password` field cannot read the
+new hash format. Do not automatically roll back to that source or restore the
+temporary credential after the owner has chosen a password.
+
 Password verification creates only a ten-minute enrollment session. It cannot
 read office data or connect its gateway. Enabling TOTP rotates the authenticated
 session and invalidates earlier sessions through a new MFA version. Previously

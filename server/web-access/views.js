@@ -27,4 +27,15 @@ function recoveryView(codes) {
     <textarea id="recovery-codes" class="recovery-codes" aria-label="一次性恢复码" rows="8" readonly spellcheck="false">${escape(codes.join("\n"))}</textarea>
     <button class="secondary" id="copy-recovery-codes" type="button">复制恢复码</button><p class="setup-note">请保存到安全的位置，不要发送到聊天。</p><a class="submit" href="/office">进入办公室 <span aria-hidden="true">↗</span></a>`;
 }
-module.exports = { loginView, enrollmentView, recoveryView };
+function passwordSetupView({ username, csrf, active, error, enrollNext }) {
+  if (!active) return `<span class="welcome-tag">账户设置</span><h1 id="login-title">设置链接已失效</h1><p class="intro">密码可能已设置完成，或一次性链接已过期。请登录，或重新获取设置链接。</p><a class="submit" href="/login">返回登录</a>`;
+  return `<span class="welcome-tag">首次设置</span><h1 id="login-title">设置你的密码</h1><p class="intro">账号为 <strong>${escape(username)}</strong>。设置一个自己记得住的密码，至少 12 个字符。</p>${errorBox(error)}
+    <p id="setup-link-note" class="setup-note">请通过收到的一次性设置链接打开此页。</p>
+    <form id="password-setup" action="/auth/password/setup" method="post">${csrfInput(csrf)}<input type="hidden" id="setup-token" name="setupToken">
+    <input type="hidden" name="username" autocomplete="username" value="${escape(username)}">
+    <label for="password">新密码</label><div class="password-field"><input id="password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="256" placeholder="至少 12 个字符" required><button id="toggle-password" type="button" aria-label="显示密码" aria-pressed="false">显示</button></div>
+    <label for="confirmation">再输入一次</label><input id="confirmation" name="confirmation" type="password" autocomplete="new-password" minlength="12" maxlength="256" placeholder="确认你的密码" required>
+    <button class="submit" id="save-password" type="submit" disabled>${enrollNext ? "保存密码，下一步绑定验证器" : "保存密码，返回登录"}<span aria-hidden="true">↗</span></button></form>
+    <noscript><p class="error">请启用浏览器 JavaScript，以使用一次性设置链接。</p></noscript><p class="session-note">链接 30 分钟内有效，成功设置后立即失效。</p>`;
+}
+module.exports = { loginView, enrollmentView, recoveryView, passwordSetupView };

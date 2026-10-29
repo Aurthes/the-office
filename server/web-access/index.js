@@ -7,7 +7,8 @@ const session = require("express-session");
 const httpProxy = require("http-proxy");
 const { SqliteSessionStore } = require("./session-store");
 const { TotpStore } = require("./totp-store");
-const { loginView, enrollmentView, recoveryView } = require("./views");
+const { PasswordStore } = require("./password-store");
+const { loginView, enrollmentView, recoveryView, passwordSetupView } = require("./views");
 
 const WEEK = 7 * 24 * 60 * 60 * 1000;
 const digest = value => crypto.createHash("sha256").update(String(value || "")).digest();
@@ -16,8 +17,8 @@ const equal = (a, b) => crypto.timingSafeEqual(digest(a), digest(b));
 function createWebAccessServer({ dataDir, credentials, upstream = "http://127.0.0.1:3033", secureCookies = true, requireTotp = false }) {
   const target = new URL(upstream);
   if (target.protocol !== "http:" || target.hostname !== "127.0.0.1") throw new Error("The office upstream must be loopback HTTP");
-  if (!credentials?.username || String(credentials.password || "").length < 12) throw new Error("Access credentials are missing or too short");
   fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  const passwords = new PasswordStore(dataDir, credentials);
   const secretFile = path.join(dataDir, "session-secret");
   if (!fs.existsSync(secretFile)) fs.writeFileSync(secretFile, crypto.randomBytes(48).toString("base64url"), { mode: 0o600, flag: "wx" });
   const cookieName = secureCookies ? "__Host-claw3d_session" : "claw3d_session_test";
@@ -39,20 +40,25 @@ function createWebAccessServer({ dataDir, credentials, upstream = "http://127.0.
     try { return !req.headers.origin || new URL(req.headers.origin).host === req.headers.host; }
     catch { return false; }
   };
-  const authorized = req => req.session?.user === credentials.username && (totp.enabled
+  const authorized = req => !passwords.needsSetup && req.session?.user === passwords.username && req.session.passwordVersion === passwords.version && (totp.enabled
     ? req.session.mfaVersion === totp.id && req.session.mfaVerified === true
     : !requireTotp);
-  const enrolling = req => !totp.enabled && req.session?.pendingUser === credentials.username && Date.now() < req.session.enrollmentExpires;
+  const enrolling = req => !passwords.needsSetup && !totp.enabled && req.session?.pendingUser === passwords.username && req.session.passwordVersion === passwords.version && Date.now() < req.session.enrollmentExpires;
   const csrfValid = req => sameOrigin(req) && Boolean(req.session?.csrf) && typeof req.body?.csrf === "string" && equal(req.body.csrf, req.session.csrf);
   const page = (res, content, status = 200) => res.status(status).type("html").send(template.replace("{{CONTENT}}", () => content));
   const renderLogin = (req, res, error = "", status = 200) => {
     req.session.csrf ||= crypto.randomBytes(24).toString("base64url");
-    return page(res, loginView({ username: credentials.username, csrf: req.session.csrf, enabled: totp.enabled, required: requireTotp, error }), status);
+    return page(res, loginView({ username: passwords.username, csrf: req.session.csrf, enabled: totp.enabled, required: requireTotp, error }), status);
   };
   const renderSetup = async (req, res, error = "", status = 200) => {
     if (!enrolling(req)) return res.redirect(303, "/login");
-    req.session.enrollmentSecret ||= totp.enrollment(credentials.username).secret;
-    return page(res, await enrollmentView({ username: credentials.username, csrf: req.session.csrf, secret: req.session.enrollmentSecret, uri: totp.uri(req.session.enrollmentSecret, credentials.username), error }), status);
+    req.session.enrollmentSecret ||= totp.enrollment(passwords.username).secret;
+    return page(res, await enrollmentView({ username: passwords.username, csrf: req.session.csrf, secret: req.session.enrollmentSecret, uri: totp.uri(req.session.enrollmentSecret, passwords.username), error }), status);
+  };
+  const renderPasswordSetup = (req, res, error = "", status = 200) => {
+    req.session.csrf ||= crypto.randomBytes(24).toString("base64url");
+    const active = Boolean(passwords.setupGrant());
+    return page(res, passwordSetupView({ username: passwords.username, csrf: req.session.csrf, active, error, enrollNext: requireTotp && !totp.enabled }), active ? status : 410);
   };
   let failures = 0;
   let failureWindow = 0;
@@ -60,9 +66,18 @@ function createWebAccessServer({ dataDir, credentials, upstream = "http://127.0.
     if (Date.now() - failureWindow > 60_000) { failureWindow = Date.now(); failures = 0; }
     return failures >= 10;
   };
-  const finishLogin = (req, res, next, codes) => req.session.regenerate(error => {
+  const beginEnrollment = (req, res, next, version) => req.session.regenerate(error => {
     if (error) return next(error);
-    req.session.user = credentials.username;
+    req.session.pendingUser = passwords.username;
+    req.session.passwordVersion = version;
+    req.session.enrollmentExpires = Date.now() + 10 * 60 * 1000;
+    req.session.csrf = crypto.randomBytes(24).toString("base64url");
+    req.session.save(error => error ? next(error) : res.redirect(303, "/auth/totp/setup"));
+  });
+  const finishLogin = (req, res, next, codes, version = passwords.version) => req.session.regenerate(error => {
+    if (error) return next(error);
+    req.session.user = passwords.username;
+    req.session.passwordVersion = version;
     req.session.csrf = crypto.randomBytes(24).toString("base64url");
     if (totp.enabled) { req.session.mfaVerified = true; req.session.mfaVersion = totp.id; }
     req.session.cookie.maxAge = WEEK;
@@ -88,24 +103,33 @@ function createWebAccessServer({ dataDir, credentials, upstream = "http://127.0.
   app.get("/auth/ui.js", (_req, res) => res.type("js").send(clientScript));
   app.use(sessionMiddleware);
   app.get("/login", (req, res) => authorized(req) ? res.redirect(303, "/office") : enrolling(req) ? res.redirect(303, "/auth/totp/setup") : renderLogin(req, res));
-  app.post("/auth/login", express.urlencoded({ extended: false, limit: "4kb" }), (req, res, next) => {
+  app.get("/auth/password/setup", (req, res) => renderPasswordSetup(req, res));
+  app.post("/auth/password/setup", express.urlencoded({ extended: false, limit: "4kb" }), async (req, res, next) => {
+    if (!csrfValid(req)) return renderPasswordSetup(req, res, "页面已过期，请重新打开设置链接。", 403);
+    if (limited()) { res.setHeader("Retry-After", "60"); return renderPasswordSetup(req, res, "尝试次数较多，请稍等一分钟再试。", 429); }
+    failures++;
+    try { await passwords.completeSetup(req.body.setupToken, req.body.password, req.body.confirmation); }
+    catch (error) { return renderPasswordSetup(req, res, error.code ? "暂时无法保存密码，请稍后重试。" : error.message, error.code ? 500 : 400); }
+    failures = 0;
+    for (const clients of sockets.values()) for (const socket of clients) socket.end();
+    if (requireTotp && !totp.enabled) return beginEnrollment(req, res, next, passwords.version);
+    return req.session.regenerate(error => error ? next(error) : req.session.save(error => error ? next(error) : res.redirect(303, "/login")));
+  });
+  app.post("/auth/login", express.urlencoded({ extended: false, limit: "4kb" }), async (req, res, next) => {
     if (!csrfValid(req)) {
       console.warn("[web-access] login request rejected", JSON.stringify({ origin: req.headers.origin, host: req.headers.host, sessionCsrf: Boolean(req.session?.csrf), formCsrf: Boolean(req.body?.csrf), nonceMatches: Boolean(req.session?.csrf) && equal(req.body?.csrf, req.session.csrf) }));
       return renderLogin(req, res, "登录页面已过期，请重新输入密码。", 403);
     }
     if (limited()) { res.setHeader("Retry-After", "60"); return renderLogin(req, res, "尝试次数较多，请稍等一分钟再试。", 429); }
-    const passwordMatches = equal(req.body.password, credentials.password);
-    if (req.body.username !== credentials.username || !passwordMatches) { failures++; return renderLogin(req, res, "用户名或密码不正确，请再试一次。", 401); }
-    if (totp.enabled && !totp.consume(req.body.code)) { failures++; return renderLogin(req, res, "验证码无效、已过期或已使用，请等待新码；也可使用恢复码。", 401); }
+    if (passwords.needsSetup) return renderLogin(req, res, "请先通过收到的一次性链接设置自己的密码。", 403);
+    failures++;
+    const version = passwords.version;
+    const passwordMatches = req.body.username === passwords.username && await passwords.verify(req.body.password);
+    if (!passwordMatches || passwords.version !== version) return renderLogin(req, res, "用户名或密码不正确，请再试一次。", 401);
+    if (totp.enabled && !totp.consume(req.body.code)) return renderLogin(req, res, "验证码无效、已过期或已使用，请等待新码；也可使用恢复码。", 401);
     failures = 0;
-    if (requireTotp && !totp.enabled) return req.session.regenerate(error => {
-      if (error) return next(error);
-      req.session.pendingUser = credentials.username;
-      req.session.enrollmentExpires = Date.now() + 10 * 60 * 1000;
-      req.session.csrf = crypto.randomBytes(24).toString("base64url");
-      req.session.save(error => error ? next(error) : res.redirect(303, "/auth/totp/setup"));
-    });
-    return finishLogin(req, res, next);
+    if (requireTotp && !totp.enabled) return beginEnrollment(req, res, next, version);
+    return finishLogin(req, res, next, undefined, version);
   });
   app.get("/auth/totp/setup", (req, res) => renderSetup(req, res));
   app.post("/auth/totp/confirm", express.urlencoded({ extended: false, limit: "4kb" }), async (req, res, next) => {

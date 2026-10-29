@@ -1,3 +1,21 @@
+const passwordSetupForm = document.querySelector("#password-setup");
+const setupFragment = new URLSearchParams(location.hash.slice(1)).get("token");
+if (passwordSetupForm) {
+  let token = setupFragment;
+  try {
+    if (token) sessionStorage.setItem("initial-password-token", token);
+    else token = sessionStorage.getItem("initial-password-token");
+  } catch { /* The original link still works if session storage is disabled. */ }
+  if (/^[A-Za-z0-9_-]{43}$/.test(token || "")) {
+    document.querySelector("#setup-token").value = token;
+    document.querySelector("#save-password").disabled = false;
+    document.querySelector("#setup-link-note").textContent = "一次性设置链接已就绪，新密码请只填在此页面。";
+  }
+} else {
+  try { sessionStorage.removeItem("initial-password-token"); } catch { /* Optional browser storage. */ }
+}
+if (setupFragment) history.replaceState(null, "", location.pathname + location.search);
+
 document.querySelector("#toggle-password")?.addEventListener("click", event => {
   const input = document.querySelector("#password");
   const visible = input.type === "password";
