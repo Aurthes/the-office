@@ -18,7 +18,7 @@ const pending = new Map(), clients = new Set();
 let serial = 0, seq = 0, ready = false, stopping = false;
 const call = (method, params = {}) => new Promise((resolve, reject) => {
   // Read operations only: the App owns all execution and original thread IDs.
-  if (!["initialize", "thread/items/list"].includes(method)) return reject(new Error("Read-only App session view"));
+  if (!["initialize", "thread/turns/list"].includes(method)) return reject(new Error("Read-only App session view"));
   const id = ++serial;
   const timer = setTimeout(() => { pending.delete(id); reject(new Error("Session history read timed out")); }, 15000);
   pending.set(id, { resolve, reject, timer });
