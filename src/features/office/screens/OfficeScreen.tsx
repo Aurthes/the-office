@@ -9,8 +9,8 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { MessageSquare, ChevronDown, ChevronLeft, ChevronRight, Mic } from "lucide-react";
-import { RetroOffice3D } from "@/features/retro-office/RetroOffice3D";
 import type { OfficeAgent } from "@/features/retro-office/core/types";
 import { RunningAvatarLoader } from "@/features/agents/components/RunningAvatarLoader";
 import { GatewayConnectScreen } from "@/features/agents/components/GatewayConnectScreen";
@@ -208,6 +208,22 @@ import {
 import { deriveSkillReadinessState } from "@/lib/skills/presentation";
 import type { StandupAgentSnapshot } from "@/lib/office/standup/types";
 import type { SkillStatusEntry } from "@/lib/skills/types";
+
+// Keep gateway/chat startup independent of WebGL and model loading.
+const RetroOffice3D = dynamic(
+  () => import("@/features/retro-office/RetroOffice3D").then((module) => module.RetroOffice3D),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full items-center justify-center text-sm text-amber-100">
+        <div className="text-center">
+          <p>3D office is loading…</p>
+          <a className="mt-3 inline-block underline" href="/agents">Open chat</a>
+        </div>
+      </div>
+    ),
+  },
+);
 
 const stringToColor = (str: string) => {
   let hash = 0;

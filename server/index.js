@@ -22,7 +22,11 @@ const resolvePathname = (url) => {
 
 const sameOrigin = (req) => {
   if (!req.headers.origin) return true;
-  try { return new URL(req.headers.origin).host === req.headers.host; }
+  try {
+    const allowed = new URL(req.headers.origin).host === req.headers.host;
+    if (!allowed) console.warn("[studio-origin] rejected", JSON.stringify({ path: resolvePathname(req.url), origin: req.headers.origin, host: req.headers.host, forwardedHost: req.headers["x-forwarded-host"] }));
+    return allowed;
+  }
   catch { return false; }
 };
 

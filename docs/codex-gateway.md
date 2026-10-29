@@ -57,3 +57,8 @@ the actual secure browser client and office hydration against Studio on 3033
 and the local adapter on 18790, without sending the browser a gateway token.
 Native execution, Stop, and resume should also be checked with a disposable
 workspace before exposing a changed adapter.
+
+The office controller starts independently of the client-only 3D scene.
+Furniture GLBs load on demand; importing the scene must not preload the entire
+model catalog. Validate automatic connection from sanitized settings and the
+selected runtime floor, in addition to manually calling GatewayClient.connect.

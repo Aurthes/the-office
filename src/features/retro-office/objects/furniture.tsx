@@ -749,7 +749,3 @@ export function PlacementGhost({
     </group>
   );
 }
-
-[...new Set(Object.values(FURNITURE_GLB))].forEach((path) =>
-  useGLTF.preload(path),
-);
