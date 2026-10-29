@@ -7,17 +7,18 @@ const readline = require("node:readline");
 const { spawn } = require("node:child_process");
 const { WebSocketServer, WebSocket } = require("ws");
 const { CodexSessionIndex } = require("./codex-session-index");
+const { loadSessionHistoryPage } = require("./codex-session-history");
 
 const index = new CodexSessionIndex(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"));
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
 const port = Number(process.env.CODEX_ADAPTER_PORT || 18790);
 const reader = spawn(process.env.CLAW3D_CODEX_BIN || "codex", ["app-server", "--listen", "stdio://"], { stdio: ["pipe", "pipe", "inherit"] });
-const pending = new Map(), clients = new Set(), historyCache = new Map();
+const pending = new Map(), clients = new Set();
 let serial = 0, seq = 0, ready = false, stopping = false;
 const call = (method, params = {}) => new Promise((resolve, reject) => {
   // Read operations only: the App owns all execution and original thread IDs.
-  if (!["initialize", "thread/turns/list"].includes(method)) return reject(new Error("Read-only App session view"));
+  if (!["initialize", "thread/items/list"].includes(method)) return reject(new Error("Read-only App session view"));
   const id = ++serial;
   const timer = setTimeout(() => { pending.delete(id); reject(new Error("Session history read timed out")); }, 15000);
   pending.set(id, { resolve, reject, timer });
@@ -38,25 +39,18 @@ const key = id => `agent:${id}:main`;
 const get = id => { const row = rows().find(r => r.id === id); if (!row) throw new Error("Original App session is missing or archived"); return row; };
 const fromKey = value => get(String(value).split(":")[1]);
 const agents = () => rows().map(r => ({ ...r, role: r.project, identity: { name: r.name, emoji: "💬" } }));
-async function history(row) {
-  const cached = historyCache.get(row.id);
-  if (cached && Date.now() - cached.time < 3000) return cached.messages;
-  const result = await call("thread/turns/list", { threadId: row.id, limit: 12, sortDirection: "desc", itemsView: "full" });
-  const messages = result.data.toReversed().flatMap(turn => (turn.items || []).filter(i => ["userMessage", "agentMessage"].includes(i.type)).map(item => ({
-    role: item.type === "userMessage" ? "user" : "assistant",
-    content: (item.text || (item.content || []).filter(c => c.type === "text" || c.type === "inputText").map(c => c.text).join("\n")).slice(0, 16000),
-    timestamp: turn.startedAt ? turn.startedAt * (turn.startedAt < 1e12 ? 1000 : 1) : row.updatedAt,
-  })));
-  historyCache.set(row.id, { time: Date.now(), messages });
-  return messages;
+async function history(row, cursor) {
+  return loadSessionHistoryPage(call, row, cursor);
 }
 const methods = {
   "agents.list": async () => ({ defaultId: rows()[0]?.id, mainKey: "main", agents: agents(), projects: index.projects().map(({ id, name }) => ({ id, name })) }),
   "config.get": async () => ({ exists: true, hash: "codex-app-session-view", config: { gateway: { reload: { mode: "hot" } }, agents: { list: agents() } } }),
   "sessions.list": async p => ({ sessions: rows().filter(r => !p.agentId || r.id === p.agentId).map(r => ({ key: key(r.id), displayName: r.name, updatedAt: r.updatedAt, model: r.model, thinkingLevel: r.effort, execHost: "gateway", execSecurity: "deny", execAsk: "always" })) }),
   "sessions.preview": async p => ({ ts: Date.now(), previews: (p.keys || []).map(k => ({ key: k, status: "empty", items: [] })) }),
-  "chat.history": async p => ({ sessionKey: p.sessionKey, messages: await history(fromKey(p.sessionKey)) }),
-  "session.inspect": async p => { const row = get(p.threadId); return { ...row, statusSource: "App session events", readOnly: true, messages: await history(row) }; },
+  "chat.history": async p => ({ sessionKey: p.sessionKey, ...await history(fromKey(p.sessionKey), p.cursor) }),
+  "session.history": async p => history(get(p.threadId), p.cursor),
+  "session.inspect": async p => { const row = get(p.threadId); return { ...row, statusSource: "App session events", readOnly: true,
+    ...(p.includeHistory === false ? {} : await history(row)) }; },
   "models.list": async () => ({ models: [] }),
   "status": async () => ({ runtime: "Codex App session organizer", readOnly: true, sessions: { recent: rows().map(r => ({ key: key(r.id), updatedAt: r.updatedAt })) } }),
   "agents.files.get": async () => ({ file: { missing: true } }),

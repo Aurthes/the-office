@@ -38,8 +38,17 @@ indication that the model is executing a task.
 
 Click a person or CHAT to inspect the original session ID, directory and recent
 history. The official app-server reader uses only initialize and
-thread/turns/list: it never starts, resumes, stops, archives or edits a thread.
-The panel shows the latest twelve turns and bounds long message previews.
+thread/items/list: it never starts, resumes, stops, archives or edits a thread.
+The first request reads one page of 20 persisted items, filters out tools and
+reasoning, and bounds total visible text to 48 KiB (at most 8 KiB per message).
+Long previews are explicitly marked as truncated. It never loads complete turns.
+Scroll upward or use the older-records button to read one earlier page. The panel
+allows one history request at a time, preserves the visible position when
+prepending, and rejects stale responses after switching sessions. A page may
+contain only hidden tool items; it does not automatically scan additional pages.
+The five-second timer reads metadata only. Use Refresh latest to replace the
+current history window with the newest page. This avoids silently rereading long
+histories and keeps each history read a deliberate, bounded operation.
 The desktop App link uses `codex://threads/<original-id>`.
 
 This is a read-only organization surface. Continue conversations, approvals,

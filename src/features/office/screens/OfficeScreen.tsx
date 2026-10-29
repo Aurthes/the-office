@@ -5556,7 +5556,7 @@ export function OfficeScreen({
 
             <div className="flex min-w-0 flex-1 flex-col">
               {focusedChatAgent ? (
-                sessionView ? <ExistingSessionPanel client={client} threadId={focusedChatAgent.agentId} /> :
+                sessionView ? <ExistingSessionPanel key={focusedChatAgent.agentId} client={client} threadId={focusedChatAgent.agentId} /> :
                 <AgentChatPanel
                   agent={focusedChatAgent}
                   isSelected={false}
