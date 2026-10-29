@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
+import { TOTP, Secret } from "otpauth";
 
 const credentials = { username: "fixture", password: "test-password-for-web-access" };
 const { createWebAccessServer } = await import("../../server/web-access/index.js");
@@ -21,17 +22,17 @@ async function listen(server: ReturnType<typeof http.createServer>) {
   if (!address || typeof address === "string") throw new Error("No listener");
   return `http://127.0.0.1:${address.port}`;
 }
-async function start(secureCookies = false) {
-  gate = createWebAccessServer({ dataDir, credentials, upstream, secureCookies });
+async function start(secureCookies = false, requireTotp = false) {
+  gate = createWebAccessServer({ dataDir, credentials, upstream, secureCookies, requireTotp });
   base = await listen(gate);
 }
 async function stop() { await new Promise<void>(resolve => gate.shutdown(resolve)); }
 function cookie(response: Response) { return response.headers.getSetCookie()[0].split(";")[0]; }
-async function login(secure = false) {
+async function login(secure = false, code = "") {
   const headers = secure ? { "X-Forwarded-Proto": "https" } : {};
   const page = await fetch(base + "/login", { headers });
   const csrf = (await page.text()).match(/name="csrf" value="([^"]+)"/)?.[1];
-  const response = await fetch(base + "/auth/login", { method: "POST", redirect: "manual", headers: { ...headers, Cookie: cookie(page), Origin: base }, body: new URLSearchParams({ username: credentials.username, password: credentials.password, csrf: csrf || "" }) });
+  const response = await fetch(base + "/auth/login", { method: "POST", redirect: "manual", headers: { ...headers, Cookie: cookie(page), Origin: base }, body: new URLSearchParams({ username: credentials.username, password: credentials.password, csrf: csrf || "", code }) });
   expect(response.status).toBe(303);
   return { cookie: cookie(response), response, originalCookie: cookie(page) };
 }
@@ -51,6 +52,86 @@ beforeEach(async () => {
   websocketServer.on("connection", ws => ws.send("mock connected"));
   upstream = await listen(gateway);
   await start();
+});
+
+describe("Google Authenticator login", () => {
+  async function beginEnrollment() {
+    const auth = await login();
+    expect(auth.response.headers.get("location")).toBe("/auth/totp/setup");
+    const response = await fetch(base + "/auth/totp/setup", { headers: { Cookie: auth.cookie } });
+    const html = await response.text();
+    const csrf = html.match(/name="csrf" value="([^"]+)"/)?.[1] || "";
+    const secret = html.match(/id="setup-key">([^<]+)/)?.[1] || "";
+    const generator = new TOTP({ secret: Secret.fromBase32(secret), digits: 6, period: 30, algorithm: "SHA1" });
+    return { ...auth, html, csrf, generator };
+  }
+  async function confirm(enrollment: Awaited<ReturnType<typeof beginEnrollment>>, code: string, csrf = enrollment.csrf) {
+    return fetch(base + "/auth/totp/confirm", { method: "POST", redirect: "manual", headers: { Cookie: enrollment.cookie, Origin: base }, body: new URLSearchParams({ csrf, code }) });
+  }
+  async function attempt(code = "", password = credentials.password) {
+    const page = await fetch(base + "/login");
+    const csrf = (await page.text()).match(/name="csrf" value="([^"]+)"/)?.[1] || "";
+    return fetch(base + "/auth/login", { method: "POST", redirect: "manual", headers: { Cookie: cookie(page), Origin: base }, body: new URLSearchParams({ username: credentials.username, password, csrf, code }) });
+  }
+  it("requires fresh password authentication before setup and keeps HTTP/WS locked until a real code is confirmed", async () => {
+    const old = await login();
+    await stop(); await start(false, true);
+    expect((await fetch(base + "/api/health", { headers: { Cookie: old.cookie } })).status).toBe(401);
+    expect((await fetch(base + "/auth/totp/setup", { redirect: "manual" })).headers.get("location")).toBe("/login");
+    const enrollment = await beginEnrollment();
+    expect(enrollment.html).toContain("data:image/png;base64,");
+    expect(enrollment.html).toContain("手动添加");
+    expect((await fetch(base + "/api/health", { headers: { Cookie: enrollment.cookie } })).status).toBe(401);
+    expect(await rejectedSocket({ Cookie: enrollment.cookie })).toBe(401);
+    expect((await confirm(enrollment, "", "wrong-csrf")).status).toBe(403);
+    expect((await confirm(enrollment, "invalid")).status).toBe(401);
+    const activated = await confirm(enrollment, enrollment.generator.generate());
+    expect(activated.status).toBe(200);
+    const html = await activated.text();
+    expect(html).toContain("恢复码");
+    const authenticated = cookie(activated);
+    expect(authenticated).not.toBe(enrollment.cookie);
+    expect((await fetch(base + "/office", { headers: { Cookie: authenticated } })).status).toBe(200);
+    const ws = new WebSocket(base.replace("http:", "ws:") + "/api/gateway/ws", { headers: { Cookie: authenticated }, origin: base });
+    expect(await new Promise(resolve => ws.once("message", value => resolve(String(value))))).toBe("mock connected");
+    await new Promise<void>(resolve => { ws.once("close", () => resolve()); ws.close(); });
+    expect((await fetch(base + "/api/health", { headers: { Cookie: old.cookie } })).status).toBe(401);
+    expect((await fetch(base + "/api/health", { headers: { Cookie: enrollment.cookie } })).status).toBe(401);
+    expect((await fetch(base + "/auth/totp/setup", { headers: { Cookie: authenticated }, redirect: "manual" })).status).toBe(303);
+    expect((await confirm(enrollment, enrollment.generator.generate())).status).toBe(303);
+  });
+  it("enforces both factors, rejects reused codes and persists a verified login and policy across restart", async () => {
+    await stop(); await start(false, true);
+    const enrollment = await beginEnrollment();
+    const current = enrollment.generator.generate();
+    const activated = await confirm(enrollment, current);
+    expect(activated.status).toBe(200);
+    expect((await attempt()).status).toBe(401);
+    expect((await attempt(current)).status).toBe(401);
+    const next = enrollment.generator.generate({ timestamp: Date.now() + 30000 });
+    expect((await attempt(next, "wrong-password")).status).toBe(401);
+    const auth = await login(false, next);
+    const state = await (await fetch(base + "/auth/session", { headers: { Cookie: auth.cookie } })).json();
+    expect(state.twoFactorEnabled).toBe(true);
+    expect(JSON.stringify(state)).not.toContain("secret");
+    await stop(); await start(false, true);
+    expect((await fetch(base + "/office", { headers: { Cookie: auth.cookie } })).status).toBe(200);
+    expect((await attempt(next)).status).toBe(401);
+    expect((await attempt()).status).toBe(401);
+  });
+  it("accepts recovery codes once and limits repeated second-factor attempts", async () => {
+    await stop(); await start(false, true);
+    const enrollment = await beginEnrollment();
+    const activated = await confirm(enrollment, enrollment.generator.generate());
+    const html = await activated.text();
+    const recoveryCode = html.match(/readonly spellcheck="false">([^\n]+)/)?.[1] || "";
+    expect(recoveryCode).toMatch(/^[A-F0-9-]{24}$/);
+    expect((await attempt(recoveryCode, "wrong-password")).status).toBe(401);
+    expect((await attempt(recoveryCode)).status).toBe(303);
+    expect((await attempt(recoveryCode)).status).toBe(401);
+    for (let i = 0; i < 9; i++) expect((await attempt("bad-code")).status).toBe(401);
+    expect((await attempt("bad-code")).status).toBe(429);
+  });
 });
 afterEach(async () => {
   await stop();

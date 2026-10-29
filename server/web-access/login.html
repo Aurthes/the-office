@@ -40,19 +40,7 @@
     </section>
     <section class="login-section" aria-labelledby="login-title">
       <div class="login-card">
-        <span class="welcome-tag">欢迎回来</span>
-        <h1 id="login-title">登录你的办公室</h1>
-        <p class="intro">使用你的用户名和密码，继续手上的事。</p>
-        <div class="error" role="alert" {{ERROR_HIDDEN}}>{{ERROR}}</div>
-        <form action="/auth/login" method="post">
-          <input type="hidden" name="csrf" value="{{CSRF}}">
-          <label for="username">用户名</label>
-          <input id="username" name="username" autocomplete="username" value="{{USERNAME}}" required maxlength="120" spellcheck="false" autocapitalize="none">
-          <label for="password">密码</label>
-          <div class="password-field"><input id="password" name="password" type="password" autocomplete="current-password" placeholder="输入你的密码" required maxlength="512"><button id="toggle-password" type="button" aria-label="显示密码" aria-pressed="false">显示</button></div>
-          <button class="submit" type="submit">进入办公室 <span aria-hidden="true">↗</span></button>
-        </form>
-        <p class="session-note"><svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="4" y="8" width="10" height="8" rx="2" stroke="currentColor"/><path d="M6 8V5a3 3 0 0 1 6 0v3" stroke="currentColor"/></svg>登录状态保留 7 天，可随时退出。</p>
+        {{CONTENT}}
       </div>
       <span class="page-footer">Claw3D <span>·</span> 只属于你的工作空间</span>
     </section>
