@@ -218,6 +218,8 @@ const RetroOffice3D = dynamic(
       <div className="flex h-full items-center justify-center text-sm text-amber-100">
         <div className="text-center">
           <p>3D office is loading…</p>
+          {/* Full navigation deliberately escapes a stalled 3D page. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a className="mt-3 inline-block underline" href="/agents">Open chat</a>
         </div>
       </div>
