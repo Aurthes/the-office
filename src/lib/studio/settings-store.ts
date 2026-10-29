@@ -166,12 +166,29 @@ export const loadLocalGatewayDefaults = (): StudioGatewaySettings | null => {
   return null;
 };
 
+// In Codex mode, floor/status updates must not replace the host's gateway URL.
+const bindCodexGateway = (settings: StudioSettings): StudioSettings => {
+  const url = process.env.CLAW3D_GATEWAY_URL?.trim();
+  if (process.env.CLAW3D_CODEX_GATEWAY !== "1" || !url) return settings;
+  const gateway = settings.gateway;
+  if (gateway) {
+    if ((gateway.adapterType ?? "openclaw") === "openclaw") gateway.url = url;
+    gateway.profiles = {
+      ...gateway.profiles,
+      openclaw: { token: "", ...gateway.profiles?.openclaw, url },
+    };
+    if (gateway.lastKnownGood?.adapterType === "openclaw") gateway.lastKnownGood.url = url;
+  }
+  settings.officeFloors["openclaw-ground"].gatewayUrl = url;
+  return settings;
+};
+
 export const loadStudioSettings = (): StudioSettings => {
   const settingsPath = resolveStudioSettingsPath();
   if (!fs.existsSync(settingsPath)) {
     const defaults = defaultStudioSettings();
     const gateway = loadLocalGatewayDefaults();
-    return gateway ? { ...defaults, gateway } : defaults;
+    return bindCodexGateway(gateway ? { ...defaults, gateway } : defaults);
   }
   const raw = fs.readFileSync(settingsPath, "utf8");
   const parsed = JSON.parse(raw) as unknown;
@@ -179,7 +196,7 @@ export const loadStudioSettings = (): StudioSettings => {
   if (!settings.gateway?.token) {
     const gateway = loadLocalGatewayDefaults();
     if (gateway) {
-      return {
+      return bindCodexGateway({
         ...settings,
         gateway: settings.gateway?.url?.trim()
           ? {
@@ -188,10 +205,10 @@ export const loadStudioSettings = (): StudioSettings => {
               adapterType: settings.gateway.adapterType,
             }
           : gateway,
-      };
+      });
     }
   }
-  return settings;
+  return bindCodexGateway(settings);
 };
 
 export const saveStudioSettings = (next: StudioSettings) => {
@@ -205,7 +222,7 @@ export const saveStudioSettings = (next: StudioSettings) => {
 
 export const applyStudioSettingsPatch = (patch: StudioSettingsPatch): StudioSettings => {
   const current = loadStudioSettings();
-  const next = mergeStudioSettings(current, patch);
+  const next = bindCodexGateway(mergeStudioSettings(current, patch));
   saveStudioSettings(next);
   return next;
 };

@@ -86,12 +86,16 @@ const loadUpstreamGatewaySettings = (env = process.env) => {
   const settingsPath = resolveStudioSettingsPath(env);
   const parsed = readJsonFile(settingsPath);
   const gateway = parsed && typeof parsed === "object" ? parsed.gateway : null;
-  const url = typeof gateway?.url === "string" ? gateway.url.trim() : "";
+  const savedUrl = typeof gateway?.url === "string" ? gateway.url.trim() : "";
   const token = typeof gateway?.token === "string" ? gateway.token.trim() : "";
   const adapterType =
     typeof gateway?.adapterType === "string" && gateway.adapterType.trim()
       ? gateway.adapterType.trim()
       : "openclaw";
+  const managedUrl = env.CLAW3D_CODEX_GATEWAY === "1" && adapterType === "openclaw"
+    ? env.CLAW3D_GATEWAY_URL?.trim()
+    : "";
+  const url = managedUrl || savedUrl;
   if (!token && adapterType === "openclaw") {
     const defaults = readOpenclawGatewayDefaults(env);
     if (defaults) {

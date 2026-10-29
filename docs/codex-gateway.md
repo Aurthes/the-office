@@ -49,6 +49,10 @@ navigation prefers its saved `officeFloors` URL over the gateway profile. When
 migrating an existing Studio state, update that floor URL too: a stale default
 port (`18789`) can replace a working Codex connection when the floor is entered.
 Refresh existing browser tabs after changing these saved addresses.
+With `CLAW3D_CODEX_GATEWAY=1` and `CLAW3D_GATEWAY_URL` set, Studio binds the
+OpenClaw-compatible Codex profile and floor to the host URL on reads and writes.
+Stale browser settings cannot replace that address. Other backend profiles are
+unchanged; change the host environment to move the Codex gateway.
 
 Start the adapter with `node server/codex-gateway-adapter.js`, and Studio with
 `node server/index.js`. The browser can use the OpenClaw connection profile;
