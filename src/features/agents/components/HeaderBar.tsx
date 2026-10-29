@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { GatewayStatus } from "@/lib/gateway/GatewayClient";
-import { Plug } from "lucide-react";
+import { ArrowLeft, Plug } from "lucide-react";
 import { resolveGatewayStatusBadgeClass } from "./colorSemantics";
 
 type HeaderBarProps = {
@@ -40,7 +41,14 @@ export const HeaderBar = ({
     <div className="ui-topbar relative z-[180]">
       <div className="flex h-10 items-center justify-between px-3 sm:grid sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:px-4 md:px-5">
         <div aria-hidden="true" className="hidden sm:block" />
-        <p className="truncate text-sm font-semibold tracking-[0.01em] text-foreground">Claw3D</p>
+        <Link
+          href="/office"
+          aria-label="返回3D办公室"
+          className="inline-flex min-w-0 items-center gap-1 text-sm font-semibold tracking-[0.01em] text-foreground hover:text-primary"
+        >
+          <ArrowLeft className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate">3D 办公室</span>
+        </Link>
         <div className="flex items-center justify-end gap-1">
           {status !== "disconnected" ? (
             <span
