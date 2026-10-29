@@ -30,7 +30,9 @@ class CodexSessionIndex {
     if (cached?.size === stat.size && cached.mtime === stat.mtimeMs) return cached.value;
     const reusable = cached?.ino === stat.ino && stat.size >= cached.size;
     const floor = reusable ? Math.max(0, cached.size - 8192) : 0;
-    const fd = fs.openSync(resolved, "r");
+    let fd;
+    try { fd = fs.openSync(resolved, "r"); }
+    catch { return { status: "unknown" }; } // The App may archive it after stat.
     let end = stat.size, suffix = Buffer.alloc(0), value = reusable ? cached.value : { status: "unknown" };
     try {
       while (end > floor) {
