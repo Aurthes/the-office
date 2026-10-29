@@ -84,6 +84,9 @@ The current app already includes a substantial Claw3D surface:
 
 ## Quick Start
 
+For a minimal Codex app-server backend without installing OpenClaw, see
+[`docs/codex-gateway.md`](docs/codex-gateway.md).
+
 Requirements:
 
 - Node.js 20+ recommended.

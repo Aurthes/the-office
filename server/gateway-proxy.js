@@ -174,6 +174,7 @@ function createGatewayProxy(options) {
     log = () => {},
     logError = (msg, err) => console.error(msg, err),
     upstreamHandshakeTimeoutMs = DEFAULT_UPSTREAM_HANDSHAKE_TIMEOUT_MS,
+    hostTokenOnly = false,
   } = options || {};
 
   const { verifyClient } = options || {};
@@ -235,7 +236,7 @@ function createGatewayProxy(options) {
         hasCompleteDeviceAuth(frame.params);
 
       const requiresToken = upstreamAdapterType === "openclaw";
-      if (requiresToken && !upstreamToken && !browserHasAuth) {
+      if ((hostTokenOnly && !upstreamToken) || (requiresToken && !upstreamToken && !browserHasAuth)) {
         sendConnectError(
           "studio.gateway_token_missing",
           "Upstream gateway token is not configured on the Studio host."
@@ -243,7 +244,9 @@ function createGatewayProxy(options) {
         return;
       }
 
-      const baseConnectFrame = browserHasAuth
+      const baseConnectFrame = hostTokenOnly
+        ? { ...frame, params: { ...frame.params, device: undefined, auth: { token: upstreamToken } } }
+        : browserHasAuth
         ? frame
         : {
             ...frame,

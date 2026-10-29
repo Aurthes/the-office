@@ -20,6 +20,12 @@ const resolvePathname = (url) => {
   return (idx === -1 ? raw : raw.slice(0, idx)) || "/";
 };
 
+const sameOrigin = (req) => {
+  if (!req.headers.origin) return true;
+  try { return new URL(req.headers.origin).host === req.headers.host; }
+  catch { return false; }
+};
+
 const CERT_DIR = require("node:path").join(__dirname, "..", ".certs");
 const CERT_PATH = require("node:path").join(CERT_DIR, "localhost.crt");
 const KEY_PATH = require("node:path").join(CERT_DIR, "localhost.key");
@@ -89,6 +95,7 @@ async function main() {
   });
 
   const proxy = createGatewayProxy({
+    hostTokenOnly: process.env.CLAW3D_CODEX_GATEWAY === "1",
     loadUpstreamSettings: async () => {
       const settings = loadUpstreamGatewaySettings(process.env);
       return { url: settings.url, token: settings.token, adapterType: settings.adapterType };
@@ -99,7 +106,11 @@ async function main() {
       if (resolvePathname(req.url) !== "/api/gateway/ws") return false;
       return true;
     },
-    verifyClient: (info) => accessGate.allowUpgrade(info.req),
+    verifyClient: (info) => {
+      // The public entry is protected by Cloudflare Access. Also reject
+      // cross-site browser connections to the loopback Studio port.
+      return sameOrigin(info.req) && accessGate.allowUpgrade(info.req);
+    },
   });
 
   await app.prepare();
@@ -117,10 +128,12 @@ async function main() {
   const createServer = () =>
     useHttps
       ? https.createServer(httpsCert, (req, res) => {
+          if (!sameOrigin(req)) { res.writeHead(403); res.end("Origin rejected"); return; }
           if (accessGate.handleHttp(req, res)) return;
           handle(req, res);
         })
       : http.createServer((req, res) => {
+          if (!sameOrigin(req)) { res.writeHead(403); res.end("Origin rejected"); return; }
           if (accessGate.handleHttp(req, res)) return;
           handle(req, res);
         });
