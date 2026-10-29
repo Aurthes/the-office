@@ -11,14 +11,32 @@ class CodexSessionIndex {
     this.states = new Map();
   }
   list() {
+    const state = this.projectState();
+    const projects = this.projects(state);
     return this.db.prepare(`SELECT id, name, title, cwd, rollout_path, updated_at, model,
       reasoning_effort, is_pinned FROM threads WHERE archived = 0
       AND source IN ('vscode', 'cli', 'appServer') ORDER BY updated_at DESC`).all().map(row => {
       const name = row.name || row.title || row.id;
-      return { id: row.id, name, workspace: row.cwd, project: path.basename(row.cwd),
+      const assigned = state["thread-project-assignments"]?.[row.id];
+      const projectless = (state["projectless-thread-ids"] || []).includes(row.id);
+      const project = projectless ? null : assigned ? projects.find(p => p.id === assigned.projectId) :
+        projects.flatMap(p => p.rootPaths.filter(root => row.cwd === root || row.cwd.startsWith(root + path.sep))
+          .map(root => ({ project: p, length: root.length }))).sort((a, b) => b.length - a.length)[0]?.project;
+      return { id: row.id, name, workspace: row.cwd, projectId: project?.id || null, project: project?.name || "Open Workspace",
         updatedAt: row.updated_at * 1000, model: row.model, effort: row.reasoning_effort,
         pinned: Boolean(row.is_pinned), ...this.status(row.rollout_path) };
     });
+  }
+  projectState() {
+    try { return JSON.parse(fs.readFileSync(path.join(this.home, ".codex-global-state.json"), "utf8")); }
+    catch { return {}; }
+  }
+  projects(state = this.projectState()) {
+    const projects = Object.values(state["local-projects"] || {}).filter(p =>
+      typeof p?.id === "string" && typeof p.name === "string" && Array.isArray(p.rootPaths));
+    const order = state["project-order"] || [];
+    return projects.map(p => ({ id: p.id, name: p.name, rootPaths: p.rootPaths.filter(r => typeof r === "string") }))
+      .sort((a, b) => (order.indexOf(a.id) < 0 ? order.length : order.indexOf(a.id)) - (order.indexOf(b.id) < 0 ? order.length : order.indexOf(b.id)));
   }
   status(filename) {
     if (typeof filename !== "string" || !filename) return { status: "unknown" };

@@ -49,4 +49,23 @@ describe("existing App session index", () => {
     fs.unlinkSync(path.join(root, "existing.jsonl"));
     expect(index.list()[0].status).toBe("unknown");
   });
+  it("uses App project assignment for worktrees and keeps explicit projectless chats in Open Workspace", () => {
+    const filename = path.join(root, ".codex-global-state.json");
+    const state = { "local-projects": { repo: { id: "repo", name: "Repo project", rootPaths: [root] },
+      moved: { id: "moved", name: "Worktree project", rootPaths: ["/another/repo"] } },
+      "thread-project-assignments": { existing: { projectKind: "local", projectId: "moved" } },
+      "projectless-thread-ids": [] as string[] };
+    fs.writeFileSync(filename, JSON.stringify(state));
+    expect(index.list()[0]).toMatchObject({ projectId: "moved", project: "Worktree project" });
+    state["projectless-thread-ids"] = ["existing"];
+    fs.writeFileSync(filename, JSON.stringify(state));
+    expect(index.list()[0]).toMatchObject({ projectId: null, project: "Open Workspace" });
+  });
+  it("recognizes an ordinary project root and tracks App membership changes on the next read", () => {
+    const filename = path.join(root, ".codex-global-state.json");
+    fs.writeFileSync(filename, JSON.stringify({ "local-projects": { repo: { id: "repo", name: "Repo project", rootPaths: [root] } } }));
+    expect(index.list()[0].projectId).toBe("repo");
+    fs.writeFileSync(filename, JSON.stringify({ "local-projects": {} }));
+    expect(index.list()[0].projectId).toBeNull();
+  });
 });

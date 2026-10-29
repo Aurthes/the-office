@@ -9,6 +9,7 @@ export type OfficeAgent = {
   color: string;
   item: string;
   avatarProfile?: AgentAvatarProfile | null;
+  homeRoamPoints?: CanvasPoint[];
 };
 
 export type JanitorTool = "broom" | "vacuum" | "floor_scrubber";

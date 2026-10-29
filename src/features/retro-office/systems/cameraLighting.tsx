@@ -49,15 +49,15 @@ export function CameraAnimator({
   orbitRef: RefObject<OrbitControllerLike | null>;
 }) {
   const { camera } = useThree();
-  const activePerspectiveCameraRef = useRef<THREE.PerspectiveCamera | null>(
-    camera instanceof THREE.PerspectiveCamera ? camera : null,
+  const activeZoomCameraRef = useRef<THREE.PerspectiveCamera | THREE.OrthographicCamera | null>(
+    (camera instanceof THREE.PerspectiveCamera || camera instanceof THREE.OrthographicCamera) ? camera : null,
   );
   const targetPositionRef = useRef(new THREE.Vector3());
   const targetLookAtRef = useRef(new THREE.Vector3());
 
   useEffect(() => {
-    if (camera instanceof THREE.PerspectiveCamera) {
-      activePerspectiveCameraRef.current = camera;
+    if (camera instanceof THREE.PerspectiveCamera || camera instanceof THREE.OrthographicCamera) {
+      activeZoomCameraRef.current = camera;
     }
   }, [camera]);
 
@@ -65,7 +65,7 @@ export function CameraAnimator({
     const preset = presetRef.current;
     const orbit = orbitRef.current;
     if (!preset || !orbit) return;
-    const activeCamera = activePerspectiveCameraRef.current;
+    const activeCamera = activeZoomCameraRef.current;
 
     targetPositionRef.current.set(...preset.pos);
     targetLookAtRef.current.set(...preset.target);

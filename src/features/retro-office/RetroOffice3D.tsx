@@ -24,6 +24,8 @@ import {
   useRef,
   useState,
 } from "react";
+import type { CompanyLayout } from "@/features/retro-office/core/companyLayout";
+import { CompanyWorkAreas, CompanyAreaCamera } from "@/features/retro-office/scene/CompanyWorkAreas";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Environment, OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
@@ -904,19 +906,25 @@ function useAgentTick(
         Math.floor(Math.random() * REMOTE_ROAM_POINTS.length)
       ];
     }
-    return ROAM_POINTS[Math.floor(Math.random() * ROAM_POINTS.length)];
-  }, []);
+    const actor = agents.find(a => a.id === agentId);
+    const home = actor && "homeRoamPoints" in actor ? actor.homeRoamPoints : undefined;
+    const points = home?.length && Math.random() < 0.7 ? home : ROAM_POINTS;
+    return points[Math.floor(Math.random() * points.length)];
+  }, [agents]);
   const pickSpawnPoint = useCallback((agentId: string) => {
     if (isRemoteOfficeAgentId(agentId)) {
       return REMOTE_ROAM_POINTS[
         Math.floor(Math.random() * REMOTE_ROAM_POINTS.length)
       ];
     }
+    const actor = agents.find(a => a.id === agentId);
+    const home = actor && "homeRoamPoints" in actor ? actor.homeRoamPoints : undefined;
+    if (home?.length) return home[Math.floor(Math.random() * home.length)];
     return {
       x: Math.random() * 800 + 100,
       y: Math.random() * 500 + 100,
     };
-  }, []);
+  }, [agents]);
 
   const standupActive =
     standupMeeting?.phase === "gathering" ||
@@ -2248,6 +2256,7 @@ export function RetroOffice3D({
   readOnly = false,
   storageNamespace = "default",
   layoutPreset = "office",
+  companyLayout = null,
   deskAssignmentByDeskUid = EMPTY_STRING_RECORD,
   cleaningCues = EMPTY_CLEANING_CUES,
   deskHoldByAgentId = EMPTY_BOOLEAN_RECORD,
@@ -2362,6 +2371,7 @@ export function RetroOffice3D({
   readOnly?: boolean;
   storageNamespace?: string;
   layoutPreset?: OfficeLayoutPreset;
+  companyLayout?: CompanyLayout | null;
   deskAssignmentByDeskUid?: Record<string, string>;
   cleaningCues?: OfficeCleaningCue[];
   deskHoldByAgentId?: Record<string, boolean>;
@@ -2502,7 +2512,7 @@ export function RetroOffice3D({
   );
 
   const [furniture, setFurniture] = useState<FurnitureItem[]>(() =>
-    buildInitialFurnitureLayout(storageNamespace, layoutPreset).filter(
+    (companyLayout?.furniture ?? buildInitialFurnitureLayout(storageNamespace, layoutPreset)).filter(
       (item) => !isRetiredPingPongLamp(item),
     ),
   );
@@ -2532,7 +2542,7 @@ export function RetroOffice3D({
   );
   useEffect(() => {
     setFurniture(
-      buildInitialFurnitureLayout(storageNamespace, layoutPreset).filter(
+      (companyLayout?.furniture ?? buildInitialFurnitureLayout(storageNamespace, layoutPreset)).filter(
         (item) => !isRetiredPingPongLamp(item),
       ),
     );
@@ -2542,7 +2552,7 @@ export function RetroOffice3D({
     setDrag({ kind: "idle" });
     setGhostPos(null);
     setWallDrawStart(null);
-  }, [layoutPreset, storageNamespace]);
+  }, [layoutPreset, storageNamespace, companyLayout?.furniture]);
   const [editMode, setEditMode] = useState(false);
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
   const [hoverUid, setHoverUid] = useState<string | null>(null);
@@ -2660,6 +2670,7 @@ export function RetroOffice3D({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const orbitRef = useRef<any>(null);
   // Follow cam: which agent to trail with a third-person perspective camera.
+  const [companyFocus, setCompanyFocus] = useState({ id: "", request: 0 });
   const [followAgentId, setFollowAgentId] = useState<string | null>(null);
   const followAgentIdRef = useRef<string | null>(null);
   const prevMonitorAgentIdRef = useRef<string | null>(null);
@@ -2833,8 +2844,11 @@ export function RetroOffice3D({
   }, [janitorCleaningStops, resolvedCleaningCues]);
 
   const sceneAgents = useMemo<SceneActor[]>(
-    () => [...agents, ...janitorActors],
-    [agents, janitorActors],
+    () => [...agents.map(agent => {
+      const area = companyLayout?.areas.find(area => area.agentIds.includes(agent.id));
+      return area ? { ...agent, homeRoamPoints: area.roamPoints } : agent;
+    }), ...janitorActors],
+    [agents, janitorActors, companyLayout],
   );
 
   const {
@@ -3145,13 +3159,14 @@ export function RetroOffice3D({
   );
 
   useEffect(() => {
+    if (companyLayout) return;
     const timeoutId = window.setTimeout(() => {
       saveFurniture(furniture, storageNamespace);
     }, 300);
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [furniture, storageNamespace]);
+  }, [furniture, storageNamespace, companyLayout]);
 
   useEffect(() => {
     if (readOnly || storageNamespace !== "default") return;
@@ -4921,6 +4936,7 @@ export function RetroOffice3D({
   };
 
   const toggleEdit = () => {
+    if (companyLayout) return;
     setEditMode((prev) => {
       if (prev) {
         setSelectedUid(null);
@@ -5213,7 +5229,7 @@ export function RetroOffice3D({
               rotateSpeed={0.6}
               zoomSpeed={0.8}
               panSpeed={0.6}
-              minZoom={25}
+              minZoom={companyLayout ? 4 : 25}
               maxZoom={120}
               maxPolarAngle={Math.PI / 2.2}
               enableRotate={!spaceDown}
@@ -5266,6 +5282,10 @@ export function RetroOffice3D({
 
             {/* Floor + walls — always visible, no async loading. */}
             <SceneFloorAndWalls showRemoteOffice={remoteOfficeEnabled} />
+            {companyLayout ? <>
+              <CompanyWorkAreas layout={companyLayout} />
+              <CompanyAreaCamera layout={companyLayout} focus={companyFocus} presetRef={cameraPresetRef} />
+            </> : null}
 
             {/* Wall pictures — procedural, no async loading. */}
             <SceneWallPictures showRemoteOffice={remoteOfficeEnabled} />
@@ -5831,6 +5851,15 @@ export function RetroOffice3D({
         ) : null}
       </div>
 
+      {companyLayout && !immersiveOverlayActive ? <div className="absolute left-3 top-28 z-20 max-w-[75vw] rounded-xl border border-emerald-200/20 bg-[#0d1b22]/95 p-3 shadow-lg backdrop-blur-sm">
+        <label className="mb-1 block text-[10px] tracking-widest text-emerald-200/70" htmlFor="company-area">公司工区</label>
+        <select id="company-area" aria-label="前往工区" value={companyFocus.id} onChange={event => { setFollowAgentId(null); setCompanyFocus(old => ({ id: event.target.value, request: old.request + 1 })); }} className="max-w-full rounded-md border border-white/15 bg-[#152b35] px-2 py-2 text-xs text-white">
+          <option value="">全公司 · {agents.length} 个会话</option>
+          {companyLayout.areas.map(area => <option key={area.id} value={area.id}>{area.name} · {area.agentIds.length}</option>)}
+        </select>
+        <div className="mt-2 text-[10px] text-white/50">自由区：共享办公 · 休息 · 闲逛</div>
+      </div> : null}
+
       {/* New Idea 2: Camera preset buttons — top left. */}
       {!readOnly && !immersiveOverlayActive ? (
         <div className="absolute top-3 left-3 z-20 flex flex-col items-start gap-2">
@@ -5858,7 +5887,10 @@ export function RetroOffice3D({
                 key={key}
                 title={title}
                 onClick={() => {
-                  cameraPresetRef.current = CAMERA_PRESET_MAP[key];
+                  if (companyLayout && key === "overview") {
+                    setFollowAgentId(null);
+                    setCompanyFocus(old => ({ id: "", request: old.request + 1 }));
+                  } else cameraPresetRef.current = CAMERA_PRESET_MAP[key];
                 }}
                 className="w-7 h-7 flex items-center justify-center rounded-md bg-[#1c1610]/80 text-amber-500/60 border border-amber-900/20 hover:bg-[#2a1e14] hover:text-amber-400 backdrop-blur-sm transition-colors"
               >
@@ -6988,9 +7020,9 @@ export function RetroOffice3D({
                   ? "border-amber-400/25 bg-amber-500/10 text-amber-100"
                   : "border-rose-400/25 bg-rose-500/10 text-rose-100"
             }`}
-            title={`Runtime: ${activeAdapterType} (${gatewayStatus})`}
+            title={`Runtime: ${companyLayout ? "Codex App" : activeAdapterType} (${gatewayStatus})`}
           >
-            {activeAdapterType} • {gatewayStatus}
+            {companyLayout ? "Codex App" : activeAdapterType} • {gatewayStatus}
           </div>
           {/* New Idea 7: Heatmap toggle. */}
           <button
@@ -7010,7 +7042,8 @@ export function RetroOffice3D({
           {/* Edit office toggle. */}
           <button
             onClick={toggleEdit}
-            title={editMode ? "Done editing" : "Edit office"}
+            disabled={Boolean(companyLayout)}
+            title={companyLayout ? "工区按项目自动分配" : editMode ? "Done editing" : "Edit office"}
             className={`w-7 h-7 flex items-center justify-center rounded-md transition-all backdrop-blur-sm border ${editMode ? "bg-amber-500/30 text-amber-300 border-amber-500/50" : "bg-[#1c1610]/80 text-amber-500/40 border-amber-900/20 hover:text-amber-400"}`}
           >
             {editMode ? (

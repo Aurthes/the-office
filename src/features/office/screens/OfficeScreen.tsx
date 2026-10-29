@@ -62,6 +62,7 @@ import {
   stripUiMetadata,
 } from "@/lib/text/message-extract";
 import { resolveOfficeIntentSnapshot } from "@/lib/office/deskDirectives";
+import { buildCompanyLayout, type CompanyRoster } from "@/features/retro-office/core/companyLayout";
 import { OfficeFloorNav } from "@/features/office/components/OfficeFloorNav";
 import { OfficeSceneBoundary } from "@/features/office/components/OfficeSceneBoundary";
 import { AgentChatPanel } from "@/features/agents/components/AgentChatPanel";
@@ -1090,6 +1091,8 @@ export function OfficeScreen({
   const [chatRosterCollapsed, setChatRosterCollapsed] = useState(false);
   const sessionView = process.env.NEXT_PUBLIC_CLAW3D_SESSION_VIEW === "1";
   const [sessionSearch, setSessionSearch] = useState("");
+  const [companyRoster, setCompanyRoster] = useState<CompanyRoster | null>(null);
+  const companyLayout = useMemo(() => companyRoster ? buildCompanyLayout(companyRoster) : null, [companyRoster]);
   const [selectedChatAgentId, setSelectedChatAgentId] = useState<string | null>(
     null,
   );
@@ -1829,7 +1832,9 @@ export function OfficeScreen({
           return;
         }
         if (process.env.NEXT_PUBLIC_CLAW3D_SESSION_VIEW === "1") {
-          const snapshot = await client.call<{ agents: Array<{ id: string; status: string }> }>("agents.list", {});
+          const snapshot = await client.call<{ agents: Array<{ id: string; status: string; projectId: string | null }>; projects: CompanyRoster["projects"] }>("agents.list", {});
+          const roster: CompanyRoster = { projects: snapshot.projects || [], members: snapshot.agents.map(({ id, projectId }) => ({ id, projectId })).sort((a, b) => a.id.localeCompare(b.id)) };
+          setCompanyRoster(previous => JSON.stringify(previous) === JSON.stringify(roster) ? previous : roster);
           for (const agent of snapshot.agents) {
             if (agent.status === "running" || agent.status === "idle") dispatch({ type: "updateAgent", agentId: agent.id, patch: { status: agent.status, runId: null } });
           }
@@ -4797,24 +4802,25 @@ export function OfficeScreen({
           </div>
         </div>
       ) : null}
-      <OfficeFloorNav
+      {!sessionView ? <OfficeFloorNav
         activeFloorId={activeFloor.id}
         floorRosterCache={floorRosterCache}
         onSelectFloor={(floorId) => {
           void handleSelectFloor(floorId);
         }}
         activeAdapterType={(selectedAdapterType as FloorProvider) ?? null}
-      />
+      /> : null}
       <section className="relative h-full min-h-0 min-w-0 overflow-hidden">
         <OfficeSceneBoundary>
         <RetroOffice3D
           key={activeFloor.id}
-          agents={allVisibleAgents}
+          agents={sessionView && !companyLayout ? [] : allVisibleAgents}
           storageNamespace={activeFloor.id}
           layoutPreset={activeFloor.kind === "lobby" ? "lobby" : "office"}
           officeCenterSignal={officeCameraCenterSignal}
           animationState={officeAnimationState}
-          deskAssignmentByDeskUid={deskAssignmentByDeskUid}
+          companyLayout={companyLayout}
+          deskAssignmentByDeskUid={companyLayout?.deskAssignments ?? deskAssignmentByDeskUid}
           githubReviewAgentId={githubReviewAgentId}
           qaTestingAgentId={qaTestingAgentId}
           phoneBoothAgentId={activePhoneBoothAgentId}
