@@ -38,8 +38,8 @@ export const HeaderBar = ({
 
   return (
     <div className="ui-topbar relative z-[180]">
-      <div className="grid h-10 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center px-3 sm:px-4 md:px-5">
-        <div aria-hidden="true" />
+      <div className="flex h-10 items-center justify-between px-3 sm:grid sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:px-4 md:px-5">
+        <div aria-hidden="true" className="hidden sm:block" />
         <p className="truncate text-sm font-semibold tracking-[0.01em] text-foreground">Claw3D</p>
         <div className="flex items-center justify-end gap-1">
           {status !== "disconnected" ? (
@@ -54,7 +54,7 @@ export const HeaderBar = ({
           ) : null}
           <ThemeToggle />
           {process.env.NEXT_PUBLIC_CLAW3D_WEB_ACCESS === "1" ? (
-            <button type="button" data-logout className="ui-btn-ghost px-2 text-xs">退出登录</button>
+            <button type="button" data-logout className="ui-btn-ghost shrink-0 whitespace-nowrap px-2 text-xs">退出登录</button>
           ) : null}
           {showConnectionSettings ? (
             <div className="relative z-[210]" ref={menuRef}>
