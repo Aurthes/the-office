@@ -56,15 +56,64 @@ histories and keeps each history read a deliberate, paginated operation. The
 turn count alone is not evidence that a reported delay comes from history size.
 The desktop App link uses `codex://threads/<original-id>`.
 
-This is a read-only organization surface. Continue conversations, approvals,
+By default this is a read-only organization surface. Continue conversations, approvals,
 execution and stopping in the original App. The gateway rejects write methods;
 it never starts a parallel executor against an existing App thread. Ordinary
 cloud ChatGPT conversations and remote-host threads are outside this local
 index. Original standalone gateway state is retained for rollback.
 
-The intended product is a different entrance to the same Codex session and
-execution owner. This read-only preview is not yet an equivalent Codex client:
-live tool events, continuation, stop and approvals still need a supported control
-connection to the App's existing server. Resuming a live App thread in a second
-server is not an acceptable substitute. Message colors and Markdown formatting
-improve the preview without claiming those missing operations are implemented.
+## Optional shared execution owner
+
+Set `CLAW3D_CODEX_CONTROL_SOCKET` on the gateway only after the desktop App and
+the gateway have been configured to connect to one native app-server through its
+private Unix WebSocket listener. In this mode the gateway never starts another
+app-server, falls back to a second executor, or changes a thread's ID, directory,
+model or permissions. The socket must belong to the current user and have no
+group/other permissions. A lost shared connection stops the gateway; launchd may
+reconnect it, but uncertain write operations are never automatically retried.
+
+The App must have loaded a thread before the web client can attach to it. Open
+the original conversation in the App once if requested. This preserves its
+registered tools and active configuration. The web client attaches before reading
+the latest history page so live events cannot fall into a subscription gap.
+
+The inspector then supports plain-text continuation, steering the active turn,
+interrupting that same turn, live assistant messages and compact tool activity.
+Command approvals and complete, small file-change approvals can be answered from
+either client. Answers are cleared only on native resolution or turn completion.
+Only the backend's offered one-time decisions are exposed; persistent policy
+amendments are not exposed. Oversized or unsupported requests remain for the App
+to handle. Attachment upload, other structured prompts and full historical tool
+logs are not implemented here, so this is not yet complete native UI parity.
+
+The pinned Mac App starts its normal owner over stdio. Switching to a shared
+listener requires one deliberate App quit/relaunch after current work finishes.
+Its bundled transport supports `CODEX_APP_SERVER_WS_URL`; this is a version-bound
+App configuration, not a promise of a stable public App setting. The tested Unix
+URL has a localhost hostname, for example
+`ws+unix://localhost/absolute/path/app-server-control.sock:/rpc`, so the App's
+network selector keeps the connection local rather than using its SOCKS proxy.
+The paired `CODEX_APP_SERVER_USE_LOCAL_DAEMON=1` selects its shared-server tool
+configuration. Both the owner and App use the existing Codex home and pinned CLI;
+the owner's launch arguments retain the App's code-mode host and App-tools plugin
+configuration. No App bundle patch or client impersonation is involved.
+
+Before enabling the gateway's shared mode, run the read-only preflight:
+
+```sh
+CLAW3D_CODEX_CONTROL_SOCKET=/absolute/private/socket \
+  node scripts/check-codex-shared.js ORIGINAL_THREAD_ID OLD_OWNER_PID
+```
+
+It refuses while the old owner is alive or the expected original thread has not
+been loaded in the shared owner. Prepare backups of the original gateway service
+and App environment first. Never stop an active owner merely to perform this
+migration. Rollback requires closing the App, disabling web writes, restoring
+the original App environment and read-only gateway configuration, then relaunching
+the App. Check for active native turns before stopping the shared owner.
+
+Isolated integration validation used the pinned native app-server, two real
+protocol clients and a local fake model provider in a temporary Codex home. It
+verified one original thread, cross-client approval, steer and stop, without a
+real model request. That evidence does not replace validating the actual App
+reconnection and its tools after the migration.

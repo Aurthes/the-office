@@ -8,15 +8,24 @@ const { spawn } = require("node:child_process");
 const { WebSocketServer, WebSocket } = require("ws");
 const { CodexSessionIndex } = require("./codex-session-index");
 const { loadSessionHistoryPage } = require("./codex-session-history");
+const { CodexSharedClient } = require("./codex-shared-client");
+const { CodexSessionControls } = require("./codex-session-controls");
 
 const index = new CodexSessionIndex(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"));
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
 const port = Number(process.env.CODEX_ADAPTER_PORT || 18790);
-const reader = spawn(process.env.CLAW3D_CODEX_BIN || "codex", ["app-server", "--listen", "stdio://"], { stdio: ["pipe", "pipe", "inherit"] });
+let controls;
+const shared = process.env.CLAW3D_CODEX_CONTROL_SOCKET ? new CodexSharedClient(process.env.CLAW3D_CODEX_CONTROL_SOCKET, frame => {
+  controls?.handle(frame);
+  if (frame.method === "connection/closed" && !stopping) process.exit(1);
+}) : null;
+controls = shared ? new CodexSessionControls(shared) : null;
+const reader = shared ? null : spawn(process.env.CLAW3D_CODEX_BIN || "codex", ["app-server", "--listen", "stdio://"], { stdio: ["pipe", "pipe", "inherit"] });
 const pending = new Map(), clients = new Set();
 let serial = 0, seq = 0, ready = false, stopping = false;
 const call = (method, params = {}) => new Promise((resolve, reject) => {
+  if (shared) return shared.call(method, params).then(resolve, reject);
   // Read operations only: the App owns all execution and original thread IDs.
   if (!["initialize", "thread/turns/list"].includes(method)) return reject(new Error("Read-only App session view"));
   const id = ++serial;
@@ -24,7 +33,7 @@ const call = (method, params = {}) => new Promise((resolve, reject) => {
   pending.set(id, { resolve, reject, timer });
   reader.stdin.write(JSON.stringify({ id, method, params }) + "\n");
 });
-readline.createInterface({ input: reader.stdout }).on("line", line => {
+if (reader) readline.createInterface({ input: reader.stdout }).on("line", line => {
   let frame; try { frame = JSON.parse(line); } catch { return; }
   const request = pending.get(frame.id);
   if (!request) return;
@@ -32,14 +41,18 @@ readline.createInterface({ input: reader.stdout }).on("line", line => {
   if (frame.error) request.reject(new Error(frame.error.message));
   else request.resolve(frame.result);
 });
-reader.on("exit", () => { ready = false; if (!stopping) process.exit(1); });
-reader.on("error", error => { console.error(error.message); process.exit(1); });
+reader?.on("exit", () => { ready = false; if (!stopping) process.exit(1); });
+reader?.on("error", error => { console.error(error.message); process.exit(1); });
 const rows = () => index.list();
 const key = id => `agent:${id}:main`;
 const get = id => { const row = rows().find(r => r.id === id); if (!row) throw new Error("Original App session is missing or archived"); return row; };
 const fromKey = value => get(String(value).split(":")[1]);
 const agents = () => rows().map(r => ({ ...r, role: r.project, identity: { name: r.name, emoji: "💬" } }));
 async function history(row, cursor) {
+  if (controls && !cursor) {
+    try { await controls.attach(row.id); }
+    catch (error) { if (error.code !== "APP_THREAD_NOT_LOADED") throw error; }
+  }
   return loadSessionHistoryPage(call, row, cursor);
 }
 const methods = {
@@ -49,14 +62,19 @@ const methods = {
   "sessions.preview": async p => ({ ts: Date.now(), previews: (p.keys || []).map(k => ({ key: k, status: "empty", items: [] })) }),
   "chat.history": async p => ({ sessionKey: p.sessionKey, ...await history(fromKey(p.sessionKey), p.cursor) }),
   "session.history": async p => history(get(p.threadId), p.cursor),
-  "session.inspect": async p => { const row = get(p.threadId); return { ...row, statusSource: "App session events", readOnly: true,
+  "session.inspect": async p => { const row = get(p.threadId); return { ...row, statusSource: "App session events", readOnly: !shared, controlsAvailable: Boolean(shared?.ready),
     ...(p.includeHistory === false ? {} : await history(row)) }; },
+  "session.attach": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读，原 App 共享控制未启用"); await controls.attach(row.id); return controls.snapshot(row.id); },
+  "session.live": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); return controls.snapshot(row.id, Number(p.since) || 0); },
+  "session.send": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); return controls.send(row.id, p.message, p.requestId); },
+  "session.stop": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); return controls.stop(row.id); },
+  "session.approval.reply": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); return controls.reply(row.id, p.requestId, p.decision); },
   "models.list": async () => ({ models: [] }),
-  "status": async () => ({ runtime: "Codex App session organizer", readOnly: true, sessions: { recent: rows().map(r => ({ key: key(r.id), updatedAt: r.updatedAt })) } }),
+  "status": async () => ({ runtime: "Codex App session organizer", readOnly: !shared, sessions: { recent: rows().map(r => ({ key: key(r.id), updatedAt: r.updatedAt })) } }),
   "agents.files.get": async () => ({ file: { missing: true } }),
   "exec.approvals.get": async () => ({ file: { agents: Object.fromEntries(rows().map(r => [r.id, { security: "deny", ask: "always" }])) } }),
 };
-const server = http.createServer((_req, res) => { res.writeHead(ready ? 200 : 503, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: ready, runtime: "Codex App session organizer", agents: rows().length, activeTurns: 0, readOnly: true })); });
+const server = http.createServer((_req, res) => { res.writeHead(ready ? 200 : 503, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: ready, runtime: "Codex App session organizer", agents: rows().length, readOnly: !shared })); });
 const wss = new WebSocketServer({ server, maxPayload: 256 * 1024 });
 wss.on("connection", ws => {
   let connected = false;
@@ -75,7 +93,7 @@ wss.on("connection", ws => {
         result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "codex-app-session-view-1", connId: crypto.randomUUID() },
           features: { methods: Object.keys(methods), events: ["tick"] },
           snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: rows()[0]?.id }, sessionDefaults: { mainKey: "main" } },
-          auth: { role: "operator", scopes: ["operator.read"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000 } };
+          auth: { role: "operator", scopes: shared ? ["operator.read", "operator.write", "operator.approvals"] : ["operator.read"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000 } };
       } else {
         if (!connected) throw new Error("Connect first");
         if (!Object.hasOwn(methods, frame.method)) throw new Error("此视图整理 App 原会话，不新建、重置或接管会话。请在原 App 中继续操作。");
@@ -90,8 +108,8 @@ setInterval(() => {
   const frame = JSON.stringify({ type: "event", event: "tick", seq: seq++, payload: { ts: Date.now() } });
   for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame);
 }, 30000).unref();
-for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => { stopping = true; server.close(); for (const ws of clients) ws.close(1001, "Server stopping"); reader.stdin.end(); index.close(); });
-call("initialize", { clientInfo: { name: "claw3d_session_reader", title: "Claw3D existing sessions", version: "1" } }).then(() => {
-  reader.stdin.write(JSON.stringify({ method: "initialized" }) + "\n"); ready = true;
-  server.listen(port, "127.0.0.1", () => console.log("[session-view] Existing App sessions; read-only; no thread/start or turn/start"));
-}).catch(error => { console.error(error.message); reader.stdin.end(); process.exitCode = 1; });
+for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => { stopping = true; server.close(); for (const ws of clients) ws.close(1001, "Server stopping"); reader?.stdin.end(); shared?.close(); index.close(); });
+(shared ? shared.initialize() : call("initialize", { clientInfo: { name: "claw3d_session_reader", title: "Claw3D existing sessions", version: "1" } })).then(() => {
+  reader?.stdin.write(JSON.stringify({ method: "initialized" }) + "\n"); ready = true;
+  server.listen(port, "127.0.0.1", () => console.log(`[session-view] ${shared ? "Shared App owner connected" : "Read-only reader; controls disabled"}`));
+}).catch(error => { console.error(error.message); reader?.stdin.end(); shared?.close(); process.exitCode = 1; });

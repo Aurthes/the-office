@@ -9,6 +9,20 @@ const page = (text: string, nextCursor: string | null, threadId = "original") =>
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("existing session history pagination", () => {
+  it("keeps messages received live while the latest history page is still loading", async () => {
+    const history = deferred();
+    const live = { id: "live", role: "assistant", content: "live reply" };
+    const call = vi.fn((method: string) => {
+      if (method === "session.inspect") return Promise.resolve({ ...metadata(), controlsAvailable: true });
+      if (method === "session.history") return history.promise;
+      return Promise.resolve({ connected: true, version: 1, activeTurnId: null, items: [live], approvals: [] });
+    });
+    render(React.createElement(ExistingSessionPanel, { client: { call }, threadId: "original" }));
+    await screen.findByText("live reply");
+    await act(async () => history.resolve(page("earlier reply", null)));
+    expect(screen.getByText("live reply")).toBeTruthy();
+    expect(screen.getByText("earlier reply")).toBeTruthy();
+  });
   it("shows metadata before history finishes, then reads no more history on its five-second metadata timer", async () => {
     const first = deferred();
     const call = vi.fn((method: string) => method === "session.inspect" ? Promise.resolve(metadata()) : first.promise);

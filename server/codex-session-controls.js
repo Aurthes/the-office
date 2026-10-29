@@ -1,0 +1,118 @@
+"use strict";
+const crypto = require("node:crypto");
+const textOf = item => item.text || (item.content || []).filter(p => ["text", "inputText"].includes(p.type)).map(p => p.text).join("\n");
+const supportedApprovals = new Set(["item/commandExecution/requestApproval", "item/fileChange/requestApproval"]);
+
+class CodexSessionControls {
+  constructor(client) { this.client = client; this.states = new Map(); this.requests = new Map(); this.sends = new Map(); this.attaching = new Map(); }
+  state(id) {
+    if (!this.states.has(id)) this.states.set(id, { version: 0, activeTurnId: null, items: new Map() });
+    return this.states.get(id);
+  }
+  requireReady() { if (!this.client?.ready) throw new Error("原 App 共享控制通道未连接，当前仍为只读"); }
+  async attach(id) {
+    this.requireReady();
+    if (!this.attaching.has(id)) {
+      const pending = this.client.call("thread/loaded/list", {}).then(async result => {
+        if (!result.data.includes(id)) throw Object.assign(new Error("请先在原 App 打开此会话一次，以沿用它当前的工具与权限配置"), { code: "APP_THREAD_NOT_LOADED" });
+        return this.client.call("thread/resume", { threadId: id, excludeTurns: true });
+      }).then(async () => {
+        await this.refreshTurn(id); return true;
+      }).catch(error => { this.attaching.delete(id); throw error; });
+      this.attaching.set(id, pending);
+    }
+    await this.attaching.get(id);
+  }
+  async refreshTurn(id) {
+    const result = await this.client.call("thread/turns/list", { threadId: id, limit: 1, itemsView: "notLoaded", sortDirection: "desc" });
+    const turn = result.data[0]; this.state(id).activeTurnId = turn?.status === "inProgress" ? turn.id : null;
+  }
+  handle(frame) {
+    const p = frame.params || {}, id = p.threadId;
+    if (frame.method === "connection/closed") { this.attaching.clear(); return; }
+    if (!id) return;
+    const state = this.state(id);
+    if (frame.id !== undefined) {
+      this.requests.set(String(frame.id), { requestId: String(frame.id), wireId: frame.id, method: frame.method, params: p, supported: supportedApprovals.has(frame.method) });
+      state.version++; return;
+    }
+    if (frame.method === "serverRequest/resolved") { this.requests.delete(String(p.requestId)); state.version++; return; }
+    if (frame.method === "turn/started") { state.activeTurnId = p.turn.id; state.version++; }
+    if (frame.method === "turn/completed") {
+      if (state.activeTurnId === p.turn.id) state.activeTurnId = null;
+      for (const [key, request] of this.requests) if (request.params.threadId === id && request.params.turnId === p.turn.id) this.requests.delete(key);
+      state.version++;
+    }
+    const item = p.item;
+    if (frame.method === "item/agentMessage/delta") {
+      const key = `${p.turnId}:${p.itemId}`, previous = state.items.get(key);
+      const text = (previous?.content || "") + p.delta;
+      state.items.set(key, { id: key, role: "assistant", content: text.slice(0, 2048), truncated: text.length > 2048 || previous?.truncated, version: ++state.version });
+    } else if ((frame.method === "item/completed" && item?.type === "agentMessage") || (["item/started", "item/completed"].includes(frame.method) && item?.type === "userMessage")) {
+      const text = textOf(item), key = `${p.turnId}:${item.id}`;
+      state.items.set(key, { id: key, role: item.type === "userMessage" ? "user" : "assistant", content: text.slice(0, 2048), truncated: text.length > 2048, version: ++state.version });
+    } else if (["item/started", "item/completed"].includes(frame.method) && ["commandExecution", "fileChange", "mcpToolCall", "webSearch"].includes(item?.type)) {
+      const key = `${p.turnId}:${item.id}`;
+      const details = item.type === "fileChange" ? JSON.stringify(item.changes || []) : null;
+      state.items.set(key, { id: key, role: "tool", content: String(item.command || item.tool || item.type).slice(0, 2000), status: item.status || (frame.method === "item/started" ? "inProgress" : "completed"), details: details?.slice(0, 4000), incompleteDetails: details ? Buffer.byteLength(details) > 16000 || details.length > 4000 : false, version: ++state.version });
+    }
+    while (state.items.size > 24) state.items.delete(state.items.keys().next().value);
+  }
+  snapshot(id, since = 0) {
+    this.requireReady(); const state = this.state(id);
+    return { connected: true, version: state.version, activeTurnId: state.activeTurnId,
+      items: [...state.items.values()].filter(item => item.version > (since > state.version ? 0 : since)).slice(-12)
+        .map(item => ({ id: item.id, role: item.role, content: item.content, status: item.status, truncated: item.truncated, version: item.version })),
+      approvalCount: [...this.requests.values()].filter(r => r.params.threadId === id).length,
+      approvals: [...this.requests.values()].filter(r => r.params.threadId === id).slice(0, 2).map(request => {
+        const item = state.items.get(`${request.params.turnId}:${request.params.itemId}`);
+        const oversized = Buffer.byteLength(JSON.stringify(request.params)) > 8000;
+        return { requestId: request.requestId, method: request.method, submitted: request.submitted, params: oversized ? { threadId: id, reason: "请求过长，请在原 App 查看" } : request.params,
+          decisions: request.params.availableDecisions?.filter(value => typeof value === "string") || ["accept", "decline"],
+          details: item?.details, supported: request.supported && !oversized && (request.method !== "item/fileChange/requestApproval" || Boolean(item?.details && !item.incompleteDetails)) };
+      }) };
+  }
+  async send(id, text, requestId) {
+    this.requireReady();
+    if (typeof text !== "string" || !text.trim() || Buffer.byteLength(text) > 32000) throw new Error("请发送不超过 32 KB 的文字");
+    if (typeof requestId !== "string" || requestId.length > 100 || !requestId) throw new Error("缺少发送请求 ID");
+    const prior = this.sends.get(requestId);
+    if (prior) {
+      if (prior.id !== id || prior.hash !== crypto.createHash("sha256").update(text).digest("hex")) throw new Error("发送请求 ID 冲突");
+      if (!prior.result) throw new Error("这次发送已提交，结果需核对，未重复发送");
+      return prior.result;
+    }
+    const entry = { id, hash: crypto.createHash("sha256").update(text).digest("hex") };
+    this.sends.set(requestId, entry);
+    if (this.sends.size > 128) this.sends.delete(this.sends.keys().next().value);
+    await this.attach(id); await this.refreshTurn(id);
+    const input = [{ type: "text", text }], active = this.state(id).activeTurnId;
+    const result = await this.client.call(active ? "turn/steer" : "turn/start", { threadId: id, input, ...(active ? { expectedTurnId: active } : {}) });
+    const turnId = result.turn?.id || result.turnId;
+    this.state(id).activeTurnId = turnId;
+    return entry.result = { status: active ? "steered" : "started", turnId };
+  }
+  async stop(id) {
+    this.requireReady(); await this.attach(id); await this.refreshTurn(id);
+    const turnId = this.state(id).activeTurnId;
+    if (!turnId) return { status: "idle" };
+    await this.client.call("turn/interrupt", { threadId: id, turnId });
+    return { status: "interruptRequested", turnId };
+  }
+  reply(id, requestId, decision) {
+    this.requireReady();
+    const request = this.requests.get(String(requestId));
+    if (!request || request.params.threadId !== id) throw new Error("审批已结束或不属于此会话");
+    if (!request.supported || !["accept", "decline", "cancel"].includes(decision)) throw new Error("请在原 App 处理此类请求");
+    if (Buffer.byteLength(JSON.stringify(request.params)) > 8000) throw new Error("请在原 App 查看完整请求后审批");
+    if (request.method === "item/fileChange/requestApproval") {
+      const item = this.state(id).items.get(`${request.params.turnId}:${request.params.itemId}`);
+      if (!item?.details || item.incompleteDetails) throw new Error("请在原 App 查看完整文件修改后审批");
+    }
+    if (request.params.availableDecisions && !request.params.availableDecisions.includes(decision)) throw new Error("后台未提供这个审批选项");
+    if (request.submitted) throw new Error("审批答复已提交，等待原后台确认");
+    this.client.respond(request.wireId, { decision }); request.submitted = true;
+    return { status: "submitted" };
+  }
+}
+module.exports = { CodexSessionControls };

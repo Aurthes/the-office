@@ -1,13 +1,15 @@
 "use client";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { SessionControls, type LiveSessionItem } from "./SessionControls";
 
 type Inspection = {
   id: string; name: string; workspace: string; project: string;
   status: "running" | "idle" | "unknown";
+  controlsAvailable?: boolean;
 };
-type Message = { id: string; role: string; content: string; timestamp?: number; truncated?: boolean };
+type Message = { id: string; role: string; content: string; timestamp?: number; truncated?: boolean; status?: string };
 type HistoryPage = { threadId: string; messages: Message[]; nextCursor: string | null };
 type LoadMode = "latest" | "older";
 
@@ -29,6 +31,19 @@ export function ExistingSessionPanel({ client, threadId }: {
   const anchor = useRef<{ height: number; top: number } | null>(null);
   const load = useRef<((mode: LoadMode) => Promise<void>) | null>(null);
   const failedMode = useRef<LoadMode>("latest");
+  const liveItems = useRef(new Map<string, LiveSessionItem>());
+  const onLiveItems = useCallback((items: LiveSessionItem[]) => {
+    for (const item of items) liveItems.current.set(item.id, item);
+    while (liveItems.current.size > 24) liveItems.current.delete(liveItems.current.keys().next().value!);
+    setMessages(previous => {
+      const next = [...previous];
+      for (const item of items) {
+        const index = next.findIndex(message => message.id === item.id);
+        if (index < 0) next.push(item); else next[index] = { ...next[index], ...item };
+      }
+      return next;
+    });
+  }, []);
 
   useLayoutEffect(() => {
     const node = scroll.current;
@@ -45,6 +60,7 @@ export function ExistingSessionPanel({ client, threadId }: {
     let cursor: string | null = null;
     setData(null); setMessages([]); setOlderCursor(null); setLoaded(false); setError(""); setMetadataError("");
     follow.current = true; anchor.current = null; lastTop.current = 0;
+    liveItems.current.clear();
     const readMetadata = async () => {
       if (metadataBusy || stopped) return;
       metadataBusy = true;
@@ -65,7 +81,13 @@ export function ExistingSessionPanel({ client, threadId }: {
         if (result.threadId !== threadId) throw new Error("会话记录不匹配，请重试");
         anchor.current = before; follow.current = mode === "latest";
         setMessages(previous => {
-          if (mode === "latest") return result.messages;
+          if (mode === "latest") {
+            const ids = new Set(result.messages.map(message => message.id));
+            return [...result.messages.map(message => {
+              const live = liveItems.current.get(message.id);
+              return live && live.content.length > message.content.length ? { ...message, ...live } : message;
+            }), ...[...liveItems.current.values()].filter(item => !ids.has(item.id))];
+          }
           const existing = new Set(previous.map(message => message.id));
           return [...result.messages.filter(message => !existing.has(message.id)), ...previous];
         });
@@ -83,7 +105,7 @@ export function ExistingSessionPanel({ client, threadId }: {
 
   return <section className="flex min-h-0 flex-1 flex-col text-white" aria-label="App 原会话">
     <header className="shrink-0 border-b border-white/10 p-3">
-      <div className="text-[10px] text-cyan-200">App 原会话 · 只读总览</div>
+      <div className="text-[10px] text-cyan-200">App 原会话 · {data?.controlsAvailable ? "共享执行端" : "只读总览"}</div>
       <h2 className="mt-1 break-words text-sm font-semibold">{data?.id === threadId ? data.name : "读取会话信息…"}</h2>
       {data?.id === threadId ? <p className="mt-1 text-xs text-white/60">{data.project} · {data.status === "running" ? "工作中" : data.status === "idle" ? "空闲" : "状态记录不足"}</p> : null}
       <div className="mt-2 flex flex-wrap gap-2">
@@ -109,13 +131,14 @@ export function ExistingSessionPanel({ client, threadId }: {
       </div>
       {loaded && messages.length === 0 ? <p className="text-center text-xs text-white/50">这一块没有对话文字（工具活动已略过）。{olderCursor ? "向上滚动或点上方按钮，读取更早一块。" : ""}</p> : null}
       {messages.map(message => <article key={message.id} className={`rounded-lg border border-l-4 p-3 ${message.role === "user" ? "border-cyan-400/60 bg-[#0b5268] text-cyan-50" : "border-slate-500/55 bg-[#242932] text-slate-100"}`}>
-        <div className={`mb-2 text-[10px] font-semibold ${message.role === "user" ? "text-cyan-100" : "text-slate-300"}`}>{message.role === "user" ? "你" : "助手"}{message.timestamp ? ` · ${new Date(message.timestamp).toLocaleString()}` : ""}</div>
-        <div className="agent-markdown min-w-0 break-words text-xs leading-relaxed [&_a]:text-sky-200 [&_a]:underline"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown></div>
+        <div className={`mb-2 text-[10px] font-semibold ${message.role === "user" ? "text-cyan-100" : "text-slate-300"}`}>{message.role === "user" ? "你" : message.role === "tool" ? "工具活动" : "助手"}{message.role === "tool" && message.status ? ` · ${{ inProgress: "进行中", completed: "已完成", failed: "失败", declined: "已拒绝" }[message.status] || message.status}` : ""}{message.timestamp ? ` · ${new Date(message.timestamp).toLocaleString()}` : ""}</div>
+        {message.role === "tool" ? <details><summary className="cursor-pointer text-xs text-white/60">查看工具信息</summary><pre className="mt-2 overflow-auto whitespace-pre-wrap break-all text-xs">{message.content}</pre></details> : <div className="agent-markdown min-w-0 break-words text-xs leading-relaxed [&_a]:text-sky-200 [&_a]:underline"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown></div>}
         {message.truncated ? <p className="mt-2 text-[10px] text-amber-200/70">长消息已截断，全文可在原 App 查看。</p> : null}
       </article>)}
     </div>
+    {data?.id === threadId && data.controlsAvailable ? <SessionControls client={client} threadId={threadId} onItems={onLiveItems} /> : null}
     <footer className="shrink-0 space-y-1 border-t border-white/10 p-3 text-[10px] text-white/50">
-      <p>向上滚动才读取更早一块；点“刷新最新”查看新记录。续聊、停止和审批仍在原 App 中进行。</p>
+      <p>{data?.controlsAvailable ? "与原 App 使用同一会话、同一个执行端。向上滚动读取更早记录。" : "向上滚动才读取更早一块；点“刷新最新”查看新记录。续聊、停止和审批仍在原 App 中进行。"}</p>
       <p className="break-all">Session ID：{threadId}</p>
       {data?.id === threadId ? <p className="break-all">目录：{data.workspace}</p> : null}
     </footer>
