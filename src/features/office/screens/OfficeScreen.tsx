@@ -13,6 +13,7 @@ import dynamic from "next/dynamic";
 import { MessageSquare, ChevronDown, ChevronLeft, ChevronRight, Mic } from "lucide-react";
 import type { OfficeAgent } from "@/features/retro-office/core/types";
 import { RunningAvatarLoader } from "@/features/agents/components/RunningAvatarLoader";
+import { ExistingSessionPanel } from "@/features/office/components/ExistingSessionPanel";
 import { GatewayConnectScreen } from "@/features/agents/components/GatewayConnectScreen";
 import { useAgentStore, type AgentState } from "@/features/agents/state/store";
 import {
@@ -1087,6 +1088,8 @@ export function OfficeScreen({
   const lastTransportHistoryRefreshKeyRef = useRef<Record<string, string>>({});
   const [chatOpen, setChatOpen] = useState(false);
   const [chatRosterCollapsed, setChatRosterCollapsed] = useState(false);
+  const sessionView = process.env.NEXT_PUBLIC_CLAW3D_SESSION_VIEW === "1";
+  const [sessionSearch, setSessionSearch] = useState("");
   const [selectedChatAgentId, setSelectedChatAgentId] = useState<string | null>(
     null,
   );
@@ -1823,6 +1826,15 @@ export function OfficeScreen({
           setError,
         });
         if (connectionEpochAtStart !== connectionEpochRef.current) {
+          return;
+        }
+        if (process.env.NEXT_PUBLIC_CLAW3D_SESSION_VIEW === "1") {
+          const snapshot = await client.call<{ agents: Array<{ id: string; status: string }> }>("agents.list", {});
+          for (const agent of snapshot.agents) {
+            if (agent.status === "running" || agent.status === "idle") dispatch({ type: "updateAgent", agentId: agent.id, patch: { status: agent.status, runId: null } });
+          }
+          lastGatewayActivityAtRef.current = Date.now();
+          setAgentsLoaded(true);
           return;
         }
         const refreshedAgents = stateRef.current.agents;
@@ -2973,6 +2985,23 @@ export function OfficeScreen({
 
   useEffect(() => {
     if (status !== "connected" || !agentsLoaded) return;
+    if (!sessionView) return;
+    let busy = false, stopped = false;
+    const refresh = async () => {
+      if (busy || stopped || document.visibilityState !== "visible") return;
+      busy = true;
+      try {
+        await loadAgents({ minIntervalMs: 4000, silent: true });
+      } catch { /* The connection and inspector show read failures. */ }
+      finally { busy = false; }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 5000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [agentsLoaded, client, dispatch, loadAgents, sessionView, status]);
+
+  useEffect(() => {
+    if (status !== "connected" || !agentsLoaded) return;
     const intervalId = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
       void loadAgents({
@@ -3680,8 +3709,9 @@ export function OfficeScreen({
   const handleOpenAgentChat = useCallback(
     (agentId: string) => {
       focusChatTarget(agentId);
+      if (sessionView && window.matchMedia("(max-width: 639px)").matches) setChatRosterCollapsed(true);
     },
-    [focusChatTarget],
+    [focusChatTarget, sessionView],
   );
   const updateRemoteChatSession = useCallback(
     (
@@ -4872,12 +4902,13 @@ export function OfficeScreen({
           onAgentChatSelect={(agentId) => {
             handleOpenAgentChat(agentId);
           }}
-          onAddAgent={handleOpenCreateAgentWizard}
+          onAddAgent={sessionView ? undefined : handleOpenCreateAgentWizard}
           onAgentEdit={(agentId) => {
-            openAgentEditor(agentId, "avatar");
+            if (sessionView) handleOpenAgentChat(agentId);
+            else openAgentEditor(agentId, "avatar");
           }}
           onAgentDelete={(agentId) => {
-            void handleDeleteAgent(agentId);
+            if (!sessionView) void handleDeleteAgent(agentId);
           }}
           onDeskAssignmentChange={handleDeskAssignmentChange}
           onDeskAssignmentsReset={handleDeskAssignmentsReset}
@@ -5406,7 +5437,7 @@ export function OfficeScreen({
       ) : null}
 
       <div
-        className={`fixed bottom-3 z-30 flex flex-col items-end gap-2 ${sidebarOpen ? "right-84" : "right-3"} ${
+        className={`fixed bottom-3 ${sessionView ? "z-50" : "z-30"} flex flex-col items-end gap-2 ${sidebarOpen ? "right-84" : "right-3"} ${
           debugEnabled ? "hidden" : ""
         }`}
       >
@@ -5422,7 +5453,7 @@ export function OfficeScreen({
           >
             <div
               className={`flex shrink-0 flex-col border-r border-white/10 transition-[width] ${
-                chatRosterCollapsed ? "w-12" : "w-52"
+                chatRosterCollapsed ? "w-12" : sessionView ? "w-52 max-sm:w-28" : "w-52"
               }`}
             >
               <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
@@ -5454,6 +5485,7 @@ export function OfficeScreen({
                   <ChevronLeft className="h-4 w-4" />
                 )}
               </button>
+              {sessionView && !chatRosterCollapsed ? <input aria-label="搜索会话" placeholder="搜索会话/项目" value={sessionSearch} onChange={event => setSessionSearch(event.target.value)} className="mx-2 my-2 min-w-0 rounded border border-white/15 bg-black/30 p-2 text-xs text-white" /> : null}
               <div className="flex-1 overflow-y-auto">
                 {chatRosterCollapsed ? (
                   <div className="flex flex-col items-center gap-2 px-1 py-2">
@@ -5481,7 +5513,7 @@ export function OfficeScreen({
                     No agents.
                   </div>
                 ) : (
-                  chatRosterEntries.map((agent) => {
+                  chatRosterEntries.filter(agent => !sessionView || [agent.name, agent.id, state.agents.find(item => item.agentId === agent.id)?.role || ""].some(value => value.toLowerCase().includes(sessionSearch.toLowerCase()))).map((agent) => {
                     const isSelected = agent.id === selectedChatAgentId;
                     const isRunning = agent.isRunning;
                     return (
@@ -5518,6 +5550,7 @@ export function OfficeScreen({
 
             <div className="flex min-w-0 flex-1 flex-col">
               {focusedChatAgent ? (
+                sessionView ? <ExistingSessionPanel client={client} threadId={focusedChatAgent.agentId} /> :
                 <AgentChatPanel
                   agent={focusedChatAgent}
                   isSelected={false}
