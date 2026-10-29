@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f4ef">
+  <title>登录 · Claw3D</title>
+  <link rel="stylesheet" href="/auth/style.css">
+  <script src="/auth/ui.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <section class="welcome" aria-label="Claw3D 办公室">
+      <a class="brand" href="/login" aria-label="Claw3D 首页"><span class="brand-icon">C<span></span></span><strong>Claw3D</strong><span class="brand-note">你的 AI 办公室</span></a>
+      <div class="welcome-copy"><span class="eyebrow">A SPACE TO MAKE THINGS HAPPEN</span><h2>打开办公室，<br>开始下一件事。</h2><p>你的空间、伙伴和工作，都在这里。</p></div>
+      <div class="office-art" aria-hidden="true">
+        <svg viewBox="0 0 540 340" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <ellipse cx="275" cy="293" rx="205" ry="25" fill="#dddcd1" opacity=".6"/>
+          <path d="M70 200 277 85 478 200 271 315Z" fill="#e0ddce"/>
+          <path d="M70 200V116L277 2V85Z" fill="#d8e1d9"/><path d="M277 2 478 116V200L277 85Z" fill="#edf0e8"/>
+          <path d="M92 178 277 75 455 177M137 204 320 102M185 233 367 129M234 262 415 156M116 174 317 288M164 147 365 262M213 120 415 235" stroke="#c4c5b9" stroke-width="1" opacity=".7"/>
+          <path d="m141 145 83-46 88 50-82 47Z" fill="#bd8c5e"/><path d="M141 145v8l89 50v-7ZM230 196l82-47v8l-82 46Z" fill="#a7744a"/>
+          <path d="M154 156v45m143-44v43m-67 3v43" stroke="#6f7c70" stroke-width="7"/>
+          <path d="m205 125 40-23v37l-40 23Z" fill="#354c46"/><path d="m209 127 32-18v25l-32 19Z" fill="#8ab7a3"/>
+          <path d="m224 150 13-7 10 6-13 8Z" fill="#354c46"/><path d="m178 159 29-16 24 14-29 16Z" fill="#ece5d4"/>
+          <path d="m309 213 67-38 76 43-68 38Z" fill="#bd8c5e"/><path d="m309 213 75 43v8l-75-43Zm75 43 68-38v8l-68 38Z" fill="#a7744a"/>
+          <path d="M322 225v39m115-35v35m-53 0v32" stroke="#6f7c70" stroke-width="7"/>
+          <path d="m354 197 35-20v31l-35 20Z" fill="#354c46"/><path d="m358 199 27-15v21l-27 15Z" fill="#8ab7a3"/>
+          <path d="m181 206 27-15 26 15-27 16Z" fill="#56796b"/><path d="M181 206v25l26 15v-24Zm26 16 27-16v25l-27 15Z" fill="#416353"/>
+          <path d="m361 266 24-14 23 14-24 14Z" fill="#56796b"/>
+          <path d="M115 169v-31m0 9c-31-7-28-29-28-29s28-3 28 29Zm0 6c25-6 24-28 24-28s-25 1-24 28Z" fill="#6f9271"/>
+          <path d="m100 167 15-8 16 8-5 24-11 6-11-6Z" fill="#dfb58e"/>
+          <path d="M414 151v-36m0 13c-29-5-28-29-28-29s27 0 28 29Zm0 7c27-5 27-27 27-27s-29 0-27 27Z" fill="#6f9271"/>
+          <path d="m399 147 15-8 16 8-4 23-12 7-11-7Z" fill="#dfb58e"/>
+          <circle cx="293" cy="212" r="11" fill="#efc29b"/><path d="M281 231c0-9 24-9 24 0v25l-12 7-12-7Z" fill="#d59151"/><path d="M287 258v20m12-20v16" stroke="#47574c" stroke-width="7" stroke-linecap="round"/>
+        </svg>
+        <span class="art-caption"><span></span>让工作有自己的空间</span>
+      </div>
+      <span class="welcome-footer">PRIVATE WORKSPACE <span>·</span> MADE FOR YOU</span>
+    </section>
+    <section class="login-section" aria-labelledby="login-title">
+      <div class="login-card">
+        <span class="welcome-tag">欢迎回来</span>
+        <h1 id="login-title">登录你的办公室</h1>
+        <p class="intro">使用你的用户名和密码，继续手上的事。</p>
+        <div class="error" role="alert" {{ERROR_HIDDEN}}>{{ERROR}}</div>
+        <form action="/auth/login" method="post">
+          <input type="hidden" name="csrf" value="{{CSRF}}">
+          <label for="username">用户名</label>
+          <input id="username" name="username" autocomplete="username" value="{{USERNAME}}" required maxlength="120" spellcheck="false" autocapitalize="none">
+          <label for="password">密码</label>
+          <div class="password-field"><input id="password" name="password" type="password" autocomplete="current-password" placeholder="输入你的密码" required maxlength="512"><button id="toggle-password" type="button" aria-label="显示密码" aria-pressed="false">显示</button></div>
+          <button class="submit" type="submit">进入办公室 <span aria-hidden="true">↗</span></button>
+        </form>
+        <p class="session-note"><svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="4" y="8" width="10" height="8" rx="2" stroke="currentColor"/><path d="M6 8V5a3 3 0 0 1 6 0v3" stroke="currentColor"/></svg>登录状态保留 7 天，可随时退出。</p>
+      </div>
+      <span class="page-footer">Claw3D <span>·</span> 只属于你的工作空间</span>
+    </section>
+  </main>
+</body>
+</html>
