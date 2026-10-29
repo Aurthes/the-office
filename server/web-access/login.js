@@ -7,8 +7,10 @@ document.querySelector("#toggle-password")?.addEventListener("click", event => {
   event.currentTarget.setAttribute("aria-pressed", String(visible));
 });
 
-document.querySelector("[data-logout]")?.addEventListener("click", async event => {
-  const button = event.currentTarget;
+// Office controls can mount after hydration or SPA navigation.
+document.addEventListener("click", async event => {
+  const button = event.target instanceof Element ? event.target.closest("[data-logout]") : null;
+  if (!button || button.disabled) return;
   button.disabled = true;
   try {
     const response = await fetch("/auth/session");

@@ -62,6 +62,7 @@ import {
 } from "@/lib/text/message-extract";
 import { resolveOfficeIntentSnapshot } from "@/lib/office/deskDirectives";
 import { OfficeFloorNav } from "@/features/office/components/OfficeFloorNav";
+import { OfficeSceneBoundary } from "@/features/office/components/OfficeSceneBoundary";
 import { AgentChatPanel } from "@/features/agents/components/AgentChatPanel";
 import {
   RemoteAgentChatPanel,
@@ -4775,6 +4776,7 @@ export function OfficeScreen({
         activeAdapterType={(selectedAdapterType as FloorProvider) ?? null}
       />
       <section className="relative h-full min-h-0 min-w-0 overflow-hidden">
+        <OfficeSceneBoundary>
         <RetroOffice3D
           key={activeFloor.id}
           agents={allVisibleAgents}
@@ -4922,6 +4924,7 @@ export function OfficeScreen({
             void taskBoard.refreshCronJobs();
           }}
         />
+        </OfficeSceneBoundary>
         {jukeboxOpen ? (
           soundclawReady ? (
             <JukeboxPanel

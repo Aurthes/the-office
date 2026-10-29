@@ -53,6 +53,9 @@ export const HeaderBar = ({
             </span>
           ) : null}
           <ThemeToggle />
+          {process.env.NEXT_PUBLIC_CLAW3D_WEB_ACCESS === "1" ? (
+            <button type="button" data-logout className="ui-btn-ghost px-2 text-xs">退出登录</button>
+          ) : null}
           {showConnectionSettings ? (
             <div className="relative z-[210]" ref={menuRef}>
               <button

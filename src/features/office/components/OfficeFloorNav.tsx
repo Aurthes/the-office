@@ -210,8 +210,11 @@ export function OfficeFloorNav({
       </section>
 
       <section className="pointer-events-auto rounded-2xl border border-white/10 bg-black/68 px-3 py-2 shadow-xl backdrop-blur">
-        <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">
-          Current Floor
+        <div className="flex items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">
+          <span>Current Floor</span>
+          {process.env.NEXT_PUBLIC_CLAW3D_WEB_ACCESS === "1" ? (
+            <button type="button" data-logout className="text-white/60 hover:text-white">退出登录</button>
+          ) : null}
         </div>
         <div className="mt-1 text-sm font-semibold text-white">{activeFloor.label}</div>
         <div className="mt-1 flex items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">

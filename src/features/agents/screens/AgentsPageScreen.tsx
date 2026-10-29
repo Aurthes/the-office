@@ -1747,12 +1747,12 @@ const AgentsPageScreen = () => {
                 />
               </div>
               <div
-                className={`${mobilePane === "chat" ? "flex" : "hidden"} ui-panel ui-depth-workspace min-h-0 flex-1 overflow-hidden xl:flex`}
+                className={`${mobilePane === "chat" ? "flex" : "hidden"} ui-panel ui-depth-workspace min-h-0 min-w-0 flex-1 overflow-hidden xl:flex`}
                 data-testid="focused-agent-panel"
               >
                 {focusedAgent ? (
-                  <div className="flex min-h-0 flex-1 flex-col">
-                    <div className="min-h-0 flex-1">
+                  <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                    <div className="min-h-0 min-w-0 flex-1">
                       <AgentChatPanel
                         agent={focusedAgent}
                         isSelected={false}

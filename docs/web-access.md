@@ -28,6 +28,8 @@ to the office.
 
 An office page can load `/auth/ui.js` and provide a button with `data-logout` to
 offer logout. The same script provides the login page's show-password control.
+For the full Studio UI, set `NEXT_PUBLIC_CLAW3D_WEB_ACCESS=1` when building and
+running Studio to include the logout controls and shared client script.
 
 Run the focused acceptance tests with:
 

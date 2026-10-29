@@ -199,7 +199,8 @@ export function InstancedFurnitureItems({
   onItemClick?: (itemUid: string) => void;
 }) {
   const glbPath = FURNITURE_GLB[itemType] ?? FURNITURE_GLB.table_rect;
-  const { scene } = useGLTF(glbPath);
+  // These bundled models are uncompressed; avoid initializing WASM decoders.
+  const { scene } = useGLTF(glbPath, false, false);
   const template = useMemo(
     () =>
       resolveFurnitureTemplate({
@@ -298,7 +299,7 @@ export function FurnitureModel({
 }: InteractiveFurnitureModelProps) {
   const itemType = resolveItemTypeKey(item);
   const glbPath = FURNITURE_GLB[itemType] ?? FURNITURE_GLB.table_rect;
-  const { scene } = useGLTF(glbPath);
+  const { scene } = useGLTF(glbPath, false, false);
   const template = useMemo(
     () =>
       resolveFurnitureTemplate({
@@ -724,7 +725,7 @@ export function PlacementGhost({
   position: [number, number, number];
 }) {
   const glbPath = FURNITURE_GLB[itemType] ?? FURNITURE_GLB.table_rect;
-  const { scene } = useGLTF(glbPath);
+  const { scene } = useGLTF(glbPath, false, false);
   const template = useMemo(
     () =>
       resolveFurnitureTemplate({
