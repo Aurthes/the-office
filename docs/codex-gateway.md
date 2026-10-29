@@ -24,14 +24,31 @@ reference is `f0401d55f085c921883a982512605ec8add8833b`, specifically
 
 After `npm ci` and `npm run build`, run the adapter with these settings. Run
 Studio separately with `HOST=127.0.0.1`, a chosen `PORT`,
-`UPSTREAM_ALLOWLIST=127.0.0.1,localhost`, and `CLAW3D_CODEX_GATEWAY=1`.
+`UPSTREAM_ALLOWLIST=127.0.0.1,localhost`, `CLAW3D_CODEX_GATEWAY=1`, and
+`CLAW3D_GATEWAY_URL=ws://127.0.0.1:18790`.
 Set `OPENCLAW_STATE_DIR` to a dedicated Studio state directory. Its
 `claw3d/settings.json` must contain the following gateway configuration with
 the same generated secret as the adapter:
 
 ```json
-{"gateway":{"url":"ws://127.0.0.1:18790","token":"REPLACE_WITH_GENERATED_SECRET","adapterType":"openclaw"}}
+{
+  "gateway": {
+    "url": "ws://127.0.0.1:18790",
+    "token": "REPLACE_WITH_GENERATED_SECRET",
+    "adapterType": "openclaw",
+    "profiles": { "openclaw": { "url": "ws://127.0.0.1:18790" } }
+  },
+  "officeFloors": {
+    "openclaw-ground": { "gatewayUrl": "ws://127.0.0.1:18790" }
+  }
+}
 ```
+
+Keep the gateway URL, selected profile, and runtime floor URL aligned. Floor
+navigation prefers its saved `officeFloors` URL over the gateway profile. When
+migrating an existing Studio state, update that floor URL too: a stale default
+port (`18789`) can replace a working Codex connection when the floor is entered.
+Refresh existing browser tabs after changing these saved addresses.
 
 Start the adapter with `node server/codex-gateway-adapter.js`, and Studio with
 `node server/index.js`. The browser can use the OpenClaw connection profile;
