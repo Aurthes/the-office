@@ -328,7 +328,7 @@ export const AgentAvatarPreview3D = ({
             setReadyProfileKey(profileKey);
           }}
         />
-        <Environment preset="city" />
+        <Environment files="/environments/potsdamer_platz_1k.hdr" />
         <OrbitControls enablePan={false} enableZoom={false} maxPolarAngle={1.8} minPolarAngle={1.1} />
       </Canvas>
     </div>

@@ -5272,7 +5272,7 @@ export function RetroOffice3D({
 
             {/* Environment lighting — async, wrapped in its own Suspense so floor stays visible. */}
             <Suspense fallback={null}>
-              <Environment preset="city" />
+              <Environment files="/environments/potsdamer_platz_1k.hdr" />
             </Suspense>
 
             {/* Furniture models — each loads its GLB asynchronously. */}
