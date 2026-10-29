@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type Inspection = {
   id: string; name: string; workspace: string; project: string;
@@ -106,9 +108,9 @@ export function ExistingSessionPanel({ client, threadId }: {
         {loading ? <span role="status">读取这一块…</span> : olderCursor ? <button onClick={() => void load.current?.("older")} className="px-3 py-1 text-cyan-200">↑ 读取更早记录</button> : loaded ? "已到最早记录" : null}
       </div>
       {loaded && messages.length === 0 ? <p className="text-center text-xs text-white/50">这一块没有对话文字（工具活动已略过）。{olderCursor ? "向上滚动或点上方按钮，读取更早一块。" : ""}</p> : null}
-      {messages.map(message => <article key={message.id} className="rounded border border-white/10 bg-white/5 p-3">
-        <div className="mb-2 text-[10px] text-white/50">{message.role === "user" ? "你" : "助手"}{message.timestamp ? ` · ${new Date(message.timestamp).toLocaleString()}` : ""}</div>
-        <div className="whitespace-pre-wrap break-words text-xs leading-relaxed">{message.content}</div>
+      {messages.map(message => <article key={message.id} className={`rounded-lg border border-l-4 p-3 ${message.role === "user" ? "border-cyan-400/60 bg-[#0b5268] text-cyan-50" : "border-slate-500/55 bg-[#242932] text-slate-100"}`}>
+        <div className={`mb-2 text-[10px] font-semibold ${message.role === "user" ? "text-cyan-100" : "text-slate-300"}`}>{message.role === "user" ? "你" : "助手"}{message.timestamp ? ` · ${new Date(message.timestamp).toLocaleString()}` : ""}</div>
+        <div className="agent-markdown min-w-0 break-words text-xs leading-relaxed [&_a]:text-sky-200 [&_a]:underline"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown></div>
         {message.truncated ? <p className="mt-2 text-[10px] text-amber-200/70">长消息已截断，全文可在原 App 查看。</p> : null}
       </article>)}
     </div>

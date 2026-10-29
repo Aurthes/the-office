@@ -61,3 +61,10 @@ execution and stopping in the original App. The gateway rejects write methods;
 it never starts a parallel executor against an existing App thread. Ordinary
 cloud ChatGPT conversations and remote-host threads are outside this local
 index. Original standalone gateway state is retained for rollback.
+
+The intended product is a different entrance to the same Codex session and
+execution owner. This read-only preview is not yet an equivalent Codex client:
+live tool events, continuation, stop and approvals still need a supported control
+connection to the App's existing server. Resuming a live App thread in a second
+server is not an acceptable substitute. Message colors and Markdown formatting
+improve the preview without claiming those missing operations are implemented.
