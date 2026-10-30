@@ -16,7 +16,7 @@ preserved in [LICENSE](LICENSE).
   and working directories stay attached to their conversations.
 - **Project work areas and shared space.** Projectless chats live in Open Workspace;
   idle characters can roam the shared office.
-- **Conversation-first chat.** Paginated history, live replies, Markdown, distinct
+- **Conversation-first chat.** Paginated history, direct push-streamed replies, Markdown, distinct
   message roles and collapsed work/tool activity keep long chats readable.
 - **Shared execution.** Opt-in access to the same native Codex execution owner for
   continuation, steering, stopping and supported approvals.

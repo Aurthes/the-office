@@ -23,7 +23,7 @@ describe("existing session history pagination", () => {
     expect(screen.getByText("live reply")).toBeTruthy();
     expect(screen.getByText("earlier reply")).toBeTruthy();
   });
-  it("shows metadata before history finishes, then reads no more history on its five-second metadata timer", async () => {
+  it("shows metadata before history finishes and never polls metadata or history", async () => {
     const first = deferred();
     const call = vi.fn((method: string) => method === "session.inspect" ? Promise.resolve(metadata()) : first.promise);
     render(React.createElement(ExistingSessionPanel, { client: { call }, threadId: "original" }));
@@ -33,13 +33,36 @@ describe("existing session history pagination", () => {
     await act(async () => first.resolve(page("latest", "older")));
     expect(screen.getByText("latest")).toBeTruthy();
     vi.useFakeTimers();
-    // Re-mount with fake timers so the metadata interval is controlled.
+    // Re-mount under fake timers to prove no background polling is scheduled.
     cleanup(); call.mockClear();
     render(React.createElement(ExistingSessionPanel, { client: { call }, threadId: "original" }));
     await act(async () => {});
     await act(async () => vi.advanceTimersByTime(15000));
     expect(call.mock.calls.filter(([method]) => method === "session.history")).toHaveLength(1);
-    expect(call.mock.calls.filter(([method]) => method === "session.inspect").length).toBeGreaterThan(1);
+    expect(call.mock.calls.filter(([method]) => method === "session.inspect")).toHaveLength(1);
+  });
+  it("recovers once after reconnect, queues catch-up behind an in-flight page and never overlaps chunks", async () => {
+    const initial = deferred(); let status!: (value: "connected" | "disconnected") => void, reads = 0;
+    const call = vi.fn((method: string) => method === "session.inspect" ? Promise.resolve(metadata()) : ++reads === 1 ? initial.promise : Promise.resolve(page("caught up", null)));
+    const client = { call, onStatus: (handler: typeof status) => { status = handler; handler("connected"); return () => {}; } };
+    render(React.createElement(ExistingSessionPanel, { client, threadId: "original" }));
+    await act(async () => {}); expect(reads).toBe(1);
+    await act(async () => status("disconnected")); await act(async () => status("connected")); expect(reads).toBe(1);
+    await act(async () => initial.resolve(page("before reconnect", null)));
+    await screen.findByText("caught up"); expect(reads).toBe(2);
+    expect(call.mock.calls.filter(([method]) => method === "session.inspect")).toHaveLength(2);
+  });
+  it("keeps a shorter authoritative live completion when stale history finishes later", async () => {
+    const history = deferred();
+    const call = vi.fn((method: string) => {
+      if (method === "session.inspect") return Promise.resolve({ ...metadata(), controlsAvailable: true });
+      if (method === "session.history") return history.promise;
+      return Promise.resolve({ connected: true, version: 1, activeTurnId: null, items: [{ id: "m", role: "assistant", status: "completed", content: "final" }], approvals: [] });
+    });
+    render(React.createElement(ExistingSessionPanel, { client: { call }, threadId: "original" }));
+    await screen.findByText("final");
+    await act(async () => history.resolve({ threadId: "original", nextCursor: null, messages: [{ id: "m", role: "assistant", content: "older longer intermediate text" }] }));
+    expect(screen.getByText("final")).toBeTruthy();expect(screen.queryByText("older longer intermediate text")).toBeNull();
   });
   it("loads one older chunk on upward scroll, blocks overlapping requests, and preserves the viewport when prepending", async () => {
     const older = deferred(); let pages = 0;

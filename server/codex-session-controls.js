@@ -99,6 +99,8 @@ class CodexSessionControls {
     const result = await this.client.call(active ? "turn/steer" : "turn/start", { threadId: id, input, ...(active ? { expectedTurnId: active } : {}) });
     const turnId = result.turn?.id || result.turnId;
     this.state(id).activeTurnId = turnId;
+    this.state(id).turnStatus = "inProgress";
+    this.state(id).version++;
     return entry.result = { status: active ? "steered" : "started", turnId };
   }
   async stop(id) {
@@ -121,6 +123,7 @@ class CodexSessionControls {
     if (request.params.availableDecisions && !request.params.availableDecisions.includes(decision)) throw new Error("后台未提供这个审批选项");
     if (request.submitted) throw new Error("审批答复已提交，等待原后台确认");
     this.client.respond(request.wireId, { decision }); request.submitted = true;
+    this.state(id).version++;
     return { status: "submitted" };
   }
 }

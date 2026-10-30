@@ -147,13 +147,22 @@ Working people face their desk screen and alternate staggered typing, thinking,
 breathing and small posture changes. These are visual animations, not inferred
 model reasoning or additional agent activity.
 
-Native changes trigger coalesced `session.updated` WebSocket events. The visible
-chat immediately reads changed items, draining bounded chunks sequentially without
-advancing its cursor past omitted items. A visibility refresh and 15-second read
-repair a missed notification. Live messages preserve phases and up to 64 KiB of
-UTF-8 text; only unusually large messages retain a marked preview limit. The final
-native `item/completed` replaces streamed text authoritatively. Native turn errors
-and interruption status remain visible beside the composer.
+The selected chat uses `session.subscribe` and receives `session.stream` WebSocket
+frames directly from native events, coalesced over 40 ms. In-progress text travels
+as small appends with a checked base version. Native `item/completed` sends an
+authoritative replacement, including shorter or revised final text. The server
+drains bounded bootstrap chunks itself; no browser timer or `session.live` read is
+needed for message updates. Each socket owns one chat subscription, released on
+chat change or disconnect. Slow consumers reconnect and resynchronize rather than
+silently skipping content.
+
+Opening the chat reads one recent history page. Reconnecting reads that page once
+to recover anything missed during a gateway restart; older pages load only on
+upward scrolling or an explicit request. Visibility recovery, a detected event gap
+or a missing append base starts a new subscription. Legacy `session.updated` and
+`session.live` remain available to older tabs. Live messages preserve phases and
+up to 64 KiB of UTF-8 text; only unusually large messages retain a marked preview
+limit. Native turn errors and interruption status remain beside the composer.
 
 The pinned Mac App starts its normal owner over stdio. Switching to a shared
 listener requires one deliberate App quit/relaunch after current work finishes.

@@ -3,23 +3,54 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionControls } from "../../src/features/office/components/SessionControls";
 const snapshot = { connected: true, version: 1, activeTurnId: "turn", items: [], approvals: [] };
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 describe("shared-session composer", () => {
-  it("updates immediately from matching native events and drains one bounded chunk at a time", async () => {
+  it("receives token appends directly over its subscription without live reads or polling", async () => {
     let listener!: (event: { event: string; payload?: unknown }) => void;
     const onItems = vi.fn();
-    let version = 1;
-    const call = vi.fn(async () => ({ ...snapshot, version: version++, hasMore: version === 3, items: [{ id: String(version), role: "assistant", content: "reply" }] }));
+    const call = vi.fn<(method: string, params: unknown) => Promise<{ subscribed: boolean }>>(async () => ({ subscribed: true }));
     const unsubscribe = vi.fn();
     const onEvent = vi.fn(handler => { listener = handler; return unsubscribe; });
     const view = render(React.createElement(SessionControls, { client: { call, onEvent }, threadId: "original", onItems }));
-    await waitFor(() => expect(onItems).toHaveBeenCalledTimes(1));
-    await act(async () => listener({ event: "session.updated", payload: { threadId: "other" } }));
-    expect(call).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(call).toHaveBeenCalledTimes(1));
+    const params = call.mock.calls[0][1] as { subscriptionId: string };
+    expect(call.mock.calls[0][0]).toBe("session.subscribe");
+    const push = (version: number, items: unknown[], extra = {}) => listener({ event: "session.stream", payload: { ...snapshot, threadId: "original", subscriptionId: params.subscriptionId, version, items, ...extra } });
+    await act(async () => push(1, [{ id: "m", role: "assistant", content: "Hello", version: 1 }]));
+    await act(async () => push(2, [{ id: "m", role: "assistant", append: " world", baseVersion: 1, version: 2 }]));
+    expect(onItems).toHaveBeenLastCalledWith([expect.objectContaining({ content: "Hello world", version: 2 })]);
+    await act(async () => push(3, [{ id: "m", role: "assistant", content: "Final", status: "completed", version: 3 }]));
+    expect(onItems).toHaveBeenLastCalledWith([expect.objectContaining({ content: "Final", status: "completed" })]);
+    await act(async () => push(4, [], { threadId: "other" }));
     await act(async () => listener({ event: "session.updated", payload: { threadId: "original" } }));
-    expect(call).toHaveBeenCalledTimes(3);
-    expect(call).toHaveBeenLastCalledWith("session.live", { threadId: "original", since: 2 });
+    expect(onItems).toHaveBeenCalledTimes(3); expect(call).toHaveBeenCalledTimes(1);
+    vi.useFakeTimers(); await act(async () => vi.advanceTimersByTime(60000)); vi.useRealTimers();
+    expect(call).toHaveBeenCalledTimes(1);
     view.unmount(); expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(call).toHaveBeenLastCalledWith("session.unsubscribe", { threadId: "original", subscriptionId: params.subscriptionId });
+  });
+  it("resubscribes on reconnection and ignores frames from a replaced subscription", async () => {
+    let listener!: (event: { event: string; payload?: unknown }) => void;
+    let status!: (value: "connected" | "disconnected") => void;
+    const call = vi.fn<(method: string, params: unknown) => Promise<{ subscribed: boolean }>>(async () => ({ subscribed: true })), onItems = vi.fn();
+    const client = { call, onEvent: (h: typeof listener) => { listener = h; return () => {}; }, onStatus: (h: typeof status) => { status = h; h("connected"); return () => {}; } };
+    render(React.createElement(SessionControls, { client, threadId: "original", onItems }));
+    await act(async () => {}); const first = (call.mock.calls[0][1] as { subscriptionId: string }).subscriptionId;
+    await act(async () => status("disconnected")); await act(async () => status("connected"));
+    const second = (call.mock.calls[1][1] as { subscriptionId: string }).subscriptionId;
+    expect(second).not.toBe(first);
+    await act(async () => listener({ event: "session.stream", payload: { ...snapshot, threadId: "original", subscriptionId: first, items: [{ id: "stale", content: "stale" }] } }));
+    expect(onItems).not.toHaveBeenCalled();
+    await act(async () => listener({ event: "session.stream", payload: { ...snapshot, version: 0, threadId: "original", subscriptionId: second } }));
+    expect((screen.getByLabelText("发送到原会话") as HTMLTextAreaElement).disabled).toBe(false);
+  });
+  it("resynchronizes a missing append base with one new subscription instead of guessing or pulling", async () => {
+    let listener!: (event: { event: string; payload?: unknown }) => void;
+    const call = vi.fn<(method: string, params: unknown) => Promise<{ subscribed: boolean }>>(async () => ({ subscribed: true })), onItems = vi.fn();
+    render(React.createElement(SessionControls, { client: { call, onEvent: h => { listener = h; return () => {}; } }, threadId: "original", onItems }));
+    await act(async () => {});const id = (call.mock.calls[0][1] as { subscriptionId: string }).subscriptionId;
+    await act(async () => listener({ event: "session.stream", payload: { ...snapshot, threadId: "original", subscriptionId: id, items: [{ id: "missing", append: "tail", baseVersion: 1, version: 2 }] } }));
+    expect(onItems).not.toHaveBeenCalled(); expect(call.mock.calls.map(([method]) => method)).toEqual(["session.subscribe", "session.subscribe"]);
   });
   it("sends to the original thread once while a submission is pending", async () => {
     let resolve!: (value: unknown) => void;

@@ -11,14 +11,16 @@ const { loadSessionHistoryPage } = require("./codex-session-history");
 const { CodexSharedClient } = require("./codex-shared-client");
 const { CodexSessionControls } = require("./codex-session-controls");
 const { CodexSessionVoice } = require("./codex-session-voice");
+const { CodexSessionStream } = require("./codex-session-stream");
 
 const index = new CodexSessionIndex(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"));
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
 const port = Number(process.env.CODEX_ADAPTER_PORT || 18790);
-let controls, voice;
+let controls, voice, stream;
 const liveNotifications = new Map();
 function notifyLive(threadId) {
+  stream?.changed(threadId);
   if (!threadId || liveNotifications.has(threadId)) return;
   liveNotifications.set(threadId, setTimeout(() => {
     liveNotifications.delete(threadId);
@@ -34,6 +36,7 @@ const shared = process.env.CLAW3D_CODEX_CONTROL_SOCKET ? new CodexSharedClient(p
   if (frame.method === "connection/closed" && !stopping) process.exit(1);
 }) : null;
 controls = shared ? new CodexSessionControls(shared) : null;
+stream = controls ? new CodexSessionStream(controls) : null;
 voice = shared ? new CodexSessionVoice(shared, controls, (ws, payload) => {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "event", event: "session.voice", payload }));
 }) : null;
@@ -81,12 +84,14 @@ const methods = {
   "session.inspect": async p => { const row = get(p.threadId); return { ...row, statusSource: "App session events", readOnly: !shared, controlsAvailable: Boolean(shared?.ready),
     ...(p.includeHistory === false ? {} : await history(row)) }; },
   "session.attach": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读，原 App 共享控制未启用"); await controls.attach(row.id); return controls.snapshot(row.id); },
+  "session.subscribe": async (p, ws) => { const row = get(p.threadId); if (!stream) throw new Error("当前仍为只读，原 App 共享控制未启用"); return stream.subscribe(ws, row.id, p.subscriptionId); },
+  "session.unsubscribe": async (p, ws) => stream?.unsubscribe(ws, p.subscriptionId) ?? { unsubscribed: true },
   "session.live": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); return controls.snapshot(row.id, Number(p.since) || 0); },
-  "session.send": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); return controls.send(row.id, p.message, p.requestId, p.attachments); },
+  "session.send": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); const result = await controls.send(row.id, p.message, p.requestId, p.attachments); notifyLive(row.id); return result; },
   "session.voice.start": async (p, ws) => { const row = get(p.threadId); if (!voice) throw new Error("原生语音未连接"); return voice.start(ws, row.id, p.sdp, p.voiceId); },
   "session.voice.stop": async (p, ws) => { const row = get(p.threadId); if (!voice) throw new Error("原生语音未连接"); return voice.stop(ws, row.id, p.voiceId); },
   "session.stop": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); return controls.stop(row.id); },
-  "session.approval.reply": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); return controls.reply(row.id, p.requestId, p.decision); },
+  "session.approval.reply": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); const result = controls.reply(row.id, p.requestId, p.decision); notifyLive(row.id); return result; },
   "models.list": async () => ({ models: [] }),
   "status": async () => ({ runtime: "Codex App session organizer", readOnly: !shared, sessions: { recent: rows().map(r => ({ key: key(r.id), updatedAt: r.updatedAt })) } }),
   "agents.files.get": async () => ({ file: { missing: true } }),
@@ -109,7 +114,7 @@ wss.on("connection", ws => {
         if (!ready) throw new Error("Session reader is starting");
         connected = true; clients.add(ws);
         result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "codex-app-session-view-1", connId: crypto.randomUUID() },
-          features: { methods: Object.keys(methods), events: ["tick", "session.updated", "session.voice"] },
+          features: { methods: Object.keys(methods), events: ["tick", "session.updated", "session.stream", "session.voice"] },
           snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: rows()[0]?.id }, sessionDefaults: { mainKey: "main" } },
           auth: { role: "operator", scopes: shared ? ["operator.read", "operator.write", "operator.approvals"] : ["operator.read"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000 } };
       } else {
@@ -120,7 +125,7 @@ wss.on("connection", ws => {
       send({ type: "res", id: frame.id, ok: true, payload: result });
     } catch (error) { send({ type: "res", id: frame.id, ok: false, error: { code: "UNAVAILABLE", message: error.message } }); }
   });
-  ws.on("close", () => { clients.delete(ws); voice?.disconnected(ws); }); ws.on("error", () => clients.delete(ws));
+  ws.on("close", () => { clients.delete(ws); voice?.disconnected(ws); stream?.disconnected(ws); }); ws.on("error", () => { clients.delete(ws); stream?.disconnected(ws); });
 });
 setInterval(() => {
   const frame = JSON.stringify({ type: "event", event: "tick", seq: seq++, payload: { ts: Date.now() } });

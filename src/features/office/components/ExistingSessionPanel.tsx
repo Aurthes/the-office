@@ -55,7 +55,7 @@ export function ExistingSessionPanel({ client, threadId }: {
   }, [messages, loaded]);
 
   useEffect(() => {
-    let stopped = false, busy = false, metadataBusy = false;
+    let stopped = false, busy = false, metadataBusy = false, reloadLatest = false;
     let cursor: string | null = null;
     setData(null); setMessages([]); setOlderCursor(null); setLoaded(false); setError(""); setMetadataError("");
     follow.current = true; anchor.current = null; lastTop.current = 0;
@@ -71,7 +71,8 @@ export function ExistingSessionPanel({ client, threadId }: {
       } finally { metadataBusy = false; }
     };
     const readPage = async (mode: LoadMode) => {
-      if (busy || stopped || (mode === "older" && !cursor)) return;
+      if (stopped || (mode === "older" && !cursor)) return;
+      if (busy) { if (mode === "latest") reloadLatest = true; return; }
       busy = true; setLoading(true); failedMode.current = mode;
       const before = mode === "older" && scroll.current ? { height: scroll.current.scrollHeight, top: scroll.current.scrollTop } : null;
       try {
@@ -84,7 +85,7 @@ export function ExistingSessionPanel({ client, threadId }: {
             const ids = new Set(result.messages.map(message => message.id));
             return [...result.messages.map(message => {
               const live = liveItems.current.get(message.id);
-              return live && live.content.length > message.content.length ? { ...message, ...live } : message;
+              return live && (live.status === "completed" || live.content.length > message.content.length) ? { ...message, ...live } : message;
             }), ...[...liveItems.current.values()].filter(item => !ids.has(item.id))];
           }
           const existing = new Set(previous.map(message => message.id));
@@ -94,12 +95,22 @@ export function ExistingSessionPanel({ client, threadId }: {
         setOlderCursor(cursor); setLoaded(true); setError("");
       } catch (cause) {
         if (!stopped) setError(cause instanceof Error ? cause.message : "读取这一块失败");
-      } finally { busy = false; if (!stopped) setLoading(false); }
+      } finally {
+        busy = false;
+        if (!stopped) {
+          setLoading(false);
+          if (reloadLatest) { reloadLatest = false; void readPage("latest"); }
+        }
+      }
     };
     load.current = readPage;
     void readMetadata(); void readPage("latest");
-    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void readMetadata(); }, 5000);
-    return () => { stopped = true; load.current = null; window.clearInterval(timer); };
+    let connected = true;
+    const unsubscribeStatus = client.onStatus?.(status => {
+      if (status === "connected" && !connected) { void readMetadata(); void readPage("latest"); }
+      connected = status === "connected";
+    });
+    return () => { stopped = true; load.current = null; unsubscribeStatus?.(); };
   }, [client, threadId]);
 
   return <section className="flex min-h-0 flex-1 flex-col text-white" aria-label="App 原会话">

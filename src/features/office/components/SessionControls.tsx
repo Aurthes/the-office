@@ -6,9 +6,16 @@ import { useDictation } from "./useDictation";
 
 export type SessionAsset = { source: string; name: string; kind: "image" | "markdown" | "html" | "file"; url: string; inline?: boolean; attached?: boolean };
 export type LiveSessionItem = { id: string; turnId?: string; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number };
-export type SessionClient = { call: (method: string, params: unknown) => Promise<unknown>; onEvent?: (handler: (event: { event: string; payload?: unknown }) => void) => () => void };
+export type SessionClient = {
+  call: (method: string, params: unknown) => Promise<unknown>;
+  onEvent?: (handler: (event: { event: string; payload?: unknown }) => void) => () => void;
+  onStatus?: (handler: (status: "connected" | "connecting" | "disconnected") => void) => () => void;
+  onGap?: (handler: (gap: { expected: number; received: number }) => void) => () => void;
+};
 type Approval = { requestId: string; method: string; params: Record<string, unknown>; details?: string; decisions: string[]; supported: boolean; submitted?: boolean };
 type Snapshot = { connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; turnStatus?: string; error?: string | null; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number };
+type StreamSnapshot = Omit<Snapshot, "items"> & { threadId: string; subscriptionId: string;
+  items: (LiveSessionItem | (Omit<LiveSessionItem, "content"> & { append: string; baseVersion: number }))[] };
 type Upload = { id: string; name: string; size: number; ref?: string; error?: string };
 
 export function SessionControls({ client, threadId, onItems }: {
@@ -58,32 +65,68 @@ export function SessionControls({ client, threadId, onItems }: {
   const readyToSend = Boolean((text.trim() || uploads.length) && uploads.every(file => file.ref) && !dictation.listening);
   const send = () => { if (readyToSend) void action("session.send", { message: text, attachments: uploads.map(file => file.ref), requestId: crypto.randomUUID() }); };
   useEffect(() => {
-    let stopped = false, pending = false, dirty = false, attached = false, version = 0;
-    const read = async () => {
-      if (stopped) return;
-      if (pending) { dirty = true; return; }
-      pending = true;
-      try {
-        do {
-          dirty = false;
-          const result = await client.call(attached ? "session.live" : "session.attach", { threadId, since: version }) as Snapshot;
-          if (stopped) return;
-          attached = true; version = result.version; setState(result); setConnectionError("");
-          if (result.items.length) onItems(result.items);
-          dirty ||= Boolean(result.hasMore);
-        } while (dirty && !stopped);
-      } catch (cause) {
-        if (!stopped) { attached = false; setState(null); setConnectionError(cause instanceof Error ? cause.message : "实时连接失败"); }
-      } finally { pending = false; }
+    let stopped = false, pending = false, retry = false, connected = true, version = -1;
+    let subscriptionId: string | null = null;
+    const items = new Map<string, LiveSessionItem>();
+    const apply = (result: StreamSnapshot | Snapshot) => {
+      if (stopped || result.version <= version) return;
+      const changed: LiveSessionItem[] = [];
+      for (const item of result.items) {
+        if ("append" in item) {
+          const previous = items.get(item.id);
+          const { append, baseVersion, ...metadata } = item;
+          if (!previous || previous.version !== baseVersion) { void subscribe(); return; }
+          changed.push({ ...previous, ...metadata, content: previous.content + append });
+        } else changed.push(item);
+      }
+      for (const item of changed) items.set(item.id, item);
+      while (items.size > 128) items.delete(items.keys().next().value!);
+      version = result.version; setState({ ...result, items: changed }); setConnectionError("");
+      if (changed.length) onItems(changed);
     };
-    const unsubscribe = client.onEvent?.(event => {
-      if (event.event === "session.updated" && (event.payload as { threadId?: string })?.threadId === threadId) void read();
+    const subscribe = async () => {
+      if (stopped || !connected) return;
+      if (pending) { retry = true; return; }
+      pending = true; retry = false; version = -1; items.clear();
+      const id = crypto.randomUUID(); subscriptionId = id;
+      try {
+        if (client.onEvent) await client.call("session.subscribe", { threadId, subscriptionId: id });
+        else {
+          // One-time compatibility snapshot for clients without event support;
+          // no polling loop. The live browser always uses the subscription.
+          const snapshot = await client.call("session.attach", { threadId }) as Snapshot;
+          if (subscriptionId === id) apply(snapshot);
+        }
+      } catch (cause) {
+        if (!stopped && subscriptionId === id) {
+          setState(null); setConnectionError(cause instanceof Error ? cause.message : "实时连接失败");
+        }
+      } finally {
+        pending = false;
+        if (retry && !stopped) { retry = false; void subscribe(); }
+      }
+    };
+    const unsubscribeEvent = client.onEvent?.(event => {
+      if (event.event !== "session.stream") return;
+      const result = event.payload as StreamSnapshot;
+      if (result?.threadId === threadId && result.subscriptionId === subscriptionId) apply(result);
     });
-    const onVisible = () => { if (document.visibilityState === "visible") void read(); };
-    refresh.current = read; void read();
-    const timer = window.setInterval(onVisible, client.onEvent ? 15000 : 1000);
+    const unsubscribeStatus = client.onStatus?.(status => {
+      connected = status === "connected";
+      if (connected) void subscribe();
+      else { subscriptionId = null; setState(null); }
+    });
+    const unsubscribeGap = client.onGap?.(() => { void subscribe(); });
+    const onVisible = () => { if (document.visibilityState === "visible") void subscribe(); };
+    refresh.current = subscribe;
+    if (!pending && !subscriptionId) void subscribe();
     document.addEventListener("visibilitychange", onVisible);
-    return () => { stopped = true; refresh.current = null; clearInterval(timer); unsubscribe?.(); document.removeEventListener("visibilitychange", onVisible); };
+    return () => {
+      stopped = true; refresh.current = null;
+      unsubscribeEvent?.(); unsubscribeStatus?.(); unsubscribeGap?.();
+      document.removeEventListener("visibilitychange", onVisible);
+      if (client.onEvent && subscriptionId) void client.call("session.unsubscribe", { threadId, subscriptionId }).catch(() => {});
+    };
   }, [client, threadId, onItems]);
   const action = async (method: string, params: object) => {
     if (actionBusy.current || !state?.connected) return;
@@ -94,7 +137,7 @@ export function SessionControls({ client, threadId, onItems }: {
       if (method === "session.send") { setText(""); updateUploads([]); setNotice("已提交到原会话"); }
       if (method === "session.stop") setNotice("停止请求已提交");
       if (method === "session.approval.reply") setNotice("审批答复已提交，等待后台确认");
-      await refresh.current?.();
+      if (!client.onEvent) await refresh.current?.();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "操作失败，请核对原会话后再试"); }
     finally { actionBusy.current = false; setBusy(false); }
   };
@@ -141,7 +184,7 @@ export function SessionControls({ client, threadId, onItems }: {
     {dictation.error || voice.error ? <p role="alert" className="mt-2 break-words text-xs text-amber-100">{dictation.error || voice.error}</p> : null}
     {error ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{error}</p> : null}
     {state?.error ? <p role="alert" className="mt-2 break-words text-xs text-rose-200">{state.error}</p> : null}
-    {connectionError ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{connectionError}</p> : null}
+    {connectionError ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{connectionError} <button className="underline" onClick={() => void refresh.current?.()}>重新连接</button></p> : null}
     </div>
   </div>;
 }
