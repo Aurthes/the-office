@@ -42,6 +42,7 @@ class CodexSharedClient {
   async initialize() {
     await this.opened;
     const result = await this.call("initialize", { clientInfo: { name: "claw3d_shared_client", title: "Claw3D", version: "1" }, capabilities: { experimentalApi: true } });
+    this.userAgent = result.userAgent;
     this.ws.send(JSON.stringify({ method: "initialized" })); this.ready = true;
     return result;
   }

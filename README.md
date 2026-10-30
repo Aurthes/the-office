@@ -22,7 +22,7 @@ preserved in [LICENSE](LICENSE).
   continuation, steering, stopping and supported approvals.
 - **Attachments and previews.** Upload files, paste images and view supported
   images, Markdown and sandboxed HTML reports in the conversation.
-- **Dictation and voice.** Browser dictation and the version-pinned native Codex
+- **Dictation and voice.** Web microphone recording with native Codex dictation and version-pinned Codex
   realtime voice transport, subject to browser and account support.
 - **Authenticated web access.** A separate login gateway supports password setup,
   TOTP authenticators, recovery codes and persistent login sessions.

@@ -86,6 +86,8 @@ async function history(row, cursor) {
   return loadSessionHistoryPage(call, row, cursor);
 }
 const { answerQuestions } = require("./codex-session-questions");
+const { NativeDictationSessions } = require("./codex-dictation");
+const nativeDictation = new NativeDictationSessions(shared);
 const methods = {
   "office.snapshot": async () => {
     const listed = agents();
@@ -118,6 +120,10 @@ const methods = {
   },
   "session.settings.choices": async p => { const row = get(p.threadId); if (!controls) throw new Error("原会话设置未连接"); return controls.choices(row.id); },
   "session.settings.update": async p => { const row = get(p.threadId); if (!controls) throw new Error("原会话设置未连接"); return controls.updateSettings(row.id, p.settings); },
+  "session.dictation.start": async (p, ws) => { const row = get(p.threadId); return nativeDictation.start(ws, row.id, p.id); },
+  "session.dictation.append": async (p, ws) => nativeDictation.append(ws, p),
+  "session.dictation.finish": async (p, ws) => nativeDictation.finish(ws, p),
+  "session.dictation.cancel": async (p, ws) => nativeDictation.cancel(ws, p),
   "session.voice.start": async (p, ws) => { const row = get(p.threadId); if (!voice) throw new Error("原生语音未连接"); return voice.start(ws, row.id, p.sdp, p.voiceId); },
   "session.voice.stop": async (p, ws) => { const row = get(p.threadId); if (!voice) throw new Error("原生语音未连接"); return voice.stop(ws, row.id, p.voiceId); },
   "session.stop": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); return controls.stop(row.id); },
@@ -127,7 +133,12 @@ const methods = {
   "agents.files.get": async () => ({ file: { missing: true } }),
   "exec.approvals.get": async () => ({ file: { agents: Object.fromEntries(rows().map(r => [r.id, { security: "deny", ask: "always" }])) } }),
 };
-const server = http.createServer((_req, res) => { res.writeHead(ready ? 200 : 503, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: ready, runtime: "Codex App session organizer", agents: rows().length, readOnly: !shared })); });
+const { createDictationHandler } = require("./codex-dictation");
+const dictate = createDictationHandler({ client: shared, token, findThread: get });
+const server = http.createServer((req, res) => {
+  if (req.method === "POST" && req.url?.split("?")[0] === "/dictation") { void dictate(req, res); return; }
+  res.writeHead(ready ? 200 : 503, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: ready, runtime: "Codex App session organizer", agents: rows().length, readOnly: !shared }));
+});
 const wss = new WebSocketServer({ server, maxPayload: 256 * 1024 });
 wss.on("connection", ws => {
   let connected = false;
@@ -155,13 +166,13 @@ wss.on("connection", ws => {
       send({ type: "res", id: frame.id, ok: true, payload: result });
     } catch (error) { send({ type: "res", id: frame.id, ok: false, error: { code: "UNAVAILABLE", message: error.message } }); }
   });
-  ws.on("close", () => { clients.delete(ws); voice?.disconnected(ws); stream?.disconnected(ws); }); ws.on("error", () => { clients.delete(ws); stream?.disconnected(ws); });
+  ws.on("close", () => { clients.delete(ws); nativeDictation.disconnected(ws); voice?.disconnected(ws); stream?.disconnected(ws); }); ws.on("error", () => { clients.delete(ws); stream?.disconnected(ws); });
 });
 setInterval(() => {
   const frame = JSON.stringify({ type: "event", event: "tick", seq: seq++, payload: { ts: Date.now() } });
   for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame);
 }, 30000).unref();
-for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => { stopping = true; rosterSync.close(); server.close(); for (const ws of clients) ws.close(1001, "Server stopping"); reader?.stdin.end(); shared?.close(); index.close(); });
+for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => { stopping = true; nativeDictation.close(); dictate.close(); rosterSync.close(); server.close(); for (const ws of clients) ws.close(1001, "Server stopping"); reader?.stdin.end(); shared?.close(); index.close(); });
 (shared ? shared.initialize() : call("initialize", { clientInfo: { name: "claw3d_session_reader", title: "Claw3D existing sessions", version: "1" } })).then(() => {
   reader?.stdin.write(JSON.stringify({ method: "initialized" }) + "\n"); rosterSync.start(); ready = true;
   server.listen(port, "127.0.0.1", () => console.log(`[session-view] ${shared ? "Shared App owner connected" : "Read-only reader; controls disabled"}`));

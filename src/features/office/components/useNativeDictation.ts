@@ -1,0 +1,146 @@
+"use client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { SessionClient } from "./SessionControls";
+type Bridge = { id: string; client: SessionClient; ready: Promise<void>; connected: boolean; sent: number; pending: Set<Promise<void>>; error?: Error; cancelled?: boolean };
+type Clip = { blob: Blob; seconds: number; base: string };
+type Capture = { context: AudioContext; node?: AudioWorkletNode; source?: MediaStreamAudioSourceNode; stream?: MediaStream; frames: Int16Array[]; samples: number; stopped: boolean; flush?: () => void; limit?: ReturnType<typeof setTimeout>; bridge?: Bridge };
+// Keep an interrupted recording when switching between chats within this page.
+const recordings = new Map<string, Clip>();
+export function pcmWav(frames: Int16Array[], samples: number) {
+  const bytes = new ArrayBuffer(44 + samples * 2), view = new DataView(bytes);
+  const text = (offset: number, value: string) => { for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i)); };
+  text(0, "RIFF"); view.setUint32(4, 36 + samples * 2, true); text(8, "WAVE"); text(12, "fmt "); view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, 16000, true); view.setUint32(28, 32000, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true); text(36, "data"); view.setUint32(40, samples * 2, true);
+  let offset = 44; for (const frame of frames) for (const sample of frame) { view.setInt16(offset, sample, true); offset += 2; }
+  return new Blob([bytes], { type: "audio/wav" });
+}
+export function useNativeDictation(threadId: string, draft: string, onText: (text: string) => void, client?: SessionClient) {
+  const [phase, setPhase] = useState<"idle" | "starting" | "recording" | "transcribing" | "error">(() => recordings.has(threadId) ? "error" : "idle");
+  const [clip, setClip] = useState<Clip | null>(() => recordings.get(threadId) || null);
+  const [error, setError] = useState(() => recordings.has(threadId) ? "有一段保留的录音，可重试转写或下载" : "");
+  const [seconds, setSeconds] = useState(0);
+  const capture = useRef<Capture | null>(null), request = useRef<AbortController | null>(null);
+  const mounted = useRef(true), stopRequested = useRef(false), latest = useRef({ draft, onText, client });
+  const finishingBridge = useRef<Bridge | null>(null);
+  useEffect(() => { latest.current = { draft, onText, client }; }, [draft, onText, client]);
+  const transcribe = useCallback(async (audio: Clip) => {
+    if (request.current) return;
+    const controller = new AbortController(); request.current = controller; setPhase("transcribing"); setError("");
+    try {
+      const result = await fetch("/api/session-dictation?" + new URLSearchParams({ threadId }), { method: "POST", body: audio.blob, headers: { "Content-Type": "audio/wav" }, signal: controller.signal });
+      const data = await result.json();
+      if (!result.ok || typeof data.text !== "string" || !data.text.trim()) throw new Error(data.error || "原生听写未返回文字，录音已保留");
+      if (mounted.current) { latest.current.onText(audio.base + (audio.base.trim() ? " " : "") + data.text); setPhase("idle"); }
+    } catch (cause) {
+      if (mounted.current) { setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "转写已取消，录音已保留"); setPhase("error"); }
+    } finally { if (request.current === controller) request.current = null; }
+  }, [threadId]);
+  const cancelBridge = useCallback((bridge: Bridge) => {
+    bridge.cancelled = true;
+    void bridge.ready.then(() => bridge.client.call("session.dictation.cancel", { threadId, id: bridge.id })).catch(() => {});
+  }, [threadId]);
+  const sendFrames = useCallback((current: Capture) => {
+    const bridge = current.bridge;
+    if (!bridge?.connected || bridge.error || bridge.cancelled) return;
+    while (bridge.sent < current.frames.length) {
+      if (bridge.pending.size >= 64) { bridge.error = new Error("听写网络拥塞，录音仍在本地保留"); break; }
+      const frame = current.frames[bridge.sent], sequence = bridge.sent++;
+      const bytes = new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength);
+      const pending = bridge.client.call("session.dictation.append", { threadId, id: bridge.id, sequence, audio: btoa(String.fromCharCode(...bytes)) }).then(() => {}, cause => {
+        bridge.error = cause instanceof Error ? cause : new Error("原生听写连接中断，录音仍在本地保留");
+        if (mounted.current && capture.current === current) setError("原生连接中断；继续录音会保留，结束后可重试转写");
+      });
+      bridge.pending.add(pending); void pending.then(() => bridge.pending.delete(pending));
+    }
+  }, [threadId]);
+  const finishCapture = useCallback(async (run = true) => {
+    stopRequested.current = true;
+    const current = capture.current;
+    if (!current || current.stopped || !current.stream) return;
+    current.stopped = true; clearTimeout(current.limit);
+    if (current.node) await new Promise<void>(resolve => {
+      const timeout = setTimeout(resolve, 500);
+      current.flush = () => { clearTimeout(timeout); resolve(); }; current.node!.port.postMessage("stop");
+    });
+    current.stream.getTracks().forEach(track => track.stop()); current.source?.disconnect(); current.node?.disconnect();
+    await current.context.close().catch(() => {});
+    if (capture.current === current) capture.current = null;
+    if (!current.samples) { if (current.bridge) cancelBridge(current.bridge); if (mounted.current) { setError("没有录到声音，请确认麦克风后重试"); setPhase("error"); } return; }
+    const audio = { blob: pcmWav(current.frames, current.samples), seconds: current.samples / 16000, base: latest.current.draft };
+    recordings.set(threadId, audio);
+    if (!mounted.current || !run) {
+      if (current.bridge) cancelBridge(current.bridge);
+      if (mounted.current) { setClip(audio); setSeconds(audio.seconds); setPhase("error"); setError("录音已停止并保留，可重试转写或下载"); }
+      return;
+    }
+    setClip(audio); setSeconds(audio.seconds);
+    if (!current.bridge) { void transcribe(audio); return; }
+    const bridge = current.bridge; finishingBridge.current = bridge; setPhase("transcribing"); setError("");
+    try {
+      await bridge.ready; sendFrames(current); await Promise.all([...bridge.pending]);
+      if (bridge.error) throw bridge.error;
+      const result = await bridge.client.call("session.dictation.finish", { threadId, id: bridge.id, sequence: bridge.sent }) as { text?: string };
+      if (!result.text?.trim()) throw new Error("原生听写没有返回完整文字，录音已保留");
+      if (mounted.current) { latest.current.onText(audio.base + (audio.base.trim() ? " " : "") + result.text); setPhase("idle"); }
+    } catch (cause) {
+      cancelBridge(bridge);
+      if (mounted.current) { setError(cause instanceof Error ? cause.message : "原生听写中断，录音已保留"); setPhase("error"); }
+    } finally { if (finishingBridge.current === bridge) finishingBridge.current = null; }
+  }, [threadId, transcribe, sendFrames, cancelBridge]);
+  const start = useCallback(async () => {
+    if (capture.current || request.current) return;
+    stopRequested.current = false; setError(""); setPhase("starting"); setSeconds(0);
+    try {
+      // Resume from the button gesture, before awaiting a mobile permission prompt.
+      const context = new AudioContext();
+      const current: Capture = { context, frames: [], samples: 0, stopped: false }; capture.current = current;
+      const resume = context.resume();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }); current.stream = stream;
+      await resume;
+      if (!mounted.current || stopRequested.current || capture.current !== current) { current.stopped = true; stream.getTracks().forEach(track => track.stop()); await context.close().catch(() => {}); if (capture.current === current) capture.current = null; if (mounted.current) setPhase("idle"); return; }
+      await context.audioWorklet.addModule("/audio/native-dictation-recorder.js");
+      if (!mounted.current || stopRequested.current || capture.current !== current) { stream.getTracks().forEach(track => track.stop()); await context.close().catch(() => {}); return; }
+      const node = new AudioWorkletNode(context, "native-dictation-recorder"); current.node = node;
+      node.onprocessorerror = () => { if (!current.stopped) void finishCapture(false); };
+      context.onstatechange = () => { if (!current.stopped && context.state !== "running") void finishCapture(false); };
+      node.port.onmessage = event => {
+        if (event.data.stopped) { current.flush?.(); return; }
+        if (!(event.data.pcm instanceof Int16Array)) return;
+        const pcm = event.data.pcm as Int16Array;
+        if (current.samples + pcm.length > 16000 * 600) { void finishCapture(false); return; }
+        current.frames.push(pcm); current.samples += pcm.length; sendFrames(current);
+        if (mounted.current) setSeconds(current.samples / 16000);
+      };
+      current.source = context.createMediaStreamSource(stream); current.source.connect(node); node.connect(context.destination);
+      stream.getTracks().forEach(track => track.addEventListener("ended", () => { if (!current.stopped) void finishCapture(false); }, { once: true }));
+      current.limit = setTimeout(() => { void finishCapture(false); }, 600000);
+      if (stopRequested.current) { void finishCapture(); return; }
+      if (latest.current.client) {
+        const bridge: Bridge = { id: crypto.randomUUID(), client: latest.current.client, connected: false, sent: 0, pending: new Set(), ready: Promise.resolve() };
+        current.bridge = bridge;
+        bridge.ready = bridge.client.call("session.dictation.start", { threadId, id: bridge.id }).then(() => {
+          bridge.connected = true; sendFrames(current);
+        }).catch(cause => { bridge.error = cause instanceof Error ? cause : new Error("原生听写连接失败"); if (mounted.current && capture.current === current) setError("原生连接暂不可用，录音仍在本地保留，结束后可重试"); });
+      }
+      if (mounted.current) setPhase("recording");
+    } catch {
+      const current = capture.current; capture.current = null;
+      current?.stream?.getTracks().forEach(track => track.stop()); void current?.context.close().catch(() => {});
+      if (mounted.current) { setError("无法启动录音，请允许麦克风并使用 HTTPS 页面"); setPhase("error"); }
+    }
+  }, [finishCapture, sendFrames, threadId]);
+  const clear = useCallback(() => { recordings.delete(threadId); setClip(null); setError(""); setPhase("idle"); }, [threadId]);
+  const download = useCallback(() => {
+    if (!clip) return;
+    const url = URL.createObjectURL(clip.blob), link = document.createElement("a"); link.href = url; link.download = "codex-dictation.wav"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [clip]);
+  useEffect(() => {
+    mounted.current = true;
+    const leave = (event: BeforeUnloadEvent) => { if (capture.current || recordings.has(threadId)) { event.preventDefault(); event.returnValue = ""; } };
+    const hidden = () => { if (document.hidden && capture.current) void finishCapture(false); };
+    window.addEventListener("beforeunload", leave); document.addEventListener("visibilitychange", hidden);
+    return () => { mounted.current = false; request.current?.abort(); if (finishingBridge.current) cancelBridge(finishingBridge.current); void finishCapture(false); window.removeEventListener("beforeunload", leave); document.removeEventListener("visibilitychange", hidden); };
+  }, [threadId, finishCapture, cancelBridge]);
+  return { phase, clip, error, seconds, start, stop: () => finishCapture(), retry: () => clip && transcribe({ ...clip, base: latest.current.draft }), cancel: () => { request.current?.abort(); if (finishingBridge.current) cancelBridge(finishingBridge.current); }, clear, download, busy: ["starting", "recording", "transcribing"].includes(phase) };
+}

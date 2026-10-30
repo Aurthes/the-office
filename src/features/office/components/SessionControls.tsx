@@ -4,6 +4,7 @@ import { Headphones, Mic, Paperclip, PhoneOff, X } from "lucide-react";
 import { SessionSettings, type ChatSettings } from "./SessionSettings";
 import { useSessionVoice } from "./useSessionVoice";
 import { SessionQuestions, type SessionQuestionRequest } from "./SessionQuestions";
+import { useNativeDictation } from "./useNativeDictation";
 
 export type SessionAsset = { source: string; name: string; kind: "image" | "markdown" | "html" | "file"; url: string; inline?: boolean; attached?: boolean };
 export type LiveSessionItem = { id: string; turnId?: string; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number };
@@ -36,6 +37,7 @@ export function SessionControls({ client, threadId, onItems }: {
   const uploadsRef = useRef<Upload[]>([]);
   const uploadRequests = useRef(new Map<string, AbortController>());
   const picker = useRef<HTMLInputElement>(null);
+  const dictation = useNativeDictation(threadId, text, setText, client);
   const voice = useSessionVoice(client, threadId);
   const updateUploads = (next: Upload[]) => { uploadsRef.current = next; setUploads(next); };
   useEffect(() => {
@@ -63,7 +65,7 @@ export function SessionControls({ client, threadId, onItems }: {
     }));
   };
   const removeFile = (id: string) => { uploadRequests.current.get(id)?.abort(); updateUploads(uploadsRef.current.filter(item => item.id !== id)); };
-  const readyToSend = Boolean((text.trim() || uploads.length) && uploads.every(file => file.ref));
+  const readyToSend = Boolean((text.trim() || uploads.length) && uploads.every(file => file.ref) && !dictation.busy);
   const send = () => { if (readyToSend) void action("session.send", { message: text, attachments: uploads.map(file => file.ref), requestId: crypto.randomUUID() }); };
   useEffect(() => {
     let stopped = false, pending = false, retry = false, connected = true, version = -1;
@@ -135,7 +137,7 @@ export function SessionControls({ client, threadId, onItems }: {
     setBusy(true); setError(""); setNotice("");
     try {
       await client.call(method, { threadId, ...params });
-      if (method === "session.send") { setText(""); updateUploads([]); setNotice("已提交到原会话"); }
+      if (method === "session.send") { setText(""); if (!dictation.error) dictation.clear(); updateUploads([]); setNotice("已提交到原会话"); }
       if (method === "session.stop") setNotice("停止请求已提交");
       if (method === "session.approval.reply") setNotice("审批答复已提交，等待后台确认");
       if (!client.onEvent) await refresh.current?.();
@@ -169,12 +171,12 @@ export function SessionControls({ client, threadId, onItems }: {
     {state?.questions?.map(request => <SessionQuestions key={threadId + request.requestId} client={client} threadId={threadId} request={request} />)}
     <textarea aria-label="发送到原会话" placeholder="继续同一条 Codex 会话…" rows={2} value={text} onChange={event => setText(event.target.value)} onKeyDown={event => {
       if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); }
-    }} onPaste={event => { if (event.clipboardData.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)); } }} disabled={busy || settingsBusy || !state?.connected} className="max-h-36 min-h-14 w-full resize-none rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50" />
+    }} onPaste={event => { if (event.clipboardData.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)); } }} disabled={busy || settingsBusy || !state?.connected || dictation.busy} className="max-h-36 min-h-14 w-full resize-none rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50" />
     <div className="mt-2 flex items-center justify-between gap-2">
       <div className="flex shrink-0 items-center gap-1">
         <button aria-label="添加附件" title="添加附件，也可拖入文件或粘贴图片" disabled={busy || settingsBusy || !state?.connected} onClick={() => picker.current?.click()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Paperclip size={19} /></button>
-        <button aria-label="网页原生听写暂不可用" aria-describedby="native-dictation-note" title="桌面端请使用 Codex App 的全局听写快捷键；网页原生录音尚未接通" disabled className="grid h-10 w-10 place-items-center rounded-lg text-white/35"><Mic size={19} /></button>
-        <button aria-label="语音对话" title="与此会话实时语音对话" disabled={busy || settingsBusy || !state?.connected || voice.status !== "off"} onClick={() => void voice.start()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button>
+        <button aria-label={dictation.phase === "recording" || dictation.phase === "starting" ? "结束录音并转写" : "原生听写"} title="网页录音，Codex 原生转文字；再次点击结束，文字填入草稿后再发送" disabled={dictation.phase === "transcribing" || (!(dictation.phase === "recording" || dictation.phase === "starting") && (busy || settingsBusy || !state?.connected || voice.status !== "off"))} onClick={() => { if (dictation.phase === "recording" || dictation.phase === "starting") void dictation.stop(); else void dictation.start(); }} className={"grid h-10 w-10 place-items-center rounded-lg disabled:opacity-40 " + (dictation.phase === "recording" ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65 hover:bg-white/5")}><Mic size={19} /></button>
+        <button aria-label="语音对话" title="与此会话实时语音对话" disabled={busy || settingsBusy || !state?.connected || dictation.busy || voice.status !== "off"} onClick={() => void voice.start()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button>
       </div>
       <span className="hidden min-w-0 flex-1 truncate text-xs text-white/45 sm:block">{state?.connected ? state.activeTurnId ? "Codex 正在工作…" : state.turnStatus === "interrupted" ? "已停止" : "Codex · 已连接" : "连接 Codex…"}</span>
       <div className="flex shrink-0 items-center gap-2">
@@ -182,7 +184,9 @@ export function SessionControls({ client, threadId, onItems }: {
         <button disabled={busy || settingsBusy || !state?.connected || !readyToSend} onClick={send} className="min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40">{busy ? "提交中…" : state?.activeTurnId ? "追加消息" : "发送"}</button>
       </div>
     </div>
-    <p id="native-dictation-note" className="mt-1 text-[10px] text-white/45">原生听写：电脑可用 Codex 全局快捷键；网页录音尚未接通。</p>
+    {dictation.phase === "starting" ? <p role="status" className="mt-1 text-xs text-cyan-100">正在准备麦克风…</p> : dictation.phase === "recording" ? <p role="status" className="mt-1 text-xs text-rose-200">正在录音 · {Math.floor(dictation.seconds / 60)}:{String(Math.floor(dictation.seconds % 60)).padStart(2, "0")} · 点击麦克风结束 · 最长 10 分钟</p> : dictation.phase === "transcribing" ? <p role="status" className="mt-1 text-xs text-cyan-100">Codex 原生转写中… <button onClick={dictation.cancel} className="underline">取消并保留录音</button></p> : null}
+    {dictation.clip && !dictation.busy ? <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] text-white/55"><span>录音已保留 · {Math.ceil(dictation.clip.seconds)} 秒</span>{dictation.phase === "error" ? <button className="text-cyan-200 underline" onClick={() => void dictation.retry()}>重试转写</button> : null}<button className="underline" onClick={dictation.download}>下载录音</button><button className="underline" onClick={dictation.clear}>清除录音</button></div> : null}
+    {dictation.error ? <p role="alert" className="mt-1 text-xs text-amber-100">{dictation.error}</p> : null}
     {notice ? <p role="status" className="mt-2 text-[10px] text-cyan-100">{notice}</p> : null}
     {voice.error ? <p role="alert" className="mt-2 break-words text-xs text-amber-100">{voice.error}</p> : null}
     {error ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{error}</p> : null}

@@ -26,7 +26,7 @@ describe("web composer media", () => {
     render(React.createElement(SessionControls, { client: { call }, threadId: "chosen-thread", onItems: vi.fn() }));
     const input = screen.getByLabelText("发送到原会话") as HTMLTextAreaElement;
     await waitFor(() => expect(input.disabled).toBe(false));
-    expect(screen.getByRole("button", { name: "网页原生听写暂不可用" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "原生听写" })).not.toBeDisabled();
     const down = new KeyboardEvent("keydown", { key: "Alt", code: "AltRight", location: 2, altKey: true, bubbles: true, cancelable: true });
     const up = new KeyboardEvent("keyup", { key: "Alt", code: "AltRight", location: 2, bubbles: true, cancelable: true });
     fireEvent(window, down); fireEvent(window, up);

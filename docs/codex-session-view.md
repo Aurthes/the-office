@@ -178,19 +178,32 @@ an attachment. An attachment can therefore require the native sandbox's normal
 read approval. Unsupported document preview formats download as attachments;
 generic downloads are limited to this upload directory, not arbitrary local paths.
 
-Dictation must use the native Codex transcription backend. Browser speech
-recognition is not a substitute and is not started by the Codex composer.
-The web microphone button is explicitly unavailable until a native transcription
-bridge is supported and verified. The pinned app-server protocol exposes realtime
-voice control but no standalone dictation request; the desktop App's private
-transcription endpoint is not bridged here.
+The microphone button records directly in the web page on desktop and mobile.
+Click to start, then click again to stop. Web Audio captures mono 16 kHz PCM and
+streams ordered audio chunks through the authenticated gateway while recording.
+The draft receives text only after recording ends. The local gateway
+uses the installed Codex owner's existing ChatGPT authentication, native account
+routing and SDK user agent to call the desktop App's native `/dictation/stream`
+service. Credentials stay in the local gateway. This is the native dictation
+protocol, not a Realtime chat instructed to transcribe, browser speech recognition,
+an OpenClaw provider, or a separate API-key transcription model. Its private,
+version-bound protocol was verified against Codex CLI 0.165.0-alpha.1.2 and the
+installed desktop App. It requires a logged-in ChatGPT account with dictation
+available; other auth modes are rejected explicitly.
 
-On a desktop with Codex global dictation configured, focus the web text field and
-use the shortcut configured in Codex. The desktop App owns capture, transcription,
-and insertion into the focused field. The web page does not intercept Option or
-send the inserted draft automatically. This desktop integration does not provide
-browser recording/transcription on a phone. Native voice calls remain available
-through the separate headphones control below.
+Only authoritative final transcripts are inserted after a clean native completion.
+Utterance order and final revisions are preserved. Dictation never starts a Codex
+turn; review the draft and Send normally. A recording is limited to 10 minutes and
+20 MiB. Interruption and limit stops preserve the captured portion and expose retry
+and WAV download. Audio stays in browser memory through retries and chat switches;
+refreshing or closing the page warns while a recording is unsent. The local gateway
+does not write an audio file. Recovery uploads the retained WAV and replays it at
+the native audio rate; retry can take about as long as the recording. Accelerated
+replay is avoided because the native service can reject long audio bursts. Sending successfully
+or explicitly clearing the recording releases the browser copy. Capture stops when
+the page is hidden or the chat closes. Recognition failures keep the original draft
+and audio instead of inserting a partial transcript. The gateway limits concurrent
+transcriptions and authenticates the binary endpoint before reading uploads.
 
 The headphones button starts the pinned native `thread/realtime/start` v3 WebRTC
 transport on the same loaded thread, using its existing Codex account. SDP and
