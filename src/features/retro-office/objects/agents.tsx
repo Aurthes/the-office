@@ -65,6 +65,8 @@ export const AgentModel = memo(function AgentModel({
   showSpeech = false,
   speechText = null,
   suppressSpeechBubble = false,
+  hideLabels = false,
+  initialPosition,
 }: AgentModelProps) {
   const marker = needsInput ? "!" : needsReview && status === "idle" ? "?" : null;
   const showReviewMarker = Boolean(marker);
@@ -712,6 +714,7 @@ export const AgentModel = memo(function AgentModel({
   return (
     <group
       ref={groupRef}
+      position={initialPosition}
       scale={[AGENT_SCALE, AGENT_SCALE, AGENT_SCALE]}
       onPointerOver={(event) => {
         event.stopPropagation();
@@ -1091,7 +1094,7 @@ export const AgentModel = memo(function AgentModel({
           depthWrite={false}
         />
       </mesh>
-      {!activeSpeechBubble && nameplateText ? (
+      {!hideLabels && !activeSpeechBubble && nameplateText ? (
         <Billboard position={[0, 1.05, 0]}>
           <mesh position={[0, 0, -0.001]}>
             <planeGeometry args={[0.82, subtitleText ? 0.34 : 0.24]} />
@@ -1131,11 +1134,11 @@ export const AgentModel = memo(function AgentModel({
           ) : null}
         </Billboard>
       ) : null}
-      {showReviewMarker ? <Billboard position={[0, activeSpeechBubble ? 2 + speechBubbleHeight / 2 : 1.52, 0]}>
+      {!hideLabels && showReviewMarker ? <Billboard position={[0, activeSpeechBubble ? 2 + speechBubbleHeight / 2 : 1.52, 0]}>
         <Text name={needsInput ? "pending-question" : "unread-completion"} fontSize={0.46} color="#facc15" outlineWidth={0.025} outlineColor="#3b2700"
           anchorX="center" anchorY="middle" renderOrder={99999} material-depthTest={false} material-depthWrite={false}>{marker}</Text>
       </Billboard> : null}
-      <group ref={awayBubbleRef} visible={false}>
+      {!hideLabels ? <group ref={awayBubbleRef} visible={false}>
         <Billboard position={[0, 1.3, 0]}>
           <mesh position={[0, 0, -0.001]}>
             <planeGeometry args={[0.32, 0.18]} />
@@ -1151,8 +1154,8 @@ export const AgentModel = memo(function AgentModel({
             z z z
           </Text>
         </Billboard>
-      </group>
-      <group ref={speechBubbleRef} visible={false}>
+      </group> : null}
+      {!hideLabels ? <group ref={speechBubbleRef} visible={false}>
         <Billboard position={[0, 1.45, 0]}>
           {activeSpeechBubble ? (
             <mesh
@@ -1236,7 +1239,7 @@ export const AgentModel = memo(function AgentModel({
             </Text>
           ) : null}
         </Billboard>
-      </group>
+      </group> : null}
     </group>
   );
 });
