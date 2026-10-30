@@ -88,6 +88,8 @@ const methods = {
   "session.unsubscribe": async (p, ws) => stream?.unsubscribe(ws, p.subscriptionId) ?? { unsubscribed: true },
   "session.live": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); return controls.snapshot(row.id, Number(p.since) || 0); },
   "session.send": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); const result = await controls.send(row.id, p.message, p.requestId, p.attachments); notifyLive(row.id); return result; },
+  "session.settings.choices": async p => { const row = get(p.threadId); if (!controls) throw new Error("原会话设置未连接"); return controls.choices(row.id); },
+  "session.settings.update": async p => { const row = get(p.threadId); if (!controls) throw new Error("原会话设置未连接"); return controls.updateSettings(row.id, p.settings); },
   "session.voice.start": async (p, ws) => { const row = get(p.threadId); if (!voice) throw new Error("原生语音未连接"); return voice.start(ws, row.id, p.sdp, p.voiceId); },
   "session.voice.stop": async (p, ws) => { const row = get(p.threadId); if (!voice) throw new Error("原生语音未连接"); return voice.stop(ws, row.id, p.voiceId); },
   "session.stop": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); return controls.stop(row.id); },

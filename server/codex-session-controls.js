@@ -2,6 +2,7 @@
 const crypto = require("node:crypto");
 const { sessionItem, clipText } = require("./codex-session-items");
 const { messageInput } = require("./codex-session-uploads");
+const { sessionSettings, sessionChoices, settingsPatch } = require("./codex-session-settings");
 const supportedApprovals = new Set(["item/commandExecution/requestApproval", "item/fileChange/requestApproval"]);
 
 class CodexSessionControls {
@@ -17,12 +18,33 @@ class CodexSessionControls {
       const pending = this.client.call("thread/loaded/list", {}).then(async result => {
         if (!result.data.includes(id)) throw Object.assign(new Error("请先在原 App 打开此会话一次，以沿用它当前的工具与权限配置"), { code: "APP_THREAD_NOT_LOADED" });
         return this.client.call("thread/resume", { threadId: id, excludeTurns: true });
-      }).then(async () => {
+      }).then(async result => {
+        if (!this.state(id).settings) this.saveSettings(id, result);
         await this.refreshTurn(id); return true;
       }).catch(error => { this.attaching.delete(id); throw error; });
       this.attaching.set(id, pending);
     }
     await this.attaching.get(id);
+  }
+  saveSettings(id, result) {
+    const settings = sessionSettings(result);
+    if (!settings) return;
+    const state = this.state(id);
+    state.cwd = result.cwd;
+    if (JSON.stringify(state.settings) !== JSON.stringify(settings)) { state.settings = settings; state.version++; }
+  }
+  async choices(id) {
+    await this.attach(id);
+    return sessionChoices(this.client, this.state(id).cwd);
+  }
+  async updateSettings(id, input) {
+    const choices = await this.choices(id);
+    if (!this.state(id).settings) throw new Error("原会话设置尚未就绪");
+    const patch = settingsPatch(input, this.state(id).settings, choices);
+    await this.client.call("thread/settings/update", { threadId: id, ...patch });
+    // The native settings notification is the source of truth, pushed to every
+    // connected view. Never apply a guessed optimistic state or restart a turn.
+    return { updated: true };
   }
   async refreshTurn(id) {
     const result = await this.client.call("thread/turns/list", { threadId: id, limit: 1, itemsView: "notLoaded", sortDirection: "desc" });
@@ -35,6 +57,7 @@ class CodexSessionControls {
     if (frame.method === "connection/closed") { this.attaching.clear(); return; }
     if (!id) return;
     const state = this.state(id);
+    if (frame.method === "thread/settings/updated") { this.saveSettings(id, p.threadSettings); return; }
     if (frame.id !== undefined) {
       this.requests.set(String(frame.id), { requestId: String(frame.id), wireId: frame.id, method: frame.method, params: p, supported: supportedApprovals.has(frame.method) });
       state.version++; return;
@@ -71,7 +94,7 @@ class CodexSessionControls {
       items.push(visible); bytes += size;
     }
     const hasMore = items.length < changed.length;
-    return { connected: true, version: hasMore ? items.at(-1).version : state.version, hasMore, activeTurnId: state.activeTurnId, turnStatus: state.turnStatus, error: state.error, items,
+    return { connected: true, version: hasMore ? items.at(-1).version : state.version, hasMore, activeTurnId: state.activeTurnId, turnStatus: state.turnStatus, error: state.error, settings: state.settings, items,
       approvalCount: [...this.requests.values()].filter(r => r.params.threadId === id).length,
       approvals: [...this.requests.values()].filter(r => r.params.threadId === id).slice(0, 2).map(request => {
         const item = state.items.get(`${request.params.turnId}:${request.params.itemId}`);

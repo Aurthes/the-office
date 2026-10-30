@@ -81,6 +81,28 @@ describe("existing session history pagination", () => {
     expect(screen.getByText("previous").compareDocumentPosition(screen.getByText("latest")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(call).toHaveBeenLastCalledWith("session.history", { threadId: "original", cursor: "older" });
   });
+  it("offers a jump back to latest while reading history and resumes following without another history read", async () => {
+    let listener!: (event: { event: string; payload?: unknown }) => void, subscriptionId = "", height = 1400;
+    const call = vi.fn((method: string, params: unknown) => {
+      if (method === "session.inspect") return Promise.resolve({ ...metadata(), controlsAvailable: true });
+      if (method === "session.subscribe") { subscriptionId = (params as { subscriptionId: string }).subscriptionId; return Promise.resolve({ subscribed: true }); }
+      return Promise.resolve(page("latest", null));
+    });
+    const client = { call, onEvent: (handler: typeof listener) => { listener = handler; return () => {}; } };
+    render(React.createElement(ExistingSessionPanel, { client, threadId: "original" }));
+    await screen.findByText("latest");
+    const scroller = screen.getByLabelText("会话记录");
+    Object.defineProperty(scroller, "scrollHeight", { get: () => height });Object.defineProperty(scroller, "clientHeight", { value: 400 });
+    scroller.scrollTop = 400;fireEvent.scroll(scroller);
+    const push = (version: number) => listener({ event: "session.stream", payload: { connected: true, version, threadId: "original", subscriptionId, activeTurnId: null, approvals: [], items: [{ id: "live", content: `live ${version}`, role: "assistant", phase: "final_answer", status: "inProgress" }] } });
+    await act(async () => push(1));expect(scroller.scrollTop).toBe(400);
+    expect(screen.getByRole("button", { name: "回到最新消息" })).toBeTruthy();
+    const reads = call.mock.calls.filter(([method]) => method === "session.history").length;
+    fireEvent.click(screen.getByRole("button", { name: "回到最新消息" }));
+    expect(scroller.scrollTop).toBe(1000);expect(screen.queryByRole("button", { name: "回到最新消息" })).toBeNull();
+    height = 1600;await act(async () => push(2));expect(scroller.scrollTop).toBe(1200);
+    expect(call.mock.calls.filter(([method]) => method === "session.history")).toHaveLength(reads);
+  });
   it("ignores a previous session's late history response", async () => {
     const late = deferred(); const call = vi.fn((method: string, p: unknown) => {
       const { threadId } = p as { threadId: string };

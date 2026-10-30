@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Headphones, Mic, Paperclip, PhoneOff, X } from "lucide-react";
+import { SessionSettings, type ChatSettings } from "./SessionSettings";
 import { useSessionVoice } from "./useSessionVoice";
 import { useDictation } from "./useDictation";
 
@@ -13,7 +14,7 @@ export type SessionClient = {
   onGap?: (handler: (gap: { expected: number; received: number }) => void) => () => void;
 };
 type Approval = { requestId: string; method: string; params: Record<string, unknown>; details?: string; decisions: string[]; supported: boolean; submitted?: boolean };
-type Snapshot = { connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; turnStatus?: string; error?: string | null; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number };
+type Snapshot = { connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; turnStatus?: string; error?: string | null; settings?: ChatSettings; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number };
 type StreamSnapshot = Omit<Snapshot, "items"> & { threadId: string; subscriptionId: string;
   items: (LiveSessionItem | (Omit<LiveSessionItem, "content"> & { append: string; baseVersion: number }))[] };
 type Upload = { id: string; name: string; size: number; ref?: string; error?: string };
@@ -25,6 +26,7 @@ export function SessionControls({ client, threadId, onItems }: {
   const [state, setState] = useState<Snapshot | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [settingsBusy, setSettingsBusy] = useState(false);
   const [error, setError] = useState("");
   const [connectionError, setConnectionError] = useState("");
   const [notice, setNotice] = useState("");
@@ -42,7 +44,7 @@ export function SessionControls({ client, threadId, onItems }: {
     return () => { for (const request of requests.values()) request.abort(); };
   }, []);
   const addFiles = async (files: File[]) => {
-    if (actionBusy.current || !state?.connected) return;
+    if (actionBusy.current || settingsBusy || !state?.connected) return;
     if (uploadsRef.current.length + files.length > 8) { setError("每次最多 8 个附件"); return; }
     if (files.some(file => file.size > 20 * 1024 * 1024 || !file.size)) { setError("附件不能为空，每个最多 20 MB"); return; }
     setError(""); setNotice("");
@@ -129,7 +131,7 @@ export function SessionControls({ client, threadId, onItems }: {
     };
   }, [client, threadId, onItems]);
   const action = async (method: string, params: object) => {
-    if (actionBusy.current || !state?.connected) return;
+    if (actionBusy.current || settingsBusy || !state?.connected) return;
     actionBusy.current = true;
     setBusy(true); setError(""); setNotice("");
     try {
@@ -143,6 +145,7 @@ export function SessionControls({ client, threadId, onItems }: {
   };
   return <div onDragOver={event => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={event => { if (event.dataTransfer.files.length) { event.preventDefault(); void addFiles(Array.from(event.dataTransfer.files)); } }} className="max-h-[60dvh] shrink-0 overflow-y-auto border-t border-white/10 bg-[#111b27] p-3 text-xs [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))] md:px-6">
     <div className="mx-auto max-w-3xl">
+    {state?.settings ? <SessionSettings key={threadId} client={client} threadId={threadId} current={state.settings} disabled={busy || !state.connected} active={Boolean(state.activeTurnId)} onBusyChange={setSettingsBusy} /> : null}
     <input ref={picker} type="file" multiple className="hidden" aria-label="选择附件" onChange={event => { void addFiles(Array.from(event.target.files || [])); event.target.value = ""; }} />
     {uploads.length ? <div className="mb-2 flex max-h-24 flex-wrap gap-2 overflow-y-auto" aria-label="待发送附件">{uploads.map(file => <div key={file.id} className="flex max-w-full items-center gap-2 rounded-lg border border-white/15 bg-white/5 py-1 pl-2">
       <span className="min-w-0 truncate" title={file.name}>{file.name}</span><span className={file.error ? "text-rose-200" : "shrink-0 text-white/40"}>{file.error || (!file.ref ? "上传中…" : Math.max(1, Math.ceil(file.size / 1024)) + " KB")}</span>
@@ -166,17 +169,17 @@ export function SessionControls({ client, threadId, onItems }: {
     </div> : null}
     <textarea aria-label="发送到原会话" placeholder="继续同一条 Codex 会话…" rows={2} maxLength={16000} value={text} onChange={event => setText(event.target.value)} onKeyDown={event => {
       if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); }
-    }} onPaste={event => { if (event.clipboardData.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)); } }} disabled={busy || !state?.connected || dictation.listening} className="max-h-36 min-h-14 w-full resize-none rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50" />
+    }} onPaste={event => { if (event.clipboardData.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)); } }} disabled={busy || settingsBusy || !state?.connected || dictation.listening} className="max-h-36 min-h-14 w-full resize-none rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50" />
     <div className="mt-2 flex items-center justify-between gap-2">
       <div className="flex shrink-0 items-center gap-1">
-        <button aria-label="添加附件" title="添加附件，也可拖入文件或粘贴图片" disabled={busy || !state?.connected} onClick={() => picker.current?.click()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Paperclip size={19} /></button>
-        <button aria-label={dictation.listening ? "停止听写" : "听写"} title="浏览器听写：识别后编辑，点发送才提交" disabled={busy || !state?.connected || voice.status !== "off"} onClick={dictation.listening ? dictation.stop : dictation.start} className={"grid h-10 w-10 place-items-center rounded-lg hover:bg-white/5 disabled:opacity-40 " + (dictation.listening ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65")}><Mic size={19} /></button>
-        <button aria-label="语音对话" title="与此会话实时语音对话" disabled={busy || !state?.connected || dictation.listening || voice.status !== "off"} onClick={() => void voice.start()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button>
+        <button aria-label="添加附件" title="添加附件，也可拖入文件或粘贴图片" disabled={busy || settingsBusy || !state?.connected} onClick={() => picker.current?.click()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Paperclip size={19} /></button>
+        <button aria-label={dictation.listening ? "停止听写" : "听写"} title="浏览器听写：识别后编辑，点发送才提交" disabled={busy || settingsBusy || !state?.connected || voice.status !== "off"} onClick={dictation.listening ? dictation.stop : dictation.start} className={"grid h-10 w-10 place-items-center rounded-lg hover:bg-white/5 disabled:opacity-40 " + (dictation.listening ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65")}><Mic size={19} /></button>
+        <button aria-label="语音对话" title="与此会话实时语音对话" disabled={busy || settingsBusy || !state?.connected || dictation.listening || voice.status !== "off"} onClick={() => void voice.start()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button>
       </div>
       <span className="hidden min-w-0 flex-1 truncate text-xs text-white/45 sm:block">{state?.connected ? state.activeTurnId ? "Codex 正在工作…" : state.turnStatus === "interrupted" ? "已停止" : "Codex · 已连接" : "连接 Codex…"}</span>
       <div className="flex shrink-0 items-center gap-2">
-        {state?.activeTurnId ? <button disabled={busy} onClick={() => void action("session.stop", {})} className="min-h-10 rounded-lg px-3 text-sm text-rose-200 hover:bg-white/5 disabled:opacity-40">停止</button> : null}
-        <button disabled={busy || !state?.connected || !readyToSend} onClick={send} className="min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40">{busy ? "提交中…" : state?.activeTurnId ? "追加消息" : "发送"}</button>
+        {state?.activeTurnId ? <button disabled={busy || settingsBusy} onClick={() => void action("session.stop", {})} className="min-h-10 rounded-lg px-3 text-sm text-rose-200 hover:bg-white/5 disabled:opacity-40">停止</button> : null}
+        <button disabled={busy || settingsBusy || !state?.connected || !readyToSend} onClick={send} className="min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40">{busy ? "提交中…" : state?.activeTurnId ? "追加消息" : "发送"}</button>
       </div>
     </div>
     {notice ? <p role="status" className="mt-2 text-[10px] text-cyan-100">{notice}</p> : null}

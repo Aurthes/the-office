@@ -52,6 +52,24 @@ describe("shared-session composer", () => {
     await act(async () => listener({ event: "session.stream", payload: { ...snapshot, threadId: "original", subscriptionId: id, items: [{ id: "missing", append: "tail", baseVersion: 1, version: 2 }] } }));
     expect(onItems).not.toHaveBeenCalled(); expect(call.mock.calls.map(([method]) => method)).toEqual(["session.subscribe", "session.subscribe"]);
   });
+  it("updates model and access labels from the native stream without polling or repeated catalog reads", async () => {
+    let listener!: (event: { event: string; payload?: unknown }) => void, subscriptionId = "";
+    const choices = { models: [{ id: "a", name: "Native A", efforts: ["high"], defaultEffort: "high" }, { id: "b", name: "Native B", efforts: ["high"], defaultEffort: "high" }], accessModes: [{ id: ":workspace", name: "Default permissions", allowed: true }, { id: ":danger-full-access", name: "Full access", allowed: true }] };
+    const call = vi.fn(async (method: string, params: unknown) => {
+      if (method === "session.subscribe") subscriptionId = (params as { subscriptionId: string }).subscriptionId;
+      return method === "session.settings.choices" ? choices : { subscribed: true };
+    });
+    const client = { call, onEvent: (h: typeof listener) => { listener = h; return () => {}; } };
+    render(React.createElement(SessionControls, { client, threadId: "original", onItems: vi.fn() }));
+    await act(async () => {});
+    const push = (version: number, model: string, accessMode: string) => listener({ event: "session.stream", payload: { ...snapshot, version, threadId: "original", subscriptionId, settings: { model, effort: "high", accessMode } } });
+    await act(async () => push(1, "a", ":workspace"));
+    expect(screen.getByRole("button", { name: "模型设置" }).textContent).toContain("Native A");
+    await act(async () => push(2, "b", ":danger-full-access"));
+    expect(screen.getByRole("button", { name: "模型设置" }).textContent).toContain("Native B");
+    expect((screen.getByLabelText("Select access mode") as HTMLSelectElement).value).toBe(":danger-full-access");
+    expect(call.mock.calls.map(([method]) => method)).toEqual(["session.subscribe", "session.settings.choices"]);
+  });
   it("sends to the original thread once while a submission is pending", async () => {
     let resolve!: (value: unknown) => void;
     const pending = new Promise(r => { resolve = r; });

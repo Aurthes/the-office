@@ -97,8 +97,9 @@ index. Original standalone gateway state is retained for rollback.
 Set `CLAW3D_CODEX_CONTROL_SOCKET` on the gateway only after the desktop App and
 the gateway have been configured to connect to one native app-server through its
 private Unix WebSocket listener. In this mode the gateway never starts another
-app-server, falls back to a second executor, or changes a thread's ID, directory,
-model or permissions. The socket must belong to the current user and have no
+app-server, falls back to a second executor, or changes a thread's ID or directory.
+It preserves the original model and permissions unless the user explicitly changes
+them through the native settings controls. The socket must belong to the current user and have no
 group/other permissions. A lost shared connection stops the gateway; launchd may
 reconnect it, but uncertain write operations are never automatically retried.
 
@@ -114,6 +115,20 @@ either client. Answers are cleared only on native resolution or turn completion.
 Only the backend's offered one-time decisions are exposed; persistent policy
 amendments are not exposed. Oversized or unsupported structured requests and full
 historical tool logs remain for the App, so this is not complete native UI parity.
+
+The composer shows the current native model, reasoning effort and access mode.
+Available models and permission profiles come from `model/list` and project-scoped
+`permissionProfile/list`. Changes use the pinned native `thread/settings/update`
+API, apply to subsequent turns, and synchronize through `thread/settings/updated`
+events. Current work is not restarted; steering continues its existing turn.
+Managed profile restrictions are honored. Enabling Full access requires an explicit
+confirmation of its file, command and network permissions. Settings calls cannot
+change workspace, instructions or arbitrary native configuration fields.
+
+When reading older messages, the “latest messages” arrow returns to the bottom and
+resumes following live replies without another history read. Normal chat headers
+have no manual refresh button; connection and history failures expose targeted
+retry controls.
 
 The composer accepts file selection, image paste and drag/drop. Each message can
 include eight files of at most 20 MiB each. Uploads stream to owner-only files under

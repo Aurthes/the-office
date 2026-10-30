@@ -21,6 +21,7 @@ export function ExistingSessionPanel({ client, threadId }: {
   const [olderCursor, setOlderCursor] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showLatest, setShowLatest] = useState(false);
   const [error, setError] = useState("");
   const [metadataError, setMetadataError] = useState("");
   const scroll = useRef<HTMLDivElement>(null);
@@ -52,11 +53,13 @@ export function ExistingSessionPanel({ client, threadId }: {
       anchor.current = null;
     } else if (follow.current) node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
     lastTop.current = node.scrollTop;
+    setShowLatest(node.scrollHeight - node.clientHeight - node.scrollTop > 60);
   }, [messages, loaded]);
 
   useEffect(() => {
     let stopped = false, busy = false, metadataBusy = false, reloadLatest = false;
     let cursor: string | null = null;
+    setShowLatest(false);
     setData(null); setMessages([]); setOlderCursor(null); setLoaded(false); setError(""); setMetadataError("");
     follow.current = true; anchor.current = null; lastTop.current = 0;
     liveItems.current.clear();
@@ -133,9 +136,11 @@ export function ExistingSessionPanel({ client, threadId }: {
     </header>
     {metadataError ? <p role="alert" className="p-3 text-xs text-amber-200">{metadataError}</p> : null}
     {error ? <p role="alert" className="p-3 text-xs text-amber-200">{error} <button onClick={() => void load.current?.(failedMode.current)} className="underline">重试</button></p> : null}
+    <div className="relative flex min-h-0 flex-1 flex-col">
     <div ref={scroll} aria-label="会话记录" onScroll={event => {
       const node = event.currentTarget, movingUp = node.scrollTop < lastTop.current;
-      follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 60;
+      follow.current = node.scrollHeight - node.scrollTop - node.clientHeight <= 60;
+      setShowLatest(!follow.current);
       lastTop.current = node.scrollTop;
       if (movingUp && node.scrollTop < 80) void load.current?.("older");
     }} onWheel={event => {
@@ -152,6 +157,13 @@ export function ExistingSessionPanel({ client, threadId }: {
       <SessionTranscript messages={messages} />
       </div>
     </div>
-    {data?.id === threadId && data.controlsAvailable ? <SessionControls client={client} threadId={threadId} onItems={onLiveItems} /> : null}
+    {showLatest ? <button aria-label="回到最新消息" onClick={() => {
+      const node = scroll.current;
+      if (!node) return;
+      follow.current = true; node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
+      lastTop.current = node.scrollTop; setShowLatest(false);
+    }} className="absolute bottom-3 left-1/2 z-10 min-h-10 -translate-x-1/2 rounded-full border border-white/20 bg-[#243346] px-4 text-xs text-white shadow-xl hover:bg-[#30445c]">↓ 最新消息</button> : null}
+    </div>
+    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} client={client} threadId={threadId} onItems={onLiveItems} /> : null}
   </section>;
 }
