@@ -5,8 +5,8 @@ export type ArchiveResult = { status: "pending" | "confirmed" | "failed"; at?: n
 export type ReturnTransfer = { startedAt?: number; completedAt?: number };
 export type ReturnLeg = { deck: DeckIndex; points: ShipPoint[]; duration: number };
 export const RETURN_LABELS: Record<ReturnStage, string> = {
-  walking: "下班！正在前往返航舱", transferring: "乘坐中央升降梯 · 前往主甲板", boarding: "进入返回舱", sealing: "舱门关闭 · 准备弹射",
-  waiting: "等待 Codex 确认归档 · 暂不发射", launching: "归档已确认 · 地球见！", done: "已返回地球 · 原会话已归档", failed: "归档未确认 · 未发射",
+  walking: "Clocking out! Heading to the return bay", transferring: "Taking the central lift to the main deck", boarding: "Boarding the return pod", sealing: "Closing the hatch · Preparing to eject",
+  waiting: "Waiting for Codex to confirm archive · Holding launch", launching: "Archive confirmed · See you on Earth!", done: "Returned to Earth · Original session archived", failed: "Archive not confirmed · No launch",
 };
 export function returnRoute(layout: ShipLayout, seat: ShipSeat, current: ShipPoint) {
   const bay = layout.cabins.find(c => c.kind === "return" && c.deck === 0);

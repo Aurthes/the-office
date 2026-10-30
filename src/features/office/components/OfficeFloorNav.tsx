@@ -12,6 +12,7 @@ import {
   type FloorProvider,
 } from "@/lib/office/floors";
 import type { FloorRosterState } from "@/lib/office/floorRoster";
+import { useUiText } from "@/lib/i18n/ui-language";
 
 const DIRECTORY_COLLAPSED_STORAGE_KEY = "claw3d.officeFloorNav.directoryCollapsed";
 
@@ -99,6 +100,7 @@ export function OfficeFloorNav({
   onSelectFloor,
   activeAdapterType,
 }: OfficeFloorNavProps) {
+  const t = useUiText();
   const availableFloors = listAvailableFloorsForAdapter(activeAdapterType ?? null);
   const buildingFloors = availableFloors.filter((f) => f.zone === "building");
   const outsideFloors = availableFloors.filter((f) => f.zone === "outside");
@@ -147,10 +149,10 @@ export function OfficeFloorNav({
           aria-expanded={!directoryCollapsed}
           aria-controls="office-floor-directory-body"
           aria-label={
-            directoryCollapsed ? "Expand building directory" : "Collapse building directory"
+            directoryCollapsed ? t("Expand building directory") : t("Collapse building directory")
           }
         >
-          <span>Building Directory</span>
+          <span>{t("Building Directory")}</span>
           {directoryCollapsed ? (
             <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
           ) : (
@@ -164,23 +166,17 @@ export function OfficeFloorNav({
                 type="button"
                 className="rounded border border-amber-500/20 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-amber-100/80 transition-colors hover:border-amber-400/45 hover:text-amber-50"
                 onClick={() => onSelectFloor(getAdjacentEnabledOfficeFloorId(activeFloor.id, -1))}
-                aria-label="Switch to previous enabled floor"
-              >
-                Prev
-              </button>
+                aria-label={t("Switch to previous enabled floor")}
+              >{t("Prev")}</button>
               <button
                 type="button"
                 className="rounded border border-amber-500/20 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-amber-100/80 transition-colors hover:border-amber-400/45 hover:text-amber-50"
                 onClick={() => onSelectFloor(getAdjacentEnabledOfficeFloorId(activeFloor.id, 1))}
-                aria-label="Switch to next enabled floor"
-              >
-                Next
-              </button>
+                aria-label={t("Switch to next enabled floor")}
+              >{t("Next")}</button>
             </div>
             <div className="mt-3 flex flex-col gap-2">
-              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/35">
-                Building
-              </div>
+              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/35">{t("Building")}</div>
               {buildingFloors.map((floor) =>
                 renderFloorButton({
                   floor,
@@ -192,9 +188,7 @@ export function OfficeFloorNav({
             </div>
             {outsideFloors.length > 0 ? (
               <div className="mt-4 flex flex-col gap-2">
-                <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/35">
-                  Outside
-                </div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/35">{t("Outside")}</div>
                 {outsideFloors.map((floor) =>
                   renderFloorButton({
                     floor,
@@ -211,9 +205,9 @@ export function OfficeFloorNav({
 
       <section className="pointer-events-auto rounded-2xl border border-white/10 bg-black/68 px-3 py-2 shadow-xl backdrop-blur">
         <div className="flex items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">
-          <span>Current Floor</span>
+          <span>{t("Current Floor")}</span>
           {process.env.NEXT_PUBLIC_CLAW3D_WEB_ACCESS === "1" ? (
-            <button type="button" data-logout className="text-white/60 hover:text-white">退出登录</button>
+            <button type="button" data-logout className="text-white/60 hover:text-white">{t("Sign out")}</button>
           ) : null}
         </div>
         <div className="mt-1 text-sm font-semibold text-white">{activeFloor.label}</div>

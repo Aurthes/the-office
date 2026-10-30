@@ -14,10 +14,10 @@ describe("existing session history pagination", () => {
     const onReturnToEarth=vi.fn(), client={call};
     const view=render(React.createElement(ExistingSessionPanel,{client,threadId:"original",onReturnToEarth}));
     await screen.findByRole("heading",{name:"Name original"});
-    fireEvent.click(screen.getByRole("button",{name:/返回地球/}));expect(onReturnToEarth).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button",{name:/Return to Earth/}));expect(onReturnToEarth).toHaveBeenCalledTimes(1);
     view.rerender(React.createElement(ExistingSessionPanel,{client,threadId:"original",onReturnToEarth,returnDisabled:true}));
-    expect((screen.getByRole("button",{name:/返回地球/}) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("button",{name:/返回地球/}));expect(onReturnToEarth).toHaveBeenCalledTimes(1);
+    expect((screen.getByRole("button",{name:/Return to Earth/}) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button",{name:/Return to Earth/}));expect(onReturnToEarth).toHaveBeenCalledTimes(1);
   });
   it("keeps messages received live while the latest history page is still loading", async () => {
     const history = deferred();
@@ -39,7 +39,7 @@ describe("existing session history pagination", () => {
     render(React.createElement(ExistingSessionPanel, { client: { call }, threadId: "original" }));
     await screen.findByRole("heading", { name: "Name original" });
     expect(call).toHaveBeenCalledWith("session.inspect", { threadId: "original", includeHistory: false });
-    expect(screen.getByRole("status").textContent).toContain("读取这一块");
+    expect(screen.getByRole("status").textContent).toContain("Loading messages");
     await act(async () => first.resolve(page("latest", "older")));
     expect(screen.getByText("latest")).toBeTruthy();
     vi.useFakeTimers();
@@ -79,7 +79,7 @@ describe("existing session history pagination", () => {
     const call = vi.fn((method: string) => method === "session.inspect" ? Promise.resolve(metadata()) : ++pages === 1 ? Promise.resolve(page("latest", "older")) : older.promise);
     render(React.createElement(ExistingSessionPanel, { client: { call }, threadId: "original" }));
     await screen.findByText("latest");
-    const scroller = screen.getByLabelText("会话记录"); let height = 1000;
+    const scroller = screen.getByLabelText("Session history"); let height = 1000;
     Object.defineProperty(scroller, "scrollHeight", { get: () => height });
     Object.defineProperty(scroller, "clientHeight", { value: 400 });
     fireEvent.wheel(scroller, { deltaY: -100 });
@@ -101,15 +101,15 @@ describe("existing session history pagination", () => {
     const client = { call, onEvent: (handler: typeof listener) => { listener = handler; return () => {}; } };
     render(React.createElement(ExistingSessionPanel, { client, threadId: "original" }));
     await screen.findByText("latest");
-    const scroller = screen.getByLabelText("会话记录");
+    const scroller = screen.getByLabelText("Session history");
     Object.defineProperty(scroller, "scrollHeight", { get: () => height });Object.defineProperty(scroller, "clientHeight", { value: 400 });
     scroller.scrollTop = 400;fireEvent.scroll(scroller);
     const push = (version: number) => listener({ event: "session.stream", payload: { connected: true, version, threadId: "original", subscriptionId, activeTurnId: null, approvals: [], items: [{ id: "live", content: `live ${version}`, role: "assistant", phase: "final_answer", status: "inProgress" }] } });
     await act(async () => push(1));expect(scroller.scrollTop).toBe(400);
-    expect(screen.getByRole("button", { name: "回到最新消息" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Go to latest message" })).toBeTruthy();
     const reads = call.mock.calls.filter(([method]) => method === "session.history").length;
-    fireEvent.click(screen.getByRole("button", { name: "回到最新消息" }));
-    expect(scroller.scrollTop).toBe(1000);expect(screen.queryByRole("button", { name: "回到最新消息" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Go to latest message" }));
+    expect(scroller.scrollTop).toBe(1000);expect(screen.queryByRole("button", { name: "Go to latest message" })).toBeNull();
     height = 1600;await act(async () => push(2));expect(scroller.scrollTop).toBe(1200);
     expect(call.mock.calls.filter(([method]) => method === "session.history")).toHaveLength(reads);
   });
@@ -130,11 +130,11 @@ describe("existing session history pagination", () => {
     let pages = 0;
     const call = vi.fn((method: string) => method === "session.inspect" ? Promise.resolve(metadata()) : ++pages === 1 ? Promise.resolve({ threadId: "original", messages: [], nextCursor: "older" }) : pages === 2 ? Promise.reject(new Error("temporary failure")) : Promise.resolve(page("recovered", null)));
     render(React.createElement(ExistingSessionPanel, { client: { call }, threadId: "original" }));
-    await screen.findByText(/这一块没有对话文字/);
+    await screen.findByText(/No chat text on this page/);
     expect(pages).toBe(1);
-    fireEvent.click(screen.getByRole("button", { name: /读取更早记录/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Load older messages/ }));
     await screen.findByRole("alert");
-    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(screen.getByText("recovered")).toBeTruthy());
     expect(pages).toBe(3);
   });

@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { SessionControls, type LiveSessionItem, type SessionClient } from "./SessionControls";
 import { SessionTranscript } from "./SessionTranscript";
+import { useUiText } from "@/lib/i18n/ui-language";
 
 type Inspection = {
   id: string; name: string; workspace: string; project: string;
@@ -18,6 +19,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
   onReturnToEarth?: () => void;
   returnDisabled?: boolean;
 }) {
+  const t = useUiText();
   const [data, setData] = useState<Inspection | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [olderCursor, setOlderCursor] = useState<string | null>(null);
@@ -72,7 +74,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
         const result = await client.call("session.inspect", { threadId, includeHistory: false }) as Inspection;
         if (!stopped) { setData(result); setMetadataError(""); }
       } catch (cause) {
-        if (!stopped) setMetadataError(cause instanceof Error ? cause.message : "读取会话信息失败");
+        if (!stopped) setMetadataError(cause instanceof Error ? cause.message : "Could not read session information");
       } finally { metadataBusy = false; }
     };
     const readPage = async (mode: LoadMode) => {
@@ -83,7 +85,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
       try {
         const result = await client.call("session.history", { threadId, ...(mode === "older" ? { cursor } : {}) }) as HistoryPage;
         if (stopped) return;
-        if (result.threadId !== threadId) throw new Error("会话记录不匹配，请重试");
+        if (result.threadId !== threadId) throw new Error("Session history mismatch. Please retry.");
         anchor.current = before; follow.current = mode === "latest";
         setMessages(previous => {
           if (mode === "latest") {
@@ -99,7 +101,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
         cursor = result.nextCursor;
         setOlderCursor(cursor); setLoaded(true); setError("");
       } catch (cause) {
-        if (!stopped) setError(cause instanceof Error ? cause.message : "读取这一块失败");
+        if (!stopped) setError(cause instanceof Error ? cause.message : "Could not load this page");
       } finally {
         busy = false;
         if (!stopped) {
@@ -118,31 +120,31 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
     return () => { stopped = true; load.current = null; unsubscribeStatus?.(); };
   }, [client, threadId]);
 
-  return <section className="flex min-h-0 flex-1 flex-col text-white" aria-label="App 原会话">
+  return <section className="flex min-h-0 flex-1 flex-col text-white" aria-label={t("App session")}>
     <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-2">
       <div className="min-w-0">
-        <h2 className="truncate text-sm font-semibold" title={data?.name}>{data?.id === threadId ? data.name : "读取会话信息…"}</h2>
+        <h2 className="truncate text-sm font-semibold" title={data?.name}>{data?.id === threadId ? data.name : t("Loading session information…")}</h2>
         {data?.id === threadId ? <p className="mt-1 truncate text-xs text-white/45">{data.project}</p> : null}
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        <details className="relative" aria-label="会话信息">
-          <summary aria-label="会话信息" className="flex min-h-10 min-w-10 cursor-pointer list-none items-center justify-center rounded-md text-lg text-white/55 hover:bg-white/10">⋯</summary>
+        <details className="relative" aria-label={t("Session information")}>
+          <summary aria-label={t("Session information")} className="flex min-h-10 min-w-10 cursor-pointer list-none items-center justify-center rounded-md text-lg text-white/55 hover:bg-white/10">⋯</summary>
           <div className="absolute right-0 top-full z-30 mt-1 max-h-[50dvh] w-[min(320px,calc(100vw-3rem))] space-y-3 overflow-auto rounded-xl border border-white/15 bg-[#1b2532] p-4 text-xs text-white/60 shadow-xl">
-            <a href={`codex://threads/${encodeURIComponent(threadId)}`} className="block text-cyan-100">在桌面 App 中打开原会话 ↗</a>
-            <p className="break-all">Session ID：{threadId}</p>
-            {data?.id === threadId ? <p className="break-all">目录：{data.workspace}</p> : null}
-            <p>{data?.controlsAvailable ? "与桌面 App 同步的原会话" : "只读预览，请在桌面 App 中继续对话"}</p>
+            <a href={`codex://threads/${encodeURIComponent(threadId)}`} className="block text-cyan-100">{t("Open session in desktop app ↗")}</a>
+            <p className="break-all">{t("Session ID")}: {threadId}</p>
+            {data?.id === threadId ? <p className="break-all">{t("Directory:")} {data.workspace}</p> : null}
+            <p>{data?.controlsAvailable ? t("Session synced with the desktop app") : t("Read-only preview. Continue in the desktop app.")}</p>
             {onReturnToEarth ? <button type="button" disabled={returnDisabled || !data?.controlsAvailable} onClick={onReturnToEarth}
-              title={returnDisabled ? "请先停止当前工作，或等待上一位员工返航" : "归档这条原会话，历史仍保留"}
-              className="block w-full rounded-md border border-amber-300/25 px-3 py-2 text-left text-amber-200 hover:bg-amber-200/10 disabled:opacity-40">↓ 返回地球（归档）</button> : null}
+              title={returnDisabled ? t("Stop the current task or wait for the previous return journey") : t("Archive this original session and keep its history")}
+              className="block w-full rounded-md border border-amber-300/25 px-3 py-2 text-left text-amber-200 hover:bg-amber-200/10 disabled:opacity-40">↓ {t("Return to Earth (archive)")}</button> : null}
           </div>
         </details>
       </div>
     </header>
-    {metadataError ? <p role="alert" className="p-3 text-xs text-amber-200">{metadataError}</p> : null}
-    {error ? <p role="alert" className="p-3 text-xs text-amber-200">{error} <button onClick={() => void load.current?.(failedMode.current)} className="underline">重试</button></p> : null}
+    {metadataError ? <p role="alert" className="p-3 text-xs text-amber-200">{t(metadataError)}</p> : null}
+    {error ? <p role="alert" className="p-3 text-xs text-amber-200">{t(error)} <button onClick={() => void load.current?.(failedMode.current)} className="underline">{t("Retry")}</button></p> : null}
     <div className="relative flex min-h-0 flex-1 flex-col">
-    <div ref={scroll} aria-label="会话记录" onScroll={event => {
+    <div ref={scroll} aria-label={t("Session history")} onScroll={event => {
       const node = event.currentTarget, movingUp = node.scrollTop < lastTop.current;
       follow.current = node.scrollHeight - node.scrollTop - node.clientHeight <= 60;
       setShowLatest(!follow.current);
@@ -156,18 +158,18 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
     }} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3 [overflow-anchor:none] md:px-4">
       <div className="mx-auto w-full max-w-3xl space-y-3">
       <div className="flex min-h-8 items-center justify-center text-[10px] text-white/50">
-        {loading ? <span role="status">读取这一块…</span> : olderCursor ? <button onClick={() => void load.current?.("older")} className="px-3 py-1 text-cyan-200">↑ 读取更早记录</button> : loaded ? "已到最早记录" : null}
+        {loading ? <span role="status">{t("Loading messages…")}</span> : olderCursor ? <button onClick={() => void load.current?.("older")} className="px-3 py-1 text-cyan-200">{t("↑ Load older messages")}</button> : loaded ? t("Start of history") : null}
       </div>
-      {loaded && messages.length === 0 ? <p className="text-center text-xs text-white/50">这一块没有对话文字（工具活动已略过）。{olderCursor ? "向上滚动或点上方按钮，读取更早一块。" : ""}</p> : null}
+      {loaded && messages.length === 0 ? <p className="text-center text-xs text-white/50">{t("No chat text on this page (tool activity omitted).")}{olderCursor ? t("Scroll up or use the button above to load older messages.") : ""}</p> : null}
       <SessionTranscript messages={messages} />
       </div>
     </div>
-    {showLatest ? <button aria-label="回到最新消息" onClick={() => {
+    {showLatest ? <button aria-label={t("Go to latest message")} onClick={() => {
       const node = scroll.current;
       if (!node) return;
       follow.current = true; node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
       lastTop.current = node.scrollTop; setShowLatest(false);
-    }} className="absolute bottom-3 left-1/2 z-10 min-h-10 -translate-x-1/2 rounded-full border border-white/20 bg-[#243346] px-4 text-xs text-white shadow-xl hover:bg-[#30445c]">↓ 最新消息</button> : null}
+    }} className="absolute bottom-3 left-1/2 z-10 min-h-10 -translate-x-1/2 rounded-full border border-white/20 bg-[#243346] px-4 text-xs text-white shadow-xl hover:bg-[#30445c]">{t("↓ Latest messages")}</button> : null}
     </div>
     {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} client={client} threadId={threadId} onItems={onLiveItems} /> : null}
   </section>;

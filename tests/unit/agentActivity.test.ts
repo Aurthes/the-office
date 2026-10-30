@@ -24,13 +24,13 @@ describe("game-like agent activity", () => {
     const c = { clearRect: vi.fn(), fillRect: vi.fn(), fillText: vi.fn(), beginPath: vi.fn(), roundRect: vi.fn(), fill: vi.fn(), stroke: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), save: vi.fn(), restore: vi.fn(), translate: vi.fn(), rotate: vi.fn() };
     const canvas = { getContext: () => c, width: 0, height: 0 } as unknown as HTMLCanvasElement;
     const agent = { name: "Alice", color: "#123456", status: "working" as const };
-    paintCrewNameplate(canvas, agent, false, "咖啡，续上！");
-    expect(c.fillText.mock.calls.map(call => call[0])).toEqual(["咖啡，续上！"]);
+    paintCrewNameplate(canvas, agent, false, "More coffee!");
+    expect(c.fillText.mock.calls.map(call => call[0])).toEqual(["More coffee!"]);
     expect(c.roundRect).toHaveBeenCalledOnce(); c.fillText.mockClear();
     paintCrewNameplate(canvas, agent, false, "", Math.PI);
     expect(c.fillText.mock.calls.map(call => call[0])).toEqual(["Alice", "⚙︎"]);
     expect(c.rotate).toHaveBeenCalledWith(Math.PI);
-    c.fillText.mockClear(); paintCrewNameplate(canvas, { ...agent, needsInput: true }, false, "咖啡，续上！");
+    c.fillText.mockClear(); paintCrewNameplate(canvas, { ...agent, needsInput: true }, false, "More coffee!");
     expect(c.fillText.mock.calls.map(call => call[0])).toEqual(["Alice", "!"]);
   });
   it("cycles dots and short ambient chatter without any backend calls or progress claims", () => {

@@ -9,12 +9,11 @@ import { Home, Layers3, Settings2, Users, X } from "lucide-react";
 import type { RetroOffice3D } from "@/features/retro-office/RetroOffice3D";
 import type { OfficeAgent, RenderAgent } from "@/features/retro-office/core/types";
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
-import { CANVAS_W, CANVAS_H, SCALE } from "@/features/retro-office/core/constants";
 import { DuckCrewModel } from "./DuckCrewModel";
 import { CompanyWorkAreaMenu } from "@/features/office/components/CompanyWorkAreaMenu";
 import { SettingsPanel } from "@/features/office/components/panels/SettingsPanel";
-import { DECK_NAMES, DECK_STEP, DECKS, PUBLIC_DESCRIPTIONS, routeBetweenCabins, SHARED_PROJECT_ID, shipDeck, type DeckIndex, type ShipLayout, type ShipPoint } from "./layout";
-import { buildShipGeometry, disposeShipGeometry, FURNITURE_MODELS, SHIP_WORKSTATION, type ModelTemplates } from "./geometry";
+import { DECK_NAMES, DECK_STEP, DECKS, PUBLIC_DESCRIPTIONS, SHARED_PROJECT_ID, shipDeck, type DeckIndex, type ShipLayout } from "./layout";
+import { buildShipGeometry, disposeShipGeometry, SHIP_MODELS, shipModelUrl, SHIP_WORKSTATION, type ModelTemplates } from "./geometry";
 import { useShipLayout } from "./useShipLayout";
 import { getAgentActivity, workChatter } from "@/features/retro-office/core/agentActivity";
 import { paintCrewNameplate } from "./crewNameplate";
@@ -24,6 +23,8 @@ import { buildShell } from "./shell";
 import { LiftEntry, LiftJourney, LiftOverlay, type LiftTrip } from "./ShipLift";
 import { ReturnPodBay, ReturnPodJourney, type ReturnFlight } from "./ReturnPodBay";
 import { returnRoute, RETURN_LABELS, type ArchiveResult, type ReturnStage, type ReturnTransfer } from "./returnPodMotion";
+import { advanceCrew, canvasPoint, worldPoint, hash, type MovingAgent } from "./crewMotion";
+import { useUiText } from "@/lib/i18n/ui-language";
 
 type Props = ComponentProps<typeof RetroOffice3D>;
 type Controls = ComponentRef<typeof OrbitControls>;
@@ -36,8 +37,8 @@ function useModels() {
     let active = true;
     if (!modelPromise) {
       const loader = new GLTFLoader();
-      modelPromise = Promise.allSettled(FURNITURE_MODELS.map(name => loader.loadAsync(`/office-assets/models/furniture/${name}.glb`))).then(results => {
-        modelCache = Object.fromEntries(results.flatMap((result, index) => result.status === "fulfilled" ? [[FURNITURE_MODELS[index], result.value.scene]] : [])) as ModelTemplates;
+      modelPromise = Promise.allSettled(SHIP_MODELS.map(name => loader.loadAsync(shipModelUrl(name)))).then(results => {
+        modelCache = Object.fromEntries(results.flatMap((result, index) => result.status === "fulfilled" ? [[SHIP_MODELS[index], result.value.scene]] : [])) as ModelTemplates;
         return modelCache;
       });
     }
@@ -61,8 +62,9 @@ function ShipHull({ layout, deck, whole, busy }: { layout: ShipLayout; deck: Dec
   </>;
 }
 function StaticShip({ layout }: { layout: ShipLayout }) {
+  const t = useUiText();
   const models = useModels();
-  const group = useMemo(() => buildShipGeometry(layout, models), [layout, models]);
+  const group = useMemo(() => buildShipGeometry(layout, models, t), [layout, models, t]);
   useEffect(() => () => disposeShipGeometry(group), [group]);
   return <primitive object={group} />;
 }
@@ -145,7 +147,7 @@ function CabinTargets({ layout, focus, onSelect }: { layout: ShipLayout; focus: 
     </mesh>;
   })}</>;
 }
-type MovingAgent = RenderAgent & { route: ShipPoint[]; routeIndex: number; pauseUntil: number; home: ShipPoint; visiting: boolean };
+
 type NameplatePlacement = { frame: number; rects: Array<{ x: number; y: number; width: number; height: number }> };
 // A small per-frame animation buffer, independent of React state and props.
 function placeNameplate(frame: NameplatePlacement, time: number, x: number, y: number, width: number, height: number) {
@@ -158,39 +160,7 @@ function placeNameplate(frame: NameplatePlacement, time: number, x: number, y: n
   frame.rects.push({ x, y: y - lift, width, height });
   return lift;
 }
-function canvasPoint(point: ShipPoint) { return { x: point.x / SCALE + CANVAS_W / 2, y: point.z / SCALE + CANVAS_H / 2 }; }
-function worldPoint(agent: RenderAgent): ShipPoint { return { x: (agent.x - CANVAS_W / 2) * SCALE, z: (agent.y - CANVAS_H / 2) * SCALE }; }
-function hash(value: string) { let result = 0; for (const char of value) result = (result * 31 + char.charCodeAt(0)) >>> 0; return result; }
-// These are mutable animation objects owned by Three.js, not React state.
-function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number, delta: number, chatAgentId?: string | null) {
-  const dt = Math.min(delta, 0.05), amenities = layout.cabins.filter(c => ["garden", "lounge", "canteen", "gym", "observatory"].includes(c.kind));
-  for (const a of crew) {
-    const seat = layout.seats[a.id]; if (!seat) continue;
-    a.frame += dt * 60;
-    if (a.id === chatAgentId && a.status === "idle" && !a.needsInput) { a.state = "standing"; continue; }
-    if (a.status === "working" || a.status === "error" || a.needsInput) {
-      a.route = []; a.visiting = false; const p = canvasPoint(a.home); a.x = p.x; a.y = p.y; a.facing = seat.facing;
-      a.state = "sitting"; a.interactionTarget = "desk"; continue;
-    }
-    a.interactionTarget = undefined;
-    if (!a.route.length && now > a.pauseUntil && amenities.length) {
-      const destination = amenities[hash(a.id) % amenities.length];
-      if (!a.visiting) a.route = routeBetweenCabins(layout, seat, destination);
-      else a.route = [...routeBetweenCabins(layout, seat, destination)].reverse().concat([a.home]);
-      a.visiting = !a.visiting; a.routeIndex = 0;
-    }
-    const target = a.route[a.routeIndex];
-    if (!target) { a.state = "standing"; continue; }
-    const p = worldPoint(a), dx = target.x - p.x, dz = target.z - p.z, distance = Math.hypot(dx, dz), stride = dt * 1.05;
-    a.state = "walking"; a.facing = Math.atan2(dx, dz);
-    const next = distance < stride ? target : { x: p.x + dx / distance * stride, z: p.z + dz / distance * stride };
-    Object.assign(a, canvasPoint(next));
-    if (distance < stride) {
-      a.routeIndex += 1;
-      if (a.routeIndex >= a.route.length) { a.route = []; a.pauseUntil = now + 16000 + hash(a.id) % 20000; a.state = "standing"; }
-    }
-  }
-}
+
 function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId }: { agents: OfficeAgent[]; layout: ShipLayout; focus: string; onOpen: (id: string) => void; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null }) {
   const agentsRef = useRef<RenderAgent[]>([]);
   const nameplatePlacement = useRef<NameplatePlacement>({ frame: -1, rects: [] });
@@ -203,10 +173,10 @@ function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId }: { agent
       const seat = layout.seats[agent.id]; if (!seat) return [];
       const previous = old.get(agent.id) as MovingAgent | undefined, p = canvasPoint(seat);
       const unchanged = previous && Math.hypot(previous.home.x - seat.x, previous.home.z - seat.z) < 0.01;
-      const keepRoute = unchanged && previous.status === agent.status;
+      const keepRoute = unchanged;
       return [{ ...agent, x: unchanged ? previous.x : p.x, y: unchanged ? previous.y : p.y, targetX: p.x, targetY: p.y,
-        path: [], facing: seat.facing, frame: previous?.frame || hash(agent.id) % 100, state: "standing" as const,
-        walkSpeed: 1, phaseOffset: hash(agent.id) % 100, interactionTarget: agent.status === "working" ? "desk" as const : undefined,
+        path: [], facing: unchanged ? previous.facing : seat.facing, frame: previous?.frame || hash(agent.id) % 100, state: unchanged ? previous.state : "standing" as const,
+        walkSpeed: unchanged ? previous.walkSpeed : 1, phaseOffset: hash(agent.id) % 100, interactionTarget: undefined,
         workstation: { ...p, deskUid: seat.cabinId + agent.id, facing: seat.facing, pose: "sitting" as const, seatHeight: SHIP_WORKSTATION.seatHeight, surfaceHeight: SHIP_WORKSTATION.surfaceHeight },
         home: { x: seat.x, z: seat.z }, route: keepRoute ? previous.route : [], routeIndex: keepRoute ? previous.routeIndex : 0,
         visiting: keepRoute ? previous.visiting : false, pauseUntil: keepRoute ? previous.pauseUntil : now + 7000 + hash(agent.id) % 18000 }];
@@ -215,7 +185,6 @@ function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId }: { agent
   }, [agents, layout, lookupRef]);
   useFrame((state, delta) => {
     advanceCrew(agentsRef.current as MovingAgent[], layout, performance.now(), delta, chatAgentId);
-
   });
   return <>{agents.map(agent => {
     const seat = layout.seats[agent.id]; if (!seat) return null;
@@ -231,6 +200,7 @@ function CrewLabel({ agent, lookupRef, placement, expanded, onOpen, deck }: { de
   const ref = useRef<THREE.Sprite>(null);
   const leader = useRef<THREE.BufferGeometry>(null);
   const vectors = useMemo(() => ({ anchor: new THREE.Vector3(), up: new THREE.Vector3(), projected: new THREE.Vector3(), bottom: new THREE.Vector3() }), []);
+  const t = useUiText();
   const activity = getAgentActivity(agent);
   const { name, color, status, needsInput, needsReview } = agent;
   const lastBubble = useRef("");
@@ -238,9 +208,9 @@ function CrewLabel({ agent, lookupRef, placement, expanded, onOpen, deck }: { de
   const textureRef = useRef<THREE.CanvasTexture | null>(null);
   const texture = useMemo(() => {
     const canvas = document.createElement("canvas");
-    paintCrewNameplate(canvas, { name, color, status, needsInput, needsReview }, expanded, activity.kind === "working" ? "" : activity.marker);
+    paintCrewNameplate(canvas, { name, color, status, needsInput, needsReview }, expanded, activity.kind === "working" ? "" : activity.marker, 0, t);
     const result = new THREE.CanvasTexture(canvas); result.colorSpace = THREE.SRGBColorSpace; return result;
-  }, [name, color, status, needsInput, needsReview, activity, expanded]);
+  }, [name, color, status, needsInput, needsReview, activity, expanded, t]);
   useEffect(() => { textureRef.current = texture; lastBubble.current = ""; return () => texture.dispose(); }, [texture]);
   useFrame(state => {
     const value = lookupRef.current.get(agent.id); if (!ref.current) return;
@@ -249,10 +219,10 @@ function CrewLabel({ agent, lookupRef, placement, expanded, onOpen, deck }: { de
     ref.current.visible = !!value;
     if (!value) return;
     if (activity.kind === "working") {
-      const bubble = workChatter(agent.id, state.clock.elapsedTime * 1000);
+      const bubble = t(workChatter(agent.id, state.clock.elapsedTime * 1000));
       const currentTexture = textureRef.current, tick = Math.floor(state.clock.elapsedTime * 10);
       if (currentTexture && (bubble !== lastBubble.current || (!bubble && tick !== lastPaint.current))) {
-        paintCrewNameplate(currentTexture.image as HTMLCanvasElement, agent, expanded, bubble, state.clock.elapsedTime * Math.PI * 2 / 3);
+        paintCrewNameplate(currentTexture.image as HTMLCanvasElement, agent, expanded, bubble, state.clock.elapsedTime * Math.PI * 2 / 3, t);
         currentTexture.needsUpdate = true; lastBubble.current = bubble; lastPaint.current = tick;
       }
     }
@@ -283,13 +253,15 @@ function CrewLabel({ agent, lookupRef, placement, expanded, onOpen, deck }: { de
 }
 
 function ActivityBadge({ agent }: { agent: OfficeAgent }) {
+  const t = useUiText();
   const activity = getAgentActivity(agent);
-  return activity.marker ? <span aria-label={activity.label} title={activity.label} className="absolute -right-1 -top-2 px-1 text-sm leading-5" style={{ color: activity.color }}>
+  return activity.marker ? <span aria-label={t(activity.label)} title={t(activity.label)} className="absolute -right-1 -top-2 px-1 text-sm leading-5" style={{ color: activity.color }}>
     <span className={activity.kind === "working" ? "inline-block motion-safe:animate-spin" : undefined} style={{ animationDuration: "3s" }}>{activity.marker}</span>
   </span> : null;
 }
 
 export function RingShipOffice(props: Props) {
+  const t = useUiText();
   const { agents, companyRoster, companyActions, gatewayStatus = "disconnected", officeTitle = "Orbital Headquarters", storageNamespace = "default", gatewayUrl = "", officeCenterSignal = 0 } = props;
   const roster = companyRoster || EMPTY_ROSTER;
   const layout = useShipLayout(companyRoster || null, `claw3d:ship:v1:${storageNamespace}:${gatewayUrl}`);
@@ -386,12 +358,12 @@ export function RingShipOffice(props: Props) {
   const areas = [
     ...[SHARED_PROJECT_ID, ...roster.projects.map(p => p.id)].map(id => {
       const cabins = layout.cabins.filter(c => c.projectId === id);
-      return cabins[0] ? { id, name: `${cabins[0].name} · L${cabins[0].deck + 1}`, agentIds: cabins.flatMap(c => c.agentIds) } : null;
+      return cabins[0] ? { id, name: `${id === SHARED_PROJECT_ID ? t(cabins[0].name) : cabins[0].name} · L${cabins[0].deck + 1}`, agentIds: cabins.flatMap(c => c.agentIds) } : null;
     }).filter((a): a is { id: string; name: string; agentIds: string[] } => !!a),
-    ...currentLayout.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve").map(c => ({ id: c.id, name: c.name, agentIds: [] as string[], countLabel: " · 公共舱" })),
+    ...currentLayout.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve").map(c => ({ id: c.id, name: t(c.name), agentIds: [] as string[], countLabel: t(" · Common cabin") })),
     ...layout.rings.flatMap(ring => {
       const cabin = currentLayout.cabins.find(c => c.ring === ring.index && c.kind === "reserve");
-      return cabin ? [{ id: cabin.id, name: `${["内", "中", "外"][ring.index]}圈预留舱`, agentIds: [] as string[], countLabel: " · 待启用" }] : [];
+      return cabin ? [{ id: cabin.id, name: t(["Inner ring reserve cabins", "Middle ring reserve cabins", "Outer ring reserve cabins"][ring.index]), agentIds: [] as string[], countLabel: t(" · Standby") }] : [];
     }),
   ];
   const button = "flex h-9 min-w-9 items-center justify-center rounded-lg border border-white/15 bg-[#122735]/90 px-2 text-xs text-[#b8cccf] hover:border-[#d7af77]/70";
@@ -419,42 +391,42 @@ export function RingShipOffice(props: Props) {
     <fieldset className="contents" disabled={busy}>
     <div className="ship-heading pointer-events-none absolute left-1/2 top-5 z-10 -translate-x-1/2 text-center">
       <div className="truncate text-xs font-semibold uppercase tracking-[0.28em] text-[#e3c894]">{officeTitle}</div>
-      <div className="mt-1 text-[9px] tracking-[0.3em] text-[#9bb8bf]">{shipView ? "整船结构 · 3 层甲板" : `L${visibleDeck + 1} · ${DECK_NAMES[visibleDeck]} · ${visibleAgents.length} 个会话`}</div>
+      <div className="mt-1 text-[9px] tracking-[0.3em] text-[#9bb8bf]">{shipView ? t("Whole ship · 3 decks") : t("L{0} · {1} · {2} sessions", { "0": visibleDeck + 1, "1": t(DECK_NAMES[visibleDeck]), "2": visibleAgents.length })}</div>
       <div className="pointer-events-auto mt-3 flex items-center justify-center gap-1 rounded-full border border-white/15 bg-[#102734]/95 p-1.5">
-        {agents.slice(0, 6).map(agent => <button key={agent.id} title={agent.name} aria-label={`打开会话：${agent.name}`} onClick={() => open(agent.id)}
+        {agents.slice(0, 6).map(agent => <button key={agent.id} title={agent.name} aria-label={t("Open session: {0}", { "0": agent.name })} onClick={() => open(agent.id)}
           className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-[#102531]" style={{ background: agent.color }}>
           {agent.name.slice(0, 2)}<ActivityBadge agent={agent} />
         </button>)}
-        <button onClick={() => setFleetOpen(value => !value)} className="flex h-8 items-center gap-1.5 rounded-full px-3 text-[10px]" aria-expanded={fleetOpen} aria-label="会话列表"><Users size={13} />{agents.length} AGENTS</button>
+        <button onClick={() => setFleetOpen(value => !value)} className="flex h-8 items-center gap-1.5 rounded-full px-3 text-[10px]" aria-expanded={fleetOpen} aria-label={t("Session list")}><Users size={13} />{agents.length} {t("AGENTS")}</button>
       </div>
     </div>
     <div className="ship-toolbar absolute right-3 top-3 z-20 flex items-center gap-2">
-      <div title={`Runtime: Codex App (${gatewayStatus})`} className={`rounded-lg border px-2 py-2 text-[10px] uppercase tracking-wider ${gatewayStatus === "connected" ? "border-emerald-300/25 bg-emerald-400/10 text-emerald-200" : "border-amber-300/25 bg-amber-400/10 text-amber-100"}`}><span className="max-md:hidden">CODEX APP · </span>{gatewayStatus}</div>
-      <button className={button} title="本层全景" aria-label="本层全景" onClick={() => select("")}><Home size={15} /></button>
-      <button className={button} title="整船结构" aria-label="整船结构" aria-pressed={shipView} onClick={() => { setWhole(value => !value); setLiftOpen(false); setFocus(previous => ({ id: "", request: previous.request + 1 })); }}><Layers3 size={15} /></button>
-      <button className={button} title="Voice reply settings" aria-label="设置" onClick={() => setSettingsOpen(true)}><Settings2 size={15} /></button>
+      <div title={`Runtime: Codex App (${gatewayStatus})`} className={`rounded-lg border px-2 py-2 text-[10px] uppercase tracking-wider ${gatewayStatus === "connected" ? "border-emerald-300/25 bg-emerald-400/10 text-emerald-200" : "border-amber-300/25 bg-amber-400/10 text-amber-100"}`}><span className="max-md:hidden">CODEX APP · </span>{t(gatewayStatus)}</div>
+      <button className={button} title={t("Deck overview")} aria-label={t("Deck overview")} onClick={() => select("")}><Home size={15} /></button>
+      <button className={button} title={t("Whole ship")} aria-label={t("Whole ship")} aria-pressed={shipView} onClick={() => { setWhole(value => !value); setLiftOpen(false); setFocus(previous => ({ id: "", request: previous.request + 1 })); }}><Layers3 size={15} /></button>
+      <button className={button} title={t("Voice reply settings")} aria-label={t("Settings")} onClick={() => setSettingsOpen(true)}><Settings2 size={15} /></button>
     </div>
-    <CompanyWorkAreaMenu areas={areas} activeId={validFocus} sessionCount={agents.length} open={menuOpen} onOpenChange={setMenuOpen} onSelect={select} actions={companyActions} description="点击中央轴乘梯换层 · 空舱随时可启用" />
+    <CompanyWorkAreaMenu areas={areas} activeId={validFocus} sessionCount={agents.length} open={menuOpen} onOpenChange={setMenuOpen} onSelect={select} actions={companyActions} description={t("Use the central lift to change decks · Empty cabins are ready to use")} />
     {fleetOpen ? <div className="ship-fleet absolute left-1/2 top-28 z-30 max-h-[60vh] w-80 max-w-[90vw] -translate-x-1/2 overflow-auto rounded-xl border border-white/15 bg-[#0d2431]/98 p-2 shadow-xl">
       {agents.map(agent => <button key={agent.id} className="flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-white/10" onClick={() => open(agent.id)}>
-        <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: agent.color }} /><span className="min-w-0 flex-1 truncate text-xs">{agent.name}</span><span className="text-[10px]" style={{ color: getAgentActivity(agent).color }}>{getAgentActivity(agent).marker} {getAgentActivity(agent).label}</span>
+        <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: agent.color }} /><span className="min-w-0 flex-1 truncate text-xs">{agent.name}</span><span className="text-[10px]" style={{ color: getAgentActivity(agent).color }}>{getAgentActivity(agent).marker} {t(getAgentActivity(agent).label)}</span>
       </button>)}
     </div> : null}
     <div className="ship-summary pointer-events-none absolute bottom-4 left-4 z-10 max-w-[min(70vw,460px)] rounded-xl border border-white/10 bg-[#102531]/90 px-4 py-3">
-      <div className="text-xs text-[#e1cb9f]">{selected ? selected.name : shipView ? "三环飞船 · 整船结构" : `L${visibleDeck + 1} · ${DECK_NAMES[visibleDeck]}`}</div>
-      <div className="mt-1 text-[11px] text-[#9fb9c2]">{selected ? PUBLIC_DESCRIPTIONS[selected.kind] : `${roster.projects.length} 个 Project · ${agents.length} 个会话 · ${reserveCount} 个预留舱`}</div>
-      <div className="mt-1 text-[9px] text-[#829da9]">{agents.filter(a => a.status === "working").length} working · {agents.filter(a => a.status === "idle").length} idle · 拖动旋转 · 滚轮缩放 · 点击中央轴换层</div>
+      <div className="text-xs text-[#e1cb9f]">{selected ? (selected.kind === "work" && selected.projectId !== SHARED_PROJECT_ID ? selected.name : t(selected.name)) : shipView ? t("Three-ring ship · Whole ship") : `L${visibleDeck + 1} · ${t(DECK_NAMES[visibleDeck])}`}</div>
+      <div className="mt-1 text-[11px] text-[#9fb9c2]">{selected ? t(PUBLIC_DESCRIPTIONS[selected.kind]) : t("{0} projects · {1} sessions · {2} reserve cabins", { "0": roster.projects.length, "1": agents.length, "2": reserveCount })}</div>
+      <div className="mt-1 text-[9px] text-[#829da9]">{t("{working} working · {idle} idle · Drag to rotate · Scroll to zoom · Use the central lift to change decks", { working: agents.filter(a => a.status === "working").length, idle: agents.filter(a => a.status === "idle").length })}</div>
     </div>
     </fieldset>
     <LiftOverlay trip={trip} overlayRef={overlayRef} />
     {returnFlight ? <div role="status" aria-live="polite" className="absolute bottom-20 sm:bottom-4 left-1/2 z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-amber-200/25 bg-[#101e29]/95 px-4 py-3 text-center shadow-xl">
       <div className="truncate text-xs text-amber-100">{returnFlight.name}</div>
-      <p className="mt-1 text-xs text-amber-100">{RETURN_LABELS[returnStage]}</p>
-      {returnError ? <><p className="mt-2 text-xs text-rose-200">{returnError}</p><button className="mt-2 text-xs underline" onClick={returnComplete}>返回办公室 · 结果可在 Codex 中核对</button></>:<p className="mt-1 text-[10px] text-white/45">原会话与历史保留，可在 Codex 中取消归档。</p>}
+      <p className="mt-1 text-xs text-amber-100">{t(RETURN_LABELS[returnStage])}</p>
+      {returnError ? <><p className="mt-2 text-xs text-rose-200">{t(returnError)}</p><button className="mt-2 text-xs underline" onClick={returnComplete}>{t("Return to office · Check the result in Codex")}</button></>:<p className="mt-1 text-[10px] text-white/45">{t("History is preserved. You can unarchive this chat in Codex.")}</p>}
     </div>:null}
     {settingsOpen ? <div className="absolute inset-0 z-40 flex justify-end bg-black/40 p-3 backdrop-blur-sm" onKeyDown={event => { if (event.key === "Escape") setSettingsOpen(false); }}>
       <div className="w-full max-w-sm overflow-auto rounded-xl border border-white/15 bg-[#071522] shadow-2xl">
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-xs"><span>飞船与语音设置</span><button className={button} aria-label="Close studio settings" onClick={() => setSettingsOpen(false)}><X size={14} /></button></div>
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-xs"><span>{t("Ship and voice settings")}</span><button className={button} aria-label={t("Close studio settings")} onClick={() => setSettingsOpen(false)}><X size={14} /></button></div>
         <SettingsPanel {...props} officeTitle={officeTitle} officeTitleLoaded={!!props.officeTitleLoaded} onOfficeTitleChange={value => props.onOfficeTitleChange?.(value)}
           remoteOfficeEnabled={!!props.remoteOfficeEnabled} remoteOfficeSourceKind={props.remoteOfficeSourceKind || "presence_endpoint"} remoteOfficeLabel={props.remoteOfficeLabel || "Remote Office"}
           remoteOfficePresenceUrl={props.remoteOfficePresenceUrl || ""} remoteOfficeGatewayUrl={props.remoteOfficeGatewayUrl || ""} remoteOfficeTokenConfigured={!!props.remoteOfficeTokenConfigured}

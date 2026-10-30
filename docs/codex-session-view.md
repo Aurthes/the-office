@@ -110,8 +110,11 @@ Return to office restores the 3D view. The conversation roster is closed by
 default and opens from the header. Technical session information is behind the
 overflow menu, and the raw event console is hidden outside explicit debug mode.
 
-Image attachments and referenced PNG/JPEG/GIF/WebP files render in the chat and
-open a larger preview. Markdown and HTML file links open a reader with Return to
+User image attachments appear as compact thumbnails above a right-aligned message
+bubble and open a full preview on click. Native file-prompt headings and local
+paths are removed from the displayed request; the original conversation is never
+rewritten. Assistant images and referenced PNG/JPEG/GIF/WebP files retain their
+inline rendering and larger preview. Markdown and HTML file links open a reader with Return to
 chat and Download. Native ambient context is removed before the text page budget
 is applied, so a large app screenshot description cannot displace the user's
 actual request. Original stored messages are never changed.

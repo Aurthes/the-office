@@ -8,16 +8,16 @@ describe("native question form", () => {
   it("requires an explicit choice and submits to the original thread once", async () => {
     const call = vi.fn(async () => ({}));
     render(React.createElement(SessionQuestions, { client: { call }, threadId: "original-thread", request }));
-    expect(screen.getByRole("button", { name: "提交答案" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Submit answer" })).toBeDisabled();
     fireEvent.click(screen.getByRole("radio", { name: /One/ })); fireEvent.submit(screen.getByRole("form"));
     fireEvent.submit(screen.getByRole("form")); await act(async () => {});
     expect(call).toHaveBeenCalledExactlyOnceWith("session.question.reply", expect.objectContaining({ threadId: "original-thread", promptId: "original-prompt", answers: { q: "One" } }));
-    expect(screen.getByRole("status")).toHaveTextContent("答案已提交");
+    expect(screen.getByRole("status")).toHaveTextContent("Answer submitted");
   });
   it("supports custom answers and retains them if submission fails", async () => {
     const call = vi.fn(async () => { throw new Error("not confirmed"); });
     render(React.createElement(SessionQuestions, { client: { call }, threadId: "t", request }));
-    fireEvent.click(screen.getByRole("radio", { name: "自定义回答" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Custom answer" }));
     fireEvent.change(screen.getByLabelText("选择方向"), { target: { value: "another direction" } });
     fireEvent.submit(screen.getByRole("form")); await act(async () => {});
     expect(screen.getByRole("alert")).toHaveTextContent("not confirmed");

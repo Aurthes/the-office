@@ -75,3 +75,10 @@
     font-size: 16px;
   }
 }
+
+/* User attachments stay separate from the message bubble, like the native chat. */
+.office-session-chat .session-user-message { width: fit-content; max-width: 90%; margin-left: auto; }
+.office-session-chat .session-user-text { margin-top: 10px; border-radius: 20px; background: #2a3038; padding: 12px 16px; color: #eef1f0; }
+.office-session-chat .session-user-text:first-child { margin-top: 0; }
+.session-image-thumbnail { width: 120px; height: 120px; max-width: 100%; overflow: hidden; border: 1px solid #ffffff1a; border-radius: 12px; background: #18212a; }
+.session-image-thumbnail img { width: 100%; height: 100%; max-height: none; object-fit: cover; border-radius: inherit; }

@@ -214,28 +214,31 @@ import {
 import { deriveSkillReadinessState } from "@/lib/skills/presentation";
 import type { StandupAgentSnapshot } from "@/lib/office/standup/types";
 import type { SkillStatusEntry } from "@/lib/skills/types";
+import { useUiText } from "@/lib/i18n/ui-language";
+
+function OfficeLoading({ ship = false }: { ship?: boolean }) {
+  const t = useUiText();
+  return <div className="flex h-full items-center justify-center text-sm text-cyan-100">
+    <div className="text-center"><p>{t(ship ? "Assembling the ship…" : "3D office is loading…")}</p>
+      {/* Full navigation deliberately escapes a stalled 3D page. */}
+      {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+      <a className="mt-3 inline-block underline" href="/agents">{t("Open chat")}</a>
+    </div>
+  </div>;
+}
 
 // Keep gateway/chat startup independent of WebGL and model loading.
 const RetroOffice3D = dynamic(
   () => import("@/features/retro-office/RetroOffice3D").then((module) => module.RetroOffice3D),
   {
     ssr: false,
-    loading: () => (
-      <div className="flex h-full items-center justify-center text-sm text-amber-100">
-        <div className="text-center">
-          <p>3D office is loading…</p>
-          {/* Full navigation deliberately escapes a stalled 3D page. */}
-          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-          <a className="mt-3 inline-block underline" href="/agents">Open chat</a>
-        </div>
-      </div>
-    ),
+    loading: () => <OfficeLoading />,
   },
 );
 
 const RingShipOffice = dynamic(
   () => import("@/features/ring-ship/RingShipOffice").then(module => module.RingShipOffice),
-  { ssr: false, loading: () => <div className="flex h-full items-center justify-center text-sm text-cyan-100">正在装配环形飞船…</div> },
+  { ssr: false, loading: () => <OfficeLoading ship /> },
 );
 
 const stringToColor = (str: string) => {
@@ -982,6 +985,7 @@ type OfficeScreenProps = {
 export function OfficeScreen({
   showOpenClawConsole = true,
 }: OfficeScreenProps) {
+  const t = useUiText();
   // Patch Hermes Phase 2: avoid useSearchParams() at component root — it
   // suspends during hydration in Next.js dev mode and keeps the parent
   // Suspense fallback stuck on "Loading...". Use a sync useMemo so
@@ -4801,7 +4805,7 @@ export function OfficeScreen({
       {showGatewayLoadingOverlay ? (
         <div
           className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-[#120a05]/76"
-          aria-label="Connecting to runtime"
+          aria-label={t("Connecting to runtime")}
           role="status"
         >
           <div className="rounded-xl border border-amber-700/45 bg-[#1a1008] px-8 py-6 shadow-2xl">
@@ -5096,9 +5100,7 @@ export function OfficeScreen({
           <div className="pointer-events-auto rounded-lg border border-amber-400/35 bg-black/80 px-4 py-3 shadow-2xl backdrop-blur">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-200/80">
-                  Office fleet status
-                </p>
+                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-200/80">{t("Office fleet status")}</p>
                 <p className="mt-1 text-sm text-amber-50">{emptyFleetMessage}</p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -5108,27 +5110,21 @@ export function OfficeScreen({
                   onClick={() => {
                     handleOpenCreateAgentWizard();
                   }}
-                >
-                  Add Agent
-                </button>
+                >{t("Add Agent")}</button>
                 <button
                   type="button"
                   className="ui-btn-secondary px-3 py-2 text-xs font-semibold tracking-[0.05em] text-foreground"
                   onClick={() => {
                     handleOpenCompanyBuilder();
                   }}
-                >
-                  Build Company
-                </button>
+                >{t("Build Company")}</button>
                 <button
                   type="button"
                   className="ui-btn-secondary px-3 py-2 text-xs font-semibold tracking-[0.05em] text-foreground"
                   onClick={() => {
                     void loadAgents({ forceSettings: true });
                   }}
-                >
-                  Retry
-                </button>
+                >{t("Retry")}</button>
               </div>
             </div>
           </div>
@@ -5138,9 +5134,7 @@ export function OfficeScreen({
       {deleteAgentStatusLine ? (
         <div className="pointer-events-none fixed left-1/2 top-5 z-40 -translate-x-1/2 px-4">
           <div className="pointer-events-auto rounded-lg border border-red-400/30 bg-black/85 px-4 py-3 shadow-2xl backdrop-blur">
-            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-red-200/75">
-              Fleet mutation
-            </div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-red-200/75">{t("Fleet mutation")}</div>
             <div className="mt-1 text-sm text-red-50">{deleteAgentStatusLine}</div>
           </div>
         </div>
@@ -5276,10 +5270,9 @@ export function OfficeScreen({
       {showOpenClawConsole && (!sessionView || debugEnabled) ? (
         <section className="pointer-events-auto fixed bottom-3 left-3 z-30 flex w-[520px] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded border border-cyan-500/25 bg-black/78 shadow-2xl backdrop-blur">
           <div className="flex items-center justify-between border-b border-cyan-500/15 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.18em] text-cyan-200/80">
-            <span>Agent Event Console</span>
+            <span>{t("Agent Event Console")}</span>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] text-cyan-100/45">
-                agents {state.agents.length} | events{" "}
+              <span className="text-[10px] text-cyan-100/45">{t("agents")}{state.agents.length}{t("| events")}{" "}
                 {filteredOpenClawLogEntries.length}/{openClawLogEntries.length}
               </span>
               <button
@@ -5299,16 +5292,12 @@ export function OfficeScreen({
                 type="button"
                 onClick={handleDownloadOpenClawConsoleJson}
                 className="rounded border border-cyan-500/20 px-2 py-0.5 text-[9px] text-cyan-100/70 transition-colors hover:border-cyan-400/45 hover:text-cyan-50"
-              >
-                Download JSON
-              </button>
+              >{t("Download JSON")}</button>
               <button
                 type="button"
                 onClick={handleClearOpenClawConsole}
                 className="rounded border border-cyan-500/20 px-2 py-0.5 text-[9px] text-cyan-100/70 transition-colors hover:border-cyan-400/45 hover:text-cyan-50"
-              >
-                Clear
-              </button>
+              >{t("Clear")}</button>
               <button
                 type="button"
                 onClick={() =>
@@ -5316,7 +5305,7 @@ export function OfficeScreen({
                 }
                 className="rounded border border-cyan-500/20 px-2 py-0.5 text-[9px] text-cyan-100/70 transition-colors hover:border-cyan-400/45 hover:text-cyan-50"
               >
-                {openClawConsoleCollapsed ? "Expand" : "Minimize"}
+                {openClawConsoleCollapsed ? t("Expand") : "Minimize"}
               </button>
             </div>
           </div>
@@ -5330,7 +5319,7 @@ export function OfficeScreen({
                   onChange={(event) =>
                     setOpenClawConsoleSearch(event.target.value)
                   }
-                  placeholder="Search logs, payloads, thinking, user text."
+                  placeholder={t("Search logs, payloads, thinking, user text.")}
                   className="min-w-0 flex-1 rounded border border-cyan-500/20 bg-black/35 px-2 py-1 text-[10px] normal-case tracking-normal text-cyan-50 placeholder:text-cyan-100/30 focus:border-cyan-400/40 focus:outline-none"
                 />
                 {openClawConsoleSearch ? (
@@ -5338,17 +5327,13 @@ export function OfficeScreen({
                     type="button"
                     onClick={() => setOpenClawConsoleSearch("")}
                     className="rounded border border-cyan-500/20 px-2 py-1 text-[9px] uppercase tracking-[0.16em] text-cyan-100/70 transition-colors hover:border-cyan-400/45 hover:text-cyan-50"
-                  >
-                    Reset
-                  </button>
+                  >{t("Reset")}</button>
                 ) : null}
               </div>
             </div>
             {openClawLiveStateMatchesSearch ? (
               <div className="rounded border border-cyan-500/10 bg-cyan-950/10 p-2">
-                <div className="mb-1 text-[9px] uppercase tracking-[0.16em] text-cyan-300/70">
-                  Live OpenClaw State
-                </div>
+                <div className="mb-1 text-[9px] uppercase tracking-[0.16em] text-cyan-300/70">{t("Live OpenClaw State")}</div>
                 <pre className="whitespace-pre-wrap break-words text-cyan-100/80">
                   {renderOpenClawHighlightedText(
                     openClawLiveStateText,
@@ -5357,13 +5342,9 @@ export function OfficeScreen({
                 </pre>
               </div>
             ) : (
-              <div className="rounded border border-cyan-500/10 bg-cyan-950/10 p-2 text-cyan-100/45">
-                Live OpenClaw state does not match the current search.
-              </div>
+              <div className="rounded border border-cyan-500/10 bg-cyan-950/10 p-2 text-cyan-100/45">{t("Live OpenClaw state does not match the current search.")}</div>
             )}
-            <div className="text-[9px] uppercase tracking-[0.16em] text-cyan-300/70">
-              Raw OpenClaw Gateway Events
-            </div>
+            <div className="text-[9px] uppercase tracking-[0.16em] text-cyan-300/70">{t("Raw OpenClaw Gateway Events")}</div>
             {filteredOpenClawLogEntries.length === 0 ? (
               <div className="rounded border border-cyan-500/10 bg-cyan-950/10 p-2 text-cyan-100/45">
                 {openClawLogEntries.length === 0
@@ -5415,9 +5396,7 @@ export function OfficeScreen({
                     </div>
                     {entry.messageText ? (
                       <div className="mt-2 rounded border border-amber-400/20 bg-amber-950/25 px-2 py-1 text-amber-100">
-                        <div className="text-[9px] uppercase tracking-[0.16em] text-amber-300/75">
-                          User / Message Text
-                        </div>
+                        <div className="text-[9px] uppercase tracking-[0.16em] text-amber-300/75">{t("User / Message Text")}</div>
                         <div className="mt-1 whitespace-pre-wrap break-words">
                           {renderOpenClawHighlightedText(
                             entry.messageText,
@@ -5428,9 +5407,7 @@ export function OfficeScreen({
                     ) : null}
                     {entry.thinkingText ? (
                       <div className="mt-2 rounded border border-fuchsia-400/15 bg-fuchsia-950/15 px-2 py-1 text-fuchsia-100/90">
-                        <div className="text-[9px] uppercase tracking-[0.16em] text-fuchsia-300/70">
-                          Thinking
-                        </div>
+                        <div className="text-[9px] uppercase tracking-[0.16em] text-fuchsia-300/70">{t("Thinking")}</div>
                         <div className="mt-1 whitespace-pre-wrap break-words">
                           {renderOpenClawHighlightedText(
                             entry.thinkingText,
@@ -5441,9 +5418,7 @@ export function OfficeScreen({
                     ) : null}
                     {entry.streamText ? (
                       <div className="mt-2 rounded border border-cyan-400/15 bg-cyan-950/18 px-2 py-1 text-cyan-50/90">
-                        <div className="text-[9px] uppercase tracking-[0.16em] text-cyan-300/70">
-                          Stream
-                        </div>
+                        <div className="text-[9px] uppercase tracking-[0.16em] text-cyan-300/70">{t("Stream")}</div>
                         <div className="mt-1 whitespace-pre-wrap break-words">
                           {renderOpenClawHighlightedText(
                             entry.streamText,
@@ -5454,9 +5429,7 @@ export function OfficeScreen({
                     ) : null}
                     {entry.toolText ? (
                       <div className="mt-2 rounded border border-violet-400/15 bg-violet-950/15 px-2 py-1 text-violet-100/90">
-                        <div className="text-[9px] uppercase tracking-[0.16em] text-violet-300/70">
-                          Tool Output
-                        </div>
+                        <div className="text-[9px] uppercase tracking-[0.16em] text-violet-300/70">{t("Tool Output")}</div>
                         <div className="mt-1 whitespace-pre-wrap break-words">
                           {renderOpenClawHighlightedText(
                             entry.toolText,
@@ -5466,9 +5439,7 @@ export function OfficeScreen({
                       </div>
                     ) : null}
                     <details className="mt-2">
-                      <summary className="cursor-pointer text-[9px] uppercase tracking-[0.16em] text-cyan-300/55">
-                        Raw Payload
-                      </summary>
+                      <summary className="cursor-pointer text-[9px] uppercase tracking-[0.16em] text-cyan-300/55">{t("Raw Payload")}</summary>
                       <pre className="mt-1 whitespace-pre-wrap break-words text-cyan-100/45">
                         {renderOpenClawHighlightedText(
                           entry.payloadText,
@@ -5485,7 +5456,7 @@ export function OfficeScreen({
         </section>
       ) : null}
 
-      {sessionView && chatOpen ? <button type="button" aria-label="点击办公室关闭聊天" className="fixed inset-0 z-40 cursor-default bg-transparent" onClick={() => setChatOpen(false)} /> : null}
+      {sessionView && chatOpen ? <button type="button" aria-label={t("Click the office to close chat")} className="fixed inset-0 z-40 cursor-default bg-transparent" onClick={() => setChatOpen(false)} /> : null}
       <div
         className={sessionView && chatOpen
           ? `office-session-chat fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[#11161e] text-white shadow-2xl md:inset-y-3 md:right-3 md:left-auto md:rounded-xl md:border md:border-white/15 ${chatExpanded ? "md:w-[calc(100vw-1.5rem)]" : "md:w-[min(960px,calc(100vw-1.5rem))]"}`
@@ -5493,10 +5464,10 @@ export function OfficeScreen({
         style={sessionView && chatOpen && chatViewport ? { height: chatViewport.height, top: chatViewport.top, bottom: "auto" } : undefined}
       >
         {sessionView && chatOpen ? <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-3 py-2 [padding-top:max(0.5rem,env(safe-area-inset-top))]">
-          <button type="button" onClick={() => setChatRosterCollapsed(value => !value)} aria-expanded={!chatRosterCollapsed} className="min-h-10 rounded-md px-3 text-sm text-white/75 hover:bg-white/10">会话 · {chatRosterEntries.length}</button>
+          <button type="button" onClick={() => setChatRosterCollapsed(value => !value)} aria-expanded={!chatRosterCollapsed} className="min-h-10 rounded-md px-3 text-sm text-white/75 hover:bg-white/10">{t("Sessions ·")} {chatRosterEntries.length}</button>
           <div className="flex items-center gap-1">
-            <button type="button" onClick={() => setChatExpanded(value => !value)} aria-label={chatExpanded ? "还原聊天窗口" : "放大聊天窗口"} title={chatExpanded ? "还原" : "放大"} className="office-chat-expand hidden min-h-10 items-center gap-2 rounded-md px-3 text-sm text-white/65 hover:bg-white/10 md:inline-flex">{chatExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}{chatExpanded ? "还原" : "放大"}</button>
-            <button type="button" onClick={() => setChatOpen(false)} aria-label="关闭聊天，返回办公室" title="关闭聊天" className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-md px-3 text-cyan-100 hover:bg-white/10"><X size={18} /></button>
+            <button type="button" onClick={() => setChatExpanded(value => !value)} aria-label={chatExpanded ? t("Restore chat window") : t("Expand chat window")} title={chatExpanded ? t("Restore") : t("Expand")} className="office-chat-expand hidden min-h-10 items-center gap-2 rounded-md px-3 text-sm text-white/65 hover:bg-white/10 md:inline-flex">{chatExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}{chatExpanded ? t("Restore") : t("Expand")}</button>
+            <button type="button" onClick={() => setChatOpen(false)} aria-label={t("Close chat and return to office")} title={t("Close chat")} className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-md px-3 text-cyan-100 hover:bg-white/10"><X size={18} /></button>
           </div>
         </div> : null}
         {chatOpen && (
@@ -5515,9 +5486,7 @@ export function OfficeScreen({
               <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
                 {!chatRosterCollapsed ? (
                   <>
-                    <span className="font-mono text-[11px] font-semibold uppercase tracking-widest text-white/60">
-                      Agents
-                    </span>
+                    <span className="font-mono text-[11px] font-semibold uppercase tracking-widest text-white/60">{t("Agents")}</span>
                     <span className="font-mono text-[10px] text-white/40">
                       {chatRosterEntries.length}
                     </span>
@@ -5541,7 +5510,7 @@ export function OfficeScreen({
                   <ChevronLeft className="h-4 w-4" />
                 )}
               </button> : null}
-              {sessionView && !chatRosterCollapsed ? <input aria-label="搜索会话" placeholder="搜索会话/项目" value={sessionSearch} onChange={event => setSessionSearch(event.target.value)} className="mx-2 my-2 min-w-0 rounded border border-white/15 bg-black/30 p-2 text-xs text-white" /> : null}
+              {sessionView && !chatRosterCollapsed ? <input aria-label={t("Search sessions")} placeholder={t("Search sessions or projects")} value={sessionSearch} onChange={event => setSessionSearch(event.target.value)} className="mx-2 my-2 min-w-0 rounded border border-white/15 bg-black/30 p-2 text-xs text-white" /> : null}
               <div className="min-h-0 flex-1 overflow-y-auto">
                 {chatRosterCollapsed ? (
                   <div className="flex flex-col items-center gap-2 px-1 py-2">
@@ -5565,9 +5534,7 @@ export function OfficeScreen({
                     })}
                   </div>
                 ) : chatRosterEntries.length === 0 ? (
-                  <div className="px-3 py-4 font-mono text-[11px] text-white/30">
-                    No agents.
-                  </div>
+                  <div className="px-3 py-4 font-mono text-[11px] text-white/30">{t("No agents.")}</div>
                 ) : (
                   chatRosterEntries.filter(agent => !sessionView || [agent.name, agent.id, state.agents.find(item => item.agentId === agent.id)?.role || ""].some(value => value.toLowerCase().includes(sessionSearch.toLowerCase()))).map((agent) => {
                     const isSelected = agent.id === selectedChatAgentId;
@@ -5590,9 +5557,7 @@ export function OfficeScreen({
                           {agent.name}
                         </span>
                         {agent.kind === "remote" ? (
-                          <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.14em] text-cyan-300/60">
-                            Remote
-                          </span>
+                          <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.14em] text-cyan-300/60">{t("Remote")}</span>
                         ) : null}
                         <span className="sr-only">
                           {agent.kind === "remote" ? "Remote agent" : "Local agent"}
@@ -5725,9 +5690,7 @@ export function OfficeScreen({
                   }}
                 />
               ) : (
-                <div className="flex flex-1 items-center justify-center font-mono text-[12px] text-white/30">
-                  Select an agent to chat.
-                </div>
+                <div className="flex flex-1 items-center justify-center font-mono text-[12px] text-white/30">{t("Select an agent to chat.")}</div>
               )}
             </div>
           </div>
@@ -5741,12 +5704,12 @@ export function OfficeScreen({
           {chatOpen ? (
             <>
               <ChevronDown className="h-3.5 w-3.5" />
-              <span>HIDE CHAT</span>
+              <span>{t("HIDE CHAT")}</span>
             </>
           ) : (
             <>
               <MessageSquare className="h-3.5 w-3.5" />
-              <span>CHAT</span>
+              <span>{t("CHAT")}</span>
               {runningCount > 0 ? (
                 <span className="rounded bg-amber-500/20 px-1 text-[10px] text-amber-400">
                   {runningCount}
@@ -5778,9 +5741,7 @@ export function OfficeScreen({
               <Mic className="h-5 w-5" />
             </div>
             <div className="flex flex-col">
-              <span className="text-[10px] uppercase tracking-[0.18em] text-white/55">
-                Main agent
-              </span>
+              <span className="text-[10px] uppercase tracking-[0.18em] text-white/55">{t("Main agent")}</span>
               <span className="text-[12px] font-medium text-white">
                 {mainVoiceError
                   ? mainVoiceError

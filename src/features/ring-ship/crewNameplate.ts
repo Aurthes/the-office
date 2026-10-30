@@ -1,7 +1,8 @@
+import type { UiTranslator } from "@/lib/i18n/messages";
 import type { OfficeAgent } from "@/features/retro-office/core/types";
 import { getAgentActivity } from "@/features/retro-office/core/agentActivity";
 
-export function paintCrewNameplate(canvas: HTMLCanvasElement, agent: Pick<OfficeAgent, "name" | "color" | "status" | "needsInput" | "needsReview">, expanded: boolean, workText: string, gearAngle = 0) {
+export function paintCrewNameplate(canvas: HTMLCanvasElement, agent: Pick<OfficeAgent, "name" | "color" | "status" | "needsInput" | "needsReview">, expanded: boolean, workText: string, gearAngle = 0, t: UiTranslator = text => text) {
   const activity = getAgentActivity(agent);
   const speaking = activity.kind === "working" && !!workText;
   canvas.width = expanded ? 640 : 512; canvas.height = expanded ? 144 : 128;
@@ -30,5 +31,5 @@ export function paintCrewNameplate(canvas: HTMLCanvasElement, agent: Pick<Office
     } else c.fillText(marker, canvas.width - 52, expanded ? 44 : 66, 86);
     c.textAlign = "left"; c.textBaseline = "alphabetic";
   }
-  if (expanded) { c.font = "28px system-ui"; c.fillStyle = "#9cb4c3"; c.fillText(activity.label, 25, 110); }
+  if (expanded) { c.font = "28px system-ui"; c.fillStyle = "#9cb4c3"; c.fillText(t(activity.label), 25, 110); }
 }
