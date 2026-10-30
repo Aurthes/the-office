@@ -27,7 +27,7 @@ export const RING_CAPACITIES = [3, 6, 8] as const;
 export const PUBLIC_CABINS: ReadonlyArray<{ id: string; ring: RingIndex; slot: number; kind: CabinKind; name: string; color: string }> = [
   { id: "public:lounge", ring: 0, slot: 0, kind: "lounge", name: "观景休息舱", color: "#d6af71" },
   { id: "public:servers", ring: 0, slot: 4, kind: "servers", name: "服务器机房", color: "#77a9ce" },
-  { id: "public:garden", ring: 1, slot: 0, kind: "garden", name: "植物园", color: "#75b788" },
+  { id: "public:garden", ring: 1, slot: 0, kind: "garden", name: "雨林生态舱", color: "#75b788" },
   { id: "public:hydroponics", ring: 1, slot: 4, kind: "hydroponics", name: "水培菜园", color: "#79c5aa" },
   { id: "public:canteen", ring: 1, slot: 6, kind: "canteen", name: "餐厅与咖啡舱", color: "#daa26a" },
   { id: "public:gym", ring: 2, slot: 0, kind: "gym", name: "健身舱", color: "#8da4d2" },
@@ -175,8 +175,8 @@ export function routeBetweenCabins(layout: ShipLayout, from: ShipSeat, destinati
 
 export const PUBLIC_DESCRIPTIONS: Record<CabinKind, string> = {
   work: "按 Project 分配的工作舱，点击员工继续原会话。", reserve: "舱体和接口已就绪，后续 Project 可直接启用。",
-  garden: "树木、花草和休息座椅组成的自然空间。", hydroponics: "水培种植床、补光灯和循环水系统，供飞船种植食物。",
-  canteen: "船员餐桌、厨房和咖啡区。", gym: "跑步、力量训练和活动身体的公共舱。", servers: "服务器、冷却和通信设备。",
+  garden: "高低树冠、阔叶、蕨类和藤蔓围绕水景与步道的雨林生态舱。", hydroponics: "水培种植床、补光灯和循环水系统，供飞船种植食物。",
+  canteen: "船员餐桌、厨房和咖啡区。", gym: "跑步、力量训练和活动身体的公共舱。", servers: "成排机柜、顶部散热风扇、冷却管线和检修终端，中央留出维护通道。",
   maintenance: "飞船的工具、备件和维修区。", lounge: "看星空、休息和交流的公共空间。",
   cargo: "储存飞船补给和备用设备的货舱。", observatory: "观测星空和远方航路的公共观景舱。", quarters: "船员的休息铺位和个人储物空间。",
 };
