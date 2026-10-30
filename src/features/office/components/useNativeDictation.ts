@@ -18,7 +18,7 @@ export function pcmWav(frames: Int16Array[], samples: number) {
 export function useNativeDictation(threadId: string, draft: string, onText: (text: string) => void, client?: SessionClient) {
   const [phase, setPhase] = useState<"idle" | "starting" | "recording" | "transcribing" | "error">(() => recordings.has(threadId) ? "error" : "idle");
   const [clip, setClip] = useState<Clip | null>(() => recordings.get(threadId) || null);
-  const [error, setError] = useState(() => recordings.has(threadId) ? "有一段保留的录音，可重试转写或下载" : "");
+  const [error, setError] = useState(() => recordings.has(threadId) ? "A recording was kept. Retry transcription or download it." : "");
   const [seconds, setSeconds] = useState(0);
   const [transcriptionTime, setTranscriptionTime] = useState<{ seconds: number; retry: boolean } | null>(null);
   const capture = useRef<Capture | null>(null), request = useRef<AbortController | null>(null);
@@ -31,10 +31,10 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
     try {
       const result = await fetch("/api/session-dictation?" + new URLSearchParams({ threadId }), { method: "POST", body: audio.blob, headers: { "Content-Type": "audio/wav" }, signal: controller.signal });
       const data = await result.json();
-      if (!result.ok || typeof data.text !== "string" || !data.text.trim()) throw new Error(data.error || "原生听写未返回文字，录音已保留");
+      if (!result.ok || typeof data.text !== "string" || !data.text.trim()) throw new Error(data.error || "Native dictation returned no text. Recording kept.");
       if (mounted.current) { latest.current.onText(audio.base + (audio.base.trim() ? " " : "") + data.text); setTranscriptionTime({ seconds: (performance.now() - startedAt) / 1000, retry }); setPhase("idle"); }
     } catch (cause) {
-      if (mounted.current) { setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "转写已取消，录音已保留"); setPhase("error"); }
+      if (mounted.current) { setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Transcription cancelled. Recording kept."); setPhase("error"); }
     } finally { if (request.current === controller) request.current = null; }
   }, [threadId]);
   const cancelBridge = useCallback((bridge: Bridge) => {
@@ -45,12 +45,12 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
     const bridge = current.bridge;
     if (!bridge?.connected || bridge.error || bridge.cancelled) return;
     while (bridge.sent < current.frames.length) {
-      if (bridge.pending.size >= 64) { bridge.error = new Error("听写网络拥塞，录音仍在本地保留"); break; }
+      if (bridge.pending.size >= 64) { bridge.error = new Error("Dictation network is busy. Recording is kept locally."); break; }
       const frame = current.frames[bridge.sent], sequence = bridge.sent++;
       const bytes = new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength);
       const pending = bridge.client.call("session.dictation.append", { threadId, id: bridge.id, sequence, audio: btoa(String.fromCharCode(...bytes)) }).then(() => {}, cause => {
-        bridge.error = cause instanceof Error ? cause : new Error("原生听写连接中断，录音仍在本地保留");
-        if (mounted.current && capture.current === current) setError("原生连接中断；继续录音会保留，结束后可重试转写");
+        bridge.error = cause instanceof Error ? cause : new Error("Native dictation disconnected. Recording is kept locally.");
+        if (mounted.current && capture.current === current) setError("Native connection interrupted. Continue recording; retry transcription after stopping.");
       });
       bridge.pending.add(pending); void pending.then(() => bridge.pending.delete(pending));
     }
@@ -69,12 +69,12 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
     current.stream.getTracks().forEach(track => track.stop()); current.source?.disconnect(); current.node?.disconnect();
     await current.context.close().catch(() => {});
     if (capture.current === current) capture.current = null;
-    if (!current.samples) { if (current.bridge) cancelBridge(current.bridge); if (mounted.current) { setError("没有录到声音，请确认麦克风后重试"); setPhase("error"); } return; }
+    if (!current.samples) { if (current.bridge) cancelBridge(current.bridge); if (mounted.current) { setError("No audio recorded. Check the microphone and retry."); setPhase("error"); } return; }
     const audio = { blob: pcmWav(current.frames, current.samples), seconds: current.samples / 16000, base: latest.current.draft };
     recordings.set(threadId, audio);
     if (!mounted.current || !run) {
       if (current.bridge) cancelBridge(current.bridge);
-      if (mounted.current) { setClip(audio); setSeconds(audio.seconds); setPhase("error"); setError("录音已停止并保留，可重试转写或下载"); }
+      if (mounted.current) { setClip(audio); setSeconds(audio.seconds); setPhase("error"); setError("Recording stopped and kept. Retry transcription or download it."); }
       return;
     }
     setClip(audio); setSeconds(audio.seconds);
@@ -90,12 +90,12 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
         Promise.all([...bridge.pending]),
       ]);
       if (bridge.error) throw bridge.error;
-      if (!result.text?.trim()) throw new Error("原生听写没有返回完整文字，录音已保留");
-      if (bridge.cancelled) throw new Error("转写已取消，录音已保留");
+      if (!result.text?.trim()) throw new Error("Native dictation returned incomplete text. Recording kept.");
+      if (bridge.cancelled) throw new Error("Transcription cancelled. Recording kept.");
       if (mounted.current) { latest.current.onText(audio.base + (audio.base.trim() ? " " : "") + result.text); setTranscriptionTime({ seconds: (performance.now() - stoppedAt) / 1000, retry: false }); setPhase("idle"); }
     } catch (cause) {
       cancelBridge(bridge);
-      if (mounted.current) { setError(cause instanceof Error ? cause.message : "原生听写中断，录音已保留"); setPhase("error"); }
+      if (mounted.current) { setError(cause instanceof Error ? cause.message : "Native dictation interrupted. Recording kept."); setPhase("error"); }
     } finally { if (finishingBridge.current === bridge) finishingBridge.current = null; }
   }, [threadId, transcribe, sendFrames, cancelBridge]);
   const start = useCallback(async () => {
@@ -112,7 +112,7 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
         current.bridge = bridge;
         bridge.ready = bridge.client.call("session.dictation.start", { threadId, id: bridge.id }).then(() => {
           bridge.connected = true; sendFrames(current);
-        }).catch(cause => { bridge.error = cause instanceof Error ? cause : new Error("原生听写连接失败"); if (mounted.current && capture.current === current) setError("原生连接暂不可用，录音仍在本地保留，结束后可重试"); });
+        }).catch(cause => { bridge.error = cause instanceof Error ? cause : new Error("Native dictation connection failed"); if (mounted.current && capture.current === current) setError("Native connection unavailable. Recording is kept locally; retry after stopping."); });
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }); current.stream = stream;
       await resume;
@@ -139,7 +139,7 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
       const current = capture.current; capture.current = null;
       if (current?.bridge) cancelBridge(current.bridge);
       current?.stream?.getTracks().forEach(track => track.stop()); void current?.context.close().catch(() => {});
-      if (mounted.current) { setError("无法启动录音，请允许麦克风并使用 HTTPS 页面"); setPhase("error"); }
+      if (mounted.current) { setError("Could not start recording. Allow microphone access and use HTTPS."); setPhase("error"); }
     }
   }, [finishCapture, sendFrames, threadId, cancelBridge]);
   const clear = useCallback(() => { recordings.delete(threadId); setClip(null); setError(""); setPhase("idle"); setTranscriptionTime(null); }, [threadId]);

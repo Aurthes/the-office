@@ -7,6 +7,6 @@ export async function POST(request: Request) {
     return Response.json(await saveUpload(request, url.searchParams.get("threadId") || "", url.searchParams.get("name") || "attachment"), { headers: { "Cache-Control": "no-store" } });
   } catch (cause) {
     const status = cause && typeof cause === "object" && "status" in cause ? Number(cause.status) : 400;
-    return Response.json({ error: cause instanceof Error ? cause.message : "上传失败" }, { status, headers: { "Cache-Control": "no-store" } });
+    return Response.json({ error: cause instanceof Error ? cause.message : "Upload failed" }, { status, headers: { "Cache-Control": "no-store" } });
   }
 }

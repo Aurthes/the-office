@@ -13,13 +13,13 @@ it("renders referenced images through the protected route and opens HTML in an i
   render(React.createElement(SessionMarkdown, { content: "![Chart](/local/chart.png)\n\n[Report](/local/report.html)", assets: [image, html] }));
   expect(screen.getByRole("img", { name: "Chart" }).getAttribute("src")).toBe(image.url);
   fireEvent.click(screen.getByRole("img", { name: "Chart" }));
-  fireEvent.click(within(screen.getByRole("dialog")).getByTitle("放大图片"));
-  expect(within(screen.getByRole("dialog")).getByTitle("还原图片")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: /返回对话/ }));
+  fireEvent.click(within(screen.getByRole("dialog")).getByTitle("Enlarge image"));
+  expect(within(screen.getByRole("dialog")).getByTitle("Restore image")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /Back to chat/ }));
   fireEvent.click(screen.getByRole("link", { name: /Report/ }));
   expect(screen.getByRole("dialog")).toBeTruthy();
   const iframe = screen.getByTitle("report.html"); expect(iframe.getAttribute("src")).toBe(html.url); expect(iframe.getAttribute("sandbox")).toBe("allow-scripts");
-  fireEvent.click(screen.getByRole("button", { name: /返回对话/ })); expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /Back to chat/ })); expect(screen.queryByRole("dialog")).toBeNull();
 });
 it("renders native image attachments and Markdown files, including file-relative images", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ content: "# File title\n![relative](chart.png)", assets: [{ source: "chart.png", name: "chart.png", kind: "image", url: "/api/session-assets?ref=relative" }] }) })));
@@ -50,16 +50,16 @@ it("shows loading and slow feedback for HTML, offers a separate window, and allo
     const html = { source: "/report.html", name: "report.html", kind: "html" as const, url: "/api/session-assets?ref=html" };
     render(React.createElement(SessionMarkdown, { content: "[Report](/report.html)", assets: [html] }));
     fireEvent.click(screen.getByRole("link", { name: /Report/ }));
-    expect(screen.getByRole("status").textContent).toContain("正在加载");
-    const external = screen.getByRole("link", { name: /单独打开/ });
+    expect(screen.getByRole("status").textContent).toContain("Loading HTML");
+    const external = screen.getByRole("link", { name: /Open separately/ });
     expect(external.getAttribute("href")).toBe(html.url); expect(external.getAttribute("target")).toBe("_blank");
     act(() => vi.advanceTimersByTime(8000));
-    expect(screen.getByRole("status").textContent).toContain("继续等待");
+    expect(screen.getByRole("status").textContent).toContain("keep waiting");
     const original = screen.getByTitle("report.html");
-    fireEvent.click(screen.getByRole("button", { name: "重新加载" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
     expect(screen.getByTitle("report.html")).not.toBe(original);
     expect(screen.getByTitle("report.html").getAttribute("sandbox")).toBe("allow-scripts");
     fireEvent.load(screen.getByTitle("report.html")); expect(screen.queryByRole("status")).toBeNull();
-    fireEvent.click(screen.getByRole("link", { name: /单独打开/ })); expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("link", { name: /Open separately/ })); expect(screen.queryByRole("dialog")).toBeNull();
   } finally { vi.useRealTimers(); }
 });

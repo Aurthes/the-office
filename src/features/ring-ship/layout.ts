@@ -4,7 +4,7 @@ export type RingIndex = 0 | 1 | 2;
 export type DeckIndex = 0 | 1 | 2;
 export const DECKS = [0, 1, 2] as const;
 export const DECK_STEP = 10;
-export const DECK_NAMES = ["主甲板", "扩展甲板", "预留甲板"] as const;
+export const DECK_NAMES = ["Main deck", "Expansion deck", "Reserve deck"] as const;
 export type CabinKind = "work" | "reserve" | "garden" | "hydroponics" | "canteen" | "gym" | "servers" | "maintenance" | "lounge" | "cargo" | "observatory" | "quarters";
 export type ShipPoint = { x: number; z: number };
 export type ShipAssignment = { deck?: DeckIndex; ring: RingIndex; slot: number; span: number };
@@ -25,16 +25,16 @@ export const RING_RADII = [12, 26, 42] as const;
 export const RING_DEPTHS = [5.6, 6.8, 8] as const;
 export const RING_CAPACITIES = [3, 6, 8] as const;
 export const PUBLIC_CABINS: ReadonlyArray<{ id: string; ring: RingIndex; slot: number; kind: CabinKind; name: string; color: string }> = [
-  { id: "public:lounge", ring: 0, slot: 0, kind: "lounge", name: "观景休息舱", color: "#d6af71" },
-  { id: "public:servers", ring: 0, slot: 4, kind: "servers", name: "服务器机房", color: "#77a9ce" },
-  { id: "public:garden", ring: 1, slot: 0, kind: "garden", name: "植物园", color: "#75b788" },
-  { id: "public:hydroponics", ring: 1, slot: 4, kind: "hydroponics", name: "水培菜园", color: "#79c5aa" },
-  { id: "public:canteen", ring: 1, slot: 6, kind: "canteen", name: "餐厅与咖啡舱", color: "#daa26a" },
-  { id: "public:gym", ring: 2, slot: 0, kind: "gym", name: "健身舱", color: "#8da4d2" },
-  { id: "public:cargo", ring: 2, slot: 1, kind: "cargo", name: "补给储物舱", color: "#bdab83" },
-  { id: "public:observatory", ring: 2, slot: 2, kind: "observatory", name: "观星舱", color: "#8fb9ce" },
-  { id: "public:quarters", ring: 2, slot: 3, kind: "quarters", name: "船员休息舱", color: "#b5a5c4" },
-  { id: "public:maintenance", ring: 2, slot: 4, kind: "maintenance", name: "飞船维修舱", color: "#d3a47a" },
+  { id: "public:lounge", ring: 0, slot: 0, kind: "lounge", name: "Observation lounge", color: "#d6af71" },
+  { id: "public:servers", ring: 0, slot: 4, kind: "servers", name: "Server room", color: "#77a9ce" },
+  { id: "public:garden", ring: 1, slot: 0, kind: "garden", name: "Garden", color: "#75b788" },
+  { id: "public:hydroponics", ring: 1, slot: 4, kind: "hydroponics", name: "Hydroponics", color: "#79c5aa" },
+  { id: "public:canteen", ring: 1, slot: 6, kind: "canteen", name: "Dining and coffee", color: "#daa26a" },
+  { id: "public:gym", ring: 2, slot: 0, kind: "gym", name: "Gym", color: "#8da4d2" },
+  { id: "public:cargo", ring: 2, slot: 1, kind: "cargo", name: "Supply storage", color: "#bdab83" },
+  { id: "public:observatory", ring: 2, slot: 2, kind: "observatory", name: "Observatory", color: "#8fb9ce" },
+  { id: "public:quarters", ring: 2, slot: 3, kind: "quarters", name: "Crew quarters", color: "#b5a5c4" },
+  { id: "public:maintenance", ring: 2, slot: 4, kind: "maintenance", name: "Maintenance", color: "#d3a47a" },
 ];
 const TAU = Math.PI * 2;
 const COLORS = ["#61bfb7", "#80a9dd", "#d9ac71", "#af96ce", "#b4bf7a"];
@@ -62,7 +62,7 @@ export function parseShipAllocation(value: string | null): ShipAllocation | unde
 // every centerline radius by (N+1)/N; each existing bay keeps its floor area.
 export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation): ShipLayout {
   const projects = new Map(roster.projects.filter(p => p.id !== SHARED_PROJECT_ID).map(p => [p.id, { ...p, agentIds: [] as string[] }]));
-  projects.set(SHARED_PROJECT_ID, { id: SHARED_PROJECT_ID, name: "共享工作舱", agentIds: [] });
+  projects.set(SHARED_PROJECT_ID, { id: SHARED_PROJECT_ID, name: "Shared workspace", agentIds: [] });
   const seen = new Set<string>();
   for (const member of roster.members) {
     if (seen.has(member.id)) continue;
@@ -110,7 +110,7 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
   const rings: ShipRing[] = RING_RADII.map((r, index) => ({ index: index as RingIndex, radius: r * sectors / BASE_SECTORS, depth: RING_DEPTHS[index], capacity: RING_CAPACITIES[index] }));
   const cabins: ShipCabin[] = DECKS.flatMap(deck => rings.flatMap(ring => Array.from({ length: sectors }, (_, slot) => ({
     id: cabinId(`bay:${ring.index}:${slot}`, deck), deck, ring: ring.index, slot, kind: "reserve" as const,
-    name: "预留舱", color: "#819ea6", agentIds: [],
+    name: "Reserve cabin", color: "#819ea6", agentIds: [],
   }))));
   for (const deck of DECKS) for (const p of PUBLIC_CABINS) Object.assign(cabins[deck * 3 * sectors + p.ring * sectors + p.slot], p, { id: cabinId(p.id, deck) });
   const seats: Record<string, ShipSeat> = Object.create(null);
@@ -174,9 +174,9 @@ export function routeBetweenCabins(layout: ShipLayout, from: ShipSeat, destinati
 }
 
 export const PUBLIC_DESCRIPTIONS: Record<CabinKind, string> = {
-  work: "按 Project 分配的工作舱，点击员工继续原会话。", reserve: "舱体和接口已就绪，后续 Project 可直接启用。",
-  garden: "树木、花草和休息座椅组成的自然空间。", hydroponics: "水培种植床、补光灯和循环水系统，供飞船种植食物。",
-  canteen: "船员餐桌、厨房和咖啡区。", gym: "跑步、力量训练和活动身体的公共舱。", servers: "服务器、冷却和通信设备。",
-  maintenance: "飞船的工具、备件和维修区。", lounge: "看星空、休息和交流的公共空间。",
-  cargo: "储存飞船补给和备用设备的货舱。", observatory: "观测星空和远方航路的公共观景舱。", quarters: "船员的休息铺位和个人储物空间。",
+  work: "Workspace assigned by project. Select a crew member to continue their session.", reserve: "Cabin and connections are ready for future projects.",
+  garden: "A natural space with trees, plants, and seating.", hydroponics: "Hydroponic beds, grow lights, and circulating water for growing food.",
+  canteen: "Crew dining tables, kitchen, and coffee area.", gym: "A shared cabin for running, strength training, and exercise.", servers: "Servers, cooling, and communications equipment.",
+  maintenance: "Tools, spare parts, and ship repairs.", lounge: "A shared space for stargazing, rest, and conversation.",
+  cargo: "Storage for ship supplies and spare equipment.", observatory: "A shared observation cabin for stars and distant routes.", quarters: "Crew bunks and personal storage.",
 };

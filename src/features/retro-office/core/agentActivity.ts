@@ -1,11 +1,11 @@
 import type { OfficeAgent } from "./types";
 
 const ACTIVITIES = {
-  working: { kind: "working", marker: "⚙︎", color: "#6ee7b7", label: "正在工作" },
-  waiting: { kind: "waiting", marker: "!", color: "#facc15", label: "等待你处理" },
-  review: { kind: "review", marker: "?", color: "#facc15", label: "新结果待查看" },
-  error: { kind: "error", marker: "!", color: "#fb7185", label: "工作出错" },
-  idle: { kind: "idle", marker: "", color: "#9cb4c3", label: "空闲" },
+  working: { kind: "working", marker: "⚙︎", color: "#6ee7b7", label: "Working" },
+  waiting: { kind: "waiting", marker: "!", color: "#facc15", label: "Needs your input" },
+  review: { kind: "review", marker: "?", color: "#facc15", label: "New result to review" },
+  error: { kind: "error", marker: "!", color: "#fb7185", label: "Error" },
+  idle: { kind: "idle", marker: "", color: "#9cb4c3", label: "Idle" },
 } as const;
 export type AgentActivity = typeof ACTIVITIES[keyof typeof ACTIVITIES];
 
@@ -19,7 +19,7 @@ export function getAgentActivity(agent: Pick<OfficeAgent, "status" | "needsInput
   return ACTIVITIES.idle;
 }
 
-const WORK_CHATTER = ["咖啡，续上！", "脑子冒烟了…", "这破 bug…", "键盘要着火了", "让我想想…", "靠，藏得真深"];
+const WORK_CHATTER = ["More coffee!", "Brain overheating…", "That pesky bug…", "Keyboard on fire", "Let me think…", "Well hidden!"];
 export function workChatter(agentId: string, timeMs: number) {
   let seed = 0; for (const char of agentId) seed = (seed * 31 + char.charCodeAt(0)) >>> 0;
   const elapsed = Math.max(0, timeMs) + seed % 24000;

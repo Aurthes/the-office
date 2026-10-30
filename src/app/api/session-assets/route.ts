@@ -30,6 +30,6 @@ export async function GET(request: Request) {
     } });
   } catch (error) {
     const missing = error instanceof Error && "code" in error && error.code === "ENOENT";
-    return Response.json({ error: missing ? "文件已移动或不存在" : "此文件无法预览，可能过大或链接已失效" }, { status: missing ? 404 : 400, headers: { "Cache-Control": "no-store" } });
+    return Response.json({ error: missing ? "The file has moved or no longer exists" : "Cannot preview this file. It may be too large or the link has expired." }, { status: missing ? 404 : 400, headers: { "Cache-Control": "no-store" } });
   }
 }

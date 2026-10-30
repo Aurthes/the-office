@@ -1,3 +1,5 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/messages";
+import { SHARED_PROJECT_ID } from "./layout";
 import * as THREE from "three";
 import { cabinDeck } from "./shell-shapes";
 import { addCabinDetails } from "./interior-details";
@@ -117,7 +119,7 @@ export function disposeShipGeometry(group: THREE.Group) {
   });
 }
 
-export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {}) {
+export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {}, t: UiTranslator = (text, values) => translateUi(text, "en", values)) {
   const b = new Builder(models), step = TAU / layout.allocation.sectors;
   const spokeSlots = new Set(layout.spokes.map(angle => Math.round(angle / step)));
   for (const cabin of layout.cabins) {
@@ -143,7 +145,7 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
       }
     }
     const sign = shipPoint(inner + 0.65, theta);
-    b.sign(cabin.name, reserve ? "STANDBY / 待启用" : cabin.kind === "work" ? `${ring.capacity} SEATS / 工作舱` : "COMMON / 公共舱", sign, theta, Math.min(5.2, ring.radius * step * 0.68), cabin.color);
+    b.sign(cabin.kind === "work" && cabin.projectId !== SHARED_PROJECT_ID ? cabin.name : t(cabin.name), reserve ? t("Standby") : cabin.kind === "work" ? t("{0} seats", { "0": ring.capacity }) : t("Common cabin"), sign, theta, Math.min(5.2, ring.radius * step * 0.68), cabin.color);
     if (reserve) {
       addCabinDetails(b, layout, cabin);
       for (const u of [-1, 1]) b.localBox(layout, cabin, u * Math.min(2, ring.radius * step / 4), 0.5, 0.08, [1.0, 0.02, 0.04], "#c6d5d5");
@@ -172,7 +174,7 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
   b.cylinder(2.52, 0.12, [0, 1.2, 0], ORANGE, 48);
   b.cylinder(1.7, 0.2, [0, 1.45, 0], METAL, 40);
   b.cylinder(0.95, 0.15, [0, 1.59, 0], "#ffd189", 32, true);
-  b.sign("中央升降梯", "CENTRAL SHUTTLE", { x: 0, z: 2.7 }, 0, 2.7, "#e3b775");
+  b.sign(t("Central lift"), "", { x: 0, z: 2.7 }, 0, 2.7, "#e3b775");
   for (const angle of layout.spokes) {
     const start = 3.2, end = layout.radius, p = shipPoint((start + end) / 2, angle);
     b.box([1.25, 0.22, end - start], [p.x, -0.08, p.z], HULL, angle);
