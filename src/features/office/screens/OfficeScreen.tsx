@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { MessageSquare, ChevronDown, ChevronLeft, ChevronRight, Mic, Maximize2, Minimize2 } from "lucide-react";
+import { MessageSquare, ChevronDown, ChevronLeft, ChevronRight, Mic, Maximize2, Minimize2, X } from "lucide-react";
 import type { OfficeAgent } from "@/features/retro-office/core/types";
 import { RunningAvatarLoader } from "@/features/agents/components/RunningAvatarLoader";
 import { ExistingSessionPanel } from "@/features/office/components/ExistingSessionPanel";
@@ -4938,6 +4938,8 @@ export function OfficeScreen({
             }
           }}
           onAgentChatSelect={handleOpenAgentChat}
+          activeChatAgentId={sessionView && chatOpen ? selectedChatAgentId : null}
+          chatExpanded={chatExpanded}
           onAddAgent={sessionView ? undefined : handleOpenCreateAgentWizard}
           onAgentEdit={(agentId) => {
             if (sessionView) handleOpenAgentChat(agentId);
@@ -5474,6 +5476,7 @@ export function OfficeScreen({
         </section>
       ) : null}
 
+      {sessionView && chatOpen ? <button type="button" aria-label="点击办公室关闭聊天" className="fixed inset-0 z-40 cursor-default bg-transparent" onClick={() => setChatOpen(false)} /> : null}
       <div
         className={sessionView && chatOpen
           ? `office-session-chat fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[#11161e] text-white shadow-2xl md:inset-y-3 md:right-3 md:left-auto md:rounded-xl md:border md:border-white/15 ${chatExpanded ? "md:w-[calc(100vw-1.5rem)]" : "md:w-[min(960px,calc(100vw-1.5rem))]"}`
@@ -5484,7 +5487,7 @@ export function OfficeScreen({
           <button type="button" onClick={() => setChatRosterCollapsed(value => !value)} aria-expanded={!chatRosterCollapsed} className="min-h-10 rounded-md px-3 text-sm text-white/75 hover:bg-white/10">会话 · {chatRosterEntries.length}</button>
           <div className="flex items-center gap-1">
             <button type="button" onClick={() => setChatExpanded(value => !value)} aria-label={chatExpanded ? "还原聊天窗口" : "放大聊天窗口"} title={chatExpanded ? "还原" : "放大"} className="office-chat-expand hidden min-h-10 items-center gap-2 rounded-md px-3 text-sm text-white/65 hover:bg-white/10 md:inline-flex">{chatExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}{chatExpanded ? "还原" : "放大"}</button>
-            <button type="button" onClick={() => setChatOpen(false)} className="inline-flex min-h-10 items-center gap-1 rounded-md px-3 text-sm text-cyan-100 hover:bg-white/10"><ChevronLeft size={16} />返回办公室</button>
+            <button type="button" onClick={() => setChatOpen(false)} aria-label="关闭聊天，返回办公室" title="关闭聊天" className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-md px-3 text-cyan-100 hover:bg-white/10"><X size={18} /></button>
           </div>
         </div> : null}
         {chatOpen && (

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Headphones, Mic, Paperclip, PhoneOff, X } from "lucide-react";
 import { SessionSettings, type ChatSettings } from "./SessionSettings";
 import { useSessionVoice } from "./useSessionVoice";
@@ -19,13 +19,20 @@ type Snapshot = { connected: boolean; version: number; hasMore?: boolean; active
 type StreamSnapshot = Omit<Snapshot, "items"> & { threadId: string; subscriptionId: string;
   items: (LiveSessionItem | (Omit<LiveSessionItem, "content"> & { append: string; baseVersion: number }))[] };
 type Upload = { id: string; name: string; size: number; ref?: string; error?: string };
+// Closing a conversation is navigation, not a request to discard its draft.
+const sessionDrafts = new Map<string, string>();
+const attachmentDrafts = new Map<string, Upload[]>();
 
 export function SessionControls({ client, threadId, onItems }: {
   client: SessionClient;
   threadId: string; onItems: (items: LiveSessionItem[]) => void;
 }) {
   const [state, setState] = useState<Snapshot | null>(null);
-  const [text, setText] = useState("");
+  const [text, setTextState] = useState(() => sessionDrafts.get(threadId) || "");
+  const setText = useCallback((value: string) => {
+    if (value) sessionDrafts.set(threadId, value); else sessionDrafts.delete(threadId);
+    setTextState(value);
+  }, [threadId]);
   const [busy, setBusy] = useState(false);
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [error, setError] = useState("");
@@ -33,17 +40,21 @@ export function SessionControls({ client, threadId, onItems }: {
   const [notice, setNotice] = useState("");
   const refresh = useRef<(() => Promise<void>) | null>(null);
   const actionBusy = useRef(false);
-  const [uploads, setUploads] = useState<Upload[]>([]);
-  const uploadsRef = useRef<Upload[]>([]);
+  const [uploads, setUploads] = useState<Upload[]>(() => attachmentDrafts.get(threadId) || []);
+  const uploadsRef = useRef<Upload[]>(uploads);
   const uploadRequests = useRef(new Map<string, AbortController>());
   const picker = useRef<HTMLInputElement>(null);
   const dictation = useNativeDictation(threadId, text, setText, client);
   const voice = useSessionVoice(client, threadId);
-  const updateUploads = (next: Upload[]) => { uploadsRef.current = next; setUploads(next); };
+  const updateUploads = (next: Upload[]) => { uploadsRef.current = next; if (next.length) attachmentDrafts.set(threadId, next); else attachmentDrafts.delete(threadId); setUploads(next); };
   useEffect(() => {
     const requests = uploadRequests.current;
-    return () => { for (const request of requests.values()) request.abort(); };
-  }, []);
+    return () => {
+      for (const request of requests.values()) request.abort();
+      const kept = uploadsRef.current.map(file => file.ref || file.error ? file : { ...file, error: "上传中断，请重新选择文件" });
+      if (kept.length) attachmentDrafts.set(threadId, kept); else attachmentDrafts.delete(threadId);
+    };
+  }, [threadId]);
   const addFiles = async (files: File[]) => {
     if (actionBusy.current || settingsBusy || !state?.connected) return;
     if (uploadsRef.current.length + files.length > 8) { setError("每次最多 8 个附件"); return; }
