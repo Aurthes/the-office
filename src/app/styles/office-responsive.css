@@ -1,0 +1,200 @@
+/* The canvas already resizes through R3F. Adapt screen controls separately,
+   using the space available instead of scaling the entire scene or document. */
+.office-company-toggle,
+.office-company-panel-heading {
+  display: none;
+}
+
+.office-company-panel {
+  max-width: min(75vw, 420px);
+}
+
+@media (max-width: 767px), (max-height: 480px) and (pointer: coarse) {
+  .office-responsive {
+    --spacing: 3.5px;
+    --text-xs: 12px;
+    --text-sm: 13px;
+    --text-base: 14px;
+    --text-lg: 16px;
+    --office-safe-top: max(8px, env(safe-area-inset-top));
+    --office-safe-right: max(8px, env(safe-area-inset-right));
+    --office-safe-bottom: max(8px, env(safe-area-inset-bottom));
+    --office-safe-left: max(8px, env(safe-area-inset-left));
+    --office-panel-height: min(65dvh, calc(100dvh - var(--office-safe-top) - var(--office-safe-bottom) - 108px), 430px);
+    font-size: 13px;
+  }
+
+  .office-company-scene :is(.office-scene-navigation, .office-scene-title,
+    .office-roster-avatars, .office-runtime-name, .office-scene-status,
+    .office-scene-toolbar button) {
+    display: none;
+  }
+
+  .office-responsive .office-session-chat {
+    inset: 0;
+    width: 100%;
+    height: 100dvh;
+    max-width: none;
+    max-height: 100dvh;
+    border-radius: 0;
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  .office-chat-expand {
+    display: none;
+  }
+
+  .office-company-menu {
+    left: var(--office-safe-left);
+    top: var(--office-safe-top);
+  }
+
+  .office-company-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 40px;
+    max-width: min(220px, calc(100vw - 132px));
+    padding: 0 10px;
+    border: 1px solid rgb(167 243 208 / 20%);
+    border-radius: 10px;
+    background: rgb(13 27 34 / 95%);
+    color: #e5f3ed;
+    font-size: 13px;
+  }
+
+  .office-company-panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    width: min(300px, calc(100vw - var(--office-safe-left) - var(--office-safe-right)));
+    max-width: none;
+    max-height: var(--office-panel-height);
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 10px;
+  }
+
+  .office-company-menu:not([data-open="true"]) .office-company-panel {
+    display: none;
+  }
+
+  .office-company-panel-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    font-size: 12px;
+    color: #a7d6c3;
+  }
+
+  .office-company-label,
+  .office-company-description {
+    display: none;
+  }
+
+  .office-company-panel-heading button {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  .office-company-panel :is(input, select) {
+    font-size: 16px;
+    min-height: 40px;
+  }
+
+  .office-company-actions {
+    width: 100%;
+  }
+
+  .office-company-actions button {
+    min-height: 40px;
+  }
+
+  .office-company-panel form {
+    padding: 8px;
+  }
+
+  .office-company-panel form button {
+    min-height: 40px;
+  }
+
+  .office-scene-toolbar {
+    top: var(--office-safe-top);
+    right: var(--office-safe-right);
+  }
+
+  .office-agent-roster-dock {
+    top: auto;
+    bottom: var(--office-safe-bottom);
+    left: var(--office-safe-left);
+    transform: none;
+    translate: none;
+  }
+
+  .office-agent-roster-bar {
+    padding: 2px;
+  }
+
+  .office-agent-roster-launcher {
+    min-height: 40px;
+    padding: 0 10px;
+  }
+
+  /* Anchor to the dock; transformed scene ancestors also contain fixed panels. */
+  .office-agent-roster {
+    position: absolute;
+    left: 0;
+    right: auto;
+    top: auto;
+    bottom: calc(100% + 8px);
+    width: min(560px, calc(100vw - var(--office-safe-left) - var(--office-safe-right)));
+    max-height: var(--office-panel-height);
+    margin: 0;
+    padding: 10px;
+    transform: none;
+    translate: none;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .office-agent-roster > :first-child {
+    flex-shrink: 0;
+  }
+
+  .office-agent-roster-list {
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .office-agent-roster-list > div {
+    padding: 6px 8px;
+    gap: 6px;
+  }
+
+  .office-agent-roster button {
+    min-height: 32px;
+    min-width: 32px;
+  }
+
+  .office-agent-roster-list > div > button:first-child {
+    min-height: 40px;
+  }
+
+  .office-responsive .office-chat-dock {
+    bottom: var(--office-safe-bottom);
+    right: var(--office-safe-right);
+  }
+
+  .office-chat-launcher {
+    min-height: 40px;
+  }
+
+  .office-company-hq {
+    display: none;
+  }
+}

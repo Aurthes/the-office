@@ -4767,7 +4767,7 @@ export function OfficeScreen({
     "Connected to the gateway, but no agents were loaded into the office.";
 
   return (
-    <main className="relative h-full w-full overflow-hidden bg-black">
+    <main className="office-responsive relative h-full w-full overflow-hidden bg-black">
       {showGatewayLoadingOverlay ? (
         <div
           className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-[#120a05]/76"
@@ -5114,7 +5114,7 @@ export function OfficeScreen({
       ) : null}
 
       {!debugEnabled ? (
-        <div className={sessionView ? "max-md:hidden" : undefined}>
+        <div className={sessionView ? "office-company-hq max-md:hidden" : undefined}>
         <HQSidebar
           open={sidebarOpen}
           activeTab={activeSidebarTab}
@@ -5455,13 +5455,13 @@ export function OfficeScreen({
       <div
         className={sessionView && chatOpen
           ? `office-session-chat fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[#11161e] text-white shadow-2xl md:inset-y-3 md:right-3 md:left-auto md:rounded-xl md:border md:border-white/15 ${chatExpanded ? "md:w-[calc(100vw-1.5rem)]" : "md:w-[min(960px,calc(100vw-1.5rem))]"}`
-          : `fixed bottom-3 ${sessionView ? "z-50" : "z-30"} flex flex-col items-end gap-2 ${sidebarOpen ? "right-84" : "right-3"} ${debugEnabled ? "hidden" : ""}`}
+          : `office-chat-dock fixed bottom-3 ${sessionView ? "z-50" : "z-30"} flex flex-col items-end gap-2 ${sidebarOpen ? "right-84" : "right-3"} ${debugEnabled ? "hidden" : ""}`}
         style={sessionView && chatOpen && chatViewport ? { height: chatViewport.height, top: chatViewport.top, bottom: "auto" } : undefined}
       >
         {sessionView && chatOpen ? <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-3 py-2 [padding-top:max(0.5rem,env(safe-area-inset-top))]">
           <button type="button" onClick={() => setChatRosterCollapsed(value => !value)} aria-expanded={!chatRosterCollapsed} className="min-h-10 rounded-md px-3 text-sm text-white/75 hover:bg-white/10">会话 · {chatRosterEntries.length}</button>
           <div className="flex items-center gap-1">
-            <button type="button" onClick={() => setChatExpanded(value => !value)} aria-label={chatExpanded ? "还原聊天窗口" : "放大聊天窗口"} title={chatExpanded ? "还原" : "放大"} className="hidden min-h-10 items-center gap-2 rounded-md px-3 text-sm text-white/65 hover:bg-white/10 md:inline-flex">{chatExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}{chatExpanded ? "还原" : "放大"}</button>
+            <button type="button" onClick={() => setChatExpanded(value => !value)} aria-label={chatExpanded ? "还原聊天窗口" : "放大聊天窗口"} title={chatExpanded ? "还原" : "放大"} className="office-chat-expand hidden min-h-10 items-center gap-2 rounded-md px-3 text-sm text-white/65 hover:bg-white/10 md:inline-flex">{chatExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}{chatExpanded ? "还原" : "放大"}</button>
             <button type="button" onClick={() => setChatOpen(false)} className="inline-flex min-h-10 items-center gap-1 rounded-md px-3 text-sm text-cyan-100 hover:bg-white/10"><ChevronLeft size={16} />返回办公室</button>
           </div>
         </div> : null}
@@ -5697,7 +5697,7 @@ export function OfficeScreen({
         {(!sessionView || !chatOpen) ? <button
           type="button"
           onClick={() => setChatOpen((prev) => !prev)}
-          className="flex items-center gap-1.5 rounded border border-amber-700/50 bg-[#0e0a04]/90 px-3 py-1.5 font-mono text-[11px] font-medium tracking-wider text-amber-500/80 shadow-lg backdrop-blur transition-colors hover:border-amber-600/70 hover:text-amber-400"
+          className="office-chat-launcher flex items-center gap-1.5 rounded border border-amber-700/50 bg-[#0e0a04]/90 px-3 py-1.5 font-mono text-[11px] font-medium tracking-wider text-amber-500/80 shadow-lg backdrop-blur transition-colors hover:border-amber-600/70 hover:text-amber-400"
         >
           {chatOpen ? (
             <>
