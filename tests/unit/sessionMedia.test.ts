@@ -20,43 +20,23 @@ describe("web composer media", () => {
     await waitFor(() => expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ message: "", attachments: ["signed-upload"], threadId: "original" })));
     expect(screen.getByLabelText("移除附件 note.md")).toBeTruthy();
   });
-  it("dictation edits the draft without sending and stops when the chat closes", async () => {
-    const recognitions: { onresult?: (event: unknown) => void; onend?: () => void; stop: () => void; abort: () => void }[] = [];
-    const abort = vi.fn();
-    class Recognition { onresult?: (event: unknown) => void; onend?: () => void; start = vi.fn(); stop = () => this.onend?.(); abort = abort; constructor() { recognitions.push(this); } }
-    vi.stubGlobal("webkitSpeechRecognition", Recognition);
-    const call = vi.fn<(method: string) => Promise<typeof snapshot>>(async () => snapshot);
-    const view = render(React.createElement(SessionControls, { client: { call }, threadId: "original", onItems: vi.fn() }));
-    const input = screen.getByLabelText("发送到原会话") as HTMLTextAreaElement;
-    await waitFor(() => expect(input.disabled).toBe(false));
-    fireEvent.change(input, { target: { value: "请看" } });
-    fireEvent.click(screen.getByRole("button", { name: "听写" }));
-    await act(async () => recognitions.at(-1)!.onresult?.({ results: [{ 0: { transcript: "这个文件" }, isFinal: true }] }));
-    expect(input.value).toBe("请看 这个文件");
-    expect(call.mock.calls.some(([method]) => method === "session.send")).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "停止听写" }));
-    expect(input.disabled).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "听写" })); view.unmount();
-    expect(abort).toHaveBeenCalled();
-  });
-  it("routes held Option into the current draft and never automatically sends to an agent", async () => {
-    let recognition!: { onstart?: () => void; onresult?: (e: unknown) => void; onend?: () => void };
-    class Recognition {
-      onstart?: () => void; onresult?: (e: unknown) => void; onend?: () => void;
-      constructor() { recognition = this; }
-      start = vi.fn(); stop = () => recognition.onend?.(); abort = vi.fn();
-    }
-    vi.stubGlobal("webkitSpeechRecognition", Recognition);
+  it("leaves native Option dictation alone and never starts browser recognition", async () => {
+    const recognition = vi.fn(); vi.stubGlobal("webkitSpeechRecognition", recognition); vi.stubGlobal("SpeechRecognition", recognition);
     const call = vi.fn(async (_method: string) => snapshot);
     render(React.createElement(SessionControls, { client: { call }, threadId: "chosen-thread", onItems: vi.fn() }));
     const input = screen.getByLabelText("发送到原会话") as HTMLTextAreaElement;
     await waitFor(() => expect(input.disabled).toBe(false));
-    fireEvent.keyDown(window, { key: "Alt", altKey: true });
-    act(() => recognition.onstart?.());
-    act(() => recognition.onresult?.({ results: [{ 0: { transcript: "只写在当前草稿" }, isFinal: false }] }));
-    fireEvent.keyUp(window, { key: "Alt" });
-    expect(input).toHaveValue("只写在当前草稿"); expect(input.disabled).toBe(false);
-    expect(call.mock.calls.some(([method]) => ["session.send", "chat.send"].includes(String(method)))).toBe(false);
+    expect(screen.getByRole("button", { name: "网页原生听写暂不可用" })).toBeDisabled();
+    const down = new KeyboardEvent("keydown", { key: "Alt", code: "AltRight", location: 2, altKey: true, bubbles: true, cancelable: true });
+    const up = new KeyboardEvent("keyup", { key: "Alt", code: "AltRight", location: 2, bubbles: true, cancelable: true });
+    fireEvent(window, down); fireEvent(window, up);
+    expect(down.defaultPrevented).toBe(false); expect(up.defaultPrevented).toBe(false);
+    expect(recognition).not.toHaveBeenCalled();
+    // Native desktop dictation inserts into the normal focused text field.
+    fireEvent.change(input, { target: { value: "原生听写填入的草稿" } });
+    expect(call.mock.calls.some(([method]) => method === "session.send")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ threadId: "chosen-thread", message: "原生听写填入的草稿" })));
   });
   it("connects native WebRTC, then releases microphone, audio and ownership on chat exit", async () => {
     let eventHandler!: (event: { event: string; payload: unknown }) => void;

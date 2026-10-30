@@ -178,12 +178,19 @@ an attachment. An attachment can therefore require the native sandbox's normal
 read approval. Unsupported document preview formats download as attachments;
 generic downloads are limited to this upload directory, not arbitrary local paths.
 
-The microphone button uses the browser's built-in speech recognition (`zh-CN`).
-Recognition can be handled by the browser vendor and depends on browser/platform
-support and network access. It edits the draft only and never sends automatically.
-Stop listening, edit the text if needed, then Send. No extra transcription API key
-is configured. Unsupported browsers show an explicit error and can still use their
-keyboard's dictation.
+Dictation must use the native Codex transcription backend. Browser speech
+recognition is not a substitute and is not started by the Codex composer.
+The web microphone button is explicitly unavailable until a native transcription
+bridge is supported and verified. The pinned app-server protocol exposes realtime
+voice control but no standalone dictation request; the desktop App's private
+transcription endpoint is not bridged here.
+
+On a desktop with Codex global dictation configured, focus the web text field and
+use the shortcut configured in Codex. The desktop App owns capture, transcription,
+and insertion into the focused field. The web page does not intercept Option or
+send the inserted draft automatically. This desktop integration does not provide
+browser recording/transcription on a phone. Native voice calls remain available
+through the separate headphones control below.
 
 The headphones button starts the pinned native `thread/realtime/start` v3 WebRTC
 transport on the same loaded thread, using its existing Codex account. SDP and
@@ -295,10 +302,7 @@ buffer. Question snapshots are bounded and pushed on the existing session stream
 Forms require an explicit selection or custom answer and preserve the message
 composer draft. Duplicate submissions and replies to another thread are rejected.
 
-In Codex session view, holding Option uses the current composer's browser dictation
-and releasing Option ends recognition. It writes an editable draft; sending is a
-separate action. The legacy main-agent recorder and OpenClaw transcription endpoint
-are not used by this shortcut. Startup, recognition, and finishing have separate
-status messages and deadlines. Recognized interim text survives service endings,
-errors, and empty result revisions; recognition failures remain visible. Browser
-speech-service availability still depends on the browser and its network access.
+The legacy main-agent Option recorder is also disabled in Codex session view.
+Option passes through to the operating system and the native desktop App. Neither
+the OpenClaw transcription endpoint nor browser speech recognition is used by the
+Codex composer.
