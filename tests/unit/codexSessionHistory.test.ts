@@ -56,4 +56,16 @@ describe("bounded original-session history", () => {
     expect(page.messages[0]).toMatchObject({ content: "Fix the layout", truncated: false });
     expect(content[0].text).toBe(original);
   });
+  it("preserves whole user messages and final Markdown when a turn has hundreds of large tool entries", async () => {
+    const answer = "Final answer\n![chart](/local/chart.png)";
+    const call = vi.fn().mockResolvedValue({ data: [{ id: "turn", items: [
+      { id: "user", type: "userMessage", content: [{ type: "text", text: "继续" }] },
+      ...Array.from({ length: 1000 }, (_, i) => ({ id: String(i), type: "commandExecution", command: "command ".repeat(1000) })),
+      { id: "final", type: "agentMessage", phase: "final_answer", text: answer },
+    ] }] });
+    const page = await loadSessionHistoryPage(call, row);
+    expect(page.messages[0]).toMatchObject({ content: "继续", truncated: false });
+    expect(page.messages.at(-1)).toMatchObject({ content: answer, truncated: false });
+    expect(page.messages.reduce((sum: number, message: { content: string }) => sum + Buffer.byteLength(message.content), 0)).toBeLessThanOrEqual(PAGE_TEXT_BYTES);
+  });
 });
