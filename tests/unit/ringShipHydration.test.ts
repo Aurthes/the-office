@@ -28,3 +28,14 @@ it("releases removed projects only for an authoritative empty roster", () => {
   expect(hook.result.current.allocation.projects.p).toBeUndefined();
   expect(hook.result.current.allocation.sectors).toBe(before);
 });
+
+it("keeps geometry references when a refreshed roster has unchanged membership and titles", () => {
+  const roster: CompanyRoster = { projects: [{ id: "p", name: "Project" }], members: [{ id: "agent", projectId: "p" }] };
+  const hook = renderHook(({ value }) => useShipLayout(value, "ship-test"), { initialProps: { value: roster } });
+  const before = hook.result.current;
+  hook.rerender({ value: { projects: roster.projects.map(p => ({ ...p })), members: roster.members.map(m => ({ ...m })) } });
+  expect(hook.result.current).toBe(before);
+  hook.rerender({ value: { ...roster, projects: [{ id: "p", name: "Renamed" }] } });
+  expect(hook.result.current).not.toBe(before);
+  expect(hook.result.current.cabins.find(c => c.projectId === "p")?.name).toBe("Renamed");
+});
