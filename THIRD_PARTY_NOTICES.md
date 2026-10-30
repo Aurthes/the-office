@@ -34,6 +34,21 @@ archive when preparing this publication. The original kit notice is included in
 [licenses/Kenney-Furniture-Kit.txt](licenses/Kenney-Furniture-Kit.txt).
 Credit to Kenney is retained even though CC0 does not require attribution.
 
+## Ship plants and machinery
+
+The selected models in `public/office-assets/models/ship/` are by **Quaternius**,
+from the free Standard versions of
+[Stylized Nature MegaKit](https://quaternius.itch.io/stylized-nature-megakit) and
+[Modular Sci-Fi MegaKit](https://quaternius.itch.io/modular-sci-fi-megakit).
+Both are **CC0 1.0 Universal**. The original notices are preserved in
+[licenses/Quaternius-nature-Standard.txt](licenses/Quaternius-nature-Standard.txt)
+and [licenses/Quaternius-scifi-Standard.txt](licenses/Quaternius-scifi-Standard.txt).
+
+Geometry and authored surface maps are retained. Textures are shared, limited to
+1024 pixels and encoded as lossless WebP; sci-fi trim uses the pack's neutral
+color variant. The exact source selections, archive hashes and bundled file
+hashes are recorded in [SOURCE.json](public/office-assets/models/ship/SOURCE.json).
+
 ## Environment lighting
 
 `public/environments/potsdamer_platz_1k.hdr` is **Potsdamer Platz** by **Greg Zaal**,

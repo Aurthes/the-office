@@ -69,30 +69,6 @@ export function addCabinDetails(b: Builder, layout: ShipLayout, c: ShipCabin) {
         plant(u - 1.3, -2.5, .55); plant(u + 1.3, -2.5, .55);
       }
     }
-  } else if (c.kind === 'garden') {
-    const start = c.slot * Math.PI * 2 / layout.allocation.sectors - Math.PI / 2 + .065;
-    const end = start + Math.PI * 2 / layout.allocation.sectors - .13;
-    b.annulus(ring.radius + .9, ring.radius + 2.9, start, end, .08, .14, '#a8bd96');
-    for (const u of [-width * .37, 0, width * .37]) {
-      const q = p(u, 2.1);
-      b.cylinder(.1, 1.6, [q.x, .96, q.z], '#968266', 8);
-      b.ball(.9, [q.x, 2.05, q.z], '#6c9b69', [1, .9, 1]);
-      b.ball(.65, [q.x + .45, 1.8, q.z - .1], '#82ab76', [1, .8, 1]);
-    }
-    for (const u of [-width * .37, -width * .12, width * .12, width * .37]) {
-      box(u, -2.2, .2, [2.4, .28, 1.05], '#a5bd94');
-      for (const j of [-.7, 0, .7]) {
-        const q = p(u + j, -2.2); b.ball(.42, [q.x, .56, q.z], j ? '#7ba477' : '#579768', [1, .7, .85]);
-      }
-      flower(u + .75, -1.65);
-      model('plantSmall1', .55, u, 2.55, .12);
-    }
-    for (const side of [-1, 1]) {
-      model('loungeDesignChair', .65, side * width * .39, 1.1, .08, side * .8);
-      model('tableCoffee', .8, side * width * .39, 2.1);
-    }
-    box(0, -2.25, .32, [2.6, .26, 1], '#c1d1c5');
-    box(0, -2.25, .47, [2.35, .025, .8], '#70a6aa');
   } else if (c.kind === 'hydroponics') {
     for (const side of [-1, 1]) {
       const u = side * width * .41;
@@ -129,12 +105,6 @@ export function addCabinDetails(b: Builder, layout: ShipLayout, c: ShipCabin) {
       box(u, 1.1, .35, [1.2, .55, 1.1], '#8da9b2');
       box(u, 1.1, .8, [.22, .4, .65], '#d2e0df');
     }
-  } else if (c.kind === 'servers') {
-    for (const u of [-width * .36, -width * .12, width * .12, width * .36]) {
-      box(u, -1.85, .7, [.85, 1.25, .6], '#3b5360');
-      for (let j = 0; j < 4; j++) box(u, -1.5, .32 + j * .22, [.63, .045, .045], '#79bdc2', true);
-    }
-    console(-width * .39, .95); console(width * .39, .95);
   } else if (c.kind === 'cargo') {
     for (const u of [-width * .39, -width * .13, width * .13, width * .39]) {
       box(u, 2.7, .55, [2, .9, 1.3], '#acbdbb');

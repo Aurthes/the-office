@@ -27,7 +27,7 @@ export const RING_CAPACITIES = [3, 6, 8] as const;
 export const PUBLIC_CABINS: ReadonlyArray<{ id: string; ring: RingIndex; slot: number; kind: CabinKind; name: string; color: string }> = [
   { id: "public:lounge", ring: 0, slot: 0, kind: "lounge", name: "Observation lounge", color: "#d6af71" },
   { id: "public:servers", ring: 0, slot: 4, kind: "servers", name: "Server room", color: "#77a9ce" },
-  { id: "public:garden", ring: 1, slot: 0, kind: "garden", name: "Garden", color: "#75b788" },
+  { id: "public:garden", ring: 1, slot: 0, kind: "garden", name: "Rainforest habitat", color: "#75b788" },
   { id: "public:hydroponics", ring: 1, slot: 4, kind: "hydroponics", name: "Hydroponics", color: "#79c5aa" },
   { id: "public:canteen", ring: 1, slot: 6, kind: "canteen", name: "Dining and coffee", color: "#daa26a" },
   { id: "public:gym", ring: 2, slot: 0, kind: "gym", name: "Gym", color: "#8da4d2" },
@@ -175,8 +175,8 @@ export function routeBetweenCabins(layout: ShipLayout, from: ShipSeat, destinati
 
 export const PUBLIC_DESCRIPTIONS: Record<CabinKind, string> = {
   work: "Workspace assigned by project. Select a crew member to continue their session.", reserve: "Cabin and connections are ready for future projects.",
-  garden: "A natural space with trees, plants, and seating.", hydroponics: "Hydroponic beds, grow lights, and circulating water for growing food.",
-  canteen: "Crew dining tables, kitchen, and coffee area.", gym: "A shared cabin for running, strength training, and exercise.", servers: "Servers, cooling, and communications equipment.",
+  garden: "A rainforest habitat with layered tree canopies, broad leaves, ferns, and vines around water and paths.", hydroponics: "Hydroponic beds, grow lights, and circulating water for growing food.",
+  canteen: "Crew dining tables, kitchen, and coffee area.", gym: "A shared cabin for running, strength training, and exercise.", servers: "Rows of server racks, overhead cooling fans, cooling pipes, and maintenance terminals with a central service aisle.",
   maintenance: "Tools, spare parts, and ship repairs.", lounge: "A shared space for stargazing, rest, and conversation.",
   cargo: "Storage for ship supplies and spare equipment.", observatory: "A shared observation cabin for stars and distant routes.", quarters: "Crew bunks and personal storage.",
 };

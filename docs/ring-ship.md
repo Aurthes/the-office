@@ -55,6 +55,14 @@ service equipment. Idle agents can visit public spaces on their own deck; workin
 agents stay at their assigned desks. Crew use original procedural duck figures
 with matte feathers, webbed feet and no equipment.
 
+The botanical garden is a rainforest ecology cabin: textured tree crowns,
+broad-leaf understory, ferns, hanging vines, rock-edged water and a timber path.
+The server room has two equipment rows with layered rack fronts, status lights,
+top-mounted cooling fans, coolant pipes, cables and maintenance terminals. Both
+rooms leave the central ring circulation lane open on all three decks. Their
+Quaternius CC0 models and surface maps are bundled locally, with shared textures
+capped at 1024 pixels; see `public/office-assets/models/ship/README.md`.
+
 Hull and small props are procedural geometry merged by material. Shell buffers
 and materials are shared across the three decks. One renderer and scene are used;
 a second camera is active only during lift travel. Furniture uses existing local

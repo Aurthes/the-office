@@ -14,7 +14,7 @@ import { DuckCrewModel } from "./DuckCrewModel";
 import { CompanyWorkAreaMenu } from "@/features/office/components/CompanyWorkAreaMenu";
 import { SettingsPanel } from "@/features/office/components/panels/SettingsPanel";
 import { DECK_NAMES, DECK_STEP, DECKS, PUBLIC_DESCRIPTIONS, routeBetweenCabins, SHARED_PROJECT_ID, shipDeck, type DeckIndex, type ShipLayout, type ShipPoint } from "./layout";
-import { buildShipGeometry, disposeShipGeometry, FURNITURE_MODELS, SHIP_WORKSTATION, type ModelTemplates } from "./geometry";
+import { buildShipGeometry, disposeShipGeometry, SHIP_MODELS, shipModelUrl, SHIP_WORKSTATION, type ModelTemplates } from "./geometry";
 import { useShipLayout } from "./useShipLayout";
 import { getAgentActivity, workChatter } from "@/features/retro-office/core/agentActivity";
 import { paintCrewNameplate } from "./crewNameplate";
@@ -35,8 +35,8 @@ function useModels() {
     let active = true;
     if (!modelPromise) {
       const loader = new GLTFLoader();
-      modelPromise = Promise.allSettled(FURNITURE_MODELS.map(name => loader.loadAsync(`/office-assets/models/furniture/${name}.glb`))).then(results => {
-        modelCache = Object.fromEntries(results.flatMap((result, index) => result.status === "fulfilled" ? [[FURNITURE_MODELS[index], result.value.scene]] : [])) as ModelTemplates;
+      modelPromise = Promise.allSettled(SHIP_MODELS.map(name => loader.loadAsync(shipModelUrl(name)))).then(results => {
+        modelCache = Object.fromEntries(results.flatMap((result, index) => result.status === "fulfilled" ? [[SHIP_MODELS[index], result.value.scene]] : [])) as ModelTemplates;
         return modelCache;
       });
     }

@@ -1,0 +1,70 @@
+{
+  "license": "CC0-1.0",
+  "author": "Quaternius",
+  "modifications": "glTF buffers renamed; textures shared; sci-fi red trim replaced by the neutral texture variant. Geometry and authored PBR maps retained; tree height scaled to fit the pressure hull. Textures capped at 1024px and encoded as lossless WebP using EXT_texture_webp.",
+  "assets": [
+    {
+      "asset": "rainforestTree.gltf",
+      "source": "glTF/CommonTree_1.gltf",
+      "pack": "https://quaternius.itch.io/stylized-nature-megakit",
+      "archiveSHA256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+    },
+    {
+      "asset": "rainforestFern.gltf",
+      "source": "glTF/Fern_1.gltf",
+      "pack": "https://quaternius.itch.io/stylized-nature-megakit",
+      "archiveSHA256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+    },
+    {
+      "asset": "rainforestBush.gltf",
+      "source": "glTF/Plant_1_Big.gltf",
+      "pack": "https://quaternius.itch.io/stylized-nature-megakit",
+      "archiveSHA256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+    },
+    {
+      "asset": "rainforestRock.gltf",
+      "source": "glTF/Rock_Medium_1.gltf",
+      "pack": "https://quaternius.itch.io/stylized-nature-megakit",
+      "archiveSHA256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+    },
+    {
+      "asset": "machineConsole.gltf",
+      "source": "Modular SciFi MegaKit[Standard]/glTF/Props/Prop_Computer.gltf",
+      "pack": "https://quaternius.itch.io/modular-sci-fi-megakit",
+      "archiveSHA256": "6fae60cf5189e44dff0bd91097f094a765acc6d57d64a85a0cc0dd56e03035e3"
+    },
+    {
+      "asset": "machineFan.gltf",
+      "source": "Modular SciFi MegaKit[Standard]/glTF/Props/Prop_Fan_Small.gltf",
+      "pack": "https://quaternius.itch.io/modular-sci-fi-megakit",
+      "archiveSHA256": "6fae60cf5189e44dff0bd91097f094a765acc6d57d64a85a0cc0dd56e03035e3"
+    }
+  ],
+  "sha256": {
+    "README.md": "b86d21d98c4bad5317ba5f97ba1065ff6468b6a33ffe0a5bbad844dc61ab42ca",
+    "machineConsole.bin": "4edcd2674633831714ae8aafe7174be52c2f3d21f24e009fd7e9417e27eb788d",
+    "machineConsole.gltf": "cc88fe0bc67a1569b7762b38a7b11c9613b64726a059beec027698b6af8e631a",
+    "machineFan.bin": "2c129f70b66e3a5c0c6dcee94ac8d239f10e274cd533c1702aa3efe2d9f39832",
+    "machineFan.gltf": "889e37af27a01b659db623fa496b76d3616df6fb2b207a6b724e40451a8893e1",
+    "rainforestBush.bin": "aed5d27bb5a06e0e174d927e6c9850d8567f1b72820d2150323ca9374c3336bc",
+    "rainforestBush.gltf": "94001e540ec59d313d7b3b2d57861a78da92555f35c441e4265fc200a0316ebb",
+    "rainforestFern.bin": "5e92b87a27f81a69fe15347a533df3c77d567b48298dceeef43168ccb7c22853",
+    "rainforestFern.gltf": "6ca8e2e22636a3ffc15d8d979d9ad8eb207da7c2fa0bc91bab00cd76be492af0",
+    "rainforestRock.bin": "ea79527d4c2b3bdb7a28bf589bf0c1fd96d192a4d0738636753911dd58681e99",
+    "rainforestRock.gltf": "dc2763c93aae06e09a1a1ab7687f24d731671c6ef54984b660dc3510d4366deb",
+    "rainforestTree.bin": "9dd689e84e1aa2f5b08db8def591254d582783c73737af54ba0d89b3e549c3ae",
+    "rainforestTree.gltf": "7911b458a1a60ea16d091346e4d230675571047e5b2bd4df1a1efd901409700b",
+    "textures/nature-Bark_NormalTree.webp": "84f8f65db1735db421cd1d94bbdb6f603b8566ae051ffb6c91ded2cf9a829b65",
+    "textures/nature-Bark_NormalTree_Normal.webp": "de34a933322cbfb9ce5fd90510c7be1006f683f2e4b2c73d84b0a667c0804178",
+    "textures/nature-Leaves.webp": "ee9a14eadcb1064d2a1ca8473db8600ca0ade9d27bc4777e5857ff10cf5986c7",
+    "textures/nature-Leaves_NormalTree_C.webp": "5b537026788e8b3bd8ffbcaf5d366aa93c7c5116039c4993a25c79ddf7da8167",
+    "textures/nature-Rocks_Diffuse.webp": "f7304ee12c874190fc2e0ac4fbe6fec2ebc4d735ed1f2774936217145f6416b8",
+    "textures/scifi-T_Decals.webp": "de234756b68f9543444c97ee14253e2097ace388337c9bfe3b81bf6fd618f419",
+    "textures/scifi-T_Trim_01_BaseColor.webp": "fe236e9463e71fadd0c9b0562b64fad851e3c571dfff20ee8a7931778612e027",
+    "textures/scifi-T_Trim_01_Normal.webp": "11e2a15ce2647197dbd00c86c28af0ce4dd9278e80e4f8063a485bddfad13297",
+    "textures/scifi-T_Trim_01_ORM.webp": "fce96de7140af4a818a16df890b32e0a377af4e57a2911981a2111a2c9c3b026",
+    "textures/scifi-T_Trim_02_BaseColor.webp": "4469b856ecdc246354aff04c4e04fd5001165a93e51c32721697db57f8380f52",
+    "textures/scifi-T_Trim_02_Normal.webp": "be8e827d0aa812c92b4374169af51665fc3d0a2f744e13533a06af3628e45434",
+    "textures/scifi-T_Trim_02_ORM.webp": "e4cef4eb881746f50078e4315e3f5543a25fd5a578079a865b07189363b15e93"
+  }
+}

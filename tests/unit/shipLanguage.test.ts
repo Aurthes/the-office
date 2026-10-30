@@ -22,7 +22,7 @@ it("translates cabin signage and activity labels while preserving project and cr
   const labels = fillText.mock.calls.map(([text]) => text);
   expect(labels).toContain("中央升降梯");
   expect(labels).toContain("预留舱");
-  expect(labels).toContain("植物园");
+  expect(labels).toContain("雨林生态舱");
   expect(labels).toContain("Garden");
   expect(labels).not.toContain("CENTRAL SHUTTLE");
   expect(JSON.stringify(layout.allocation)).toBe(allocation);
