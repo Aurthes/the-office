@@ -1,5 +1,5 @@
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { SessionMarkdown, visibleUserText } from "../../src/features/office/components/SessionMarkdown";
 beforeEach(() => {
@@ -43,4 +43,23 @@ it("keeps actionable file and image nodes mounted as streamed text grows", () =>
   view.rerender(React.createElement(SessionMarkdown, { content: content + "\n\nMore live text", assets }));
   expect(screen.getByRole("link", { name: /Report/ })).toBe(link);
   expect(screen.getByRole("img", { name: "Chart" })).toBe(image);
+});
+it("shows loading and slow feedback for HTML, offers a separate window, and allows a manual retry", () => {
+  vi.useFakeTimers();
+  try {
+    const html = { source: "/report.html", name: "report.html", kind: "html" as const, url: "/api/session-assets?ref=html" };
+    render(React.createElement(SessionMarkdown, { content: "[Report](/report.html)", assets: [html] }));
+    fireEvent.click(screen.getByRole("link", { name: /Report/ }));
+    expect(screen.getByRole("status").textContent).toContain("正在加载");
+    const external = screen.getByRole("link", { name: /单独打开/ });
+    expect(external.getAttribute("href")).toBe(html.url); expect(external.getAttribute("target")).toBe("_blank");
+    act(() => vi.advanceTimersByTime(8000));
+    expect(screen.getByRole("status").textContent).toContain("继续等待");
+    const original = screen.getByTitle("report.html");
+    fireEvent.click(screen.getByRole("button", { name: "重新加载" }));
+    expect(screen.getByTitle("report.html")).not.toBe(original);
+    expect(screen.getByTitle("report.html").getAttribute("sandbox")).toBe("allow-scripts");
+    fireEvent.load(screen.getByTitle("report.html")); expect(screen.queryByRole("status")).toBeNull();
+    fireEvent.click(screen.getByRole("link", { name: /单独打开/ })); expect(screen.queryByRole("dialog")).toBeNull();
+  } finally { vi.useRealTimers(); }
 });
