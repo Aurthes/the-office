@@ -45,4 +45,6 @@ export type AgentModelProps = {
   showSpeech?: boolean;
   speechText?: string | null;
   suppressSpeechBubble?: boolean;
+  hideLabels?: boolean;
+  initialPosition?: [number, number, number];
 };

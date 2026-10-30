@@ -25,7 +25,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { CompanyLayout } from "@/features/retro-office/core/companyLayout";
+import type { CompanyLayout, CompanyRoster } from "@/features/retro-office/core/companyLayout";
 import { CompanyWorkAreaMenu } from "@/features/office/components/CompanyWorkAreaMenu";
 import { CompanyWorkAreas, CompanyAreaCamera } from "@/features/retro-office/scene/CompanyWorkAreas";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
@@ -2392,6 +2392,7 @@ export function RetroOffice3D({
   storageNamespace?: string;
   layoutPreset?: OfficeLayoutPreset;
   companyLayout?: CompanyLayout | null;
+  companyRoster?: CompanyRoster | null;
   companyActions?: React.ReactNode;
   deskAssignmentByDeskUid?: Record<string, string>;
   cleaningCues?: OfficeCleaningCue[];

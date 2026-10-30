@@ -65,7 +65,7 @@ import {
   stripUiMetadata,
 } from "@/lib/text/message-extract";
 import { resolveOfficeIntentSnapshot } from "@/lib/office/deskDirectives";
-import { buildCompanyLayout, type CompanyRoster } from "@/features/retro-office/core/companyLayout";
+import { type CompanyRoster } from "@/features/retro-office/core/companyLayout";
 import { OfficeFloorNav } from "@/features/office/components/OfficeFloorNav";
 import { OfficeSceneBoundary } from "@/features/office/components/OfficeSceneBoundary";
 import { AgentChatPanel } from "@/features/agents/components/AgentChatPanel";
@@ -231,6 +231,11 @@ const RetroOffice3D = dynamic(
       </div>
     ),
   },
+);
+
+const RingShipOffice = dynamic(
+  () => import("@/features/ring-ship/RingShipOffice").then(module => module.RingShipOffice),
+  { ssr: false, loading: () => <div className="flex h-full items-center justify-center text-sm text-cyan-100">正在装配环形飞船…</div> },
 );
 
 const stringToColor = (str: string) => {
@@ -1108,7 +1113,7 @@ export function OfficeScreen({
   const [sessionSearch, setSessionSearch] = useState("");
   const [companyRoster, setCompanyRoster] = useState<CompanyRoster | null>(null);
   const [companyCreationAvailable, setCompanyCreationAvailable] = useState(false);
-  const companyLayout = useMemo(() => companyRoster ? buildCompanyLayout(companyRoster) : null, [companyRoster]);
+  const OfficeScene = sessionView ? RingShipOffice : RetroOffice3D;
   const [selectedChatAgentId, setSelectedChatAgentId] = useState<string | null>(
     null,
   );
@@ -4834,20 +4839,20 @@ export function OfficeScreen({
       /> : null}
       <section className={`relative h-full min-h-0 min-w-0 overflow-hidden ${sessionView && chatOpen ? "max-md:invisible" : ""}`}>
         <OfficeSceneBoundary>
-        <RetroOffice3D
+        <OfficeScene
           key={activeFloor.id}
-          agents={sessionView && !companyLayout ? [] : allVisibleAgents}
+          agents={sessionView && !companyRoster ? [] : allVisibleAgents}
           storageNamespace={activeFloor.id}
           layoutPreset={activeFloor.kind === "lobby" ? "lobby" : "office"}
           officeCenterSignal={officeCameraCenterSignal}
           animationState={officeAnimationState}
-          companyLayout={companyLayout}
+          companyRoster={companyRoster}
           companyActions={sessionView && companyRoster ? <CompanyActions client={client} projects={companyRoster.projects}
             disabled={status !== "connected" || !companyCreationAvailable} onCreated={async threadId => {
               await loadAgents({ silent: true });
               if (threadId) handleOpenAgentChat(threadId);
             }} /> : null}
-          deskAssignmentByDeskUid={companyLayout?.deskAssignments ?? deskAssignmentByDeskUid}
+          deskAssignmentByDeskUid={deskAssignmentByDeskUid}
           githubReviewAgentId={githubReviewAgentId}
           qaTestingAgentId={qaTestingAgentId}
           phoneBoothAgentId={activePhoneBoothAgentId}
@@ -4932,9 +4937,7 @@ export function OfficeScreen({
               focusLocalAgent(agentId, { openChat: false });
             }
           }}
-          onAgentChatSelect={(agentId) => {
-            handleOpenAgentChat(agentId);
-          }}
+          onAgentChatSelect={handleOpenAgentChat}
           onAddAgent={sessionView ? undefined : handleOpenCreateAgentWizard}
           onAgentEdit={(agentId) => {
             if (sessionView) handleOpenAgentChat(agentId);

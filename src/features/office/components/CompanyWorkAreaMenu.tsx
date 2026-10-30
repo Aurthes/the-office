@@ -1,10 +1,11 @@
 "use client";
 import { useRef, type ReactNode } from "react";
 
-export function CompanyWorkAreaMenu({ areas, activeId, sessionCount, open, onOpenChange, onSelect, actions }: {
-  areas: { id: string; name: string; agentIds: readonly string[] }[];
+export function CompanyWorkAreaMenu({ areas, activeId, sessionCount, open, onOpenChange, onSelect, actions, description = "自由区：共享办公 · 休息 · 闲逛" }: {
+  areas: { id: string; name: string; agentIds: readonly string[]; countLabel?: string }[];
   activeId: string; sessionCount: number; open: boolean;
   onOpenChange: (open: boolean) => void; onSelect: (id: string) => void; actions?: ReactNode;
+  description?: string;
 }) {
   const toggleRef = useRef<HTMLButtonElement>(null);
   const close = () => { onOpenChange(false); toggleRef.current?.focus({ preventScroll: true }); };
@@ -20,9 +21,9 @@ export function CompanyWorkAreaMenu({ areas, activeId, sessionCount, open, onOpe
       <label className="office-company-label mb-1 hidden text-[10px] tracking-widest text-emerald-200/70 md:block" htmlFor="company-area">公司工区</label>
       <select id="company-area" aria-label="前往工区" value={activeId} onChange={event => { onSelect(event.target.value); close(); }} className="w-full min-w-0 rounded-md border border-white/15 bg-[#152b35] px-2 py-2 text-xs text-white">
         <option value="">全公司 · {sessionCount} 个会话</option>
-        {areas.map(area => <option key={area.id} value={area.id}>{area.name} · {area.agentIds.length}</option>)}
+        {areas.map(area => <option key={area.id} value={area.id}>{area.name}{area.countLabel ?? ` · ${area.agentIds.length}`}</option>)}
       </select>
-      <div className="office-company-description mt-2 hidden text-[10px] text-white/50 md:block">自由区：共享办公 · 休息 · 闲逛</div>
+      <div className="office-company-description mt-2 hidden text-[10px] text-white/50 md:block">{description}</div>
       {actions}
     </div>
   </section>;

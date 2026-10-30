@@ -1,0 +1,47 @@
+.ship-office .office-company-menu { top: 122px; }
+.ship-office .office-company-panel { max-width: 260px; }
+.ship-heading { max-width: calc(100% - 520px); }
+.ship-summary { backdrop-filter: blur(8px); }
+@media (max-width: 1000px) {
+  .ship-heading { top: 57px; max-width: calc(100% - 28px); }
+  .ship-heading > div:first-child { font-size: 10px; }
+  .ship-heading > div:nth-child(2) { display: none; }
+  .ship-heading > div:nth-child(3) { margin-top: 8px; }
+  .ship-office .office-company-menu { top: 126px; }
+  .ship-fleet { top: 133px; }
+}
+@media (max-width: 767px), (max-height: 600px) and (orientation: landscape) {
+  .ship-office .office-company-menu { top: 12px; }
+  .ship-office .office-company-toggle { max-width: 180px; }
+  .ship-heading { top: 59px; }
+  .ship-heading > div:first-child { display: none; }
+  .ship-heading > div:nth-child(3) { margin-top: 0; padding: 4px; }
+  .ship-heading button { width: 27px; height: 27px; font-size: 9px; }
+  .ship-heading button:last-child { width: auto; }
+  .ship-toolbar { gap: 4px; }
+  .ship-toolbar > div { font-size: 8px; padding: 7px 6px; }
+  .ship-toolbar > button { height: 29px; min-width: 29px; padding: 4px; }
+  .ship-summary { bottom: 54px; left: 10px; padding: 8px 10px; max-width: calc(100% - 20px); }
+  .ship-summary > div:last-child { display: none; }
+  .ship-summary > div:nth-child(2) { max-width: 280px; font-size: 10px; }
+}
+@media (max-height: 600px) and (orientation: landscape) {
+  .ship-office .office-company-toggle {
+    display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
+    min-height: 36px; padding: 0 10px; border: 1px solid rgb(167 243 208 / 20%);
+    border-radius: 10px; background: rgb(13 27 34 / 95%); font-size: 12px;
+  }
+  .ship-office .office-company-panel {
+    position: absolute; top: calc(100% + 6px); left: 0; width: min(260px, calc(100vw - 24px));
+    max-height: calc(100dvh - 70px); overflow: auto; overscroll-behavior: contain; padding: 10px;
+  }
+  .ship-office .office-company-menu:not([data-open="true"]) .office-company-panel { display: none; }
+  .ship-office .office-company-panel-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 12px; }
+  .ship-office .office-company-panel-heading button { min-width: 36px; min-height: 36px; }
+  .ship-office .office-company-label, .ship-office .office-company-description { display: none; }
+  .ship-heading { top: 12px; max-width: 48%; }
+  .ship-heading button { width: 24px; height: 24px; }
+  .ship-heading > div:nth-child(3) > button:nth-child(n+4):not(:last-child) { display: none; }
+  .ship-summary { bottom: 12px; max-width: 320px; }
+  .ship-summary > div:nth-child(2) { display: none; }
+}
