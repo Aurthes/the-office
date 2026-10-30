@@ -29,7 +29,8 @@ import type { CompanyLayout } from "@/features/retro-office/core/companyLayout";
 import { CompanyWorkAreaMenu } from "@/features/office/components/CompanyWorkAreaMenu";
 import { CompanyWorkAreas, CompanyAreaCamera } from "@/features/retro-office/scene/CompanyWorkAreas";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Environment, OrbitControls } from "@react-three/drei";
+import { OrbitControls } from "@react-three/drei";
+import { OptionalEnvironment } from "./OptionalEnvironment";
 import * as THREE from "three";
 import { SettingsPanel } from "@/features/office/components/panels/SettingsPanel";
 import { AtmImmersiveScreen } from "@/features/office/screens/AtmImmersiveScreen";
@@ -5324,10 +5325,7 @@ export function RetroOffice3D({
             {/* Wall pictures — procedural, no async loading. */}
             <SceneWallPictures showRemoteOffice={remoteOfficeEnabled} companySize={companyLayout ?? undefined} />
 
-            {/* Environment lighting — async, wrapped in its own Suspense so floor stays visible. */}
-            <Suspense fallback={null}>
-              <Environment files="/environments/potsdamer_platz_1k.hdr" />
-            </Suspense>
+            <OptionalEnvironment />
 
             {/* Furniture models — each loads its GLB asynchronously. */}
             <Suspense fallback={null}>
