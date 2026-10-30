@@ -270,3 +270,35 @@ choose clear standing floor from the same collision world. Table/social interact
 points use the measured object volume too. The generated desk/chair GLB metadata
 (`npm run prebuild`) still supplies the precise cushion height and work pose.
 This is lightweight collision and navigation, not a rigid-body simulation.
+
+
+## Attention markers and interactive questions
+
+An idle character shows a yellow `?` for a completed result that the Codex App
+marks unread. Completion is identified from the original task-complete record,
+so ordinary idle, interrupted, and running work does not produce a question mark.
+Opening that chat in a visible browser records the viewed completion locally;
+receipts survive reloads and synchronize across tabs on the same origin. These
+browser receipts do not modify the Codex App's private read-state file.
+
+A yellow `!` takes priority while a question awaits input. Native
+`item/tool/requestUserInput` requests use their original request/response channel.
+Accepted `request_user_input_async` calls are indexed from structured rollout
+records because public turn items omit those calls. Their answers use the same
+question IDs and user-reply envelope as the desktop App, sent to the original
+thread through the existing deduplicated send path. A normal chat reply or new
+steering message supersedes older async prompts. Historical prose lists remain
+transcript text; they are never guessed to be actionable requests.
+
+The question index reads append-only records incrementally, with a bounded line
+buffer. Question snapshots are bounded and pushed on the existing session stream.
+Forms require an explicit selection or custom answer and preserve the message
+composer draft. Duplicate submissions and replies to another thread are rejected.
+
+In Codex session view, holding Option uses the current composer's browser dictation
+and releasing Option ends recognition. It writes an editable draft; sending is a
+separate action. The legacy main-agent recorder and OpenClaw transcription endpoint
+are not used by this shortcut. Startup, recognition, and finishing have separate
+status messages and deadlines. Recognized interim text survives service endings,
+errors, and empty result revisions; recognition failures remain visible. Browser
+speech-service availability still depends on the browser and its network access.

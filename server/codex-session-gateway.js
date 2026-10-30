@@ -40,7 +40,7 @@ const shared = process.env.CLAW3D_CODEX_CONTROL_SOCKET ? new CodexSharedClient(p
   if (threadId && previous !== controls?.state(threadId).version) notifyLive(threadId);
   if (frame.method === "connection/closed" && !stopping) process.exit(1);
 }) : null;
-controls = shared ? new CodexSessionControls(shared) : null;
+controls = shared ? new CodexSessionControls(shared, id => index.pendingQuestions(id)) : null;
 stream = controls ? new CodexSessionStream(controls) : null;
 voice = shared ? new CodexSessionVoice(shared, controls, (ws, payload) => {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "event", event: "session.voice", payload }));
@@ -71,12 +71,13 @@ const rows = () => index.list();
 const key = id => `agent:${id}:main`;
 const get = id => { const row = rows().find(r => r.id === id); if (!row) throw new Error("Original App session is missing or archived"); return row; };
 const fromKey = value => get(String(value).split(":")[1]);
-const agents = () => rows().map(r => ({ ...r, role: r.project, identity: { name: r.name, emoji: "💬" } }));
+const agents = () => rows().map(({ pendingQuestions, ...r }) => ({ ...r, needsInput: Boolean(pendingQuestions?.length || controls?.questions(r.id).some(q => !q.submitted)), role: r.project, identity: { name: r.name, emoji: "💬" } }));
 const workspaceActions = new CodexWorkspaceActions(shared);
 rosterSync = new CodexRosterSync(index, payload => {
+  stream?.refresh();
   const frame = JSON.stringify({ type: "event", event: "roster.updated", seq: seq++, payload });
   for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame);
-});
+}, id => Boolean(controls?.questions(id).some(q => !q.submitted)));
 async function history(row, cursor) {
   if (controls && !cursor) {
     try { await controls.attach(row.id); }
@@ -84,6 +85,7 @@ async function history(row, cursor) {
   }
   return loadSessionHistoryPage(call, row, cursor);
 }
+const { answerQuestions } = require("./codex-session-questions");
 const methods = {
   "office.snapshot": async () => {
     const listed = agents();
@@ -105,6 +107,15 @@ const methods = {
   "session.unsubscribe": async (p, ws) => stream?.unsubscribe(ws, p.subscriptionId) ?? { unsubscribed: true },
   "session.live": async (p, ws) => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); ws.legacySessionUpdates = true; return controls.snapshot(row.id, Number(p.since) || 0); },
   "session.send": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); const result = await controls.send(row.id, p.message, p.requestId, p.attachments); notifyLive(row.id); return result; },
+  "session.question.reply": async p => {
+    const row = get(p.threadId);
+    if (!controls) throw new Error("原会话控制未连接");
+    const question = row.pendingQuestions?.find(q => q.requestId === p.promptId);
+    if (!question) { const result = controls.replyQuestions(row.id, p.promptId, p.answers); notifyLive(row.id); rosterSync.changed(); return result; }
+    const answers = answerQuestions(question, p.answers);
+    const result = await controls.send(row.id, "<send_user_message_question_reply>\n" + JSON.stringify(answers).replace(/</g, "\\u003c") + "\n</send_user_message_question_reply>", p.requestId);
+    rosterSync.changed(); return result;
+  },
   "session.settings.choices": async p => { const row = get(p.threadId); if (!controls) throw new Error("原会话设置未连接"); return controls.choices(row.id); },
   "session.settings.update": async p => { const row = get(p.threadId); if (!controls) throw new Error("原会话设置未连接"); return controls.updateSettings(row.id, p.settings); },
   "session.voice.start": async (p, ws) => { const row = get(p.threadId); if (!voice) throw new Error("原生语音未连接"); return voice.start(ws, row.id, p.sdp, p.voiceId); },

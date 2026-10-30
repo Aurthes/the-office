@@ -48,6 +48,8 @@ export type AgentState = AgentStoreSeed & {
   sessionCreated: boolean;
   awaitingUserInput: boolean;
   hasUnseenActivity: boolean;
+  needsInput?: boolean;
+  completedResult?: { key: string; unread: boolean } | null;
   outputLines: string[];
   lastResult: string | null;
   lastDiff: string | null;

@@ -92,4 +92,27 @@ describe("shared App session controls", () => {
     expect(controls.snapshot("id").approvals).toEqual([]);
     expect(controls.snapshot("id").activeTurnId).toBe("current");
   });
+  it("answers native questions on their original wire request and rejects duplicate or foreign replies", () => {
+    const { client, controls } = setup();
+    controls.handle({ id: 31, method: "item/tool/requestUserInput", params: { threadId: "id", turnId: "turn", questions: [{ id: "q", header: "Choice", question: "Which?", isOther: false, options: [{ label: "A" }, { label: "B" }] }] } });
+    expect(controls.snapshot("id").questions).toHaveLength(1);
+    expect(controls.snapshot("id").approvals).toEqual([]);
+    expect(() => controls.replyQuestions("foreign", "31", { q: "A" })).toThrow();
+    expect(() => controls.replyQuestions("id", "31", { q: "forged" })).toThrow();
+    controls.replyQuestions("id", "31", { q: "B" });
+    expect(client.respond).toHaveBeenCalledExactlyOnceWith(31, { answers: { q: { answers: ["B"] } } });
+    expect(() => controls.replyQuestions("id", "31", { q: "B" })).toThrow();
+    controls.handle({ method: "serverRequest/resolved", params: { threadId: "id", requestId: 31 } });
+    expect(controls.snapshot("id").questions).toEqual([]);
+  });
+  it("versions asynchronous questions so they flow through the existing pushed snapshot", () => {
+    let questions: unknown[] = [];
+    const { client } = setup(); const controls = new CodexSessionControls(client, () => questions);
+    const before = controls.snapshot("id").version;
+    questions = [{ requestId: "call", questions: [{ id: "q", question: "Choose" }] }];
+    const next = controls.snapshot("id", before);
+    expect(next.version).toBeGreaterThan(before); expect(next.questions).toEqual(questions);
+    questions = []; expect(controls.snapshot("id").questions).toEqual([]);
+  });
+
 });

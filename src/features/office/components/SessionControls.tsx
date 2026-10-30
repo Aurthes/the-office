@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Headphones, Mic, Paperclip, PhoneOff, X } from "lucide-react";
 import { SessionSettings, type ChatSettings } from "./SessionSettings";
 import { useSessionVoice } from "./useSessionVoice";
+import { SessionQuestions, type SessionQuestionRequest } from "./SessionQuestions";
 import { useDictation } from "./useDictation";
 
 export type SessionAsset = { source: string; name: string; kind: "image" | "markdown" | "html" | "file"; url: string; inline?: boolean; attached?: boolean };
@@ -14,7 +15,7 @@ export type SessionClient = {
   onGap?: (handler: (gap: { expected: number; received: number }) => void) => () => void;
 };
 type Approval = { requestId: string; method: string; params: Record<string, unknown>; details?: string; decisions: string[]; supported: boolean; submitted?: boolean };
-type Snapshot = { connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; turnStatus?: string; error?: string | null; settings?: ChatSettings; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number };
+type Snapshot = { connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; turnStatus?: string; error?: string | null; settings?: ChatSettings; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number; questions?: SessionQuestionRequest[] };
 type StreamSnapshot = Omit<Snapshot, "items"> & { threadId: string; subscriptionId: string;
   items: (LiveSessionItem | (Omit<LiveSessionItem, "content"> & { append: string; baseVersion: number }))[] };
 type Upload = { id: string; name: string; size: number; ref?: string; error?: string };
@@ -64,6 +65,20 @@ export function SessionControls({ client, threadId, onItems }: {
     }));
   };
   const removeFile = (id: string) => { uploadRequests.current.get(id)?.abort(); updateUploads(uploadsRef.current.filter(item => item.id !== id)); };
+  const shortcutAllowed = useRef(false);
+  useEffect(() => { shortcutAllowed.current = Boolean(state?.connected && !busy && !settingsBusy && voice.status === "off"); }, [state?.connected, busy, settingsBusy, voice.status]);
+  useEffect(() => {
+    let held = false;
+    const down = (event: KeyboardEvent) => {
+      if (!shortcutAllowed.current || event.key !== "Alt" || event.repeat || held || event.ctrlKey || event.metaKey || event.shiftKey || event.defaultPrevented) return;
+      if (event.target instanceof HTMLElement && (event.target.tagName === "INPUT" || event.target.isContentEditable)) return;
+      held = true; event.preventDefault(); dictation.start();
+    };
+    const up = (event: KeyboardEvent) => { if (event.key === "Alt" && held) { held = false; event.preventDefault(); dictation.stop(); } };
+    const blur = () => { if (held) { held = false; dictation.stop(); } };
+    window.addEventListener("keydown", down, true); window.addEventListener("keyup", up, true); window.addEventListener("blur", blur);
+    return () => { window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up, true); window.removeEventListener("blur", blur); blur(); };
+  }, [dictation.start, dictation.stop]);
   const readyToSend = Boolean((text.trim() || uploads.length) && uploads.every(file => file.ref) && !dictation.listening);
   const send = () => { if (readyToSend) void action("session.send", { message: text, attachments: uploads.map(file => file.ref), requestId: crypto.randomUUID() }); };
   useEffect(() => {
@@ -167,13 +182,14 @@ export function SessionControls({ client, threadId, onItems }: {
       </div>)}
       {(state.approvalCount || 0) > state.approvals.length ? <p className="text-amber-100">还有待处理请求，完成以上审批后显示。</p> : null}
     </div> : null}
+    {state?.questions?.map(request => <SessionQuestions key={threadId + request.requestId} client={client} threadId={threadId} request={request} />)}
     <textarea aria-label="发送到原会话" placeholder="继续同一条 Codex 会话…" rows={2} maxLength={16000} value={text} onChange={event => setText(event.target.value)} onKeyDown={event => {
       if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); }
     }} onPaste={event => { if (event.clipboardData.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)); } }} disabled={busy || settingsBusy || !state?.connected || dictation.listening} className="max-h-36 min-h-14 w-full resize-none rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50" />
     <div className="mt-2 flex items-center justify-between gap-2">
       <div className="flex shrink-0 items-center gap-1">
         <button aria-label="添加附件" title="添加附件，也可拖入文件或粘贴图片" disabled={busy || settingsBusy || !state?.connected} onClick={() => picker.current?.click()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Paperclip size={19} /></button>
-        <button aria-label={dictation.listening ? "停止听写" : "听写"} title="浏览器听写：识别后编辑，点发送才提交" disabled={busy || settingsBusy || !state?.connected || voice.status !== "off"} onClick={dictation.listening ? dictation.stop : dictation.start} className={"grid h-10 w-10 place-items-center rounded-lg hover:bg-white/5 disabled:opacity-40 " + (dictation.listening ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65")}><Mic size={19} /></button>
+        <button aria-label={dictation.listening ? "停止听写" : "听写"} title="听写到当前输入框：按住 Option 说话，松开结束；检查文字后发送" disabled={busy || settingsBusy || !state?.connected || voice.status !== "off"} onClick={dictation.listening ? dictation.stop : dictation.start} className={"grid h-10 w-10 place-items-center rounded-lg hover:bg-white/5 disabled:opacity-40 " + (dictation.listening ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65")}><Mic size={19} /></button>
         <button aria-label="语音对话" title="与此会话实时语音对话" disabled={busy || settingsBusy || !state?.connected || dictation.listening || voice.status !== "off"} onClick={() => void voice.start()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button>
       </div>
       <span className="hidden min-w-0 flex-1 truncate text-xs text-white/45 sm:block">{state?.connected ? state.activeTurnId ? "Codex 正在工作…" : state.turnStatus === "interrupted" ? "已停止" : "Codex · 已连接" : "连接 Codex…"}</span>
@@ -183,7 +199,7 @@ export function SessionControls({ client, threadId, onItems }: {
       </div>
     </div>
     {notice ? <p role="status" className="mt-2 text-[10px] text-cyan-100">{notice}</p> : null}
-    {dictation.listening ? <p role="status" className="mt-2 text-xs text-cyan-100">正在听写 · 由浏览器识别，停止后可编辑并发送</p> : null}
+    {dictation.listening ? <p role="status" className="mt-2 text-xs text-cyan-100">{dictation.phase === "starting" ? "正在启动听写，请稍候再说话…" : dictation.phase === "finishing" ? "正在收尾识别，请稍候…" : "正在听写 · 松开 Option 或点麦克风结束，检查文字后发送"}</p> : dictation.notice ? <p role="status" className="mt-2 text-xs text-white/60">{dictation.notice}</p> : null}
     {dictation.error || voice.error ? <p role="alert" className="mt-2 break-words text-xs text-amber-100">{dictation.error || voice.error}</p> : null}
     {error ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{error}</p> : null}
     {state?.error ? <p role="alert" className="mt-2 break-words text-xs text-rose-200">{state.error}</p> : null}

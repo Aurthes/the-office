@@ -39,6 +39,7 @@ class CodexSessionStream {
     if (entry.timer || this.subscriptions.get(entry.ws) !== entry) return;
     entry.timer = setTimeout(() => { entry.timer = null; this.flush(entry); }, delay);
   }
+  refresh() { for (const entry of this.subscriptions.values()) if (entry.ready) this.schedule(entry); }
   flush(entry) {
     const { ws, threadId, subscriptionId } = entry;
     if (this.subscriptions.get(ws) !== entry) return;

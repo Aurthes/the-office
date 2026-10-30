@@ -4,11 +4,11 @@ const fs = require("node:fs");
 // Native events are primary. Watch legacy App project edits too; one server-side
 // check every 30s recovers missed events without a polling loop in each browser.
 class CodexRosterSync {
-  constructor(index, notify) { this.index = index; this.notify = notify; this.revision = 0; }
+  constructor(index, notify, needsInput = () => false) { this.index = index; this.notify = notify; this.needsInput = needsInput; this.revision = 0; }
   signature() {
     return JSON.stringify({ projects: this.index.projects(), agents: this.index.list().map(row => ({
       id: row.id, name: row.name, workspace: row.workspace, projectId: row.projectId,
-      status: row.status, model: row.model, modelProvider: row.modelProvider, effort: row.effort, pinned: row.pinned,
+      status: row.status, completedResult: row.completedResult, pendingQuestions: row.pendingQuestions, needsInput: this.needsInput(row.id), model: row.model, modelProvider: row.modelProvider, effort: row.effort, pinned: row.pinned,
     })).sort((a, b) => a.id.localeCompare(b.id)) });
   }
   start() {
@@ -22,7 +22,7 @@ class CodexRosterSync {
   native(frame) {
     this.index.handle(frame);
     if (["project/changed", "thread/started", "thread/archived", "thread/deleted", "thread/unarchived",
-      "thread/name/updated", "thread/project/updated", "thread/status/changed", "turn/started", "turn/completed"].includes(frame.method)) this.changed();
+      "item/completed", "item/tool/requestUserInput", "serverRequest/resolved", "thread/name/updated", "thread/project/updated", "thread/status/changed", "turn/started", "turn/completed"].includes(frame.method)) this.changed();
   }
   changed() {
     if (this.timer) return;

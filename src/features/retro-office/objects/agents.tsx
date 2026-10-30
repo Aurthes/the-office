@@ -60,10 +60,14 @@ export const AgentModel = memo(function AgentModel({
   onUnhover,
   onClick,
   onContextMenu,
+  needsReview = false,
+  needsInput = false,
   showSpeech = false,
   speechText = null,
   suppressSpeechBubble = false,
 }: AgentModelProps) {
+  const marker = needsInput ? "!" : needsReview && status === "idle" ? "?" : null;
+  const showReviewMarker = Boolean(marker);
   const groupRef = useRef<THREE.Group>(null);
   const leftArmRef = useRef<THREE.Group>(null);
   const rightArmRef = useRef<THREE.Group>(null);
@@ -386,7 +390,7 @@ export const AgentModel = memo(function AgentModel({
       }
     }
 
-    if (awayBubbleRef.current) awayBubbleRef.current.visible = isAway;
+    if (awayBubbleRef.current) awayBubbleRef.current.visible = isAway && !showReviewMarker;
     if (bodyMatRef.current) bodyMatRef.current.opacity = isAway ? 0.45 : 1;
     if (groupRef.current) {
       groupRef.current.traverse((child) => {
@@ -517,7 +521,7 @@ export const AgentModel = memo(function AgentModel({
     if (speechBubbleRef.current) {
       const bubbleVisible =
         !suppressSpeechBubble &&
-        (showSpeech || bumpTalking || ambientBubbleVisible);
+        (showSpeech || bumpTalking || (ambientBubbleVisible && !showReviewMarker));
       speechBubbleRef.current.visible = bubbleVisible;
       if (bubbleVisible) {
         if (showSpeech && speechText?.trim()) {
@@ -1127,6 +1131,10 @@ export const AgentModel = memo(function AgentModel({
           ) : null}
         </Billboard>
       ) : null}
+      {showReviewMarker ? <Billboard position={[0, activeSpeechBubble ? 2 + speechBubbleHeight / 2 : 1.52, 0]}>
+        <Text name={needsInput ? "pending-question" : "unread-completion"} fontSize={0.46} color="#facc15" outlineWidth={0.025} outlineColor="#3b2700"
+          anchorX="center" anchorY="middle" renderOrder={99999} material-depthTest={false} material-depthWrite={false}>{marker}</Text>
+      </Billboard> : null}
       <group ref={awayBubbleRef} visible={false}>
         <Billboard position={[0, 1.3, 0]}>
           <mesh position={[0, 0, -0.001]}>

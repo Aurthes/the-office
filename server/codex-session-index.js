@@ -1,6 +1,7 @@
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
+const { CodexSessionQuestions } = require("./codex-session-questions");
 const { DatabaseSync } = require("node:sqlite");
 
 // The App remains the writer. This index never starts, resumes, or edits a thread.
@@ -9,6 +10,7 @@ class CodexSessionIndex {
     this.home = path.resolve(home);
     this.db = new DatabaseSync(path.join(this.home, "state_5.sqlite"), { readOnly: true });
     this.states = new Map();
+    this.questions = new CodexSessionQuestions(this.home);
     const columns = new Set(this.db.prepare("PRAGMA table_info(threads)").all().map(column => column.name));
     this.hasProjectIds = columns.has("project_id");
     this.hasModelProvider = columns.has("model_provider");
@@ -18,6 +20,7 @@ class CodexSessionIndex {
   list() {
     const state = this.projectState();
     const projects = this.projects(state);
+    const unread = this.unreadThreadIds(state);
     const migratedIds = state["app-server-project-id-by-legacy-project-id-by-host"]?.[`local:${this.home}`] || {};
     return this.db.prepare(`SELECT id, name, title, cwd, rollout_path, updated_at, model,
       reasoning_effort, is_pinned${this.hasProjectIds ? ", project_id" : ""}${this.hasModelProvider ? ", model_provider" : ""} FROM threads WHERE archived = 0
@@ -34,8 +37,26 @@ class CodexSessionIndex {
       const status = live && (!diskStatus.statusAt || live.statusAt >= diskStatus.statusAt) ? live : diskStatus;
       return { id: row.id, name, workspace: row.cwd, projectId: project?.id || null, project: project?.name || "Open Workspace",
         updatedAt: row.updated_at * 1000, model: row.model, modelProvider: row.model_provider, effort: row.reasoning_effort,
-        pinned: Boolean(row.is_pinned), ...status };
+        pinned: Boolean(row.is_pinned), ...status,
+        pendingQuestions: this.questions.read(row.rollout_path),
+        completedResult: diskStatus.completionKey ? { key: diskStatus.completionKey, unread: unread.has(row.id) } : null };
     });
+  }
+  pendingQuestions(id) {
+    const row = this.db.prepare("SELECT rollout_path FROM threads WHERE id = ? AND archived = 0").get(id);
+    return row ? this.questions.read(row.rollout_path) : [];
+  }
+  unreadThreadIds(state) {
+    const readState = state["electron-thread-read-state-v1"];
+    if (readState?.version !== 1) return new Set();
+    // App-owned read state; thread UUIDs are filtered by the local index below.
+    const identities = readState.unreadByIdentity;
+    if (!identities || typeof identities !== "object" || Array.isArray(identities)) return new Set();
+    return new Set(Object.values(identities).flatMap(hosts => {
+      if (!hosts || typeof hosts !== "object" || Array.isArray(hosts)) return [];
+      return Object.entries(hosts).flatMap(([host, ids]) =>
+        (host === "local" || host.startsWith("local:")) && Array.isArray(ids) ? ids.filter(id => typeof id === "string") : []);
+    }));
   }
   projectState() {
     try { return JSON.parse(fs.readFileSync(path.join(this.home, ".codex-global-state.json"), "utf8")); }
@@ -89,7 +110,8 @@ class CodexSessionIndex {
           // A completion can carry a very large last message: its prefix is enough.
           const marker = lines[i].match(/^\{"timestamp"\s*:\s*"([^"]+)"\s*,\s*(?:"ordinal"\s*:\s*\d+\s*,\s*)?"type"\s*:\s*"event_msg"\s*,\s*"payload"\s*:\s*\{"type"\s*:\s*"(task_started|task_complete|turn_aborted)"/);
           if (!marker) continue;
-          value = { status: marker[2] === "task_started" ? "running" : "idle", statusAt: Date.parse(marker[1]) };
+          value = { status: marker[2] === "task_started" ? "running" : "idle", statusAt: Date.parse(marker[1]),
+            completionKey: marker[2] === "task_complete" ? marker[1] : null };
           end = 0; break;
         }
         if (end === 0) break;

@@ -29,6 +29,18 @@ describe("native roster push", () => {
     rows.pop(); sync.native({ method: "thread/archived", params: { threadId: "t" } });
     vi.advanceTimersByTime(150); expect(notify).toHaveBeenLastCalledWith({ revision: 2 });
   });
+  it("pushes read-state and completion changes even when the agent stays idle", () => {
+    const { notify, rows } = setup();
+    Object.assign(rows[0], { completedResult: { key: "completion-1", unread: true } });
+    sync.changed(); vi.advanceTimersByTime(150);
+    expect(notify).toHaveBeenCalledTimes(1);
+    Object.assign(rows[0], { completedResult: { key: "completion-1", unread: false } });
+    sync.changed(); vi.advanceTimersByTime(150);
+    expect(notify).toHaveBeenCalledTimes(2);
+    Object.assign(rows[0], { completedResult: { key: "completion-2", unread: true } });
+    sync.native({ method: "turn/completed", params: { threadId: "t" } }); vi.advanceTimersByTime(150);
+    expect(notify).toHaveBeenCalledTimes(3);
+  });
   it("recovers a missed event in the server-side check and releases pending work on close", () => {
     const { notify, projects } = setup();
     projects.push({ id: "new", name: "Added elsewhere", rootPaths: [root] });

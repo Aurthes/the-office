@@ -15,6 +15,7 @@ import type { OfficeAgent } from "@/features/retro-office/core/types";
 import { RunningAvatarLoader } from "@/features/agents/components/RunningAvatarLoader";
 import { ExistingSessionPanel } from "@/features/office/components/ExistingSessionPanel";
 import { CompanyActions } from "@/features/office/components/CompanyActions";
+import { useCompletionReadState } from "@/features/office/hooks/useCompletionReadState";
 import { useCompanyRosterSync } from "@/features/office/hooks/useCompanyRosterSync";
 import { loadCompanySnapshot } from "@/features/office/operations/loadCompanySnapshot";
 import { GatewayConnectScreen } from "@/features/agents/components/GatewayConnectScreen";
@@ -1828,7 +1829,8 @@ export function OfficeScreen({
           for (const agent of snapshot.agents) {
             dispatch({ type: "updateAgent", agentId: agent.id, patch: {
               sessionCreated: true, sessionSettingsSynced: true,
-              ...(["running", "idle"].includes(agent.status) ? { status: agent.status as "running" | "idle", runId: null } : {}),
+              completedResult: agent.completedResult ?? null, needsInput: Boolean(agent.needsInput),
+              ...(["running", "idle", "error"].includes(agent.status) ? { status: agent.status as "running" | "idle" | "error", runId: null } : {}),
             } });
           }
           setCompanyCreationAvailable(Boolean(snapshot.creationAvailable));
@@ -4240,6 +4242,7 @@ export function OfficeScreen({
   });
 
   useEffect(() => {
+    if (sessionView) return; // Codex composers own Option-to-dictate; never route it to the legacy main agent.
     const optionHeldRef = { current: false };
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Alt" || event.repeat || optionHeldRef.current) return;
@@ -4265,7 +4268,7 @@ export function OfficeScreen({
       window.removeEventListener("keyup", handleKeyUp, true);
       window.removeEventListener("blur", handleWindowBlur);
     };
-  }, [startMainVoiceRecording, stopMainVoiceRecording]);
+  }, [sessionView, startMainVoiceRecording, stopMainVoiceRecording]);
 
   useEffect(() => {
     if (!mainVoiceError) return;
@@ -4442,9 +4445,17 @@ export function OfficeScreen({
   const focusedRemoteChatState = focusedRemoteChatTarget
     ? (remoteChatByAgentId[focusedRemoteChatTarget.id] ?? EMPTY_REMOTE_CHAT_SESSION)
     : null;
+  const { readById } = useCompletionReadState(sessionView && chatOpen && focusedChatAgent?.status === "idle" && focusedChatAgent.completedResult
+    ? { id: focusedChatAgent.agentId, key: focusedChatAgent.completedResult.key } : null);
   const allVisibleAgents = useMemo(
-    () => [...officeAgents, ...remoteOfficeAgents],
-    [officeAgents, remoteOfficeAgents],
+    () => {
+      const results = new Map(state.agents.map(agent => [agent.agentId, agent]));
+      return [...officeAgents.map(agent => sessionView ? { ...agent,
+        needsReview: agent.status === "idle" && Boolean(results.get(agent.id)?.completedResult?.unread && readById[agent.id] !== results.get(agent.id)?.completedResult?.key),
+        needsInput: Boolean(results.get(agent.id)?.needsInput),
+      } : agent), ...remoteOfficeAgents];
+    },
+    [officeAgents, remoteOfficeAgents, sessionView, state.agents, readById],
   );
   const remoteOfficeVisible =
     remoteOfficeEnabled &&

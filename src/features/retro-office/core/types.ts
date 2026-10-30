@@ -5,6 +5,8 @@ export type OfficeAgent = {
   id: string;
   name: string;
   subtitle?: string | null;
+  needsReview?: boolean;
+  needsInput?: boolean;
   status: "working" | "idle" | "error";
   color: string;
   item: string;

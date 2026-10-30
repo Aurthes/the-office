@@ -40,6 +40,7 @@ describe("existing App session index", () => {
   it("recognizes completions with messages larger than a read chunk", () => {
     fs.appendFileSync(path.join(root, "existing.jsonl"), event("task_complete", { last_agent_message: "x".repeat(200000) }));
     expect(index.list()[0].status).toBe("idle");
+    expect(index.list()[0].completedResult.key).toBe("2026-10-29T10:00:00Z");
   });
   it("does not treat task markers inside user or tool content as runtime events", () => {
     fs.appendFileSync(path.join(root, "existing.jsonl"), JSON.stringify({ timestamp: "2026-10-29T10:00:01Z", type: "response_item", payload: { text: event("task_complete") } }) + "\n");
@@ -48,6 +49,31 @@ describe("existing App session index", () => {
   it("reports missing or unsupported history as unknown", () => {
     fs.unlinkSync(path.join(root, "existing.jsonl"));
     expect(index.list()[0].status).toBe("unknown");
+  });
+  it("reads original App unread flags only for completed local results and never writes them", () => {
+    const filename = path.join(root, ".codex-global-state.json");
+    const state = { "electron-thread-read-state-v1": { version: 1, unreadByIdentity: {
+      account: { "local:instance": ["existing"], "ssh:remote": ["remote-thread"] },
+    } } };
+    const original = JSON.stringify(state); fs.writeFileSync(filename, original);
+    expect(index.list()[0].completedResult).toBeNull(); // Still working.
+    fs.appendFileSync(path.join(root, "existing.jsonl"), event("task_complete"));
+    expect(index.list()[0].completedResult).toEqual({ key: "2026-10-29T10:00:00Z", unread: true });
+    expect(fs.readFileSync(filename, "utf8")).toBe(original);
+    state["electron-thread-read-state-v1"].unreadByIdentity.account["local:instance"] = [];
+    state["electron-thread-read-state-v1"].unreadByIdentity.account["ssh:remote"] = ["existing"];
+    fs.writeFileSync(filename, JSON.stringify(state));
+    expect(index.list()[0].completedResult.unread).toBe(false); // Read in App; remote flags do not leak.
+    fs.appendFileSync(path.join(root, "existing.jsonl"), event("turn_aborted"));
+    expect(index.list()[0].completedResult).toBeNull();
+  });
+  it("treats missing, malformed, or unknown-version App read state as no unread signal", () => {
+    fs.appendFileSync(path.join(root, "existing.jsonl"), event("task_complete"));
+    for (const value of ["{", "{}", JSON.stringify({ "electron-thread-read-state-v1": { version: 2 } }),
+      JSON.stringify({ "electron-thread-read-state-v1": { version: 1, unreadByIdentity: { malformed: null } } })]) {
+      fs.writeFileSync(path.join(root, ".codex-global-state.json"), value);
+      expect(index.list()[0].completedResult.unread).toBe(false);
+    }
   });
   it("uses App project assignment for worktrees and keeps explicit projectless chats in Open Workspace", () => {
     const filename = path.join(root, ".codex-global-state.json");

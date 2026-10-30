@@ -6,6 +6,7 @@ export type CompanySnapshot = {
   defaultId?: string; mainKey: string; projects: CompanyRoster["projects"]; creationAvailable: boolean;
   agents: Array<CompanyRoster["members"][number] & {
     name: string; role: string; status: string; model?: string | null; modelProvider?: string | null; effort?: string | null;
+    completedResult?: { key: string; unread: boolean } | null; needsInput?: boolean;
     updatedAt: number; identity?: { name?: string; emoji?: string };
   }>;
 };

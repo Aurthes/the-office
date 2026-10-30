@@ -1,12 +1,13 @@
 "use strict";
 const crypto = require("node:crypto");
 const { sessionItem, clipText } = require("./codex-session-items");
+const { answerQuestions } = require("./codex-session-questions");
 const { messageInput } = require("./codex-session-uploads");
 const { sessionSettings, sessionChoices, settingsPatch } = require("./codex-session-settings");
 const supportedApprovals = new Set(["item/commandExecution/requestApproval", "item/fileChange/requestApproval"]);
 
 class CodexSessionControls {
-  constructor(client) { this.client = client; this.states = new Map(); this.requests = new Map(); this.sends = new Map(); this.attaching = new Map(); }
+  constructor(client, asyncQuestions = () => []) { this.client = client; this.asyncQuestions = asyncQuestions; this.states = new Map(); this.requests = new Map(); this.sends = new Map(); this.attaching = new Map(); }
   state(id) {
     if (!this.states.has(id)) this.states.set(id, { version: 0, activeTurnId: null, items: new Map(), turnStatus: null, error: null });
     return this.states.get(id);
@@ -83,8 +84,30 @@ class CodexSessionControls {
     }
     while (state.items.size > 128) state.items.delete(state.items.keys().next().value);
   }
+  questions(id) {
+    return [...this.requests.values()].filter(r => r.params.threadId === id && r.method === "item/tool/requestUserInput").slice(0, 3).map(r => ({
+      requestId: r.requestId, submitted: Boolean(r.submitted), questions: r.params.questions,
+    })).filter(r => Array.isArray(r.questions) && r.questions.length > 0 && r.questions.length <= 3 && Buffer.byteLength(JSON.stringify(r)) <= 16000);
+  }
+  replyQuestions(id, requestId, answers) {
+    this.requireReady();
+    const request = this.requests.get(String(requestId)), visible = this.questions(id).find(q => q.requestId === String(requestId));
+    if (!request || !visible || request.submitted) throw new Error("问题已结束或答案已提交，请核对当前会话");
+    const validated = answerQuestions(visible, answers);
+    this.client.respond(request.wireId, { answers: Object.fromEntries(validated.map(answer => [answer.questionItemId, { answers: [answer.answer] }])) });
+    request.submitted = true; this.state(id).version++;
+    return { status: "submitted" };
+  }
   snapshot(id, since = 0) {
     this.requireReady(); const state = this.state(id);
+    const questions = []; let questionBytes = 0;
+    for (const question of [...this.questions(id), ...this.asyncQuestions(id)]) {
+      const bytes = Buffer.byteLength(JSON.stringify(question));
+      if (questions.length >= 8 || questionBytes + bytes > 32000) break;
+      questions.push(question); questionBytes += bytes;
+    }
+    const signature = JSON.stringify(questions);
+    if (state.questionSignature !== signature) { if (state.questionSignature !== undefined || questions.length) state.version++; state.questionSignature = signature; }
     const changed = [...state.items.values()].filter(item => item.version > (since > state.version ? 0 : since)).sort((a, b) => a.version - b.version);
     const items = []; let bytes = 0;
     for (const item of changed) {
@@ -95,8 +118,9 @@ class CodexSessionControls {
     }
     const hasMore = items.length < changed.length;
     return { connected: true, version: hasMore ? items.at(-1).version : state.version, hasMore, activeTurnId: state.activeTurnId, turnStatus: state.turnStatus, error: state.error, settings: state.settings, items,
-      approvalCount: [...this.requests.values()].filter(r => r.params.threadId === id).length,
-      approvals: [...this.requests.values()].filter(r => r.params.threadId === id).slice(0, 2).map(request => {
+      questions,
+      approvalCount: [...this.requests.values()].filter(r => r.params.threadId === id && r.method !== "item/tool/requestUserInput").length,
+      approvals: [...this.requests.values()].filter(r => r.params.threadId === id && r.method !== "item/tool/requestUserInput").slice(0, 2).map(request => {
         const item = state.items.get(`${request.params.turnId}:${request.params.itemId}`);
         const oversized = Buffer.byteLength(JSON.stringify(request.params)) > 8000;
         return { requestId: request.requestId, method: request.method, submitted: request.submitted, params: oversized ? { threadId: id, reason: "请求过长，请在原 App 查看" } : request.params,

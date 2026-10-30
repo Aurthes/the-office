@@ -39,6 +39,25 @@ describe("web composer media", () => {
     fireEvent.click(screen.getByRole("button", { name: "听写" })); view.unmount();
     expect(abort).toHaveBeenCalled();
   });
+  it("routes held Option into the current draft and never automatically sends to an agent", async () => {
+    let recognition!: { onstart?: () => void; onresult?: (e: unknown) => void; onend?: () => void };
+    class Recognition {
+      onstart?: () => void; onresult?: (e: unknown) => void; onend?: () => void;
+      constructor() { recognition = this; }
+      start = vi.fn(); stop = () => recognition.onend?.(); abort = vi.fn();
+    }
+    vi.stubGlobal("webkitSpeechRecognition", Recognition);
+    const call = vi.fn(async (_method: string) => snapshot);
+    render(React.createElement(SessionControls, { client: { call }, threadId: "chosen-thread", onItems: vi.fn() }));
+    const input = screen.getByLabelText("发送到原会话") as HTMLTextAreaElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+    fireEvent.keyDown(window, { key: "Alt", altKey: true });
+    act(() => recognition.onstart?.());
+    act(() => recognition.onresult?.({ results: [{ 0: { transcript: "只写在当前草稿" }, isFinal: false }] }));
+    fireEvent.keyUp(window, { key: "Alt" });
+    expect(input).toHaveValue("只写在当前草稿"); expect(input.disabled).toBe(false);
+    expect(call.mock.calls.some(([method]) => ["session.send", "chat.send"].includes(String(method)))).toBe(false);
+  });
   it("connects native WebRTC, then releases microphone, audio and ownership on chat exit", async () => {
     let eventHandler!: (event: { event: string; payload: unknown }) => void;
     const stopTrack = vi.fn(), close = vi.fn(), setRemoteDescription = vi.fn(async () => {});
