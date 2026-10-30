@@ -26,8 +26,10 @@ function notifyLive(threadId) {
   if (!threadId || liveNotifications.has(threadId)) return;
   liveNotifications.set(threadId, setTimeout(() => {
     liveNotifications.delete(threadId);
-    const frame = JSON.stringify({ type: "event", event: "session.updated", seq: seq++, payload: { threadId } });
-    for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame);
+    // Legacy notifications have no global sequence: only clients that actually
+    // use session.live receive them. Other tabs must not see false event gaps.
+    const frame = JSON.stringify({ type: "event", event: "session.updated", payload: { threadId } });
+    for (const ws of clients) if (ws.legacySessionUpdates && ws.readyState === WebSocket.OPEN) ws.send(frame);
   }, 50));
 }
 const shared = process.env.CLAW3D_CODEX_CONTROL_SOCKET ? new CodexSharedClient(process.env.CLAW3D_CODEX_CONTROL_SOCKET, frame => {
@@ -83,6 +85,11 @@ async function history(row, cursor) {
   return loadSessionHistoryPage(call, row, cursor);
 }
 const methods = {
+  "office.snapshot": async () => {
+    const listed = agents();
+    return { defaultId: listed[0]?.id, mainKey: "main", agents: listed,
+      projects: index.projects(), creationAvailable: Boolean(shared?.ready) };
+  },
   "agents.list": async () => ({ defaultId: rows()[0]?.id, mainKey: "main", agents: agents(), projects: index.projects(), creationAvailable: Boolean(shared?.ready) }),
   "project.create": async p => { const result = await workspaceActions.createProject(p); rosterSync.changed(); return result; },
   "session.create": async p => { const result = await workspaceActions.createSession(p); rosterSync.changed(); return result; },
@@ -96,7 +103,7 @@ const methods = {
   "session.attach": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读，原 App 共享控制未启用"); await controls.attach(row.id); return controls.snapshot(row.id); },
   "session.subscribe": async (p, ws) => { const row = get(p.threadId); if (!stream) throw new Error("当前仍为只读，原 App 共享控制未启用"); return stream.subscribe(ws, row.id, p.subscriptionId); },
   "session.unsubscribe": async (p, ws) => stream?.unsubscribe(ws, p.subscriptionId) ?? { unsubscribed: true },
-  "session.live": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); return controls.snapshot(row.id, Number(p.since) || 0); },
+  "session.live": async (p, ws) => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); ws.legacySessionUpdates = true; return controls.snapshot(row.id, Number(p.since) || 0); },
   "session.send": async p => { const row = get(p.threadId); if (!controls) throw new Error("当前仍为只读"); const result = await controls.send(row.id, p.message, p.requestId, p.attachments); notifyLive(row.id); return result; },
   "session.settings.choices": async p => { const row = get(p.threadId); if (!controls) throw new Error("原会话设置未连接"); return controls.choices(row.id); },
   "session.settings.update": async p => { const row = get(p.threadId); if (!controls) throw new Error("原会话设置未连接"); return controls.updateSettings(row.id, p.settings); },
@@ -128,7 +135,7 @@ wss.on("connection", ws => {
         result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "codex-app-session-view-1", connId: crypto.randomUUID() },
           features: { methods: Object.keys(methods), events: ["tick", "session.updated", "session.stream", "session.voice", "roster.updated"] },
           snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: rows()[0]?.id }, sessionDefaults: { mainKey: "main" } },
-          auth: { role: "operator", scopes: shared ? ["operator.read", "operator.write", "operator.approvals"] : ["operator.read"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000 } };
+          auth: { role: "operator", scopes: shared ? ["operator.read", "operator.write", "operator.approvals"] : ["operator.read"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
       } else {
         if (!connected) throw new Error("Connect first");
         if (!Object.hasOwn(methods, frame.method)) throw new Error("此操作暂不支持，请在 Codex App 中处理。");

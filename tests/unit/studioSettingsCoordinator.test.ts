@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultStudioSettings, sanitizeStudioSettings } from "@/lib/studio/settings";
-import { StudioSettingsCoordinator } from "@/lib/studio/coordinator";
+import { StudioSettingsCoordinator, createStudioSettingsCoordinator } from "@/lib/studio/coordinator";
 
 describe("StudioSettingsCoordinator", () => {
   const createResponse = () => ({
@@ -12,7 +12,33 @@ describe("StudioSettingsCoordinator", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it("releases a stalled settings write so later flushes and saves can proceed without replay", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new Error("Settings request timed out")), ms);
+      return controller.signal;
+    });
+    const fetch = vi.fn((_url: unknown, options?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      options?.signal?.addEventListener("abort", () => reject(options.signal!.reason), { once: true });
+    }));
+    vi.stubGlobal("fetch", fetch);
+    const coordinator = createStudioSettingsCoordinator();
+    const failed = expect(coordinator.applyPatchNow({ gateway: { url: "ws://office" } })).rejects.toThrow("timed out");
+    await vi.advanceTimersByTimeAsync(19_999);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1); await failed;
+    await coordinator.flushPending();
+    expect(fetch).toHaveBeenCalledTimes(1); // An uncertain save is not replayed.
+    fetch.mockImplementationOnce(async () => ({ ok: true, text: async () => JSON.stringify(createResponse()) }) as Response);
+    await coordinator.applyPatchNow({ gateway: { url: "ws://next" } });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    coordinator.dispose();
   });
 
   it("coalesces multiple scheduled patches into one update", async () => {

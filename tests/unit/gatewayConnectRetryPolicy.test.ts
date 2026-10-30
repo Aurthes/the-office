@@ -25,7 +25,7 @@ describe("resolveGatewayAutoRetryDelayMs", () => {
     expect(delay).toBeNull();
   });
 
-  it("does not retry when the upstream websocket upgrade fails", () => {
+  it("retries a temporary upstream transport failure after a previously healthy connection", () => {
     const delay = resolveGatewayAutoRetryDelayMs({
       ...baseParams,
       errorMessage:
@@ -33,10 +33,10 @@ describe("resolveGatewayAutoRetryDelayMs", () => {
       connectErrorCode: "studio.upstream_error",
     });
 
-    expect(delay).toBeNull();
+    expect(delay).toBe(2000);
   });
 
-  it("does not retry when the upstream websocket handshake times out", () => {
+  it("retries a temporary upstream handshake timeout", () => {
     const delay = resolveGatewayAutoRetryDelayMs({
       ...baseParams,
       errorMessage:
@@ -44,7 +44,7 @@ describe("resolveGatewayAutoRetryDelayMs", () => {
       connectErrorCode: "studio.upstream_timeout",
     });
 
-    expect(delay).toBeNull();
+    expect(delay).toBe(2000);
   });
 
   it("does not retry when the upstream gateway explicitly rejects pairing", () => {
@@ -86,6 +86,11 @@ describe("resolveGatewayAutoRetryDelayMs", () => {
     });
 
     expect(delay).toBe(2_000);
+  });
+  it("keeps retrying long outages at a bounded rate instead of giving up permanently", () => {
+    expect(resolveGatewayAutoRetryDelayMs({ ...baseParams, attempt: 10000 })).toBe(30000);
+    expect(resolveGatewayAutoRetryDelayMs({ ...baseParams, attempt: 10000, wasManualDisconnect: true })).toBeNull();
+    expect(resolveGatewayAutoRetryDelayMs({ ...baseParams, attempt: 10000, errorMessage: "Invalid token" })).toBeNull();
   });
 });
 

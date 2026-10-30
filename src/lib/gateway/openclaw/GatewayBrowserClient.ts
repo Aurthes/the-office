@@ -376,12 +376,13 @@ export type GatewayHelloOk = {
     scopes?: string[];
     issuedAtMs?: number;
   };
-  policy?: { tickIntervalMs?: number };
+  policy?: { tickIntervalMs?: number; requestTimeoutMs?: number };
 };
 
 type Pending = {
   resolve: (value: unknown) => void;
   reject: (err: unknown) => void;
+  timer?: number;
 };
 
 export type GatewayBrowserClientOptions = {
@@ -428,11 +429,31 @@ export class GatewayBrowserClient {
   private connectSent = false;
   private connectTimer: number | null = null;
   private backoffMs = 800;
+  private reconnectTimer: number | null = null;
+  private heartbeatTimer: number | null = null;
+  private stableTimer: number | null = null;
+  private lastReceivedAt = 0;
+  private heartbeatDeadlineMs = 0;
+  private tickIntervalMs = 0;
+  private requestTimeoutMs = 0;
+  private onOffline = () => {
+    if (this.ws) this.retire(this.ws, 4001, "Network offline");
+  };
+  private onOnline = () => { if (!this.ws) this.connect(); };
+  private onVisibility = () => {
+    if (document.visibilityState !== "visible" || !this.heartbeatDeadlineMs) return;
+    // Give a healthy connection one heartbeat after sleep/background throttling.
+    // A foreground roster read normally refreshes this timestamp immediately.
+    this.lastReceivedAt = Date.now() - this.heartbeatDeadlineMs + this.tickIntervalMs + 5000;
+  };
 
   constructor(private opts: GatewayBrowserClientOptions) {}
 
   start() {
     this.closed = false;
+    window.addEventListener("offline", this.onOffline);
+    window.addEventListener("online", this.onOnline);
+    document.addEventListener("visibilitychange", this.onVisibility);
     gatewayBrowserDebugLog("start", {
       url: this.opts.url,
       authScopeKey: this.opts.authScopeKey ?? null,
@@ -446,8 +467,16 @@ export class GatewayBrowserClient {
   stop() {
     this.closed = true;
     gatewayBrowserDebugLog("stop");
-    this.ws?.close();
+    const ws = this.ws;
     this.ws = null;
+    this.clearTimers();
+    window.removeEventListener("offline", this.onOffline);
+    window.removeEventListener("online", this.onOnline);
+    document.removeEventListener("visibilitychange", this.onVisibility);
+    if (ws) {
+      ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+      ws.close();
+    }
     this.flushPending(new Error("gateway client stopped"));
   }
 
@@ -456,43 +485,91 @@ export class GatewayBrowserClient {
   }
 
   private connect() {
-    if (this.closed) return;
+    if (this.closed || this.ws || navigator.onLine === false) return;
+    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     gatewayBrowserDebugLog("connect:open-socket", { url: this.opts.url });
-    this.ws = new WebSocket(this.opts.url);
-    this.ws.onopen = () => {
+    const ws = new WebSocket(this.opts.url);
+    this.ws = ws;
+    this.lastSeq = null;
+    ws.onopen = () => {
+      if (this.ws !== ws) return;
       gatewayBrowserDebugLog("socket:open");
       this.queueConnect();
     };
-    this.ws.onmessage = (ev) => this.handleMessage(String(ev.data ?? ""));
-    this.ws.onclose = (ev) => {
+    ws.onmessage = (ev) => {
+      if (this.ws !== ws) return;
+      this.lastReceivedAt = Date.now();
+      this.handleMessage(String(ev.data ?? ""));
+    };
+    ws.onclose = (ev) => {
       const reason = String(ev.reason ?? "");
       gatewayBrowserDebugLog("socket:close", { code: ev.code, reason });
-      this.ws = null;
-      this.flushPending(new Error(`gateway closed (${ev.code}): ${reason}`));
-      this.opts.onClose?.({ code: ev.code, reason });
-      this.scheduleReconnect();
+      this.retire(ws, ev.code, reason);
     };
-    this.ws.onerror = () => {
+    ws.onerror = () => {
       gatewayBrowserDebugLog("socket:error");
     };
   }
 
   private scheduleReconnect() {
-    if (this.closed) return;
-    const delay = this.backoffMs;
+    if (this.closed || navigator.onLine === false || this.reconnectTimer !== null) return;
+    const delay = Math.min(15000, this.backoffMs * (0.8 + Math.random() * 0.4));
     this.backoffMs = Math.min(this.backoffMs * 1.7, 15_000);
     gatewayBrowserDebugLog("schedule-reconnect", { delay });
-    window.setTimeout(() => this.connect(), delay);
+    this.reconnectTimer = window.setTimeout(() => { this.reconnectTimer = null; this.connect(); }, delay);
+  }
+
+  private clearTimers() {
+    for (const timer of [this.connectTimer, this.reconnectTimer, this.heartbeatTimer, this.stableTimer]) {
+      if (timer !== null) window.clearTimeout(timer);
+    }
+    this.connectTimer = this.reconnectTimer = this.heartbeatTimer = this.stableTimer = null;
+  }
+
+  private retire(ws: WebSocket, code: number, reason: string) {
+    if (this.ws !== ws) return;
+    this.ws = null;
+    ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+    this.clearTimers();
+    this.flushPending(new Error(`Gateway closed (${code}): ${reason}; pending operations were not retried.`));
+    if (ws.readyState !== WebSocket.CLOSED) ws.close(code === 1006 ? 4001 : code, reason);
+    // Notify immediately; a black-holed TCP connection can take much longer to
+    // finish its close handshake. Old socket events cannot touch its successor.
+    this.opts.onClose?.({ code, reason });
+    this.scheduleReconnect();
+  }
+
+  private watchHeartbeat(hello: GatewayHelloOk) {
+    const interval = hello.policy?.tickIntervalMs;
+    this.tickIntervalMs = typeof interval === "number" && interval >= 1000 && interval <= 120000 ? interval : 0;
+    const deadline = hello.policy?.requestTimeoutMs;
+    this.requestTimeoutMs = typeof deadline === "number" && deadline >= 1000 && deadline <= 300000 ? deadline : 0;
+    this.lastReceivedAt = Date.now();
+    this.stableTimer = window.setTimeout(() => { this.backoffMs = 800; this.stableTimer = null; }, 10000);
+    if (!this.tickIntervalMs) return;
+    this.heartbeatDeadlineMs = Math.max(15000, this.tickIntervalMs * 3);
+    const check = () => {
+      this.heartbeatTimer = null;
+      if (!this.ws || this.closed) return;
+      if (document.visibilityState === "visible" && Date.now() - this.lastReceivedAt >= this.heartbeatDeadlineMs) {
+        this.retire(this.ws, 4001, "Gateway heartbeat timed out");
+        return;
+      }
+      this.heartbeatTimer = window.setTimeout(check, Math.min(5000, this.tickIntervalMs));
+    };
+    this.heartbeatTimer = window.setTimeout(check, Math.min(5000, this.tickIntervalMs));
   }
 
   private flushPending(err: Error) {
-    for (const [, p] of this.pending) p.reject(err);
+    for (const [, p] of this.pending) { if (p.timer !== undefined) window.clearTimeout(p.timer); p.reject(err); }
     this.pending.clear();
   }
 
   private async sendConnect() {
     if (this.connectSent) return;
     this.connectSent = true;
+    const socket = this.ws;
     if (this.connectTimer !== null) {
       window.clearTimeout(this.connectTimer);
       this.connectTimer = null;
@@ -596,6 +673,7 @@ export class GatewayBrowserClient {
 
     void this.request<GatewayHelloOk>("connect", params)
       .then((hello) => {
+        if (!socket || this.ws !== socket) return;
         gatewayBrowserDebugLog("hello-ok", {
           protocol: hello?.protocol ?? null,
           hasAuthToken: Boolean(hello?.auth?.deviceToken),
@@ -609,10 +687,11 @@ export class GatewayBrowserClient {
             scopes: hello.auth.scopes ?? [],
           });
         }
-        this.backoffMs = 800;
+        this.watchHeartbeat(hello);
         this.opts.onHello?.(hello);
       })
       .catch((err) => {
+        if (!socket || this.ws !== socket) return;
         gatewayBrowserDebugLog("connect-failed", {
           message: err instanceof Error ? err.message : String(err),
         });
@@ -671,6 +750,7 @@ export class GatewayBrowserClient {
       const res = parsed as GatewayResponseFrame;
       const pending = this.pending.get(res.id);
       if (!pending) return;
+      if (pending.timer !== undefined) window.clearTimeout(pending.timer);
       this.pending.delete(res.id);
       if (res.ok) pending.resolve(res.payload);
       else {
@@ -696,10 +776,22 @@ export class GatewayBrowserClient {
     }
     const id = generateUUID();
     const frame = { type: "req", id, method, params };
+    const ws = this.ws;
     const p = new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: (v) => resolve(v as T), reject });
+      const pending: Pending = { resolve: (v) => resolve(v as T), reject };
+      if (this.requestTimeoutMs) pending.timer = window.setTimeout(() => {
+        if (!this.pending.delete(id)) return;
+        reject(new Error("Gateway request timed out; result may be unknown. Not retried."));
+        this.retire(ws, 4001, "Gateway request timed out");
+      }, this.requestTimeoutMs);
+      this.pending.set(id, pending);
+      try { ws.send(JSON.stringify(frame)); }
+      catch (error) {
+        if (pending.timer !== undefined) window.clearTimeout(pending.timer);
+        this.pending.delete(id); reject(error);
+        this.retire(ws, 4001, "Gateway send failed");
+      }
     });
-    this.ws.send(JSON.stringify(frame));
     return p;
   }
 

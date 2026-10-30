@@ -514,7 +514,7 @@ export class StudioSettingsCoordinator {
 }
 
 export const fetchStudioSettings = async (): Promise<StudioSettingsResponse> => {
-  return fetchJson<StudioSettingsResponse>("/api/studio", { cache: "no-store" });
+  return fetchJson<StudioSettingsResponse>("/api/studio", { cache: "no-store", signal: AbortSignal.timeout(20_000) });
 };
 
 export const updateStudioSettings = async (
@@ -522,6 +522,7 @@ export const updateStudioSettings = async (
 ): Promise<StudioSettingsResponse> => {
   return fetchJson<StudioSettingsResponse>("/api/studio", {
     method: "PUT",
+    signal: AbortSignal.timeout(20_000),
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });

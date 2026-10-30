@@ -8,7 +8,7 @@ class CodexRosterSync {
   signature() {
     return JSON.stringify({ projects: this.index.projects(), agents: this.index.list().map(row => ({
       id: row.id, name: row.name, workspace: row.workspace, projectId: row.projectId,
-      status: row.status, model: row.model, effort: row.effort, pinned: row.pinned,
+      status: row.status, model: row.model, modelProvider: row.modelProvider, effort: row.effort, pinned: row.pinned,
     })).sort((a, b) => a.id.localeCompare(b.id)) });
   }
   start() {

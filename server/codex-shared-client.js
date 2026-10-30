@@ -16,7 +16,16 @@ class CodexSharedClient {
       this.ws.once("open", resolve); this.ws.once("error", reject);
     });
     this.ws.on("error", () => {});
+    this.alive = true;
+    this.ws.on("pong", () => { this.alive = true; });
+    this.heartbeat = setInterval(() => {
+      if (this.ws.readyState !== WebSocket.OPEN) return;
+      if (!this.alive) return this.ws.terminate();
+      this.alive = false; this.ws.ping();
+    }, 30000);
+    this.heartbeat.unref();
     this.ws.on("close", () => {
+      clearInterval(this.heartbeat);
       this.ready = false;
       for (const request of this.pending.values()) { clearTimeout(request.timer); request.reject(new Error("共享连接断开；操作结果需核对，未自动重试")); }
       this.pending.clear(); onFrame({ method: "connection/closed" });
@@ -49,6 +58,6 @@ class CodexSharedClient {
     if (!this.ready) throw new Error("共享连接断开");
     this.ws.send(JSON.stringify({ id, result }));
   }
-  close() { this.ready = false; this.ws.terminate(); }
+  close() { clearInterval(this.heartbeat); this.ready = false; this.ws.terminate(); }
 }
 module.exports = { CodexSharedClient };

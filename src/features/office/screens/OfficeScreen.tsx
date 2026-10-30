@@ -16,10 +16,10 @@ import { RunningAvatarLoader } from "@/features/agents/components/RunningAvatarL
 import { ExistingSessionPanel } from "@/features/office/components/ExistingSessionPanel";
 import { CompanyActions } from "@/features/office/components/CompanyActions";
 import { useCompanyRosterSync } from "@/features/office/hooks/useCompanyRosterSync";
+import { loadCompanySnapshot } from "@/features/office/operations/loadCompanySnapshot";
 import { GatewayConnectScreen } from "@/features/agents/components/GatewayConnectScreen";
 import { useAgentStore, type AgentState } from "@/features/agents/state/store";
 import {
-  GatewayClient,
   buildAgentMainSessionKey,
   type EventFrame,
   isSameSessionKey,
@@ -1819,6 +1819,25 @@ export function OfficeScreen({
           options?.forceSettings
             ? { force: true }
             : { maxAgeMs: options?.settingsMaxAgeMs ?? 60_000 };
+        if (sessionView) {
+          const { snapshot, hydration } = await loadCompanySnapshot({
+            client, gatewayUrl, loadSettings: () => loadStudioSettings(settingsLoadOptions),
+          });
+          if (connectionEpochAtStart !== connectionEpochRef.current) return;
+          hydrateAgents(hydration.seeds);
+          for (const agent of snapshot.agents) {
+            dispatch({ type: "updateAgent", agentId: agent.id, patch: {
+              sessionCreated: true, sessionSettingsSynced: true,
+              ...(["running", "idle"].includes(agent.status) ? { status: agent.status as "running" | "idle", runId: null } : {}),
+            } });
+          }
+          setCompanyCreationAvailable(Boolean(snapshot.creationAvailable));
+          const roster: CompanyRoster = { projects: snapshot.projects || [], members: snapshot.agents
+            .map(({ id, projectId }) => ({ id, projectId })).sort((a, b) => a.id.localeCompare(b.id)) };
+          setCompanyRoster(previous => JSON.stringify(previous) === JSON.stringify(roster) ? previous : roster);
+          lastGatewayActivityAtRef.current = Date.now(); setAgentsLoaded(true);
+          return;
+        }
         const commands = await runStudioBootstrapLoadOperation({
           client: provider,
           gatewayUrl,
@@ -1844,18 +1863,6 @@ export function OfficeScreen({
           setError,
         });
         if (connectionEpochAtStart !== connectionEpochRef.current) {
-          return;
-        }
-        if (process.env.NEXT_PUBLIC_CLAW3D_SESSION_VIEW === "1") {
-          const snapshot = await client.call<{ agents: Array<{ id: string; status: string; projectId: string | null }>; projects: CompanyRoster["projects"]; creationAvailable?: boolean }>("agents.list", {});
-          setCompanyCreationAvailable(Boolean(snapshot.creationAvailable));
-          const roster: CompanyRoster = { projects: snapshot.projects || [], members: snapshot.agents.map(({ id, projectId }) => ({ id, projectId })).sort((a, b) => a.id.localeCompare(b.id)) };
-          setCompanyRoster(previous => JSON.stringify(previous) === JSON.stringify(roster) ? previous : roster);
-          for (const agent of snapshot.agents) {
-            if (agent.status === "running" || agent.status === "idle") dispatch({ type: "updateAgent", agentId: agent.id, patch: { status: agent.status, runId: null } });
-          }
-          lastGatewayActivityAtRef.current = Date.now();
-          setAgentsLoaded(true);
           return;
         }
         const refreshedAgents = stateRef.current.agents;
@@ -1950,6 +1957,7 @@ export function OfficeScreen({
     loadStudioSettings,
     setError,
     setLoading,
+    sessionView,
     status,
   ]);
 
@@ -3234,7 +3242,7 @@ export function OfficeScreen({
   const skillTriggers = useOfficeSkillTriggers({
     client,
     status,
-    enabled: runtimeSupportsSkills,
+    enabled: runtimeSupportsSkills && !sessionView,
     agents: state.agents,
   });
   const animationNowMs = Date.now();

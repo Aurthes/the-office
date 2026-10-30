@@ -649,7 +649,6 @@ const isAuthError = (errorMessage: string | null): boolean => {
   );
 };
 
-const MAX_AUTO_RETRY_ATTEMPTS = 20;
 const INITIAL_RETRY_DELAY_MS = 2_000;
 const MAX_RETRY_DELAY_MS = 30_000;
 
@@ -658,8 +657,6 @@ const NON_RETRYABLE_CONNECT_ERROR_CODES = new Set([
   "studio.gateway_token_missing",
   "studio.gateway_url_invalid",
   "studio.settings_load_failed",
-  "studio.upstream_error",
-  "studio.upstream_timeout",
   "studio.upstream_rejected",
 ]);
 
@@ -689,7 +686,6 @@ export const resolveGatewayAutoRetryDelayMs = (params: {
   if (!params.hasConnectedOnce) return null;
   if (params.wasManualDisconnect) return null;
   if (!params.gatewayUrl.trim()) return null;
-  if (params.attempt >= MAX_AUTO_RETRY_ATTEMPTS) return null;
   if (isNonRetryableConnectErrorCode(params.connectErrorCode)) return null;
   if (params.connectErrorCode === null && isAuthError(params.errorMessage)) return null;
 
@@ -1021,6 +1017,7 @@ export const useGatewayConnection = (
 
   // Auto-retry on disconnect (gateway busy, network blip, etc.)
   useEffect(() => {
+    if (navigator.onLine === false) return;
     const attempt = retryAttemptRef.current;
     const delay = resolveGatewayAutoRetryDelayMs({
       status,
@@ -1060,7 +1057,22 @@ export const useGatewayConnection = (
         retryTimerRef.current = null;
       }
     };
-  }, [connect, connectErrorCode, error, gatewayUrl, selectedAdapterType, status]);
+  }, [client, client.lastDisconnectCode, connect, connectErrorCode, error, gatewayUrl, selectedAdapterType, status]);
+
+  useEffect(() => {
+    const online = () => {
+      if (!isAutoManagedAdapter(selectedAdapterType)) return;
+      if (resolveGatewayAutoRetryDelayMs({ status, didAutoConnect: didAutoConnect.current,
+        hasConnectedOnce: hasConnectedOnceRef.current, wasManualDisconnect: wasManualDisconnectRef.current,
+        gatewayUrl, errorMessage: error, connectErrorCode,
+        lastDisconnectCode: client.lastDisconnectCode, attempt: retryAttemptRef.current }) === null) return;
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+      void connect();
+    };
+    window.addEventListener("online", online);
+    return () => window.removeEventListener("online", online);
+  }, [client, client.lastDisconnectCode, connect, connectErrorCode, error, gatewayUrl, selectedAdapterType, status]);
 
   // Reset retry count after the connection has been stable for a minimum
   // duration.  If the upstream drops the connection quickly (e.g. within a

@@ -52,6 +52,7 @@ describe("GatewayBrowserClient", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.useRealTimers();
     globalThis.WebSocket = originalWebSocket;
     if (globalThis.crypto) {
@@ -60,6 +61,71 @@ describe("GatewayBrowserClient", () => {
         configurable: true,
       });
     }
+  });
+
+  async function connected(policy = { tickIntervalMs: 1000, requestTimeoutMs: 2000 }) {
+    const onClose = vi.fn();
+    const client = new GatewayBrowserClient({ url: "ws://example.com", onClose });
+    client.start(); const ws = MockWebSocket.instances.at(-1)!;
+    ws.onopen?.();
+    ws.onmessage?.({ data: JSON.stringify({ type: "event", event: "connect.challenge", payload: { nonce: "fixture" } }) } as MessageEvent);
+    const req = JSON.parse(MockWebSocket.sent.at(-1)!);
+    ws.onmessage?.({ data: JSON.stringify({ type: "res", id: req.id, ok: true, payload: { type: "hello-ok", protocol: 3, policy } }) } as MessageEvent);
+    await Promise.resolve(); await Promise.resolve();
+    return { client, ws, onClose };
+  }
+
+  it("detects a silently black-holed connection without waiting for its close handshake", async () => {
+    const { client, onClose } = await connected();
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(onClose).toHaveBeenCalledExactlyOnceWith({ code: 4001, reason: "Gateway heartbeat timed out" });
+    expect(client.connected).toBe(false);
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(MockWebSocket.instances).toHaveLength(2);
+    client.stop(); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("times out an uncertain write once and never replays it after reconnect", async () => {
+    const { client } = await connected();
+    const pending = client.request("session.create", { name: "Only once" });
+    const rejected = expect(pending).rejects.toThrow("Not retried");
+    await vi.advanceTimersByTimeAsync(3500); await rejected;
+    expect(MockWebSocket.sent.map(text => JSON.parse(text)).filter(frame => frame.method === "session.create")).toHaveLength(1);
+    client.stop(); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("waits while offline, wakes on online, and does not create ghost sockets after stop", async () => {
+    const { client } = await connected();
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    window.dispatchEvent(new Event("offline"));
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(MockWebSocket.instances).toHaveLength(1);
+    online.mockReturnValue(true); window.dispatchEvent(new Event("online"));
+    expect(MockWebSocket.instances).toHaveLength(2);
+    client.stop(); window.dispatchEvent(new Event("online"));
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(MockWebSocket.instances).toHaveLength(2); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("ignores late close events from a retired socket and resets event sequence on reconnect", async () => {
+    const { client, ws, onClose } = await connected(); const oldClose = ws.onclose!;
+    ws.onclose?.({ code: 1006, reason: "link lost" } as CloseEvent);
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(client.connected).toBe(true);
+    oldClose({ code: 1006, reason: "late close" } as CloseEvent);
+    expect(client.connected).toBe(true); expect(onClose).toHaveBeenCalledTimes(1);
+    client.stop();
+  });
+
+  it("allows background throttling and a fresh heartbeat after visibility recovery", async () => {
+    const { client, ws, onClose } = await connected();
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    await vi.advanceTimersByTimeAsync(60000); expect(onClose).not.toHaveBeenCalled();
+    visibility.mockReturnValue("visible"); document.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(5000);
+    ws.onmessage?.({ data: JSON.stringify({ type: "event", event: "tick" }) } as MessageEvent);
+    await vi.advanceTimersByTimeAsync(1000); expect(onClose).not.toHaveBeenCalled();
+    client.stop();
   });
 
   it("sends connect when connect.challenge arrives", async () => {

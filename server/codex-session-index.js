@@ -9,7 +9,9 @@ class CodexSessionIndex {
     this.home = path.resolve(home);
     this.db = new DatabaseSync(path.join(this.home, "state_5.sqlite"), { readOnly: true });
     this.states = new Map();
-    this.hasProjectIds = this.db.prepare("PRAGMA table_info(threads)").all().some(column => column.name === "project_id");
+    const columns = new Set(this.db.prepare("PRAGMA table_info(threads)").all().map(column => column.name));
+    this.hasProjectIds = columns.has("project_id");
+    this.hasModelProvider = columns.has("model_provider");
     this.hasProjects = Boolean(this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='projects'").get());
     this.nativeStatuses = new Map();
   }
@@ -18,7 +20,7 @@ class CodexSessionIndex {
     const projects = this.projects(state);
     const migratedIds = state["app-server-project-id-by-legacy-project-id-by-host"]?.[`local:${this.home}`] || {};
     return this.db.prepare(`SELECT id, name, title, cwd, rollout_path, updated_at, model,
-      reasoning_effort, is_pinned${this.hasProjectIds ? ", project_id" : ""} FROM threads WHERE archived = 0
+      reasoning_effort, is_pinned${this.hasProjectIds ? ", project_id" : ""}${this.hasModelProvider ? ", model_provider" : ""} FROM threads WHERE archived = 0
       AND source IN ('vscode', 'cli', 'appServer') ORDER BY updated_at DESC`).all().map(row => {
       const name = row.name || row.title || row.id;
       const legacyId = state["thread-project-assignments"]?.[row.id]?.projectId;
@@ -31,7 +33,7 @@ class CodexSessionIndex {
       const diskStatus = this.status(row.rollout_path), live = this.nativeStatuses.get(row.id);
       const status = live && (!diskStatus.statusAt || live.statusAt >= diskStatus.statusAt) ? live : diskStatus;
       return { id: row.id, name, workspace: row.cwd, projectId: project?.id || null, project: project?.name || "Open Workspace",
-        updatedAt: row.updated_at * 1000, model: row.model, effort: row.reasoning_effort,
+        updatedAt: row.updated_at * 1000, model: row.model, modelProvider: row.model_provider, effort: row.reasoning_effort,
         pinned: Boolean(row.is_pinned), ...status };
     });
   }
