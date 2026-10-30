@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 
-export type LiveSessionItem = { id: string; turnId?: string; role: string; phase?: string; content: string; truncated?: boolean; status?: string; version?: number; timestamp?: number };
+export type SessionAsset = { source: string; name: string; kind: "image" | "markdown" | "html"; url: string; inline?: boolean; attached?: boolean };
+export type LiveSessionItem = { id: string; turnId?: string; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number };
 export type SessionClient = { call: (method: string, params: unknown) => Promise<unknown>; onEvent?: (handler: (event: { event: string; payload?: unknown }) => void) => () => void };
 type Approval = { requestId: string; method: string; params: Record<string, unknown>; details?: string; decisions: string[]; supported: boolean; submitted?: boolean };
 type Snapshot = { connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; turnStatus?: string; error?: string | null; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number };
@@ -59,7 +60,8 @@ export function SessionControls({ client, threadId, onItems }: {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "操作失败，请核对原会话后再试"); }
     finally { actionBusy.current = false; setBusy(false); }
   };
-  return <div className="max-h-[40vh] shrink-0 overflow-y-auto border-t border-white/15 bg-[#101b25] p-3 text-xs">
+  return <div className="max-h-[40dvh] shrink-0 overflow-y-auto border-t border-white/10 bg-[#111b27] p-3 text-xs [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))] md:px-6">
+    <div className="mx-auto max-w-3xl">
     {state?.approvals.length ? <div className="mb-3 max-h-[32vh] space-y-3 overflow-y-auto" aria-label="待处理审批">
       {state.approvals.map(request => <div key={request.requestId} className="rounded border border-amber-300/40 bg-amber-900/15 p-2">
         <p className="font-semibold text-amber-100">{request.method === "item/fileChange/requestApproval" ? "文件修改审批" : request.method === "item/commandExecution/requestApproval" ? "命令执行审批" : "原会话需要处理请求"}</p>
@@ -71,20 +73,20 @@ export function SessionControls({ client, threadId, onItems }: {
       </div>)}
       {(state.approvalCount || 0) > state.approvals.length ? <p className="text-amber-100">还有待处理请求，完成以上审批后显示。</p> : null}
     </div> : null}
-    <div className="mb-2 flex items-center justify-between text-[10px] text-white/60">
-      <span>{state?.connected ? state.activeTurnId ? "Codex 正在工作…" : state.turnStatus === "interrupted" ? "已停止" : "Codex · 已连接" : "连接 Codex…"}</span>
-      {state?.activeTurnId ? <button disabled={busy} onClick={() => void action("session.stop", {})} className="rounded border border-rose-400/50 px-3 py-1 text-rose-100 disabled:opacity-40">停止</button> : null}
-    </div>
     <textarea aria-label="发送到原会话" placeholder="继续同一条 Codex 会话…" rows={2} maxLength={16000} value={text} onChange={event => setText(event.target.value)} onKeyDown={event => {
       if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (text.trim()) void action("session.send", { message: text, requestId: crypto.randomUUID() }); }
-    }} disabled={busy || !state?.connected} className="w-full resize-y rounded border border-cyan-300/30 bg-black/30 p-2 text-white placeholder:text-white/40 disabled:opacity-50" />
+    }} disabled={busy || !state?.connected} className="max-h-36 min-h-14 w-full resize-none rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50" />
     <div className="mt-2 flex items-center justify-between gap-2">
-      <span className="text-[10px] text-white/50">Enter 发送 · Shift+Enter 换行</span>
-      <button disabled={busy || !state?.connected || !text.trim()} onClick={() => void action("session.send", { message: text, requestId: crypto.randomUUID() })} className="rounded bg-cyan-700 px-4 py-1.5 text-white disabled:opacity-40">{busy ? "提交中…" : state?.activeTurnId ? "追加消息" : "发送"}</button>
+      <span className="min-w-0 truncate text-xs text-white/45">{state?.connected ? state.activeTurnId ? "Codex 正在工作…" : state.turnStatus === "interrupted" ? "已停止" : "Codex · 已连接" : "连接 Codex…"}</span>
+      <div className="flex shrink-0 items-center gap-2">
+        {state?.activeTurnId ? <button disabled={busy} onClick={() => void action("session.stop", {})} className="min-h-10 rounded-lg px-3 text-sm text-rose-200 hover:bg-white/5 disabled:opacity-40">停止</button> : null}
+        <button disabled={busy || !state?.connected || !text.trim()} onClick={() => void action("session.send", { message: text, requestId: crypto.randomUUID() })} className="min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40">{busy ? "提交中…" : state?.activeTurnId ? "追加消息" : "发送"}</button>
+      </div>
     </div>
     {notice ? <p role="status" className="mt-2 text-[10px] text-cyan-100">{notice}</p> : null}
     {error ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{error}</p> : null}
     {state?.error ? <p role="alert" className="mt-2 break-words text-xs text-rose-200">{state.error}</p> : null}
     {connectionError ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{connectionError}</p> : null}
+    </div>
   </div>;
 }

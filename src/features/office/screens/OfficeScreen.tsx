@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { MessageSquare, ChevronDown, ChevronLeft, ChevronRight, Mic } from "lucide-react";
+import { MessageSquare, ChevronDown, ChevronLeft, ChevronRight, Mic, Maximize2, Minimize2 } from "lucide-react";
 import type { OfficeAgent } from "@/features/retro-office/core/types";
 import { RunningAvatarLoader } from "@/features/agents/components/RunningAvatarLoader";
 import { ExistingSessionPanel } from "@/features/office/components/ExistingSessionPanel";
@@ -1088,8 +1088,20 @@ export function OfficeScreen({
   const historyInFlightRef = useRef<Set<string>>(new Set());
   const lastTransportHistoryRefreshKeyRef = useRef<Record<string, string>>({});
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatRosterCollapsed, setChatRosterCollapsed] = useState(false);
   const sessionView = process.env.NEXT_PUBLIC_CLAW3D_SESSION_VIEW === "1";
+  const [chatRosterCollapsed, setChatRosterCollapsed] = useState(sessionView);
+  const [chatExpanded, setChatExpanded] = useState(false);
+  const [chatViewport, setChatViewport] = useState<{ height: number; top: number } | null>(null);
+  useEffect(() => {
+    if (!sessionView || !chatOpen) return;
+    const viewport = window.visualViewport;
+    const update = () => setChatViewport(window.innerWidth < 768 && viewport ? { height: viewport.height, top: viewport.offsetTop } : null);
+    update();
+    window.addEventListener("resize", update);
+    viewport?.addEventListener("resize", update);
+    viewport?.addEventListener("scroll", update);
+    return () => { window.removeEventListener("resize", update); viewport?.removeEventListener("resize", update); viewport?.removeEventListener("scroll", update); };
+  }, [chatOpen, sessionView]);
   const [sessionSearch, setSessionSearch] = useState("");
   const [companyRoster, setCompanyRoster] = useState<CompanyRoster | null>(null);
   const companyLayout = useMemo(() => companyRoster ? buildCompanyLayout(companyRoster) : null, [companyRoster]);
@@ -3714,7 +3726,7 @@ export function OfficeScreen({
   const handleOpenAgentChat = useCallback(
     (agentId: string) => {
       focusChatTarget(agentId);
-      if (sessionView && window.matchMedia("(max-width: 639px)").matches) setChatRosterCollapsed(true);
+      if (sessionView) setChatRosterCollapsed(true);
     },
     [focusChatTarget, sessionView],
   );
@@ -4810,7 +4822,7 @@ export function OfficeScreen({
         }}
         activeAdapterType={(selectedAdapterType as FloorProvider) ?? null}
       /> : null}
-      <section className="relative h-full min-h-0 min-w-0 overflow-hidden">
+      <section className={`relative h-full min-h-0 min-w-0 overflow-hidden ${sessionView && chatOpen ? "max-md:invisible" : ""}`}>
         <OfficeSceneBoundary>
         <RetroOffice3D
           key={activeFloor.id}
@@ -5106,6 +5118,7 @@ export function OfficeScreen({
       ) : null}
 
       {!debugEnabled ? (
+        <div className={sessionView ? "max-md:hidden" : undefined}>
         <HQSidebar
           open={sidebarOpen}
           activeTab={activeSidebarTab}
@@ -5186,6 +5199,7 @@ export function OfficeScreen({
             />
           }
         />
+        </div>
       ) : null}
 
       <SkillsMarketplaceModal
@@ -5230,7 +5244,7 @@ export function OfficeScreen({
         />
       ) : null}
 
-      {showOpenClawConsole ? (
+      {showOpenClawConsole && (!sessionView || debugEnabled) ? (
         <section className="pointer-events-auto fixed bottom-3 left-3 z-30 flex w-[520px] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded border border-cyan-500/25 bg-black/78 shadow-2xl backdrop-blur">
           <div className="flex items-center justify-between border-b border-cyan-500/15 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.18em] text-cyan-200/80">
             <span>Agent Event Console</span>
@@ -5443,14 +5457,22 @@ export function OfficeScreen({
       ) : null}
 
       <div
-        className={`fixed bottom-3 ${sessionView ? "z-50" : "z-30"} flex flex-col items-end gap-2 ${sidebarOpen ? "right-84" : "right-3"} ${
-          debugEnabled ? "hidden" : ""
-        }`}
+        className={sessionView && chatOpen
+          ? `fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[#11161e] text-white shadow-2xl md:inset-y-3 md:right-3 md:left-auto md:rounded-xl md:border md:border-white/15 ${chatExpanded ? "md:w-[calc(100vw-1.5rem)]" : "md:w-[min(960px,calc(100vw-1.5rem))]"}`
+          : `fixed bottom-3 ${sessionView ? "z-50" : "z-30"} flex flex-col items-end gap-2 ${sidebarOpen ? "right-84" : "right-3"} ${debugEnabled ? "hidden" : ""}`}
+        style={sessionView && chatOpen && chatViewport ? { height: chatViewport.height, top: chatViewport.top, bottom: "auto" } : undefined}
       >
+        {sessionView && chatOpen ? <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-3 py-2 [padding-top:max(0.5rem,env(safe-area-inset-top))]">
+          <button type="button" onClick={() => setChatRosterCollapsed(value => !value)} aria-expanded={!chatRosterCollapsed} className="min-h-10 rounded-md px-3 text-sm text-white/75 hover:bg-white/10">会话 · {chatRosterEntries.length}</button>
+          <div className="flex items-center gap-1">
+            <button type="button" onClick={() => setChatExpanded(value => !value)} aria-label={chatExpanded ? "还原聊天窗口" : "放大聊天窗口"} title={chatExpanded ? "还原" : "放大"} className="hidden min-h-10 items-center gap-2 rounded-md px-3 text-sm text-white/65 hover:bg-white/10 md:inline-flex">{chatExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}{chatExpanded ? "还原" : "放大"}</button>
+            <button type="button" onClick={() => setChatOpen(false)} className="inline-flex min-h-10 items-center gap-1 rounded-md px-3 text-sm text-cyan-100 hover:bg-white/10"><ChevronLeft size={16} />返回办公室</button>
+          </div>
+        </div> : null}
         {chatOpen && (
           <div
-            className="flex overflow-hidden rounded border border-white/10 bg-[#0e0a04] shadow-2xl"
-            style={{
+            className={sessionView ? "relative flex min-h-0 w-full flex-1 overflow-hidden" : "flex overflow-hidden rounded border border-white/10 bg-[#0e0a04] shadow-2xl"}
+            style={sessionView ? undefined : {
               width: chatRosterCollapsed
                 ? "min(680px, calc(100vw - 1.5rem))"
                 : "min(780px, calc(100vw - 1.5rem))",
@@ -5458,9 +5480,7 @@ export function OfficeScreen({
             }}
           >
             <div
-              className={`flex shrink-0 flex-col border-r border-white/10 transition-[width] ${
-                chatRosterCollapsed ? "w-12" : sessionView ? "w-52 max-sm:w-28" : "w-52"
-              }`}
+              className={sessionView ? chatRosterCollapsed ? "hidden" : "absolute inset-y-0 left-0 z-20 flex w-[min(280px,85vw)] shrink-0 flex-col border-r border-white/10 bg-[#171e28] shadow-2xl md:static md:w-60 md:shadow-none" : `flex shrink-0 flex-col border-r border-white/10 transition-[width] ${chatRosterCollapsed ? "w-12" : "w-52"}`}
             >
               <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
                 {!chatRosterCollapsed ? (
@@ -5478,7 +5498,7 @@ export function OfficeScreen({
                   </span>
                 )}
               </div>
-              <button
+              {!sessionView ? <button
                 type="button"
                 onClick={() => setChatRosterCollapsed((current) => !current)}
                 className="mx-2 mt-2 inline-flex items-center justify-center rounded border border-white/10 bg-white/5 px-2 py-2 text-white/65 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
@@ -5490,9 +5510,9 @@ export function OfficeScreen({
                 ) : (
                   <ChevronLeft className="h-4 w-4" />
                 )}
-              </button>
+              </button> : null}
               {sessionView && !chatRosterCollapsed ? <input aria-label="搜索会话" placeholder="搜索会话/项目" value={sessionSearch} onChange={event => setSessionSearch(event.target.value)} className="mx-2 my-2 min-w-0 rounded border border-white/15 bg-black/30 p-2 text-xs text-white" /> : null}
-              <div className="flex-1 overflow-y-auto">
+              <div className="min-h-0 flex-1 overflow-y-auto">
                 {chatRosterCollapsed ? (
                   <div className="flex flex-col items-center gap-2 px-1 py-2">
                     {chatRosterEntries.map((agent) => {
@@ -5536,7 +5556,7 @@ export function OfficeScreen({
                         <span
                           className={`h-1.5 w-1.5 shrink-0 rounded-full ${isRunning ? "bg-emerald-400" : "bg-white/20"}`}
                         />
-                        <span className="min-w-0 flex-1 truncate font-mono text-[11px]">
+                        <span className="min-w-0 flex-1 truncate text-sm">
                           {agent.name}
                         </span>
                         {agent.kind === "remote" ? (
@@ -5554,7 +5574,7 @@ export function OfficeScreen({
               </div>
             </div>
 
-            <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               {focusedChatAgent ? (
                 sessionView ? <ExistingSessionPanel key={focusedChatAgent.agentId} client={client} threadId={focusedChatAgent.agentId} /> :
                 <AgentChatPanel
@@ -5678,7 +5698,7 @@ export function OfficeScreen({
           </div>
         )}
 
-        <button
+        {(!sessionView || !chatOpen) ? <button
           type="button"
           onClick={() => setChatOpen((prev) => !prev)}
           className="flex items-center gap-1.5 rounded border border-amber-700/50 bg-[#0e0a04]/90 px-3 py-1.5 font-mono text-[11px] font-medium tracking-wider text-amber-500/80 shadow-lg backdrop-blur transition-colors hover:border-amber-600/70 hover:text-amber-400"
@@ -5699,7 +5719,7 @@ export function OfficeScreen({
               ) : null}
             </>
           )}
-        </button>
+        </button> : null}
       </div>
 
       {mainVoiceState !== "idle" || mainVoiceError ? (

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import { Bebas_Neue, IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
@@ -7,6 +7,7 @@ export const metadata: Metadata = {
   title: "Claw3D",
   description: "Focused operator studio for the OpenClaw gateway.",
 };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", interactiveWidget: "resizes-content" };
 
 const display = Bebas_Neue({
   variable: "--font-display",
@@ -42,7 +43,7 @@ export default function RootLayout({
         />
       </head>
       <body className={`${display.variable} ${sans.variable} ${mono.variable} antialiased`}>
-        <main className="h-screen w-screen overflow-hidden bg-background">{children}</main>
+        <main className="h-dvh w-full overflow-hidden bg-background">{children}</main>
         {process.env.NEXT_PUBLIC_CLAW3D_WEB_ACCESS === "1" ? (
           <Script src="/auth/ui.js" strategy="afterInteractive" />
         ) : null}

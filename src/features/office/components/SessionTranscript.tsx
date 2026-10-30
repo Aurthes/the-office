@@ -1,7 +1,6 @@
 "use client";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import type { LiveSessionItem } from "./SessionControls";
+import { SessionMarkdown } from "./SessionMarkdown";
 
 export function SessionTranscript({ messages }: { messages: LiveSessionItem[] }) {
   const groups = new Map<string, { id: string; items: LiveSessionItem[] }>();
@@ -15,7 +14,7 @@ export function SessionTranscript({ messages }: { messages: LiveSessionItem[] })
     } else blocks.push({ message });
   }
   const body = (message: LiveSessionItem) => <>
-    {message.role === "tool" ? <pre className="overflow-auto whitespace-pre-wrap break-all text-xs text-white/60">{message.content}</pre> : <div className="agent-markdown min-w-0 break-words text-sm leading-relaxed [&_a]:text-sky-200 [&_a]:underline"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown></div>}
+    {message.role === "tool" ? <pre className="overflow-auto whitespace-pre-wrap break-all text-xs text-white/60">{message.content}</pre> : <SessionMarkdown content={message.content} assets={message.assets} user={message.role === "user"} />}
     {message.truncated ? <p className="mt-2 text-[10px] text-amber-200/70">此消息较长，余下内容请在桌面 App 查看。</p> : null}
   </>;
   return blocks.map(block => "group" in block ? <details key={`process:${block.group.id}`} className="rounded-lg border border-white/10 bg-white/[0.025] px-3 py-2" aria-label="工作过程">

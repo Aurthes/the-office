@@ -206,6 +206,7 @@ describe("office form login", () => {
     expect(office.status).toBe(303);
     expect(office.headers.get("location")).toBe("/login");
     expect((await fetch(base + "/api/health")).status).toBe(401);
+    expect((await fetch(base + "/api/session-assets?ref=fixture")).status).toBe(401);
     expect(await rejectedSocket()).toBe(401);
   });
 

@@ -48,4 +48,12 @@ describe("bounded original-session history", () => {
     expect(JSON.stringify(page)).not.toContain("huge output");
     expect(page.messages.at(-1)).toMatchObject({ truncated: false, content: "final".repeat(3000) });
   });
+  it("removes native ambient context before budgeting while preserving the actual user request", async () => {
+    const original = '# Applications mentioned by the user:\n<appshot>' + 'context'.repeat(30000) + '</appshot>\n## My request:\nFix the layout';
+    const content = [{ type: "text", text: original }];
+    const call = vi.fn().mockResolvedValue({ data: [{ id: "turn", items: [{ id: "u", type: "userMessage", content }] }] });
+    const page = await loadSessionHistoryPage(call, row);
+    expect(page.messages[0]).toMatchObject({ content: "Fix the layout", truncated: false });
+    expect(content[0].text).toBe(original);
+  });
 });

@@ -103,13 +103,22 @@ export function ExistingSessionPanel({ client, threadId }: {
   }, [client, threadId]);
 
   return <section className="flex min-h-0 flex-1 flex-col text-white" aria-label="App 原会话">
-    <header className="shrink-0 border-b border-white/10 p-3">
-      <div className="text-[10px] text-cyan-200">App 原会话 · {data?.controlsAvailable ? "共享执行端" : "只读总览"}</div>
-      <h2 className="mt-1 break-words text-sm font-semibold">{data?.id === threadId ? data.name : "读取会话信息…"}</h2>
-      {data?.id === threadId ? <p className="mt-1 text-xs text-white/60">{data.project} · {data.status === "running" ? "工作中" : data.status === "idle" ? "空闲" : "状态记录不足"}</p> : null}
-      <div className="mt-2 flex flex-wrap gap-2">
-        <a href={`codex://threads/${encodeURIComponent(threadId)}`} className="rounded border border-cyan-400/30 px-2 py-1 text-xs text-cyan-100">在桌面 App 中打开原会话 ↗</a>
-        <button disabled={loading} onClick={() => void load.current?.("latest")} className="rounded border border-white/20 px-2 py-1 text-xs disabled:opacity-40">刷新最新</button>
+    <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+      <div className="min-w-0">
+        <h2 className="truncate text-sm font-semibold" title={data?.name}>{data?.id === threadId ? data.name : "读取会话信息…"}</h2>
+        {data?.id === threadId ? <p className="mt-1 truncate text-xs text-white/45">{data.project}</p> : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <button disabled={loading} aria-label="刷新最新" title="刷新最新" onClick={() => void load.current?.("latest")} className="min-h-10 min-w-10 rounded-md text-lg text-white/55 hover:bg-white/10 disabled:opacity-40">↻</button>
+        <details className="relative" aria-label="会话信息">
+          <summary aria-label="会话信息" className="flex min-h-10 min-w-10 cursor-pointer list-none items-center justify-center rounded-md text-lg text-white/55 hover:bg-white/10">⋯</summary>
+          <div className="absolute right-0 top-full z-30 mt-1 max-h-[50dvh] w-[min(320px,calc(100vw-3rem))] space-y-3 overflow-auto rounded-xl border border-white/15 bg-[#1b2532] p-4 text-xs text-white/60 shadow-xl">
+            <a href={`codex://threads/${encodeURIComponent(threadId)}`} className="block text-cyan-100">在桌面 App 中打开原会话 ↗</a>
+            <p className="break-all">Session ID：{threadId}</p>
+            {data?.id === threadId ? <p className="break-all">目录：{data.workspace}</p> : null}
+            <p>{data?.controlsAvailable ? "与桌面 App 同步的原会话" : "只读预览，请在桌面 App 中继续对话"}</p>
+          </div>
+        </details>
       </div>
     </header>
     {metadataError ? <p role="alert" className="p-3 text-xs text-amber-200">{metadataError}</p> : null}
@@ -124,18 +133,15 @@ export function ExistingSessionPanel({ client, threadId }: {
     }} onTouchStart={event => { touchY.current = event.touches[0]?.clientY ?? 0; }} onTouchMove={event => {
       const y = event.touches[0]?.clientY ?? touchY.current;
       if (y > touchY.current + 20 && event.currentTarget.scrollTop < 80) { touchY.current = y; void load.current?.("older"); }
-    }} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 [overflow-anchor:none]">
+    }} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-4 [overflow-anchor:none] md:px-8">
+      <div className="mx-auto w-full max-w-3xl space-y-4">
       <div className="flex min-h-8 items-center justify-center text-[10px] text-white/50">
         {loading ? <span role="status">读取这一块…</span> : olderCursor ? <button onClick={() => void load.current?.("older")} className="px-3 py-1 text-cyan-200">↑ 读取更早记录</button> : loaded ? "已到最早记录" : null}
       </div>
       {loaded && messages.length === 0 ? <p className="text-center text-xs text-white/50">这一块没有对话文字（工具活动已略过）。{olderCursor ? "向上滚动或点上方按钮，读取更早一块。" : ""}</p> : null}
       <SessionTranscript messages={messages} />
+      </div>
     </div>
     {data?.id === threadId && data.controlsAvailable ? <SessionControls client={client} threadId={threadId} onItems={onLiveItems} /> : null}
-    <footer className="shrink-0 space-y-1 border-t border-white/10 p-3 text-[10px] text-white/50">
-      <p>{data?.controlsAvailable ? "与原 App 使用同一会话、同一个执行端。向上滚动读取更早记录。" : "向上滚动才读取更早一块；点“刷新最新”查看新记录。续聊、停止和审批仍在原 App 中进行。"}</p>
-      <p className="break-all">Session ID：{threadId}</p>
-      {data?.id === threadId ? <p className="break-all">目录：{data.workspace}</p> : null}
-    </footer>
   </section>;
 }

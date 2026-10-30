@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import path from "node:path";
+import { HTML_POLICY } from "./server/codex-session-assets";
 
 const securityHeaders = [
   {
@@ -65,6 +66,10 @@ const nextConfig: NextConfig = {
       {
         source: "/:path*",
         headers: securityHeaders,
+      },
+      {
+        source: "/api/session-assets",
+        headers: [{ key: "Content-Security-Policy", value: HTML_POLICY }],
       },
     ];
   },

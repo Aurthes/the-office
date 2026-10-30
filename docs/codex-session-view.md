@@ -58,6 +58,34 @@ histories and keeps each history read a deliberate, paginated operation. The
 turn count alone is not evidence that a reported delay comes from history size.
 The desktop App link uses `codex://threads/<original-id>`.
 
+The chat uses the available window height, with a desktop enlarge/restore button.
+On phones it fills the visual viewport, including when the keyboard is open;
+Return to office restores the 3D view. The conversation roster is closed by
+default and opens from the header. Technical session information is behind the
+overflow menu, and the raw event console is hidden outside explicit debug mode.
+
+Image attachments and referenced PNG/JPEG/GIF/WebP files render in the chat and
+open a larger preview. Markdown and HTML file links open a reader with Return to
+chat and Download. Native ambient context is removed before the text page budget
+is applied, so a large app screenshot description cannot displace the user's
+actual request. Original stored messages are never changed.
+
+The file API accepts signed references created from native message links and
+attachments, not arbitrary filesystem paths. It retains the existing password
+and TOTP protection. References pin resolved paths; changed symlinks, unsupported
+types and oversized files are rejected. Previews are limited to 20 MiB (Markdown
+1 MiB). Native base64 images become private generated cache files under
+`~/.cache/claw3d/session-images`, keeping image bytes out of history responses.
+This cache can be removed without deleting original chat attachments.
+
+HTML uses an opaque-origin sandbox with inline scripts enabled, no access to the
+parent document, and no network connections or form submissions. Self-contained
+reports with inline SVG and JavaScript work; bundles requiring external scripts,
+network data or separate relative resources are outside this preview. Markdown
+is rendered without raw HTML; its relative supported file/image links are signed
+only when that Markdown file is opened. Missing files show an error rather than
+silently redirecting a local path onto the public website.
+
 By default this is a read-only organization surface. Continue conversations, approvals,
 execution and stopping in the original App. The gateway rejects write methods;
 it never starts a parallel executor against an existing App thread. Ordinary

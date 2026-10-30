@@ -5851,18 +5851,18 @@ export function RetroOffice3D({
         ) : null}
       </div>
 
-      {companyLayout && !immersiveOverlayActive ? <div className="absolute left-3 top-28 z-20 max-w-[75vw] rounded-xl border border-emerald-200/20 bg-[#0d1b22]/95 p-3 shadow-lg backdrop-blur-sm">
-        <label className="mb-1 block text-[10px] tracking-widest text-emerald-200/70" htmlFor="company-area">公司工区</label>
-        <select id="company-area" aria-label="前往工区" value={companyFocus.id} onChange={event => { setFollowAgentId(null); setCompanyFocus(old => ({ id: event.target.value, request: old.request + 1 })); }} className="max-w-full rounded-md border border-white/15 bg-[#152b35] px-2 py-2 text-xs text-white">
+      {companyLayout && !immersiveOverlayActive ? <div className="absolute left-3 top-3 z-20 max-w-[calc(100vw-180px)] rounded-xl border border-emerald-200/20 bg-[#0d1b22]/95 p-2 shadow-lg backdrop-blur-sm md:top-28 md:max-w-[75vw] md:p-3">
+        <label className="mb-1 hidden text-[10px] tracking-widest text-emerald-200/70 md:block" htmlFor="company-area">公司工区</label>
+        <select id="company-area" aria-label="前往工区" value={companyFocus.id} onChange={event => { setFollowAgentId(null); setCompanyFocus(old => ({ id: event.target.value, request: old.request + 1 })); }} className="max-w-full rounded-md border border-white/15 bg-[#152b35] px-2 py-2 text-base text-white md:text-xs">
           <option value="">全公司 · {agents.length} 个会话</option>
           {companyLayout.areas.map(area => <option key={area.id} value={area.id}>{area.name} · {area.agentIds.length}</option>)}
         </select>
-        <div className="mt-2 text-[10px] text-white/50">自由区：共享办公 · 休息 · 闲逛</div>
+        <div className="mt-2 hidden text-[10px] text-white/50 md:block">自由区：共享办公 · 休息 · 闲逛</div>
       </div> : null}
 
       {/* New Idea 2: Camera preset buttons — top left. */}
       {!readOnly && !immersiveOverlayActive ? (
-        <div className="absolute top-3 left-3 z-20 flex flex-col items-start gap-2">
+        <div className={`absolute top-3 left-3 z-20 flex flex-col items-start gap-2 ${companyLayout ? "max-md:hidden" : ""}`}>
           <div className="flex items-center gap-1">
             {(
               [
@@ -5936,7 +5936,7 @@ export function RetroOffice3D({
 
       {/* Title — top center overlay. */}
       {!immersiveOverlayActive ? (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none select-none z-10">
+        <div className={`absolute top-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none select-none z-10 ${companyLayout ? "max-md:hidden" : ""}`}>
           <div className="flex items-center gap-3">
             <div className="h-px w-12 bg-gradient-to-r from-transparent to-amber-500/40" />
             <span className="text-sm tracking-[0.3em] text-amber-300/80 font-bold uppercase">
@@ -5949,9 +5949,9 @@ export function RetroOffice3D({
 
       {/* Agent roster — compact top summary with overflow panel. */}
       {!readOnly && !immersiveOverlayActive ? (
-        <div className="absolute top-10 left-1/2 z-20 -translate-x-1/2">
+        <div className={`absolute top-10 left-1/2 z-20 -translate-x-1/2 ${companyLayout ? "max-md:top-auto max-md:bottom-3 max-md:left-3 max-md:translate-x-0" : ""}`}>
           <div className="flex items-center gap-2 rounded-full border border-amber-900/25 bg-[#1c1610]/92 px-2 py-2 shadow-lg backdrop-blur-sm">
-            <div className="flex items-center -space-x-1.5">
+            <div className={`flex items-center -space-x-1.5 ${companyLayout ? "max-md:hidden" : ""}`}>
               {compactRosterAgents.map((agent) => {
                 const status = agentStatusLookup[agent.id];
                 const isError = status?.isError ?? agent.status === "error";
@@ -6025,7 +6025,7 @@ export function RetroOffice3D({
           </div>
 
           {agentRosterVisible ? (
-            <div className="absolute left-1/2 top-full mt-2 w-[min(92vw,560px)] -translate-x-1/2 rounded-2xl border border-amber-900/25 bg-[#120e08]/96 p-3 shadow-2xl backdrop-blur-sm">
+            <div className={`absolute left-1/2 top-full mt-2 w-[min(92vw,560px)] -translate-x-1/2 rounded-2xl border border-amber-900/25 bg-[#120e08]/96 p-3 shadow-2xl backdrop-blur-sm ${companyLayout ? "max-md:bottom-full max-md:top-auto max-md:left-0 max-md:mb-2 max-md:mt-0 max-md:translate-x-0" : ""}`}>
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-500/70">
@@ -6989,7 +6989,7 @@ export function RetroOffice3D({
 
       {/* Toolbar — top right. */}
       {!readOnly && !immersiveOverlayActive ? (
-        <div className="absolute top-3 right-3 flex items-center gap-2 z-20">
+        <div className={`absolute top-3 right-3 flex items-center gap-2 z-20 ${companyLayout ? "max-md:[&_button]:hidden" : ""}`}>
           {remoteOfficeEnabled &&
           (remoteOfficeSourceKind === "presence_endpoint"
             ? remoteOfficePresenceUrl.trim().length > 0
@@ -7022,7 +7022,7 @@ export function RetroOffice3D({
             }`}
             title={`Runtime: ${companyLayout ? "Codex App" : activeAdapterType} (${gatewayStatus})`}
           >
-            {companyLayout ? "Codex App" : activeAdapterType} • {gatewayStatus}
+            <span className={companyLayout ? "max-md:hidden" : undefined}>{companyLayout ? "Codex App" : activeAdapterType} •&nbsp;</span>{gatewayStatus}
           </div>
           {/* New Idea 7: Heatmap toggle. */}
           <button
@@ -7190,7 +7190,7 @@ export function RetroOffice3D({
       {!immersiveOverlayActive ? (
         <>
           {/* Ideas 3 + 6 + 8: Mini status bar — bottom left. */}
-          <div className="absolute bottom-3 left-3 flex flex-col items-start gap-1.5 z-10 pointer-events-none select-none">
+          <div className={`absolute bottom-3 left-3 flex flex-col items-start gap-1.5 z-10 pointer-events-none select-none ${companyLayout ? "max-md:hidden" : ""}`}>
             {/* Idea 3: Activity feed entries — newest on bottom. */}
             {statusFeedEvents
               .slice(0, 4)
