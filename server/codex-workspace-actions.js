@@ -4,13 +4,13 @@ const path = require("node:path");
 
 class CodexWorkspaceActions {
   constructor(client) { this.client = client; this.requests = new Map(); }
-  requireReady() { if (!this.client?.ready) throw new Error("Codex 共享连接未就绪，暂时不能创建"); }
+  requireReady() { if (!this.client?.ready) throw new Error("Codex 共享连接未就绪，暂时不能执行操作"); }
   once(requestId, input, work) {
     this.requireReady();
-    if (typeof requestId !== "string" || !requestId || requestId.length > 128) throw new Error("缺少创建请求 ID");
+    if (typeof requestId !== "string" || !requestId || requestId.length > 128) throw new Error("缺少操作请求 ID");
     const hash = JSON.stringify(input), previous = this.requests.get(requestId);
     if (previous) {
-      if (previous.hash !== hash) throw new Error("创建请求 ID 冲突");
+      if (previous.hash !== hash) throw new Error("操作请求 ID 冲突");
       return previous.promise;
     }
     const promise = Promise.resolve().then(work);
@@ -32,6 +32,17 @@ class CodexWorkspaceActions {
     return this.once(input.requestId, { type: "project", name, workspace }, async () => {
       const result = await this.client.call("project/create", { name, roots: [{ path: workspace }], idempotencyKey: input.requestId });
       return { project: result.project };
+    });
+  }
+  archiveSession(input) {
+    const { threadId, requestId } = input;
+    if (typeof threadId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(threadId)) throw new Error("无效的原会话 ID");
+    return this.once(requestId, { type: "archive", threadId }, async () => {
+      const { thread } = await this.client.call("thread/read", { threadId, includeTurns: false });
+      if (thread?.id !== threadId) throw new Error("原会话不匹配");
+      if (thread.status?.type === "active") throw new Error("这位员工还在工作，请先停止当前任务再返航");
+      await this.client.call("thread/archive", { threadId });
+      return { threadId, archived: true };
     });
   }
   createSession(input) {

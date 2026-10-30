@@ -42,6 +42,13 @@ from [Poly Haven](https://polyhaven.com/a/potsdamer_platz), under
 The exact bundled-source revision is recorded in
 [public/environments/README.md](public/environments/README.md).
 
+## Return pod visual reference
+
+The return pod uses original procedural geometry. Its visual direction references
+[Helldivers Drop Pod by Metekohy](https://sketchfab.com/3d-models/helldivers-drop-pod-387d376c7a77462796b553d284c20652).
+The referenced model was not offered for download or licensed for reuse when
+reviewed; its mesh and textures are not included in this repository.
+
 ## Package dependencies
 
 Dependencies retain their individual licenses and notices as shipped with their

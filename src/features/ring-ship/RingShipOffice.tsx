@@ -22,6 +22,8 @@ import { chatCameraPose } from "./chatCamera";
 import { shipCameraPose } from "./cameraPose";
 import { buildShell } from "./shell";
 import { LiftEntry, LiftJourney, LiftOverlay, type LiftTrip } from "./ShipLift";
+import { ReturnPodBay, ReturnPodJourney, type ReturnFlight } from "./ReturnPodBay";
+import { returnRoute, RETURN_LABELS, type ArchiveResult, type ReturnStage, type ReturnTransfer } from "./returnPodMotion";
 
 type Props = ComponentProps<typeof RetroOffice3D>;
 type Controls = ComponentRef<typeof OrbitControls>;
@@ -45,9 +47,12 @@ function useModels() {
   return models;
 }
 function ShipHull({ layout, deck, whole, busy }: { layout: ShipLayout; deck: DeckIndex; whole: boolean; busy: boolean }) {
-  const shell = useMemo(() => buildShell(shipDeck(layout, 0)), [layout]);
-  const copies = useMemo(() => DECKS.map(() => shell.group.clone(true)), [shell]);
-  useEffect(() => () => disposeShipGeometry(shell.group), [shell]);
+  const shells = useMemo(() => {
+    const bottom=buildShell(shipDeck(layout,0)), upper=buildShell(shipDeck(layout,1));
+    return { bottom, upper, copies:[bottom.group,upper.group,upper.group.clone(true)] };
+  }, [layout]);
+  const copies=shells.copies;
+  useEffect(() => () => {disposeShipGeometry(shells.bottom.group);disposeShipGeometry(shells.upper.group);}, [shells]);
   return <>{copies.map((object, index) => <primitive key={index} object={object} position={[0, index * DECK_STEP, 0]} visible={whole || busy || index === deck} dispose={null} />)}
     <group visible={whole || busy}>
       <mesh position={[0, DECK_STEP - 2.5, 0]}><cylinderGeometry args={[2.05, 2.05, DECK_STEP * 2 + 8, 32]} /><meshStandardMaterial color="#9ab3ba" /></mesh>
@@ -73,7 +78,7 @@ function Lighting({ radius }: { radius: number }) {
     <directionalLight position={[25, 12, -25]} intensity={0.65} color="#a0d7ed" />
   </>;
 }
-export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy }: { deck: DeckIndex; whole: boolean; busy: boolean; layout: ShipLayout; focus: { id: string; request: number }; controlsRef: RefObject<Controls | null>; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null; chatExpanded?: boolean }) {
+export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy, podFocus }: { podFocus?: { point: ShipPoint; launch: boolean } | null; deck: DeckIndex; whole: boolean; busy: boolean; layout: ShipLayout; focus: { id: string; request: number }; controlsRef: RefObject<Controls | null>; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null; chatExpanded?: boolean }) {
   const { size, camera, gl } = useThree();
   const previousView = useRef<{ target: THREE.Vector3; position: THREE.Vector3; zoom: number } | null>(null);
   const followed = useRef<{ id: string; x: number; z: number } | null>(null);
@@ -92,8 +97,14 @@ export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, 
       return;
     }
     if (previousView.current) { move.current = previousView.current; previousView.current = null; followed.current = null; return; }
+    if (podFocus) {
+      const {point,launch}=podFocus;
+      const target = new THREE.Vector3(point.x,launch?-8.3:1.1,point.z);
+      const offset = (launch?new THREE.Vector3(-5,-2.8,9):new THREE.Vector3(-9,7,-11)).applyAxisAngle(new THREE.Vector3(0,1,0),Math.atan2(point.x,point.z));
+      move.current={target,position:target.clone().add(offset),zoom:Math.max(.2,Math.min(size.width/(launch?15:16),size.height/(launch?17:11),100))};return;
+    }
     move.current = shipCameraPose(layout, size.width, size.height, deck, whole, focus.id);
-  }, [layout, focus, size.width, size.height, camera, gl, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy]);
+  }, [layout, focus, size.width, size.height, camera, gl, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy, podFocus]);
   useEffect(() => {
     const controls = controlsRef.current;
     const stop = () => { move.current = null; };
@@ -130,7 +141,7 @@ function CabinTargets({ layout, focus, onSelect }: { layout: ShipLayout; focus: 
     return <mesh key={cabin.id} position={[0, 0.075, 0]} rotation={[-Math.PI / 2, 0, 0]}
       onClick={event => { event.stopPropagation(); onSelect(cabin.projectId || cabin.id); }}>
       <ringGeometry args={[ring.radius - ring.depth / 2 + 0.1, ring.radius + ring.depth / 2 - 0.1, 24, 1, cabin.slot * step - Math.PI / 2, step]} />
-      <meshBasicMaterial side={THREE.DoubleSide} color={cabin.color} transparent opacity={selected ? 0.15 : 0} depthWrite={false} />
+      <meshBasicMaterial side={THREE.DoubleSide} color={cabin.color} transparent opacity={selected && cabin.kind!=="return" ? 0.15 : 0} depthWrite={false} />
     </mesh>;
   })}</>;
 }
@@ -298,6 +309,57 @@ export function RingShipOffice(props: Props) {
   const [menuOpen, setMenuOpen] = useState(false), [settingsOpen, setSettingsOpen] = useState(false), [fleetOpen, setFleetOpen] = useState(false);
   const controlsRef = useRef<Controls>(null);
   const crewLookupRef = useRef(new Map<string, RenderAgent>());
+  const [returnFlight, setReturnFlight] = useState<ReturnFlight | null>(null);
+  const [returnStage, setReturnStage] = useState<ReturnStage>("walking");
+  const [returnError, setReturnError] = useState("");
+  const archiveResultRef = useRef<ArchiveResult>({status:"pending"});
+  const returnTransferRef = useRef<ReturnTransfer>({});
+  const returnRideRef = useRef<string|null>(null);
+  const returnSeenRef = useRef("");
+  const request = props.returnRequest, archive = props.onArchiveSession, onReturnFinished = props.onReturnFinished;
+  useEffect(() => {
+    if (!request || request.requestId === returnSeenRef.current || !archive || busy) return;
+    // Sample the external scene's current pose after its frame is committed.
+    const frame = requestAnimationFrame(() => {
+    returnSeenRef.current = request.requestId;
+    const agent = agents.find(a => a.id === request.agentId), seat = layout.seats[request.agentId];
+    if (!agent || !seat) { onReturnFinished?.(); return; }
+    const rendered = crewLookupRef.current.get(agent.id);
+    const route = returnRoute(layout, seat, rendered ? worldPoint(rendered) : seat);
+    setDeck(seat.deck);setWhole(false);setFleetOpen(false);setLiftOpen(false);
+    setReturnFlight({...route,agentId:agent.id,requestId:request.requestId,name:agent.name});
+    setReturnStage("walking");setReturnError("");archiveResultRef.current={status:"pending"};
+    returnTransferRef.current={};returnRideRef.current=null;
+    // The real operation starts independently of visual frame rate. A removed
+    // roster row must not remove the captured passenger before launch finishes.
+    void archive(agent.id,request.requestId).then(()=>{
+      archiveResultRef.current={status:"confirmed",at:performance.now()};
+    },error=>{
+      const message=error instanceof Error?error.message:"请在 Codex 中核对归档结果";
+      archiveResultRef.current={status:"failed",error:message};setReturnError(message);
+    });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [request, archive, agents, layout, onReturnFinished, busy]);
+  const returnComplete = useCallback(() => {
+    setFocus(previous=>previous.id===returnFlight?.bayId?{id:"",request:previous.request+1}:previous);
+    setReturnFlight(null);onReturnFinished?.();
+  }, [onReturnFinished,returnFlight]);
+  const returnPhaseChanged = useCallback((stage:ReturnStage)=>{
+    setReturnStage(stage);
+    if (stage==="transferring" && returnFlight) {
+      if (props.activeChatAgentId || busy) returnTransferRef.current.completedAt=performance.now();
+      else {
+        returnRideRef.current=returnFlight.requestId;
+        setTrip({from:returnFlight.sourceDeck,to:0,id:performance.now()});
+      }
+    }
+    if (["boarding","sealing","waiting","launching"].includes(stage) && !props.activeChatAgentId && !busy && returnFlight) {
+      setDeck(0);setWhole(false);setFocus(previous=>({id:returnFlight.bayId,request:previous.request+1}));
+    }
+  }, [props.activeChatAgentId,returnFlight,busy]);
+  const returnCamera=useMemo(()=>returnFlight && ["boarding","sealing","waiting","launching","done"].includes(returnStage) && visibleDeck===0 && !shipView
+    ? {point:returnFlight.pod,launch:returnStage==="launching"||returnStage==="done"}:null,[returnFlight,returnStage,visibleDeck,shipView]);
   const validFocus = currentLayout.cabins.some(c => c.id === focus.id || c.projectId === focus.id) ? focus.id : "";
   const cameraFocus = useMemo(() => ({ id: validFocus, request: focus.request + officeCenterSignal }), [validFocus, focus.request, officeCenterSignal]);
   const selected = currentLayout.cabins.find(c => c.id === validFocus || c.projectId === validFocus);
@@ -314,7 +376,11 @@ export function RingShipOffice(props: Props) {
     setWhole(false); setLiftOpen(false); setFocus(previous => ({ id, request: previous.request + 1 }));
   }, [busy, layout, visibleDeck, travel]);
   const arrive = useCallback((destination: DeckIndex) => { setDeck(destination); setWhole(false); }, []);
-  const complete = useCallback(() => { setTrip(null); setFocus(previous => ({ id: pendingFocus.current, request: previous.request + 1 })); }, []);
+  const complete = useCallback(() => {
+    setTrip(null);
+    if(returnRideRef.current){returnTransferRef.current.completedAt=performance.now();returnRideRef.current=null;}
+    else setFocus(previous => ({ id: pendingFocus.current, request: previous.request + 1 }));
+  }, []);
   const onAgentChatSelect = props.onAgentChatSelect;
   const open = useCallback((id: string) => { if (busy) return; setFleetOpen(false); setLiftOpen(false); onAgentChatSelect?.(id); }, [onAgentChatSelect, busy]);
   const areas = [
@@ -336,13 +402,17 @@ export function RingShipOffice(props: Props) {
       <Lighting radius={layout.radius} />
       <Stars radius={100} depth={50} count={1800} factor={15} saturation={0} fade speed={0} />
       <ShipHull layout={layout} deck={visibleDeck} whole={shipView} busy={busy} />
-      {decks.map((value, index) => <group key={index} position={[0, index * DECK_STEP, 0]} visible={shipView || busy || index === visibleDeck}><StaticShip layout={value} /></group>)}
+      {decks.map((value, index) => <group key={index} position={[0, index * DECK_STEP, 0]} visible={shipView || busy || index === visibleDeck}><StaticShip layout={value} /><ReturnPodBay layout={value} active={!!returnFlight}/></group>)}
       {!shipView && !busy ? <group position={[0, visibleDeck * DECK_STEP, 0]}>
         <CabinTargets layout={currentLayout} focus={validFocus} onSelect={select} />
-        <Crew agents={visibleAgents} layout={currentLayout} focus={validFocus} onOpen={open} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} />
+        <Crew agents={visibleAgents.filter(a=>a.id!==returnFlight?.agentId)} layout={currentLayout} focus={validFocus} onOpen={open} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} />
       </group> : null}
+      {returnFlight ? <group visible={!shipView}>
+        <ReturnPodJourney key={returnFlight.requestId} flight={returnFlight} resultRef={archiveResultRef} transferRef={returnTransferRef} displayDeck={visibleDeck} onStage={returnPhaseChanged} onComplete={returnComplete}/>
+      </group>:null}
       <OrbitControls ref={controlsRef} makeDefault enabled={!busy} enableDamping={!busy} dampingFactor={0.15} minZoom={0.15} maxZoom={110} minPolarAngle={0.12} maxPolarAngle={Math.PI * 0.72} />
-      <CameraRig layout={currentLayout} focus={cameraFocus} controlsRef={controlsRef} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} chatExpanded={props.chatExpanded} deck={visibleDeck} whole={shipView} busy={busy} />
+      <CameraRig layout={currentLayout} focus={cameraFocus} controlsRef={controlsRef} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} chatExpanded={props.chatExpanded} deck={visibleDeck} whole={shipView} busy={busy}
+        podFocus={returnCamera}/>
       <LiftEntry deck={visibleDeck} whole={shipView} open={liftOpen} disabled={busy || !!props.activeChatAgentId} counts={counts} onOpen={() => setLiftOpen(true)} onClose={() => setLiftOpen(false)} onTravel={travel} />
       <LiftJourney trip={trip} layout={layout} controlsRef={controlsRef} overlayRef={overlayRef} onArrive={arrive} onComplete={complete} />
     </Canvas>
@@ -377,6 +447,11 @@ export function RingShipOffice(props: Props) {
     </div>
     </fieldset>
     <LiftOverlay trip={trip} overlayRef={overlayRef} />
+    {returnFlight ? <div role="status" aria-live="polite" className="absolute bottom-20 sm:bottom-4 left-1/2 z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-amber-200/25 bg-[#101e29]/95 px-4 py-3 text-center shadow-xl">
+      <div className="truncate text-xs text-amber-100">{returnFlight.name}</div>
+      <p className="mt-1 text-xs text-amber-100">{RETURN_LABELS[returnStage]}</p>
+      {returnError ? <><p className="mt-2 text-xs text-rose-200">{returnError}</p><button className="mt-2 text-xs underline" onClick={returnComplete}>返回办公室 · 结果可在 Codex 中核对</button></>:<p className="mt-1 text-[10px] text-white/45">原会话与历史保留，可在 Codex 中取消归档。</p>}
+    </div>:null}
     {settingsOpen ? <div className="absolute inset-0 z-40 flex justify-end bg-black/40 p-3 backdrop-blur-sm" onKeyDown={event => { if (event.key === "Escape") setSettingsOpen(false); }}>
       <div className="w-full max-w-sm overflow-auto rounded-xl border border-white/15 bg-[#071522] shadow-2xl">
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-xs"><span>飞船与语音设置</span><button className={button} aria-label="Close studio settings" onClick={() => setSettingsOpen(false)}><X size={14} /></button></div>

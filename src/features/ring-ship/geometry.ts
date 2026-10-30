@@ -125,7 +125,8 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
     const theta = cabinAngle(layout, cabin.slot), reserve = cabin.kind === "reserve";
     const spokeAtEnd = spokeSlots.has((cabin.slot + 1) % layout.allocation.sectors);
 
-    b.add(cabinDeck(ring.radius, ring.depth/2, cabin.slot*step, (cabin.slot+1)*step), reserve ? "#8fa5ac" : cabin.kind === "garden" ? "#a2b48f" : "#c7bca6");
+    const opening = cabin.kind === "return" ? { ...shipPoint(ring.radius + 1.8, theta), radius: 1.02 } : undefined;
+    b.add(cabinDeck(ring.radius, ring.depth/2, cabin.slot*step, (cabin.slot+1)*step, opening), reserve ? "#8fa5ac" : cabin.kind === "garden" ? "#a2b48f" : "#c7bca6");
 
     for (const t of [-0.27, 0, 0.27]) {
       const a = theta + t * step, p = shipPoint(outer - 0.2, a);
@@ -143,7 +144,7 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
       }
     }
     const sign = shipPoint(inner + 0.65, theta);
-    b.sign(cabin.name, reserve ? "STANDBY / 待启用" : cabin.kind === "work" ? `${ring.capacity} SEATS / 工作舱` : "COMMON / 公共舱", sign, theta, Math.min(5.2, ring.radius * step * 0.68), cabin.color);
+    b.sign(cabin.name, reserve ? "STANDBY / 待启用" : cabin.kind === "work" ? `${ring.capacity} SEATS / 工作舱` : cabin.kind === "return" ? "RETURN TO EARTH / ARCHIVE" : "COMMON / 公共舱", sign, theta, Math.min(5.2, ring.radius * step * 0.68), cabin.color);
     if (reserve) {
       addCabinDetails(b, layout, cabin);
       for (const u of [-1, 1]) b.localBox(layout, cabin, u * Math.min(2, ring.radius * step / 4), 0.5, 0.08, [1.0, 0.02, 0.04], "#c6d5d5");
@@ -187,7 +188,16 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
 function addAmenity(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
   const ring = layout.rings[cabin.ring], width = ring.radius * TAU / layout.allocation.sectors;
   const local = (u: number, v: number) => shipPoint(ring.radius + v, cabinAngle(layout, cabin.slot) + u / ring.radius);
-  if (cabin.kind === "garden") {
+  if (cabin.kind === "return") {
+    // The launch collar is hollow; no solid pad may cover the boarding hole.
+    for(const u of [-1.5,1.5]) {
+      b.localBox(layout,cabin,u,1.8,.95,[.18,1.8,.25],METAL);
+      b.localBox(layout,cabin,u,1.8,1.7,[.2,.16,.28],"#f5bc65",0,true);
+    }
+    b.localBox(layout,cabin,0,.3,.06,[1.1,.08,1.7],"#87958c");
+    b.localBox(layout,cabin,-3,1.6,.7,[.9,1.3,.65],METAL);
+    b.localBox(layout,cabin,-3,1.22,1.12,[.65,.35,.05],TEAL,0,true);
+  } else if (cabin.kind === "garden") {
     for (const u of [-width * 0.22, width * 0.22]) {
       b.localBox(layout, cabin, u, 1.2, 0.2, [2.4, 0.28, 1.7], "#b2c198");
       const p = local(u, 1.2);

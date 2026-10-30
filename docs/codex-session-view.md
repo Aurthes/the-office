@@ -58,6 +58,15 @@ without sending a prompt. Native project model/tool/permission configuration is
 inherited. Opening the new chat permits its first message through the same shared
 owner. Existing chats keep their UUIDs and are never forked or reset.
 
+The chat overflow menu offers **返回地球（归档）** when the employee is idle and
+the shared connection is available. This calls native `thread/archive` for the
+original UUID; it never deletes history or sends a model prompt. Other decks use
+the central shuttle to reach the main-deck return bay. The passenger descends
+through a real deck opening, the top hatch closes, and the pod ejects downward
+through the ship's belly only after Codex confirms the archive. Failed or
+uncertain responses never play a successful launch. The native App can unarchive
+the same chat. One return journey runs at a time, independently of roster removal.
+
 The pinned desktop App still maintains a separate legacy sidebar Project cache.
 A native `project/create` is durable and visible to protocol clients, but that
 alone does not guarantee an immediate new Project entry in the desktop sidebar.

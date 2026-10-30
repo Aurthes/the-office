@@ -97,6 +97,10 @@ const methods = {
   "agents.list": async () => ({ defaultId: rows()[0]?.id, mainKey: "main", agents: agents(), projects: index.projects(), creationAvailable: Boolean(shared?.ready) }),
   "project.create": async p => { const result = await workspaceActions.createProject(p); rosterSync.changed(); return result; },
   "session.create": async p => { const result = await workspaceActions.createSession(p); rosterSync.changed(); return result; },
+  "session.archive": async p => {
+    if (controls?.states.get(p.threadId)?.activeTurnId) throw new Error("这位员工还在工作，请先停止当前任务再返航");
+    const result = await workspaceActions.archiveSession(p); rosterSync.changed(); return result;
+  },
   "config.get": async () => ({ exists: true, hash: "codex-app-session-view", config: { gateway: { reload: { mode: "hot" } }, agents: { list: agents() } } }),
   "sessions.list": async p => ({ sessions: rows().filter(r => !p.agentId || r.id === p.agentId).map(r => ({ key: key(r.id), displayName: r.name, updatedAt: r.updatedAt, model: r.model, thinkingLevel: r.effort, execHost: "gateway", execSecurity: "deny", execAsk: "always" })) }),
   "sessions.preview": async p => ({ ts: Date.now(), previews: (p.keys || []).map(k => ({ key: k, status: "empty", items: [] })) }),

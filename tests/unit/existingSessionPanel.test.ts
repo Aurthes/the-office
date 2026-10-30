@@ -9,6 +9,16 @@ const page = (text: string, nextCursor: string | null, threadId = "original") =>
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("existing session history pagination", () => {
+  it("exposes return-to-Earth for an interactive original session and disables it while busy", async () => {
+    const call=vi.fn(async(method:string)=>method==="session.inspect"?{...metadata(),controlsAvailable:true}:method==="session.history"?page("latest",null):{connected:true,version:1,activeTurnId:null,items:[],approvals:[]});
+    const onReturnToEarth=vi.fn(), client={call};
+    const view=render(React.createElement(ExistingSessionPanel,{client,threadId:"original",onReturnToEarth}));
+    await screen.findByRole("heading",{name:"Name original"});
+    fireEvent.click(screen.getByRole("button",{name:/返回地球/}));expect(onReturnToEarth).toHaveBeenCalledTimes(1);
+    view.rerender(React.createElement(ExistingSessionPanel,{client,threadId:"original",onReturnToEarth,returnDisabled:true}));
+    expect((screen.getByRole("button",{name:/返回地球/}) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button",{name:/返回地球/}));expect(onReturnToEarth).toHaveBeenCalledTimes(1);
+  });
   it("keeps messages received live while the latest history page is still loading", async () => {
     const history = deferred();
     const live = { id: "live", role: "assistant", content: "live reply" };

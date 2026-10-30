@@ -2461,6 +2461,9 @@ export function RetroOffice3D({
   onAgentChatSelect?: (agentId: string) => void;
   activeChatAgentId?: string | null;
   chatExpanded?: boolean;
+  returnRequest?: { agentId: string; requestId: string } | null;
+  onArchiveSession?: (agentId: string, requestId: string) => Promise<void>;
+  onReturnFinished?: () => void;
   onAddAgent?: () => void;
   onAgentEdit?: (agentId: string) => void;
   onAgentDelete?: (agentId: string) => void;

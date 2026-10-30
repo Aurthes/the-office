@@ -44,8 +44,12 @@ describe.skipIf(!process.env.CLAW3D_NATIVE_CODEX_BIN)("pinned native workspace c
       const stored = await observer.call("thread/read", { threadId: created.threadId });
       expect(stored.thread.projectId).toBe(project.id);
       expect((await observer.call("thread/turns/list", { threadId: created.threadId })).data).toEqual([]);
-      await writer.call("thread/archive", { threadId: created.threadId });
-      await until(() => index.list().length === 0);
+      expect(await actions.archiveSession({threadId:created.threadId,requestId:"native-archive"})).toEqual({threadId:created.threadId,archived:true});
+      await until(() => index.list().length === 0 && nativeEvents.includes("thread/archived"));
+      // Archive is recoverable and preserves native identity/project history.
+      await writer.call("thread/unarchive", {threadId:created.threadId});
+      await until(()=>index.list().some((thread:{id:string})=>thread.id===created.threadId));
+      expect((await observer.call("thread/read",{threadId:created.threadId})).thread.projectId).toBe(project.id);
     } catch (error) { throw new Error(`${(error as Error).message}\n${stderr.slice(-1500)}`, { cause: error }); }
     finally {
       sync?.close(); index?.close(); writer?.close(); observer?.close(); child.kill("SIGTERM");

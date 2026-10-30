@@ -3,10 +3,11 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Builder } from './geometry';
 import { cabinAngle, shipPoint, type ShipLayout } from './layout';
 import { hullProfile } from './shell-shapes';
+import { cutLaunchOpening, type LaunchOpening } from './returnPodGeometry';
 
 const TAU = Math.PI * 2;
-function torusPatch(radius: number, width: number, height: number, start: number, end: number, from: number, to: number) {
-  const along = Math.max(8, Math.ceil((end - start) * radius * 1.5)), around = 20;
+function torusPatch(radius: number, width: number, height: number, start: number, end: number, from: number, to: number, opening?: LaunchOpening) {
+  const along = Math.max(8, Math.ceil((end - start) * radius * (opening ? 4 : 1.5))), around = opening ? Math.max(8, Math.ceil((to-from)*height*4)) : 20;
   const positions: number[] = [], normals: number[] = [], uv: number[] = [], indices: number[] = [];
   for (let i = 0; i <= along; i++) for (let j = 0; j <= around; j++) {
     const a = start + (end - start) * i / along, b = from + (to - from) * j / around;
@@ -23,7 +24,7 @@ function torusPatch(radius: number, width: number, height: number, start: number
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geometry.setIndex(indices);
-  return geometry;
+  return opening ? cutLaunchOpening(geometry, opening) : geometry;
 }
 function arch(radius: number, width: number, height: number, angle: number, from: number, to: number, thickness: number) {
   const points = Array.from({length: 33}, (_, j) => {
@@ -55,11 +56,12 @@ export function buildShell(layout: ShipLayout) {
   for (const cabin of layout.cabins) {
     const ring = layout.rings[cabin.ring], half = ring.depth / 2 + .18, height = 3.1 + cabin.ring * .4;
     const start = cabin.slot * step + .07 / ring.radius, end = (cabin.slot + 1) * step - .07 / ring.radius;
-    b.add(torusPatch(ring.radius, half, height, start, end, Math.PI, TAU), cabin.kind === 'reserve' ? '#b9c9cb' : '#dce5e4');
+    const opening = cabin.kind === 'return' ? { ...shipPoint(ring.radius + 1.8, cabinAngle(layout,cabin.slot)), radius: 1.1 } : undefined;
+    b.add(torusPatch(ring.radius, half, height, start, end, Math.PI, TAU, opening), cabin.kind === 'reserve' ? '#b9c9cb' : '#dce5e4');
     // The keel and service bands follow the rounded belly, rather than a flat slab.
-    b.add(torusPatch(ring.radius, half + .025, height + .025, start, end, Math.PI * 1.44, Math.PI * 1.56), '#425e6d');
-    b.add(torusPatch(ring.radius, half + .028, height + .028, start, end, TAU - .34, TAU - .27), cabin.kind === 'reserve' ? '#91b1b5' : '#dfa357');
-    b.add(torusPatch(ring.radius, half + .03, height + .03, start + step * .08, end - step * .08, TAU - .13, TAU - .11), cabin.kind === 'reserve' ? '#79b6bd' : '#f2c782',new THREE.Matrix4(),true);
+    b.add(torusPatch(ring.radius, half + .025, height + .025, start, end, Math.PI * 1.44, Math.PI * 1.56, opening), '#425e6d');
+    b.add(torusPatch(ring.radius, half + .028, height + .028, start, end, TAU - .34, TAU - .27, opening), cabin.kind === 'reserve' ? '#91b1b5' : '#dfa357');
+    b.add(torusPatch(ring.radius, half + .03, height + .03, start + step * .08, end - step * .08, TAU - .13, TAU - .11, opening), cabin.kind === 'reserve' ? '#79b6bd' : '#f2c782',new THREE.Matrix4(),true);
     upper.push(torusPatch(ring.radius, half, height, start, end, 0, Math.PI).toNonIndexed());
     const boundary = cabin.slot * step;
     b.add(arch(ring.radius, (half + .06)*.79, (height + .06)*.79, boundary, Math.PI, TAU, .10), '#829da7');

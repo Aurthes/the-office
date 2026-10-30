@@ -33,7 +33,7 @@ describe("three-ring ship allocation", () => {
   });
   it("adds one bay to all rings and preserves physical bay size when full", () => {
     let layout = buildShipLayout(roster([]));
-    const projectCount = DECKS.length * (3 * 8 - PUBLIC_CABINS.length) - 1;
+    const projectCount = layout.cabins.filter(c=>c.kind==="reserve").length;
     for (let i = 1; i <= projectCount; i++) layout = buildShipLayout(roster(Array(i).fill(0)), layout.allocation);
     expect(layout.allocation.sectors).toBe(8);
     expect(layout.cabins.filter(c => c.kind === "reserve")).toHaveLength(0);
@@ -60,7 +60,7 @@ describe("three-ring ship allocation", () => {
       const cabin = layout.cabins.find(c => c.id === p.id);
       expect(cabin?.kind).toBe(p.kind); expect(cabin?.projectId).toBeUndefined();
     }
-    expect(layout.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length * DECKS.length);
+    expect(layout.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length * DECKS.length - (DECKS.length-1));
     checkSeats(layout, 100);
   });
   it("uses contiguous outer cabins for teams larger than one bay without shrinking furniture", () => {
@@ -128,7 +128,7 @@ it("fills ready decks before expanding and assigns every worker to exactly one d
     expect(floor.cabins).toHaveLength(24);
     expect(floor.cabins.every(c => c.deck === deck)).toBe(true);
     expect(floor.rings).toBe(layout.rings);
-    expect(floor.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length);
+    expect(floor.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length - (deck===0?0:1));
     for (const seat of Object.values(floor.seats)) expect(floor.cabins.find(c => c.id === seat.cabinId)?.deck).toBe(deck);
   }
   checkSeats(layout, 64);

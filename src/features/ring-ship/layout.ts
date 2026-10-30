@@ -5,7 +5,7 @@ export type DeckIndex = 0 | 1 | 2;
 export const DECKS = [0, 1, 2] as const;
 export const DECK_STEP = 10;
 export const DECK_NAMES = ["主甲板", "扩展甲板", "预留甲板"] as const;
-export type CabinKind = "work" | "reserve" | "garden" | "hydroponics" | "canteen" | "gym" | "servers" | "maintenance" | "lounge" | "cargo" | "observatory" | "quarters";
+export type CabinKind = "work" | "reserve" | "garden" | "hydroponics" | "canteen" | "gym" | "servers" | "maintenance" | "lounge" | "cargo" | "observatory" | "quarters" | "return";
 export type ShipPoint = { x: number; z: number };
 export type ShipAssignment = { deck?: DeckIndex; ring: RingIndex; slot: number; span: number };
 export type ShipAllocation = { version: 1; sectors: number; projects: Record<string, ShipAssignment> };
@@ -35,6 +35,7 @@ export const PUBLIC_CABINS: ReadonlyArray<{ id: string; ring: RingIndex; slot: n
   { id: "public:observatory", ring: 2, slot: 2, kind: "observatory", name: "观星舱", color: "#8fb9ce" },
   { id: "public:quarters", ring: 2, slot: 3, kind: "quarters", name: "船员休息舱", color: "#b5a5c4" },
   { id: "public:maintenance", ring: 2, slot: 4, kind: "maintenance", name: "飞船维修舱", color: "#d3a47a" },
+  { id: "public:return", ring: 2, slot: 7, kind: "return", name: "返航舱", color: "#f5bb68" },
 ];
 const TAU = Math.PI * 2;
 const COLORS = ["#61bfb7", "#80a9dd", "#d9ac71", "#af96ce", "#b4bf7a"];
@@ -79,7 +80,9 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
   let assignments: Record<string, ShipAssignment>;
   for (;;) {
     const occupied = DECKS.map(() => [new Set<number>(), new Set<number>(), new Set<number>()]);
-    for (const deck of DECKS) for (const cabin of PUBLIC_CABINS) occupied[deck][cabin.ring].add(cabin.slot);
+    for (const deck of DECKS) for (const cabin of PUBLIC_CABINS) {
+      if (cabin.kind !== "return" || deck === 0) occupied[deck][cabin.ring].add(cabin.slot);
+    }
     assignments = Object.create(null) as Record<string, ShipAssignment>;
     let complete = true;
     for (const group of groups) {
@@ -112,7 +115,9 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
     id: cabinId(`bay:${ring.index}:${slot}`, deck), deck, ring: ring.index, slot, kind: "reserve" as const,
     name: "预留舱", color: "#819ea6", agentIds: [],
   }))));
-  for (const deck of DECKS) for (const p of PUBLIC_CABINS) Object.assign(cabins[deck * 3 * sectors + p.ring * sectors + p.slot], p, { id: cabinId(p.id, deck) });
+  for (const deck of DECKS) for (const p of PUBLIC_CABINS) {
+    if (p.kind !== "return" || deck === 0) Object.assign(cabins[deck * 3 * sectors + p.ring * sectors + p.slot], p, { id: cabinId(p.id, deck) });
+  }
   const seats: Record<string, ShipSeat> = Object.create(null);
   for (const group of groups) {
     const assignment = assignments![group.id], ring = rings[assignment.ring];
@@ -174,6 +179,7 @@ export function routeBetweenCabins(layout: ShipLayout, from: ShipSeat, destinati
 }
 
 export const PUBLIC_DESCRIPTIONS: Record<CabinKind, string> = {
+  return: "搭乘返回舱回地球，对应归档同一条 Codex 会话。",
   work: "按 Project 分配的工作舱，点击员工继续原会话。", reserve: "舱体和接口已就绪，后续 Project 可直接启用。",
   garden: "树木、花草和休息座椅组成的自然空间。", hydroponics: "水培种植床、补光灯和循环水系统，供飞船种植食物。",
   canteen: "船员餐桌、厨房和咖啡区。", gym: "跑步、力量训练和活动身体的公共舱。", servers: "服务器、冷却和通信设备。",

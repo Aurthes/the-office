@@ -1096,6 +1096,12 @@ export function OfficeScreen({
   const historyInFlightRef = useRef<Set<string>>(new Set());
   const lastTransportHistoryRefreshKeyRef = useRef<Record<string, string>>({});
   const [chatOpen, setChatOpen] = useState(false);
+  const [returnRequest, setReturnRequest] = useState<{ agentId: string; requestId: string } | null>(null);
+  const archiveSession = useCallback(async (threadId: string, requestId: string) => {
+    const result = await client.call("session.archive", { threadId, requestId }) as {threadId:string;archived:boolean};
+    if (result.threadId !== threadId || !result.archived) throw new Error("原会话归档尚未确认");
+  }, [client]);
+  const returnFinished = useCallback(() => setReturnRequest(null), []);
   const sessionView = process.env.NEXT_PUBLIC_CLAW3D_SESSION_VIEW === "1";
   const [chatRosterCollapsed, setChatRosterCollapsed] = useState(sessionView);
   const [chatExpanded, setChatExpanded] = useState(false);
@@ -4940,6 +4946,9 @@ export function OfficeScreen({
           onAgentChatSelect={handleOpenAgentChat}
           activeChatAgentId={sessionView && chatOpen ? selectedChatAgentId : null}
           chatExpanded={chatExpanded}
+          returnRequest={returnRequest}
+          onArchiveSession={sessionView ? archiveSession : undefined}
+          onReturnFinished={returnFinished}
           onAddAgent={sessionView ? undefined : handleOpenCreateAgentWizard}
           onAgentEdit={(agentId) => {
             if (sessionView) handleOpenAgentChat(agentId);
@@ -5597,7 +5606,12 @@ export function OfficeScreen({
 
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               {focusedChatAgent ? (
-                sessionView ? <ExistingSessionPanel key={focusedChatAgent.agentId} client={client} threadId={focusedChatAgent.agentId} /> :
+                sessionView ? <ExistingSessionPanel key={focusedChatAgent.agentId} client={client} threadId={focusedChatAgent.agentId}
+                  returnDisabled={!!returnRequest || focusedChatAgent.status === "running" || status !== "connected"}
+                  onReturnToEarth={() => {
+                    if (returnRequest || focusedChatAgent.status === "running") return;
+                    setReturnRequest({agentId:focusedChatAgent.agentId,requestId:crypto.randomUUID()});setChatOpen(false);
+                  }} /> :
                 <AgentChatPanel
                   agent={focusedChatAgent}
                   isSelected={false}

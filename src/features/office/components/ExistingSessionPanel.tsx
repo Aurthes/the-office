@@ -12,9 +12,11 @@ type Message = LiveSessionItem;
 type HistoryPage = { threadId: string; messages: Message[]; nextCursor: string | null };
 type LoadMode = "latest" | "older";
 
-export function ExistingSessionPanel({ client, threadId }: {
+export function ExistingSessionPanel({ client, threadId, onReturnToEarth, returnDisabled }: {
   client: SessionClient;
   threadId: string;
+  onReturnToEarth?: () => void;
+  returnDisabled?: boolean;
 }) {
   const [data, setData] = useState<Inspection | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -130,6 +132,9 @@ export function ExistingSessionPanel({ client, threadId }: {
             <p className="break-all">Session ID：{threadId}</p>
             {data?.id === threadId ? <p className="break-all">目录：{data.workspace}</p> : null}
             <p>{data?.controlsAvailable ? "与桌面 App 同步的原会话" : "只读预览，请在桌面 App 中继续对话"}</p>
+            {onReturnToEarth ? <button type="button" disabled={returnDisabled || !data?.controlsAvailable} onClick={onReturnToEarth}
+              title={returnDisabled ? "请先停止当前工作，或等待上一位员工返航" : "归档这条原会话，历史仍保留"}
+              className="block w-full rounded-md border border-amber-300/25 px-3 py-2 text-left text-amber-200 hover:bg-amber-200/10 disabled:opacity-40">↓ 返回地球（归档）</button> : null}
           </div>
         </details>
       </div>
