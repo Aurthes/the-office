@@ -147,6 +147,12 @@ the latest history page so live events cannot fall into a subscription gap.
 
 The inspector then supports plain-text continuation, steering the active turn,
 interrupting that same turn, live assistant messages and compact tool activity.
+Both starting and steering pass the send request ID as `clientUserMessageId`.
+The pinned desktop uses the resulting `userMessage.clientId` to distinguish
+external steering from internal context and display its text. Without it, a
+steered message can reach the model and persist in history while the desktop
+transcript hides its body. This change identifies new sends; it does not rewrite
+older native messages that lack the ID.
 Command approvals and complete, small file-change approvals can be answered from
 either client. Answers are cleared only on native resolution or turn completion.
 Only the backend's offered one-time decisions are exposed; persistent policy

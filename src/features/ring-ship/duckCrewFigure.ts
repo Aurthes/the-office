@@ -9,7 +9,7 @@ export function createDuckCrewFigure() {
   const feather = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0 });
   const bill = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.84, metalness: 0 });
   const eyes = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0 });
-  const white = "#e7e2d3", warmWhite = "#d9d3c2", orange = "#cc7c35", dark = "#302e28";
+  const yellow = "#efbd35", wingYellow = "#dfad2d", orange = "#cc7c35", dark = "#302e28";
 
   function add(group: THREE.Group, geometry: THREE.BufferGeometry, material: THREE.Material, color: string,
     position: [number, number, number], scale: [number, number, number] = [1, 1, 1], rotation: [number, number, number] = [0, 0, 0]) {
@@ -20,7 +20,7 @@ export function createDuckCrewFigure() {
     mesh.position.set(...position); mesh.scale.set(...scale); mesh.rotation.set(...rotation);
     mesh.castShadow = mesh.receiveShadow = true; group.add(mesh);
   }
-  function egg(group: THREE.Group, position: [number, number, number], scale: [number, number, number], color = white,
+  function egg(group: THREE.Group, position: [number, number, number], scale: [number, number, number], color = yellow,
     material = feather, rotation: [number, number, number] = [0, 0, 0]) {
     add(group, new THREE.SphereGeometry(1, 20, 14), material, color, position, scale, rotation);
   }
@@ -30,8 +30,8 @@ export function createDuckCrewFigure() {
 
   const body = pivot("body", [0, 0, 0]);
   // One continuous barrel, with parallel sides and rounded ends: no head/neck seam.
-  add(body, new THREE.CapsuleGeometry(0.14, 0.3, 8, 24), feather, white, [0, 0.355, 0], [1, 1, 0.9]);
-  egg(body, [0, 0.145, -0.105], [0.052, 0.03, 0.066], warmWhite, feather, [-0.3, 0, 0]);
+  add(body, new THREE.CapsuleGeometry(0.14, 0.3, 8, 24), feather, yellow, [0, 0.355, 0], [1, 1, 0.9]);
+  egg(body, [0, 0.145, -0.105], [0.052, 0.03, 0.066], wingYellow, feather, [-0.3, 0, 0]);
 
   const face = pivot("face", [0, 0, 0], body);
   // A broad, flattened bill with a separate lower lip and tiny nostrils.
@@ -44,7 +44,7 @@ export function createDuckCrewFigure() {
 
   const wings = [-1, 1].map(side => {
     const wing = pivot(side < 0 ? "left-wing" : "right-wing", [side * 0.139, 0.30, 0.008], body);
-    egg(wing, [side * 0.006, -0.032, 0], [0.035, 0.077, 0.052], warmWhite, feather, [0, 0, side * 0.12]);
+    egg(wing, [side * 0.006, -0.032, 0], [0.035, 0.077, 0.052], wingYellow, feather, [0, 0, side * 0.12]);
     return wing;
   });
   const feet = [-1, 1].map(side => {

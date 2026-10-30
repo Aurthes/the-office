@@ -16,14 +16,14 @@ describe("shared App session controls", () => {
     const { client, controls } = setup();
     await controls.send("original-id", "hello", "request-1");
     await controls.send("original-id", "hello", "request-1");
-    expect(client.call.mock.calls.filter(([method]) => method === "turn/start")).toEqual([["turn/start", { threadId: "original-id", input: [{ type: "text", text: "hello" }] }]]);
+    expect(client.call.mock.calls.filter(([method]) => method === "turn/start")).toEqual([["turn/start", { threadId: "original-id", input: [{ type: "text", text: "hello" }], clientUserMessageId: "request-1" }]]);
     expect(client.call).toHaveBeenCalledWith("thread/resume", { threadId: "original-id", excludeTurns: true });
     expect(client.call.mock.calls.some(([method]) => method === "thread/start")).toBe(false);
   });
   it("steers and stops the existing active turn", async () => {
     const { client, controls } = setup(true);
     await controls.send("original-id", "follow up", "request-2");
-    expect(client.call).toHaveBeenCalledWith("turn/steer", { threadId: "original-id", expectedTurnId: "active-turn", input: [{ type: "text", text: "follow up" }] });
+    expect(client.call).toHaveBeenCalledWith("turn/steer", { threadId: "original-id", expectedTurnId: "active-turn", input: [{ type: "text", text: "follow up" }], clientUserMessageId: "request-2" });
     await controls.stop("original-id");
     expect(client.call).toHaveBeenCalledWith("turn/interrupt", { threadId: "original-id", turnId: "active-turn" });
   });
