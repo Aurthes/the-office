@@ -98,6 +98,7 @@ function CabinTargets({ layout, focus, onSelect }: { layout: ShipLayout; focus: 
   })}</>;
 }
 type MovingAgent = RenderAgent & { route: ShipPoint[]; routeIndex: number; pauseUntil: number; home: ShipPoint; visiting: boolean };
+type NameplatePlacement = { frame: number; rects: Array<{ x: number; y: number; width: number; height: number }> };
 function canvasPoint(point: ShipPoint) { return { x: point.x / SCALE + CANVAS_W / 2, y: point.z / SCALE + CANVAS_H / 2 }; }
 function worldPoint(agent: RenderAgent): ShipPoint { return { x: (agent.x - CANVAS_W / 2) * SCALE, z: (agent.y - CANVAS_H / 2) * SCALE }; }
 function hash(value: string) { let result = 0; for (const char of value) result = (result * 31 + char.charCodeAt(0)) >>> 0; return result; }
@@ -133,6 +134,7 @@ function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number, delta
 function Crew({ agents, layout, focus, onOpen }: { agents: OfficeAgent[]; layout: ShipLayout; focus: string; onOpen: (id: string) => void }) {
   const agentsRef = useRef<RenderAgent[]>([]), lookup = useRef(new Map<string, RenderAgent>());
   const statsAt = useRef(-3);
+  const nameplatePlacement = useRef<NameplatePlacement>({ frame: -1, rects: [] });
   const [hovered, setHovered] = useState<string | null>(null);
   const unhover = useCallback(() => setHovered(null), []);
   const initialPositions = useMemo(() => Object.fromEntries(Object.values(layout.seats).map(seat => [seat.agentId, [seat.x, 0, seat.z] as [number, number, number]])), [layout]);
@@ -166,35 +168,61 @@ function Crew({ agents, layout, focus, onOpen }: { agents: OfficeAgent[]; layout
       <AgentModel agentId={agent.id} name={agent.name} status={agent.status} color={agent.color} appearance={agent.avatarProfile}
         agentsRef={agentsRef} agentLookupRef={lookup} initialPosition={initialPositions[agent.id]} hideLabels
         onHover={setHovered} onUnhover={unhover} onClick={onOpen} />
-      <CrewLabel agent={agent} lookup={lookup} onOpen={onOpen} expanded={hovered === agent.id || focus === seat.projectId || !!agent.needsInput || !!agent.needsReview} />
+      <CrewLabel agent={agent} lookup={lookup} placement={nameplatePlacement} onOpen={onOpen} expanded={hovered === agent.id || focus === seat.projectId || !!agent.needsInput || !!agent.needsReview} />
     </group>;
   })}</>;
 }
-function CrewLabel({ agent, lookup, expanded, onOpen }: { agent: OfficeAgent; lookup: RefObject<Map<string, RenderAgent>>; expanded: boolean; onOpen: (id: string) => void }) {
+function CrewLabel({ agent, lookup, placement, expanded, onOpen }: { agent: OfficeAgent; lookup: RefObject<Map<string, RenderAgent>>; placement: RefObject<NameplatePlacement>; expanded: boolean; onOpen: (id: string) => void }) {
   const ref = useRef<THREE.Sprite>(null);
+  const leader = useRef<THREE.BufferGeometry>(null);
+  const vectors = useMemo(() => ({ anchor: new THREE.Vector3(), up: new THREE.Vector3(), projected: new THREE.Vector3(), bottom: new THREE.Vector3() }), []);
   const texture = useMemo(() => {
-    const canvas = document.createElement("canvas"); canvas.width = 640; canvas.height = expanded ? 144 : 88;
-    const c = canvas.getContext("2d")!; c.fillStyle = "#122733"; c.fillRect(0, 0, 640, canvas.height);
-    c.fillStyle = agent.color; c.fillRect(0, 0, 10, canvas.height); c.font = expanded ? "600 42px system-ui" : "600 53px system-ui";
+    const canvas = document.createElement("canvas"); canvas.width = expanded ? 640 : 512; canvas.height = expanded ? 144 : 128;
+    const c = canvas.getContext("2d")!; c.fillStyle = "#122733"; c.fillRect(0, 0, canvas.width, canvas.height);
+    c.fillStyle = agent.color; c.fillRect(0, 0, 10, canvas.height); c.font = expanded ? "600 42px system-ui" : "600 64px system-ui";
     const marker = agent.needsInput ? "!" : agent.needsReview ? "?" : "";
     if (marker) { c.fillStyle = "#facc15"; c.fillText(marker, 24, 58); }
-    const limit = expanded ? 13 : 7, name = agent.name.length > limit ? `${agent.name.slice(0, limit)}…` : agent.name;
-    c.fillStyle = "#f3ecdc"; c.fillText(name, marker ? 70 : 24, expanded ? 58 : 62, marker ? 545 : 595);
+    const limit = expanded ? 13 : 6, name = agent.name.length > limit ? `${agent.name.slice(0, limit)}…` : agent.name;
+    c.fillStyle = "#f3ecdc"; c.fillText(name, marker ? 70 : 24, expanded ? 58 : 86, canvas.width - (marker ? 95 : 45));
     if (expanded) { c.font = "28px system-ui"; c.fillStyle = "#9cb4c3"; c.fillText(agent.needsInput ? "等待你的回复" : agent.needsReview ? "有新结果" : agent.status === "working" ? "正在工作" : "空闲", 25, 110); }
     const result = new THREE.CanvasTexture(canvas); result.colorSpace = THREE.SRGBColorSpace; return result;
   }, [agent.name, agent.color, agent.needsInput, agent.needsReview, agent.status, expanded]);
   useEffect(() => () => texture.dispose(), [texture]);
-  useFrame(() => {
+  useFrame(state => {
     const value = lookup.current.get(agent.id); if (!ref.current) return;
     // Identity is always shown for every placed crew member. Alert state only
     // adds a marker/details; it must never decide whether a name exists.
     ref.current.visible = !!value;
-    if (value) { const p = worldPoint(value); ref.current.position.set(p.x, expanded ? 1.9 : 1.55, p.z); }
+    if (!value) return;
+    const p = worldPoint(value), width = expanded ? 160 : 84, height = expanded ? 36 : 21;
+    const zoom = state.camera.zoom, frame = placement.current;
+    if (frame.frame !== state.clock.elapsedTime) { frame.frame = state.clock.elapsedTime; frame.rects = []; }
+    vectors.anchor.set(p.x, 1.3, p.z);
+    vectors.projected.copy(vectors.anchor).project(state.camera);
+    const x = (vectors.projected.x + 1) * state.size.width / 2 - width / 2;
+    const y = (1 - vectors.projected.y) * state.size.height / 2 - height - 6;
+    let lift = 0;
+    for (let attempt = 0; attempt <= frame.rects.length; attempt++) {
+      if (!frame.rects.some(r => x < r.x + r.width + 3 && x + width + 3 > r.x && y - lift < r.y + r.height + 3 && y - lift + height + 3 > r.y)) break;
+      lift += height + 4;
+    }
+    frame.rects.push({ x, y: y - lift, width, height });
+    vectors.up.setFromMatrixColumn(state.camera.matrixWorld, 1).normalize();
+    ref.current.scale.set(width / zoom, height / zoom, 1);
+    ref.current.position.copy(vectors.anchor).addScaledVector(vectors.up, (6 + height / 2 + lift) / zoom);
+    vectors.bottom.copy(vectors.anchor).addScaledVector(vectors.up, (6 + lift) / zoom);
+    const line = leader.current?.getAttribute("position");
+    if (line) { line.setXYZ(0, vectors.anchor.x, vectors.anchor.y, vectors.anchor.z); line.setXYZ(1, vectors.bottom.x, vectors.bottom.y, vectors.bottom.z); line.needsUpdate = true; }
   });
-  return <sprite ref={ref} name="crew-nameplate" scale={expanded ? [3.4, 0.765, 1] : [2.2, 0.303, 1]} visible={false} renderOrder={100}
+  return <><sprite ref={ref} name="crew-nameplate" visible={false} renderOrder={100}
+    onPointerOver={event => { const canvas = event.nativeEvent.target; if (canvas instanceof HTMLCanvasElement) canvas.title = agent.name; }}
+    onPointerOut={event => { const canvas = event.nativeEvent.target; if (canvas instanceof HTMLCanvasElement) canvas.removeAttribute("title"); }}
     onClick={event => { event.stopPropagation(); onOpen(agent.id); }}>
     <spriteMaterial map={texture} depthTest={false} depthWrite={false} toneMapped={false} />
-  </sprite>;
+  </sprite><lineSegments frustumCulled={false} renderOrder={99}>
+    <bufferGeometry ref={leader}><bufferAttribute attach="attributes-position" args={[new Float32Array(6), 3]} /></bufferGeometry>
+    <lineBasicMaterial color={agent.color} transparent opacity={0.6} depthTest={false} depthWrite={false} />
+  </lineSegments></>;
 }
 
 export function RingShipOffice(props: Props) {
