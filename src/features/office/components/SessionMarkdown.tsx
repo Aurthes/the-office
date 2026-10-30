@@ -56,6 +56,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({ content, assets =
   const components = useMemo<Components>(() => ({
         a: ({ href, children }) => {
           const asset = href ? find(href) : undefined;
+          if (asset?.kind === "file") return <a href={asset.url} download={asset.name}>{children} ↓</a>;
           return asset ? <a href={asset.url} onClick={event => { event.preventDefault(); setPreview(asset); }} title={`预览 ${asset.name}`}>{children} <span className="text-[10px] opacity-60">↗ 预览</span></a>
             : <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
         },
@@ -69,7 +70,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({ content, assets =
     <div className="agent-markdown min-w-0 break-words text-base leading-relaxed [&_a]:text-sky-200 [&_a]:underline [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
       <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={transform} components={components}>{user ? visibleUserText(content) : content}</ReactMarkdown>
     </div>
-    {assets.filter(asset => asset.inline || asset.attached).map(asset => asset.kind === "image" ? <AssetImage key={asset.url} src={asset.url} name={asset.name} onOpen={() => setPreview(asset)} /> : <button key={asset.url} type="button" onClick={() => setPreview(asset)} className="my-2 rounded-lg border border-white/15 px-3 py-2 text-sm text-cyan-100">{asset.name} ↗ 预览</button>)}
+    {assets.filter(asset => asset.inline || asset.attached).map(asset => asset.kind === "image" ? <AssetImage key={asset.url} src={asset.url} name={asset.name} onOpen={() => setPreview(asset)} /> : asset.kind === "file" ? <a key={asset.url} href={asset.url} download={asset.name} className="my-2 inline-block rounded-lg border border-white/15 px-3 py-2 text-sm text-cyan-100">{asset.name} ↓ 下载</a> : <button key={asset.url} type="button" onClick={() => setPreview(asset)} className="my-2 rounded-lg border border-white/15 px-3 py-2 text-sm text-cyan-100">{asset.name} ↗ 预览</button>)}
     {preview ? <AssetPreview key={preview.url} asset={preview} onClose={() => setPreview(null)} /> : null}
   </>;
 });

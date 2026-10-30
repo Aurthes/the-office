@@ -2069,6 +2069,10 @@ function useAgentTick(
               nf = agent.facing;
             } else if (agent.interactionTarget === "meeting_room") {
               nf = agent.facing;
+            } else if (agent.interactionTarget === "desk") {
+              // Desks sit immediately south of their navigation seat; face the screen,
+              // rather than keeping the direction of the last walking waypoint.
+              nf = 0;
             }
           } else if (agent.status === "error") {
             ns = "standing";

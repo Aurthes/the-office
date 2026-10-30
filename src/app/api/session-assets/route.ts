@@ -17,6 +17,7 @@ export async function GET(request: Request) {
     }
     return new Response(new Uint8Array(asset.bytes), { headers: {
       ...headers, "Content-Type": asset.mime + (asset.mime.startsWith("text/") ? "; charset=utf-8" : ""),
+      ...(asset.mime === "application/octet-stream" ? { "Content-Disposition": "attachment; filename*=UTF-8''" + encodeURIComponent(path.basename(asset.path)) } : {}),
       ...(asset.mime === "text/html" ? { "Content-Security-Policy": HTML_POLICY } : {}),
     } });
   } catch (error) {

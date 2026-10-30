@@ -1,6 +1,7 @@
 "use strict";
 const crypto = require("node:crypto");
 const { sessionItem, clipText } = require("./codex-session-items");
+const { messageInput } = require("./codex-session-uploads");
 const supportedApprovals = new Set(["item/commandExecution/requestApproval", "item/fileChange/requestApproval"]);
 
 class CodexSessionControls {
@@ -80,21 +81,21 @@ class CodexSessionControls {
           details: item?.details, supported: request.supported && !oversized && (request.method !== "item/fileChange/requestApproval" || Boolean(item?.details && !item.incompleteDetails)) };
       }) };
   }
-  async send(id, text, requestId) {
+  async send(id, text, requestId, attachments = []) {
     this.requireReady();
-    if (typeof text !== "string" || !text.trim() || Buffer.byteLength(text) > 32000) throw new Error("请发送不超过 32 KB 的文字");
+    const input = await messageInput(text, attachments, id);
     if (typeof requestId !== "string" || requestId.length > 100 || !requestId) throw new Error("缺少发送请求 ID");
     const prior = this.sends.get(requestId);
     if (prior) {
-      if (prior.id !== id || prior.hash !== crypto.createHash("sha256").update(text).digest("hex")) throw new Error("发送请求 ID 冲突");
+      if (prior.id !== id || prior.hash !== crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex")) throw new Error("发送请求 ID 冲突");
       if (!prior.result) throw new Error("这次发送已提交，结果需核对，未重复发送");
       return prior.result;
     }
-    const entry = { id, hash: crypto.createHash("sha256").update(text).digest("hex") };
+    const entry = { id, hash: crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex") };
     this.sends.set(requestId, entry);
     if (this.sends.size > 128) this.sends.delete(this.sends.keys().next().value);
     await this.attach(id); await this.refreshTurn(id);
-    const input = [{ type: "text", text }], active = this.state(id).activeTurnId;
+    const active = this.state(id).activeTurnId;
     const result = await this.client.call(active ? "turn/steer" : "turn/start", { threadId: id, input, ...(active ? { expectedTurnId: active } : {}) });
     const turnId = result.turn?.id || result.turnId;
     this.state(id).activeTurnId = turnId;

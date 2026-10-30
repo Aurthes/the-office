@@ -112,9 +112,40 @@ interrupting that same turn, live assistant messages and compact tool activity.
 Command approvals and complete, small file-change approvals can be answered from
 either client. Answers are cleared only on native resolution or turn completion.
 Only the backend's offered one-time decisions are exposed; persistent policy
-amendments are not exposed. Oversized or unsupported requests remain for the App
-to handle. Attachment upload, other structured prompts and full historical tool
-logs are not implemented here, so this is not yet complete native UI parity.
+amendments are not exposed. Oversized or unsupported structured requests and full
+historical tool logs remain for the App, so this is not complete native UI parity.
+
+The composer accepts file selection, image paste and drag/drop. Each message can
+include eight files of at most 20 MiB each. Uploads stream to owner-only files under
+`~/.local/share/claw3d/uploads/<thread-id>/<upload-id>/`; they remain there so the
+original conversation can keep referring to them. Uploading alone never starts
+a turn. Send uses signed references bound to the original thread, native
+`localImage` inputs for validated PNG/JPEG/GIF/WebP, and the App's file-reference
+message format for documents. It never changes workspace or permissions to read
+an attachment. An attachment can therefore require the native sandbox's normal
+read approval. Unsupported document preview formats download as attachments;
+generic downloads are limited to this upload directory, not arbitrary local paths.
+
+The microphone button uses the browser's built-in speech recognition (`zh-CN`).
+Recognition can be handled by the browser vendor and depends on browser/platform
+support and network access. It edits the draft only and never sends automatically.
+Stop listening, edit the text if needed, then Send. No extra transcription API key
+is configured. Unsupported browsers show an explicit error and can still use their
+keyboard's dictation.
+
+The headphones button starts the pinned native `thread/realtime/start` v3 WebRTC
+transport on the same loaded thread, using its existing Codex account. SDP and
+control events cross the authenticated gateway; media uses the native WebRTC
+connection. This experimental protocol is version-bound. Only the tab that owns
+the call receives its control/caption events and can stop it; another tab cannot
+replace it. Closing the chat/page releases its microphone and peer connection;
+gateway disconnect/logout stops the owned native call. Ending voice does not
+interrupt the Codex task. Browser microphone permission, audio playback policy,
+account availability and the device's WebRTC network reachability still apply.
+
+Working people face their desk screen and alternate staggered typing, thinking,
+breathing and small posture changes. These are visual animations, not inferred
+model reasoning or additional agent activity.
 
 Native changes trigger coalesced `session.updated` WebSocket events. The visible
 chat immediately reads changed items, draining bounded chunks sequentially without

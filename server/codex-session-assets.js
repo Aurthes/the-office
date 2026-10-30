@@ -5,11 +5,13 @@ const path = require("node:path");
 const os = require("node:os");
 const crypto = require("node:crypto");
 const { fileURLToPath } = require("node:url");
+const { uploadRoot } = require("./codex-session-uploads");
 
 const TYPES = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".md": "text/markdown", ".markdown": "text/markdown", ".html": "text/html", ".htm": "text/html" };
 const MAX_BYTES = 20 * 1024 * 1024;
 const HTML_POLICY = "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob:; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'; sandbox allow-scripts";
 const sign = (value, key) => crypto.createHmac("sha256", key).update(value).digest("base64url");
+const mimeForPath = value => TYPES[path.extname(value).toLowerCase()] || (value.startsWith(uploadRoot() + path.sep) ? "application/octet-stream" : null);
 
 function localPath(source, baseDir) {
   try {
@@ -31,10 +33,10 @@ function referenceForPath(source, { key = process.env.CLAW3D_GATEWAY_TOKEN, base
   if (!requested) return null;
   // Pin symlink resolution when the reference is issued, not when it is opened.
   let resolved; try { resolved = fs.realpathSync(requested); } catch { resolved = requested; }
-  const mime = TYPES[path.extname(resolved).toLowerCase()];
+  const mime = mimeForPath(resolved);
   if (!mime) return null;
   const payload = Buffer.from(JSON.stringify({ path: resolved, mime })).toString("base64url");
-  return { source, name: label || path.basename(requested), kind: mime.startsWith("image/") ? "image" : mime === "text/html" ? "html" : "markdown", url: `/api/session-assets?ref=${payload}.${sign(payload, key)}` };
+  return { source, name: label || path.basename(requested), kind: mime.startsWith("image/") ? "image" : mime === "text/html" ? "html" : mime === "text/markdown" ? "markdown" : "file", url: `/api/session-assets?ref=${payload}.${sign(payload, key)}` };
 }
 
 function describeSessionAssets(text, inputs = [], options = {}) {
@@ -84,7 +86,7 @@ async function readSessionAsset(reference, key = process.env.CLAW3D_GATEWAY_TOKE
   const [payload, signature] = reference.split(".");
   if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(sign(payload, key)))) throw new Error("Invalid file reference");
   const asset = JSON.parse(Buffer.from(payload, "base64url").toString());
-  if (!path.isAbsolute(asset.path) || TYPES[path.extname(asset.path).toLowerCase()] !== asset.mime) throw new Error("Unsupported file");
+  if (!path.isAbsolute(asset.path) || mimeForPath(asset.path) !== asset.mime) throw new Error("Unsupported file");
   if (await fsp.realpath(asset.path) !== asset.path) throw new Error("File location changed");
   const file = await fsp.open(asset.path, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
   try {

@@ -121,6 +121,12 @@ export const AgentModel = memo(function AgentModel({
     const workoutStyle = agent.workoutStyle ?? "lift";
     const frameValue = agent.frame + (agent.phaseOffset ?? 0) / WALK_ANIM_SPEED;
     const walkPhase = Math.sin(frameValue * WALK_ANIM_SPEED);
+    const seated = agent.state === "sitting";
+    // Stagger each person's typing, thinking and small posture changes.
+    const deskCycle = (frameValue * 0.016) % 20;
+    const typing = deskCycle < 13;
+    const thinking = deskCycle >= 13 && deskCycle < 17;
+    if (seated) groupRef.current.rotation.y += Math.sin(frameValue * 0.013) * (typing ? 0.012 : 0.035);
     const workoutPhase = Math.sin(
       agent.frame * 0.18 + (agent.phaseOffset ?? 0),
     );
@@ -129,8 +135,8 @@ export const AgentModel = memo(function AgentModel({
     );
     groupRef.current.rotation.z = 0;
     groupRef.current.rotation.x =
-      agent.state === "sitting"
-        ? -0.15
+      seated
+        ? -0.1 + Math.sin(frameValue * 0.026) * 0.025
         : isDancing
           ? Math.sin(agent.frame * 0.18 + (agent.phaseOffset ?? 0)) * 0.06
           : isWorkout
@@ -163,7 +169,7 @@ export const AgentModel = memo(function AgentModel({
                 : 0.02 + Math.abs(workoutPhase) * 0.04
             : 0;
     const breathe =
-      agent.state === "standing" || isWorkout || agent.pingPongUntil
+      seated || agent.state === "standing" || isWorkout || agent.pingPongUntil
         ? Math.sin(frameValue * 0.03) * 0.01
         : 0;
     groupRef.current.position.y = bounce + breathe;
@@ -223,7 +229,8 @@ export const AgentModel = memo(function AgentModel({
         leftArmRef.current.rotation.x =
           0.2 + Math.sin(agent.frame * 0.08) * 0.28;
       } else if (agent.state === "sitting") {
-        leftArmRef.current.rotation.x = 0.3;
+        leftArmRef.current.rotation.x = typing ? -0.85 + Math.sin(frameValue * 0.5) * 0.1 : -0.45;
+        leftArmRef.current.rotation.z = -0.08;
       }
     }
     if (rightArmRef.current) {
@@ -282,7 +289,8 @@ export const AgentModel = memo(function AgentModel({
         rightArmRef.current.rotation.x =
           0.08 - Math.sin(agent.frame * 0.08) * 0.16;
       } else if (agent.state === "sitting") {
-        rightArmRef.current.rotation.x = 0.3;
+        rightArmRef.current.rotation.x = typing ? -0.85 + Math.sin(frameValue * 0.5 + 1.8) * 0.1 : thinking ? -2.3 : -0.35;
+        rightArmRef.current.rotation.z = thinking ? 0.2 : 0.08;
       }
     }
     if (leftLegRef.current) {
@@ -303,7 +311,7 @@ export const AgentModel = memo(function AgentModel({
                       : workoutStyle === "box"
                         ? 0.06 + workoutPhase * 0.14
                         : workoutPhase * 0.18
-              : 0;
+              : seated ? -0.65 : 0;
     }
     if (rightLegRef.current) {
       rightLegRef.current.rotation.x =
@@ -323,7 +331,7 @@ export const AgentModel = memo(function AgentModel({
                       : workoutStyle === "box"
                         ? 0.06 - workoutPhase * 0.14
                         : -workoutPhase * 0.18
-              : 0;
+              : seated ? -0.65 + Math.sin(frameValue * 0.035) * 0.025 : 0;
     }
 
     const working =
