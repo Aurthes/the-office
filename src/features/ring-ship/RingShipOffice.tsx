@@ -166,26 +166,33 @@ function Crew({ agents, layout, focus, onOpen }: { agents: OfficeAgent[]; layout
       <AgentModel agentId={agent.id} name={agent.name} status={agent.status} color={agent.color} appearance={agent.avatarProfile}
         agentsRef={agentsRef} agentLookupRef={lookup} initialPosition={initialPositions[agent.id]} hideLabels
         onHover={setHovered} onUnhover={unhover} onClick={onOpen} />
-      <CrewLabel agent={agent} lookup={lookup} visible={hovered === agent.id || focus === seat.projectId || !!agent.needsInput || !!agent.needsReview} />
+      <CrewLabel agent={agent} lookup={lookup} onOpen={onOpen} expanded={hovered === agent.id || focus === seat.projectId || !!agent.needsInput || !!agent.needsReview} />
     </group>;
   })}</>;
 }
-function CrewLabel({ agent, lookup, visible }: { agent: OfficeAgent; lookup: RefObject<Map<string, RenderAgent>>; visible: boolean }) {
+function CrewLabel({ agent, lookup, expanded, onOpen }: { agent: OfficeAgent; lookup: RefObject<Map<string, RenderAgent>>; expanded: boolean; onOpen: (id: string) => void }) {
   const ref = useRef<THREE.Sprite>(null);
   const texture = useMemo(() => {
-    const canvas = document.createElement("canvas"); canvas.width = 640; canvas.height = 144;
-    const c = canvas.getContext("2d")!; c.fillStyle = "#122733"; c.fillRect(0, 0, 640, 144);
-    c.fillStyle = agent.color; c.fillRect(0, 0, 10, 144); c.font = "600 42px system-ui"; c.fillStyle = "#f3ecdc";
-    c.fillText(`${agent.needsInput ? "! " : agent.needsReview ? "? " : ""}${agent.name.slice(0, 13)}`, 24, 58, 595);
-    c.font = "28px system-ui"; c.fillStyle = "#9cb4c3"; c.fillText(agent.needsInput ? "等待你的回复" : agent.needsReview ? "有新结果" : agent.status === "working" ? "正在工作" : "空闲", 25, 110);
+    const canvas = document.createElement("canvas"); canvas.width = 640; canvas.height = expanded ? 144 : 88;
+    const c = canvas.getContext("2d")!; c.fillStyle = "#122733"; c.fillRect(0, 0, 640, canvas.height);
+    c.fillStyle = agent.color; c.fillRect(0, 0, 10, canvas.height); c.font = expanded ? "600 42px system-ui" : "600 53px system-ui";
+    const marker = agent.needsInput ? "!" : agent.needsReview ? "?" : "";
+    if (marker) { c.fillStyle = "#facc15"; c.fillText(marker, 24, 58); }
+    const limit = expanded ? 13 : 7, name = agent.name.length > limit ? `${agent.name.slice(0, limit)}…` : agent.name;
+    c.fillStyle = "#f3ecdc"; c.fillText(name, marker ? 70 : 24, expanded ? 58 : 62, marker ? 545 : 595);
+    if (expanded) { c.font = "28px system-ui"; c.fillStyle = "#9cb4c3"; c.fillText(agent.needsInput ? "等待你的回复" : agent.needsReview ? "有新结果" : agent.status === "working" ? "正在工作" : "空闲", 25, 110); }
     const result = new THREE.CanvasTexture(canvas); result.colorSpace = THREE.SRGBColorSpace; return result;
-  }, [agent.name, agent.color, agent.needsInput, agent.needsReview, agent.status]);
+  }, [agent.name, agent.color, agent.needsInput, agent.needsReview, agent.status, expanded]);
   useEffect(() => () => texture.dispose(), [texture]);
   useFrame(() => {
-    const value = lookup.current.get(agent.id); if (!value || !ref.current) return;
-    const p = worldPoint(value); ref.current.position.set(p.x, 1.9, p.z); ref.current.visible = visible;
+    const value = lookup.current.get(agent.id); if (!ref.current) return;
+    // Identity is always shown for every placed crew member. Alert state only
+    // adds a marker/details; it must never decide whether a name exists.
+    ref.current.visible = !!value;
+    if (value) { const p = worldPoint(value); ref.current.position.set(p.x, expanded ? 1.9 : 1.55, p.z); }
   });
-  return <sprite ref={ref} scale={[3.4, 0.765, 1]} visible={visible} renderOrder={100}>
+  return <sprite ref={ref} name="crew-nameplate" scale={expanded ? [3.4, 0.765, 1] : [2.2, 0.303, 1]} visible={false} renderOrder={100}
+    onClick={event => { event.stopPropagation(); onOpen(agent.id); }}>
     <spriteMaterial map={texture} depthTest={false} depthWrite={false} toneMapped={false} />
   </sprite>;
 }
