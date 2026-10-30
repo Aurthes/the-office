@@ -143,7 +143,9 @@ class CodexSessionControls {
     if (this.sends.size > 128) this.sends.delete(this.sends.keys().next().value);
     await this.attach(id); await this.refreshTurn(id);
     const active = this.state(id).activeTurnId;
-    const result = await this.client.call(active ? "turn/steer" : "turn/start", { threadId: id, input, ...(active ? { expectedTurnId: active } : {}) });
+    // The desktop uses this identity to display external steering as a user
+    // message. Reuse the send ID so duplicate requests keep the same identity.
+    const result = await this.client.call(active ? "turn/steer" : "turn/start", { threadId: id, input, clientUserMessageId: requestId, ...(active ? { expectedTurnId: active } : {}) });
     const turnId = result.turn?.id || result.turnId;
     this.state(id).activeTurnId = turnId;
     this.state(id).turnStatus = "inProgress";
