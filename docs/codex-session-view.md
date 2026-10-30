@@ -192,6 +192,11 @@ installed desktop App. It requires a logged-in ChatGPT account with dictation
 available; other auth modes are rejected explicitly.
 
 Only authoritative final transcripts are inserted after a clean native completion.
+Native connection preparation overlaps microphone permission and worklet setup.
+Ordered WebSocket audio frames and the finish request are sent without an extra
+audio-ACK round trip; final insertion still requires all audio requests to succeed.
+The composer labels recording duration separately from stop-to-draft elapsed time.
+Recovery retries show their own elapsed time, which includes real-time audio replay.
 Utterance order and final revisions are preserved. Dictation never starts a Codex
 turn; review the draft and Send normally. A recording is limited to 10 minutes and
 20 MiB. Interruption and limit stops preserve the captured portion and expose retry

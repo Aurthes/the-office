@@ -20,8 +20,51 @@ function microphone() {
   vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn(async () => stream) } });
   return stream;
 }
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.restoreAllMocks(); });
 describe("browser recording to native dictation", () => {
+  it("flushes without waiting for the last audio ACK, but checks it before inserting text", async () => {
+    microphone(); const inserted = vi.fn(); const clock = vi.spyOn(performance, "now").mockReturnValue(1000);
+    let acknowledge!: (value: unknown) => void, complete!: (value: unknown) => void;
+    const call = vi.fn(async (method: string) => {
+      if (method === "session.dictation.append") return new Promise(resolve => { acknowledge = resolve; });
+      if (method === "session.dictation.finish") return new Promise(resolve => { complete = resolve; });
+      return { started: true };
+    });
+    const { result } = renderHook(() => useNativeDictation("capture-ack", "", inserted, { call }));
+    await act(async () => result.current.start()); act(() => port.onmessage?.({ data: { pcm: new Int16Array(3200) } }));
+    let stopping!: Promise<void>; act(() => { stopping = result.current.stop(); });
+    await waitFor(() => expect(complete).toBeTypeOf("function"));
+    await act(async () => complete({ text: "native final" })); expect(inserted).not.toHaveBeenCalled();
+    clock.mockReturnValue(1800);
+    await act(async () => { acknowledge({ accepted: true }); await stopping; });
+    expect(inserted).toHaveBeenCalledExactlyOnceWith("native final");
+    expect(result.current.clip!.seconds).toBe(0.2);
+    expect(result.current.transcriptionTime).toEqual({ seconds: 0.8, retry: false });
+    act(() => result.current.clear());
+  });
+  it("prepares native transport during microphone permission and cancels when permission fails", async () => {
+    microphone(); let denied!: (error: Error) => void;
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: () => new Promise((_resolve, reject) => { denied = reject; }) } });
+    const call = vi.fn(async () => ({ started: true }));
+    const { result } = renderHook(() => useNativeDictation("capture-denied", "", vi.fn(), { call }));
+    let starting!: Promise<void>; act(() => { starting = result.current.start(); });
+    expect(call).toHaveBeenCalledWith("session.dictation.start", expect.anything());
+    await act(async () => { denied(new Error("NotAllowedError")); await starting; });
+    expect(call).toHaveBeenCalledWith("session.dictation.cancel", expect.anything());
+    expect(result.current.phase).toBe("error");
+  });
+  it("cancels native preparation when leaving with microphone permission still pending", async () => {
+    const stream = microphone(); let granted!: (value: unknown) => void;
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: () => new Promise(resolve => { granted = resolve; }) } });
+    const call = vi.fn(async () => ({ started: true }));
+    const view = renderHook(() => useNativeDictation("capture-pending-leave", "", vi.fn(), { call }));
+    let starting!: Promise<void>; act(() => { starting = view.result.current.start(); });
+    view.unmount();
+    await act(async () => { await Promise.resolve(); });
+    expect(call).toHaveBeenCalledWith("session.dictation.cancel", expect.anything());
+    await act(async () => { granted(stream); await starting; });
+    expect(stopTrack).toHaveBeenCalledOnce();
+  });
   it("streams during capture and inserts only the completed native transcript after stop", async () => {
     microphone(); const inserted = vi.fn(), fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
     let complete!: (value: unknown) => void;
