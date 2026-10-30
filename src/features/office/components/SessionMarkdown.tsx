@@ -7,11 +7,11 @@ import type { SessionAsset } from "./SessionControls";
 import { visibleUserText } from "@/lib/text/codex-visible-text";
 export { visibleUserText };
 
-function AssetImage({ src, name, onOpen, fullSize = false }: { src: string; name: string; onOpen: () => void; fullSize?: boolean }) {
+function AssetImage({ src, name, onOpen, fullSize = false, thumbnail = false }: { src: string; name: string; onOpen: () => void; fullSize?: boolean; thumbnail?: boolean }) {
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
-  return <span className="my-3 block">
-    {failed ? <button type="button" onClick={() => { setFailed(false); setRetry(value => value + 1); }} className="rounded-lg border border-white/15 p-3 text-xs text-amber-100">图片加载失败，点击重试 · {name}</button> : <button type="button" onClick={onOpen} className={fullSize ? "block cursor-zoom-out" : "block max-w-full cursor-zoom-in"} title={fullSize ? "还原图片" : "放大图片"}>
+  return <span className={thumbnail ? "inline-flex" : "my-3 block"}>
+    {failed ? <button type="button" onClick={() => { setFailed(false); setRetry(value => value + 1); }} className="rounded-lg border border-white/15 p-3 text-xs text-amber-100">图片加载失败，点击重试 · {name}</button> : <button type="button" onClick={onOpen} className={thumbnail ? "session-image-thumbnail block cursor-zoom-in" : fullSize ? "block cursor-zoom-out" : "block max-w-full cursor-zoom-in"} title={fullSize ? "还原图片" : "放大图片"}>
       {/* Authenticated dynamic files cannot use the shared Next image cache. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={src + (retry ? `${src.includes("?") ? "&" : "?"}retry=${retry}` : "")} alt={name} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} className={fullSize ? "max-w-none" : "max-h-[65dvh] max-w-full rounded-lg object-contain"} />
@@ -86,11 +86,16 @@ export const SessionMarkdown = memo(function SessionMarkdown({ content, assets =
             : source && /^https?:\/\//.test(source) ? <AssetImage src={source} name={alt || "图片"} onOpen={() => setPreview({ source, url: source, name: alt || "图片", kind: "image" })} /> : <span className="text-xs text-white/50">{alt || "图片"}（预览暂不可用，请刷新会话）</span>;
         },
   }), [find]);
+  const text = user ? visibleUserText(content) : content;
+  const attachments = assets.filter(asset => asset.inline || asset.attached).map(asset => asset.kind === "image" ? <AssetImage key={asset.url} src={asset.url} name={asset.name} thumbnail={user} onOpen={() => setPreview(asset)} /> : asset.kind === "file" ? <a key={asset.url} href={asset.url} download={asset.name} className="my-2 inline-block rounded-lg border border-white/15 px-3 py-2 text-sm text-cyan-100">{asset.name} ↓ 下载</a> : <button key={asset.url} type="button" onClick={() => setPreview(asset)} className="my-2 rounded-lg border border-white/15 px-3 py-2 text-sm text-cyan-100">{asset.name} ↗ 预览</button>);
   return <>
+    {user && attachments.length ? <div className="session-user-attachments flex flex-wrap justify-end gap-2">{attachments}</div> : null}
+    {(!user || text.trim()) ? <div className={user ? "session-user-text" : undefined}>
     <div className="agent-markdown min-w-0 break-words text-base leading-relaxed [&_a]:text-sky-200 [&_a]:underline [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={transform} components={components}>{user ? visibleUserText(content) : content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={transform} components={components}>{text}</ReactMarkdown>
     </div>
-    {assets.filter(asset => asset.inline || asset.attached).map(asset => asset.kind === "image" ? <AssetImage key={asset.url} src={asset.url} name={asset.name} onOpen={() => setPreview(asset)} /> : asset.kind === "file" ? <a key={asset.url} href={asset.url} download={asset.name} className="my-2 inline-block rounded-lg border border-white/15 px-3 py-2 text-sm text-cyan-100">{asset.name} ↓ 下载</a> : <button key={asset.url} type="button" onClick={() => setPreview(asset)} className="my-2 rounded-lg border border-white/15 px-3 py-2 text-sm text-cyan-100">{asset.name} ↗ 预览</button>)}
+    </div> : null}
+    {!user ? attachments : null}
     {preview ? <AssetPreview key={preview.url} asset={preview} onClose={() => setPreview(null)} /> : null}
   </>;
 });

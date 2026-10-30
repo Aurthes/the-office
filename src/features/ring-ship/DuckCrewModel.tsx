@@ -25,13 +25,14 @@ export const DuckCrewModel = memo(function DuckCrewModel({
     target.set(x, 0.08, z); group.current.position.lerp(target, rate);
     group.current.rotation.y += Math.atan2(Math.sin(agent.facing - group.current.rotation.y), Math.cos(agent.facing - group.current.rotation.y)) * rate;
     const walking = agent.state === "walking", seated = agent.state === "sitting";
+    const jogging = walking && agent.walkSpeed > 1;
     const phase = agent.frame * WALK_ANIM_SPEED + (agent.phaseOffset ?? 0);
     const stride = Math.sin(phase), working = agent.status === "working" && agent.interactionTarget === "desk";
     const typing = working && agent.frame % 1100 < 780;
     const seatOffset = seated ? Math.max(0, ((agent.workstation?.seatHeight ?? 0.4) - 0.08) / AGENT_SCALE - 0.065) : 0;
-    rig.root.position.y = seatOffset + (walking ? Math.abs(stride) * 0.012 : Math.sin(phase * 0.23) * 0.003);
+    rig.root.position.y = seatOffset + (walking ? Math.abs(stride) * (jogging ? 0.02 : 0.012) : Math.sin(phase * 0.23) * 0.003);
     rig.body.rotation.z = walking ? stride * 0.055 : 0;
-    rig.body.rotation.x = working ? 0.07 : 0;
+    rig.body.rotation.x = working ? 0.07 : jogging ? 0.12 : 0;
     rig.body.rotation.y = working ? typing ? 0 : Math.sin(phase * 0.12) * 0.12 : Math.sin(phase * 0.08) * 0.06;
     rig.wings.forEach((wing, index) => {
       const side = index ? 1 : -1;

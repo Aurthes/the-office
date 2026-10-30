@@ -52,7 +52,10 @@ Each deck has a botanical garden, hydroponic food garden, cafeteria, gym, server
 room, workshop, lounge, observatory, supply bay and crew quarters. Working cabins
 include desks, storage, plants and meeting/rest corners; standby cabins retain
 service equipment. Idle agents can visit public spaces on their own deck; working
-agents stay at their assigned desks. Crew use original procedural duck figures
+agents at their desks keep working. A roaming worker who receives a task retraces
+its occupied route and jogs back before showing the seated typing pose. Native
+task execution starts immediately and never waits for this scene animation. Crew
+use original procedural duck figures
 with matte feathers, webbed feet and no equipment.
 
 Hull and small props are procedural geometry merged by material. Shell buffers

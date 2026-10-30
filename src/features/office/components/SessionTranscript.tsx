@@ -23,8 +23,8 @@ export function SessionTranscript({ messages }: { messages: LiveSessionItem[] })
       {message.role === "tool" ? <p className="mb-1 text-[10px] text-white/40">工具{message.status === "inProgress" ? " · 进行中" : message.status === "failed" ? " · 失败" : ""}</p> : null}
       {body(message)}
     </div>)}</div>
-  </details> : <article key={block.message.id} className={`rounded-lg border px-3 py-2.5 ${block.message.role === "user" ? "ml-6 border-cyan-400/40 bg-[#0b5268] text-cyan-50" : "mr-2 border-slate-500/40 bg-[#242932] text-slate-100"}`}>
-    <div className={`mb-1 text-[10px] font-semibold ${block.message.role === "user" ? "text-cyan-100" : "text-slate-300"}`}>{block.message.role === "user" ? "你" : "Codex"}</div>
+  </details> : <article key={block.message.id} aria-label={block.message.role === "user" ? "你的消息" : "Codex 消息"} className={block.message.role === "user" ? "session-user-message" : "mr-2 rounded-lg border border-slate-500/40 bg-[#242932] px-3 py-2.5 text-slate-100"}>
+    {block.message.role !== "user" ? <div className="mb-1 text-[10px] font-semibold text-slate-300">Codex</div> : null}
     {body(block.message)}
   </article>);
 }

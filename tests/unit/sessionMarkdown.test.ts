@@ -63,3 +63,23 @@ it("shows loading and slow feedback for HTML, offers a separate window, and allo
     fireEvent.click(screen.getByRole("link", { name: /单独打开/ })); expect(screen.queryByRole("dialog")).toBeNull();
   } finally { vi.useRealTimers(); }
 });
+it("unwraps native file prompts while preserving ordinary Markdown headings", () => {
+  const prompt = '# Files mentioned by the user:\n\n## image.png: /Users/me/uploads/image.png\nImage attachment: true\n\n## My request for Codex:\n\n大概这个样子，嘴是有形状的';
+  expect(visibleUserText(prompt)).toBe('大概这个样子，嘴是有形状的');
+  expect(visibleUserText(prompt.replaceAll('\n', '\r\n'))).toBe('大概这个样子，嘴是有形状的');
+  expect(visibleUserText('<in-app-browser-context>context</in-app-browser-context>\n## My request:\n'+prompt)).toBe('大概这个样子，嘴是有形状的');
+  expect(visibleUserText('Please explain this heading:\n## My request for Codex:\nKeep it')).toBe('Please explain this heading:\n## My request for Codex:\nKeep it');
+  expect(visibleUserText('# Files mentioned by the user:\n## example.txt: /tmp/example.txt')).toBe('# Files mentioned by the user:\n## example.txt: /tmp/example.txt');
+});
+it("shows a user's attached image separately before the clean request and preserves full preview", () => {
+  const prompt = '# Files mentioned by the user:\n\n## image.png: /Users/me/uploads/image.png\n\n## My request for Codex:\n\n看看鸭嘴';
+  const { container } = render(React.createElement(SessionMarkdown, { user: true, content: prompt, assets: [{ source: 'attachment:1', name: 'image.png', kind: 'image', url: '/api/session-assets?ref=image', inline: true }] }));
+  expect(screen.queryByText(/Files mentioned|My request|\/Users\/me/)).toBeNull();
+  const image = screen.getByRole('img', { name: 'image.png' }), request = screen.getByText('看看鸭嘴');
+  expect(image.closest('button')?.className).toContain('session-image-thumbnail');
+  expect(image.compareDocumentPosition(request) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(image);
+  const enlarged = within(screen.getByRole('dialog')).getByRole('img', { name: 'image.png' });
+  expect(enlarged.closest('button')?.className).not.toContain('session-image-thumbnail');
+  expect(container.querySelectorAll('.session-image-thumbnail')).toHaveLength(1);
+});

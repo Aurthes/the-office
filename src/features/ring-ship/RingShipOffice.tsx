@@ -9,11 +9,10 @@ import { Home, Layers3, Settings2, Users, X } from "lucide-react";
 import type { RetroOffice3D } from "@/features/retro-office/RetroOffice3D";
 import type { OfficeAgent, RenderAgent } from "@/features/retro-office/core/types";
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
-import { CANVAS_W, CANVAS_H, SCALE } from "@/features/retro-office/core/constants";
 import { DuckCrewModel } from "./DuckCrewModel";
 import { CompanyWorkAreaMenu } from "@/features/office/components/CompanyWorkAreaMenu";
 import { SettingsPanel } from "@/features/office/components/panels/SettingsPanel";
-import { DECK_NAMES, DECK_STEP, DECKS, PUBLIC_DESCRIPTIONS, routeBetweenCabins, SHARED_PROJECT_ID, shipDeck, type DeckIndex, type ShipLayout, type ShipPoint } from "./layout";
+import { DECK_NAMES, DECK_STEP, DECKS, PUBLIC_DESCRIPTIONS, SHARED_PROJECT_ID, shipDeck, type DeckIndex, type ShipLayout } from "./layout";
 import { buildShipGeometry, disposeShipGeometry, FURNITURE_MODELS, SHIP_WORKSTATION, type ModelTemplates } from "./geometry";
 import { useShipLayout } from "./useShipLayout";
 import { getAgentActivity, workChatter } from "@/features/retro-office/core/agentActivity";
@@ -22,6 +21,7 @@ import { chatCameraPose } from "./chatCamera";
 import { shipCameraPose } from "./cameraPose";
 import { buildShell } from "./shell";
 import { LiftEntry, LiftJourney, LiftOverlay, type LiftTrip } from "./ShipLift";
+import { advanceCrew, canvasPoint, worldPoint, hash, type MovingAgent } from "./crewMotion";
 
 type Props = ComponentProps<typeof RetroOffice3D>;
 type Controls = ComponentRef<typeof OrbitControls>;
@@ -134,7 +134,7 @@ function CabinTargets({ layout, focus, onSelect }: { layout: ShipLayout; focus: 
     </mesh>;
   })}</>;
 }
-type MovingAgent = RenderAgent & { route: ShipPoint[]; routeIndex: number; pauseUntil: number; home: ShipPoint; visiting: boolean };
+
 type NameplatePlacement = { frame: number; rects: Array<{ x: number; y: number; width: number; height: number }> };
 // A small per-frame animation buffer, independent of React state and props.
 function placeNameplate(frame: NameplatePlacement, time: number, x: number, y: number, width: number, height: number) {
@@ -147,39 +147,7 @@ function placeNameplate(frame: NameplatePlacement, time: number, x: number, y: n
   frame.rects.push({ x, y: y - lift, width, height });
   return lift;
 }
-function canvasPoint(point: ShipPoint) { return { x: point.x / SCALE + CANVAS_W / 2, y: point.z / SCALE + CANVAS_H / 2 }; }
-function worldPoint(agent: RenderAgent): ShipPoint { return { x: (agent.x - CANVAS_W / 2) * SCALE, z: (agent.y - CANVAS_H / 2) * SCALE }; }
-function hash(value: string) { let result = 0; for (const char of value) result = (result * 31 + char.charCodeAt(0)) >>> 0; return result; }
-// These are mutable animation objects owned by Three.js, not React state.
-function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number, delta: number, chatAgentId?: string | null) {
-  const dt = Math.min(delta, 0.05), amenities = layout.cabins.filter(c => ["garden", "lounge", "canteen", "gym", "observatory"].includes(c.kind));
-  for (const a of crew) {
-    const seat = layout.seats[a.id]; if (!seat) continue;
-    a.frame += dt * 60;
-    if (a.id === chatAgentId && a.status === "idle" && !a.needsInput) { a.state = "standing"; continue; }
-    if (a.status === "working" || a.status === "error" || a.needsInput) {
-      a.route = []; a.visiting = false; const p = canvasPoint(a.home); a.x = p.x; a.y = p.y; a.facing = seat.facing;
-      a.state = "sitting"; a.interactionTarget = "desk"; continue;
-    }
-    a.interactionTarget = undefined;
-    if (!a.route.length && now > a.pauseUntil && amenities.length) {
-      const destination = amenities[hash(a.id) % amenities.length];
-      if (!a.visiting) a.route = routeBetweenCabins(layout, seat, destination);
-      else a.route = [...routeBetweenCabins(layout, seat, destination)].reverse().concat([a.home]);
-      a.visiting = !a.visiting; a.routeIndex = 0;
-    }
-    const target = a.route[a.routeIndex];
-    if (!target) { a.state = "standing"; continue; }
-    const p = worldPoint(a), dx = target.x - p.x, dz = target.z - p.z, distance = Math.hypot(dx, dz), stride = dt * 1.05;
-    a.state = "walking"; a.facing = Math.atan2(dx, dz);
-    const next = distance < stride ? target : { x: p.x + dx / distance * stride, z: p.z + dz / distance * stride };
-    Object.assign(a, canvasPoint(next));
-    if (distance < stride) {
-      a.routeIndex += 1;
-      if (a.routeIndex >= a.route.length) { a.route = []; a.pauseUntil = now + 16000 + hash(a.id) % 20000; a.state = "standing"; }
-    }
-  }
-}
+
 function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId }: { agents: OfficeAgent[]; layout: ShipLayout; focus: string; onOpen: (id: string) => void; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null }) {
   const agentsRef = useRef<RenderAgent[]>([]);
   const nameplatePlacement = useRef<NameplatePlacement>({ frame: -1, rects: [] });
@@ -192,10 +160,10 @@ function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId }: { agent
       const seat = layout.seats[agent.id]; if (!seat) return [];
       const previous = old.get(agent.id) as MovingAgent | undefined, p = canvasPoint(seat);
       const unchanged = previous && Math.hypot(previous.home.x - seat.x, previous.home.z - seat.z) < 0.01;
-      const keepRoute = unchanged && previous.status === agent.status;
+      const keepRoute = unchanged;
       return [{ ...agent, x: unchanged ? previous.x : p.x, y: unchanged ? previous.y : p.y, targetX: p.x, targetY: p.y,
-        path: [], facing: seat.facing, frame: previous?.frame || hash(agent.id) % 100, state: "standing" as const,
-        walkSpeed: 1, phaseOffset: hash(agent.id) % 100, interactionTarget: agent.status === "working" ? "desk" as const : undefined,
+        path: [], facing: unchanged ? previous.facing : seat.facing, frame: previous?.frame || hash(agent.id) % 100, state: unchanged ? previous.state : "standing" as const,
+        walkSpeed: unchanged ? previous.walkSpeed : 1, phaseOffset: hash(agent.id) % 100, interactionTarget: undefined,
         workstation: { ...p, deskUid: seat.cabinId + agent.id, facing: seat.facing, pose: "sitting" as const, seatHeight: SHIP_WORKSTATION.seatHeight, surfaceHeight: SHIP_WORKSTATION.surfaceHeight },
         home: { x: seat.x, z: seat.z }, route: keepRoute ? previous.route : [], routeIndex: keepRoute ? previous.routeIndex : 0,
         visiting: keepRoute ? previous.visiting : false, pauseUntil: keepRoute ? previous.pauseUntil : now + 7000 + hash(agent.id) % 18000 }];
@@ -204,7 +172,6 @@ function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId }: { agent
   }, [agents, layout, lookupRef]);
   useFrame((state, delta) => {
     advanceCrew(agentsRef.current as MovingAgent[], layout, performance.now(), delta, chatAgentId);
-
   });
   return <>{agents.map(agent => {
     const seat = layout.seats[agent.id]; if (!seat) return null;
