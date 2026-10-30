@@ -99,6 +99,17 @@ function CabinTargets({ layout, focus, onSelect }: { layout: ShipLayout; focus: 
 }
 type MovingAgent = RenderAgent & { route: ShipPoint[]; routeIndex: number; pauseUntil: number; home: ShipPoint; visiting: boolean };
 type NameplatePlacement = { frame: number; rects: Array<{ x: number; y: number; width: number; height: number }> };
+// A small per-frame animation buffer, independent of React state and props.
+function placeNameplate(frame: NameplatePlacement, time: number, x: number, y: number, width: number, height: number) {
+  if (frame.frame !== time) { frame.frame = time; frame.rects = []; }
+  let lift = 0;
+  for (let attempt = 0; attempt <= frame.rects.length; attempt++) {
+    if (!frame.rects.some(r => x < r.x + r.width + 3 && x + width + 3 > r.x && y - lift < r.y + r.height + 3 && y - lift + height + 3 > r.y)) break;
+    lift += height + 4;
+  }
+  frame.rects.push({ x, y: y - lift, width, height });
+  return lift;
+}
 function canvasPoint(point: ShipPoint) { return { x: point.x / SCALE + CANVAS_W / 2, y: point.z / SCALE + CANVAS_H / 2 }; }
 function worldPoint(agent: RenderAgent): ShipPoint { return { x: (agent.x - CANVAS_W / 2) * SCALE, z: (agent.y - CANVAS_H / 2) * SCALE }; }
 function hash(value: string) { let result = 0; for (const char of value) result = (result * 31 + char.charCodeAt(0)) >>> 0; return result; }
@@ -195,18 +206,12 @@ function CrewLabel({ agent, lookup, placement, expanded, onOpen }: { agent: Offi
     ref.current.visible = !!value;
     if (!value) return;
     const p = worldPoint(value), width = expanded ? 160 : 84, height = expanded ? 36 : 21;
-    const zoom = state.camera.zoom, frame = placement.current;
-    if (frame.frame !== state.clock.elapsedTime) { frame.frame = state.clock.elapsedTime; frame.rects = []; }
+    const zoom = state.camera.zoom;
     vectors.anchor.set(p.x, 1.3, p.z);
     vectors.projected.copy(vectors.anchor).project(state.camera);
     const x = (vectors.projected.x + 1) * state.size.width / 2 - width / 2;
     const y = (1 - vectors.projected.y) * state.size.height / 2 - height - 6;
-    let lift = 0;
-    for (let attempt = 0; attempt <= frame.rects.length; attempt++) {
-      if (!frame.rects.some(r => x < r.x + r.width + 3 && x + width + 3 > r.x && y - lift < r.y + r.height + 3 && y - lift + height + 3 > r.y)) break;
-      lift += height + 4;
-    }
-    frame.rects.push({ x, y: y - lift, width, height });
+    const lift = placeNameplate(placement.current, state.clock.elapsedTime, x, y, width, height);
     vectors.up.setFromMatrixColumn(state.camera.matrixWorld, 1).normalize();
     ref.current.scale.set(width / zoom, height / zoom, 1);
     ref.current.position.copy(vectors.anchor).addScaledVector(vectors.up, (6 + height / 2 + lift) / zoom);
