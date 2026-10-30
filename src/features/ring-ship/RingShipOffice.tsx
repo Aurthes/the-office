@@ -267,7 +267,9 @@ function CrewLabel({ agent, lookupRef, placement, expanded, onOpen }: { agent: O
 
 function ActivityBadge({ agent }: { agent: OfficeAgent }) {
   const activity = getAgentActivity(agent);
-  return activity.marker ? <span aria-label={activity.label} title={activity.label} className={`absolute -right-1 -top-2 rounded bg-[#132a38] px-1 text-sm leading-5 ${activity.kind === "working" ? "motion-safe:animate-spin" : ""}`} style={{ color: activity.color, animationDuration: "3s" }}>{activity.marker}</span> : null;
+  return activity.marker ? <span aria-label={activity.label} title={activity.label} className="absolute -right-1 -top-2 rounded bg-[#132a38] px-1 text-sm leading-5" style={{ color: activity.color }}>
+    <span className={activity.kind === "working" ? "inline-block motion-safe:animate-spin" : undefined} style={{ animationDuration: "3s" }}>{activity.marker}</span>
+  </span> : null;
 }
 
 export function RingShipOffice(props: Props) {
