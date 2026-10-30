@@ -5,6 +5,8 @@ import { useLayoutEffect, useMemo, useRef, type RefObject } from "react";
 import * as THREE from "three";
 import {
   DOOR_LENGTH,
+  AGENT_RADIUS,
+  AGENT_HEIGHT,
   DOOR_THICKNESS,
   SCALE,
   WALL_THICKNESS,
@@ -58,7 +60,8 @@ export function InstancedWallSegmentsModel({
   if (items.length === 0) return null;
 
   return (
-    <instancedMesh ref={meshRef} args={[undefined, undefined, items.length]} receiveShadow>
+    <instancedMesh ref={meshRef} args={[undefined, undefined, items.length]} receiveShadow
+      userData={{ collisionItems: items.map(item => ({ id: item._uid, rotation: getItemRotationRadians(item) })) }}>
       <boxGeometry args={[1, 1, 1]} />
       <meshStandardMaterial color="#787878" roughness={0.92} />
     </instancedMesh>
@@ -222,8 +225,8 @@ export function DoorModel({
     const centerZ = wz + depth / 2;
     const cos = Math.cos(rotY);
     const sin = Math.sin(rotY);
-    const touchPadX = width * 0.5 + 0.2;
-    const touchPadZ = depth * 0.5 + 0.2;
+    const touchPadX = width * 0.5 + AGENT_RADIUS * SCALE + 0.2;
+    const touchPadZ = depth * 0.5 + AGENT_RADIUS * SCALE + 0.2;
     const shouldOpen = (agentsRef?.current ?? []).some((agent) => {
       const [ax, , az] = toWorld(agent.x, agent.y);
       const dx = ax - centerX;
@@ -235,7 +238,7 @@ export function DoorModel({
     const targetOpen = shouldOpen ? 1 : 0;
     openAmountRef.current = THREE.MathUtils.lerp(openAmountRef.current, targetOpen, 0.14);
     leafPivotRef.current.rotation.y = -openAmountRef.current * Math.PI * 0.55;
-  });
+  }, -1);
 
   return (
     <group
@@ -257,7 +260,7 @@ export function DoorModel({
         onClick?.(item._uid);
       }}
     >
-      <group position={[width / 2, 0, depth / 2]} rotation={[0, rotY, 0]}>
+      <group position={[width / 2, 0, depth / 2]} rotation={[0, rotY, 0]} scale={[1, (AGENT_HEIGHT + .1) / .97, 1]}>
         <mesh position={[0, 1.01, 0]}>
           <boxGeometry args={[width + 0.05, 0.08, depth + 0.04]} />
           <meshStandardMaterial color="#4a3421" roughness={0.88} />
@@ -270,7 +273,7 @@ export function DoorModel({
           <boxGeometry args={[0.04, 1, depth + 0.03]} />
           <meshStandardMaterial color="#4a3421" roughness={0.88} />
         </mesh>
-        <group ref={leafPivotRef} position={[-width / 2 + 0.025, 0, 0]}>
+        <group ref={leafPivotRef} position={[-width / 2 + 0.025, 0, 0]} userData={{ collisionDynamic: true }}>
           <mesh position={[width / 2 - 0.035, 0.5, 0]} receiveShadow>
             <boxGeometry args={[Math.max(width - 0.09, 0.08), 0.94, depth * 0.68]} />
             <meshStandardMaterial

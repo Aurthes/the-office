@@ -187,11 +187,25 @@ verified one original thread, cross-client approval, steer and stop, without a
 real model request. That evidence does not replace validating the actual App
 reconnection and its tools after the migration.
 
-Desk work positions and navigation now use the actual bundled GLB bounds and
-render transforms, including rotation and agent radius. `npm run prebuild`
-regenerates `workstation-models.json` from the desk and chair assets; tests pin
-the asset hashes. The editor footprint is not the physical desk volume.
-An assigned chair supplies the actual cushion position, height and facing; a
-desk without a usable chair gets a standing position outside its front edge.
-Paths keep clear approach/departure segments rather than substituting unsafe
-exact endpoints. This is model-aligned navigation, not a rigid-body simulation.
+Physical scene geometry is the shared collision source for pathfinding, movement
+and interaction positions. `SceneColliders` captures the actual rendered meshes,
+including instanced props, arbitrary furniture rotations and model scale. New
+physical props belong under this collector; do not infer runtime collisions from
+editor footprints or maintain a furniture-type whitelist. The footprint fallback
+in `buildNavGrid` is only for layouts that have not been rendered.
+
+Static meshes use oriented boxes and people use a floor-projected body radius
+of 16 canvas units (0.288 metres), with avatar-height filtering. Thin ground
+coverings can be stepped over; overhead objects block only when they intersect
+the body height. Animated door leaves are checked at their current transform;
+static navigation plans through the doorway while movement waits for clearance.
+Swept movement prevents tunnelling and slides along obstacles. People in every
+state, including seated workers and janitors, collide; contact triggers bounded
+rerouting around other people instead of moving through them.
+
+Only the assigned chair is exempt during its owner's seat interaction. Other
+chairs remain solid. If neighbouring furniture occupies a workstation's approach,
+choose clear standing floor from the same collision world. Table/social interaction
+points use the measured object volume too. The generated desk/chair GLB metadata
+(`npm run prebuild`) still supplies the precise cushion height and work pose.
+This is lightweight collision and navigation, not a rigid-body simulation.

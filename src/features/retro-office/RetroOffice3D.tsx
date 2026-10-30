@@ -23,6 +23,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import type { CompanyLayout } from "@/features/retro-office/core/companyLayout";
 import { CompanyWorkAreas, CompanyAreaCamera } from "@/features/retro-office/scene/CompanyWorkAreas";
@@ -221,7 +222,10 @@ import {
   PingPongBall as ScenePingPongBall,
   SpotlightEffect as SceneSpotlightEffect,
 } from "@/features/retro-office/systems/sceneRuntime";
-import { applyAgentCollisionBumps } from "@/features/retro-office/systems/NavigationSystem";
+import { actorSeatPermission, resolveAgentCollisions } from "@/features/retro-office/systems/NavigationSystem";
+import { CollisionWorld } from "./core/collision";
+import { CollisionItem, SceneColliders } from "./systems/SceneColliders";
+import { withAgentObstacles } from "./core/navigation";
 import {
   HeatmapSystem as AgentHeatmapSystem,
   TrailSystem as AgentTrailSystem,
@@ -439,9 +443,9 @@ const NOOP_FURNITURE_HANDLER = () => {};
 const EMPTY_FURNITURE_ITEMS: FurnitureItem[] = [];
 
 const ReadOnlyFurnitureClone = memo(function ReadOnlyFurnitureClone({
-  furniture,
+  furniture, world, agentsRef,
 }: {
-  furniture: FurnitureItem[];
+  furniture: FurnitureItem[]; world: CollisionWorld; agentsRef: React.RefObject<RenderAgent[]>;
 }) {
   const deskItems = useMemo(
     () => furniture.filter((item) => item.type === "desk_cubicle"),
@@ -458,14 +462,16 @@ const ReadOnlyFurnitureClone = memo(function ReadOnlyFurnitureClone({
 
   return (
     <Suspense fallback={null}>
+      <SceneColliders world={world} source="remote" revision={furniture}>
       <PrimitiveInstancedWallSegmentsModel items={wallItems} />
       <InstancedFurnitureItemsModel itemType="desk_cubicle" items={deskItems} />
       <InstancedFurnitureItemsModel itemType="chair" items={chairItems} />
-      {furniture.map((item) =>
+      {furniture.map((item) => <CollisionItem key={item._uid} item={item}>{
         item.type === "wall" ||
         item.type === "desk_cubicle" ||
         item.type === "chair" ? null : item.type === "door" ? (
           <PrimitiveDoorModel
+            agentsRef={agentsRef}
             key={item._uid}
             item={item}
             isSelected={false}
@@ -785,8 +791,9 @@ const ReadOnlyFurnitureClone = memo(function ReadOnlyFurnitureClone({
             onPointerOver={NOOP_FURNITURE_UID_HANDLER}
             onPointerOut={NOOP_FURNITURE_HANDLER}
           />
-        ),
-      )}
+        )
+      }</CollisionItem>)}
+    </SceneColliders>
     </Suspense>
   );
 });
@@ -863,6 +870,7 @@ function useAgentTick(
   qaLabStations: QaLabStationLocation[],
   meetingSeatLocations: { x: number; y: number; facing: number }[],
   furnitureRef: React.RefObject<FurnitureItem[]>,
+  collisionWorld: CollisionWorld,
   lastSeenByAgentId: Record<string, number> = {},
   deskHoldByAgentId: Record<string, boolean> = {},
   danceUntilByAgentId: Record<string, number> = {},
@@ -882,22 +890,23 @@ function useAgentTick(
   const nextGymRef = useRef(0);
   const nextQaRef = useRef(0);
 
-  // Nav grid is rebuilt lazily whenever the furniture array reference changes.
-  const navGridRef = useRef<NavGrid | null>(null);
-  const gridSourceRef = useRef<FurnitureItem[]>([]);
-
-  const getNavGrid = useCallback((): NavGrid => {
-    const furniture = furnitureRef.current ?? [];
-    if (navGridRef.current === null || gridSourceRef.current !== furniture) {
-      navGridRef.current = buildNavGrid(furniture);
-      gridSourceRef.current = furniture;
+  const navCacheRef = useRef({ revision: -1, grids: new Map<string, NavGrid>() });
+  const movementRevisionRef = useRef(-1);
+  const getNavGrid = useCallback((agentId?: string, tx?: number, ty?: number): NavGrid => {
+    const cache = navCacheRef.current;
+    if (cache.revision !== collisionWorld.revision) { cache.grids.clear(); cache.revision = collisionWorld.revision; }
+    const index = agentId ? (assignedDeskIndexByAgentId[agentId] ?? deskByAgentRef.current.get(agentId) ?? -1) : -1;
+    const station = deskLocations[index];
+    const ignore = station?.chairUid && tx !== undefined && ty !== undefined && Math.hypot(tx - station.x, ty - station.y) < 1 ? station.chairUid : "";
+    let grid = cache.grids.get(ignore);
+    if (!grid) {
+      grid = buildNavGrid(furnitureRef.current ?? [], collisionWorld.boxes.filter(box => box.owner !== ignore));
+      cache.grids.set(ignore, grid);
     }
-    return navGridRef.current;
-  }, [furnitureRef]);
-
+    return grid;
+  }, [furnitureRef, collisionWorld, deskLocations, assignedDeskIndexByAgentId]);
   const planPath = useCallback(
-    (fx: number, fy: number, tx: number, ty: number) =>
-      astar(fx, fy, tx, ty, getNavGrid()),
+    (fx: number, fy: number, tx: number, ty: number, agentId?: string) => astar(fx, fy, tx, ty, getNavGrid(agentId, tx, ty)),
     [getNavGrid],
   );
   const pickRoamPoint = useCallback((agentId: string) => {
@@ -989,7 +998,7 @@ function useAgentTick(
           path:
             initialRouteIndex === 0
               ? []
-              : planPath(spawn.x, spawn.y, initialTarget.x, initialTarget.y),
+              : planPath(spawn.x, spawn.y, initialTarget.x, initialTarget.y, agent.id),
           frame: 0,
           walkSpeed: WALK_SPEED * 0.82,
           phaseOffset: Math.random() * Math.PI * 2,
@@ -1134,8 +1143,7 @@ function useAgentTick(
               existing.x,
               existing.y,
               meetingTarget.x,
-              meetingTarget.y,
-            );
+              meetingTarget.y, agent.id);
           }
           ns.state =
             Math.hypot(
@@ -1179,8 +1187,7 @@ function useAgentTick(
               existing.x,
               existing.y,
               gymRoute.targetX,
-              gymRoute.targetY,
-            );
+              gymRoute.targetY, agent.id);
           }
           ns.state =
             Math.hypot(
@@ -1226,8 +1233,7 @@ function useAgentTick(
               existing.x,
               existing.y,
               qaLabRoute.targetX,
-              qaLabRoute.targetY,
-            );
+              qaLabRoute.targetY, agent.id);
           }
           ns.state =
             Math.hypot(
@@ -1270,8 +1276,7 @@ function useAgentTick(
               existing.x,
               existing.y,
               serverRoomRoute.targetX,
-              serverRoomRoute.targetY,
-            );
+              serverRoomRoute.targetY, agent.id);
           }
           ns.state =
             Math.hypot(
@@ -1316,8 +1321,7 @@ function useAgentTick(
               existing.x,
               existing.y,
               smsBoothRoute.targetX,
-              smsBoothRoute.targetY,
-            );
+              smsBoothRoute.targetY, agent.id);
           }
           ns.state =
             Math.hypot(
@@ -1361,8 +1365,7 @@ function useAgentTick(
               existing.x,
               existing.y,
               phoneBoothRoute.targetX,
-              phoneBoothRoute.targetY,
-            );
+              phoneBoothRoute.targetY, agent.id);
           }
           ns.state =
             Math.hypot(
@@ -1395,7 +1398,7 @@ function useAgentTick(
           ns.targetX = deskPos.x;
           ns.targetY = deskPos.y;
           if (targetChanged)
-            ns.path = planPath(existing.x, existing.y, deskPos.x, deskPos.y);
+            ns.path = planPath(existing.x, existing.y, deskPos.x, deskPos.y, agent.id);
           ns.state =
             Math.hypot(existing.x - deskPos.x, existing.y - deskPos.y) < 1
               ? deskPos.pose
@@ -1573,8 +1576,7 @@ function useAgentTick(
               existing.x,
               existing.y,
               nextTarget.x,
-              nextTarget.y,
-            );
+              nextTarget.y, agent.id);
             ns.state = "walking";
           } else if (effectiveStatus === "error") {
             ns.interactionTarget = undefined;
@@ -1601,7 +1603,7 @@ function useAgentTick(
             const r = pickRoamPoint(agent.id);
             ns.targetX = r.x;
             ns.targetY = r.y;
-            ns.path = planPath(existing.x, existing.y, r.x, r.y);
+            ns.path = planPath(existing.x, existing.y, r.x, r.y, agent.id);
             ns.state = "walking";
           }
         }
@@ -1653,7 +1655,7 @@ function useAgentTick(
           workstation: deskPos ?? undefined,
           targetX: initialTarget.x,
           targetY: initialTarget.y,
-          path: planPath(sx, sy, initialTarget.x, initialTarget.y),
+          path: planPath(sx, sy, initialTarget.x, initialTarget.y, agent.id),
           frame: 0,
           walkSpeed: WALK_SPEED * (0.7 + Math.random() * 0.6),
           phaseOffset: Math.random() * Math.PI * 2,
@@ -1758,7 +1760,10 @@ function useAgentTick(
 
   // Tick called each frame — follows A* waypoints, no React state.
   const tick = () => {
-    const grid = getNavGrid();
+    if (!collisionWorld.ready(furnitureRef.current)) return;
+    collisionWorld.refreshDynamic();
+    const geometryChanged = movementRevisionRef.current !== collisionWorld.revision;
+    movementRevisionRef.current = collisionWorld.revision;
     const now = Date.now();
     const furnitureItems = furnitureRef.current ?? [];
     const smsBoothItem =
@@ -1777,9 +1782,14 @@ function useAgentTick(
     const awayFurniture = socialFurniture.filter((item) =>
       ["couch", "couch_v", "beanbag"].includes(item.type),
     );
-    const moved = renderAgentsRef.current.map((agent) => {
-      const isJanitor = "role" in agent && agent.role === "janitor";
-      if (isJanitor && agent.janitorPauseUntil !== undefined) {
+    const moved = renderAgentsRef.current.map((sourceAgent) => {
+      let agent = sourceAgent;
+      const grid = getNavGrid(agent.id, agent.targetX, agent.targetY);
+      if (geometryChanged) {
+        const p = collisionWorld.resolve(agent, actorSeatPermission(agent));
+        agent = { ...agent, x: p.x, y: p.y, path: astar(p.x, p.y, agent.targetX, agent.targetY, grid) };
+      }
+      if ("janitorRoute" in agent && agent.janitorPauseUntil !== undefined) {
         if (now < agent.janitorPauseUntil) {
           return {
             ...agent,
@@ -1889,7 +1899,7 @@ function useAgentTick(
           ns = "walking";
         } else {
           npath = [];
-          if (isJanitor) {
+          if ("janitorRoute" in agent) {
             const routeIndex = agent.janitorRouteIndex ?? 0;
             const currentStop =
               agent.janitorRoute[routeIndex] ?? agent.janitorRoute.at(-1);
@@ -2098,20 +2108,8 @@ function useAgentTick(
                   awayFurniture[
                     Math.floor(Math.random() * awayFurniture.length)
                   ];
-                const tx = Math.max(
-                  SNAP_GRID,
-                  Math.min(
-                    CANVAS_W - SNAP_GRID,
-                    Math.round((f.x + 20) / SNAP_GRID) * SNAP_GRID,
-                  ),
-                );
-                const ty = Math.max(
-                  SNAP_GRID,
-                  Math.min(
-                    CANVAS_H - SNAP_GRID,
-                    Math.round((f.y + 20) / SNAP_GRID) * SNAP_GRID,
-                  ),
-                );
+                const approach = collisionWorld.approach(f._uid) ?? { x: f.x, y: f.y };
+                const tx = approach.x, ty = approach.y;
                 return {
                   ...agent,
                   x: nx,
@@ -2144,10 +2142,8 @@ function useAgentTick(
                   { dx: 0, dy: -1 },
                 ];
                 const off = offsets[Math.floor(Math.random() * offsets.length)];
-                const tx =
-                  Math.round((f.x + off.dx * 30) / SNAP_GRID) * SNAP_GRID;
-                const ty =
-                  Math.round((f.y + off.dy * 30) / SNAP_GRID) * SNAP_GRID;
+                const approach = collisionWorld.approach(f._uid, { x: off.dx, y: off.dy }) ?? { x: f.x, y: f.y };
+                const tx = approach.x, ty = approach.y;
                 target = isRemoteOfficeAgentId(agent.id)
                   ? clampPointToZone(tx, ty, REMOTE_OFFICE_ZONE)
                   : {
@@ -2195,9 +2191,14 @@ function useAgentTick(
       };
     });
 
-    // Collision bump — when agents overlap, stop them briefly and reroute them
-    // in different directions without the old hard shove.
-    const movedWithCollisions = applyAgentCollisionBumps({ agents: moved, now });
+    const collisions = resolveAgentCollisions({ agents: moved, previous: renderAgentsRef.current, world: collisionWorld });
+    const movedWithCollisions = collisions.agents.map(agent => {
+      const waiting = agent.path.length === 0 && Math.hypot(agent.x - agent.targetX, agent.y - agent.targetY) > 1
+        && (agent.state === "walking" || (agent.state === "standing" && agent.status === "working" && agent.interactionTarget === "desk"));
+      if ((!collisions.blocked.has(agent.id) && !waiting) || (agent.collisionCooldownUntil ?? 0) > now) return agent;
+      const grid = withAgentObstacles(getNavGrid(agent.id, agent.targetX, agent.targetY), collisions.agents.filter(other => other.id !== agent.id));
+      return { ...agent, path: astar(agent.x, agent.y, agent.targetX, agent.targetY, grid), collisionCooldownUntil: now + 500 };
+    });
 
     renderAgentsRef.current = movedWithCollisions;
     const renderAgentLookup = renderAgentLookupRef.current;
@@ -2790,7 +2791,10 @@ export function RetroOffice3D({
     () => furniture.filter((item) => item.type === "desk_cubicle"),
     [furniture],
   );
-  const deskLocations = useMemo(() => getDeskLocations(furniture), [furniture]);
+  const collisionWorld = useMemo(() => new CollisionWorld(), []);
+  const collisionRevision = useSyncExternalStore(collisionWorld.subscribe, collisionWorld.getSnapshot, () => 0);
+  const collisionGeometryReady = collisionWorld.ready(furniture);
+  const deskLocations = useMemo(() => getDeskLocations(furniture, collisionRevision > 0 && collisionWorld.ready(furniture) ? collisionWorld : undefined), [furniture, collisionWorld, collisionRevision]);
   const assignedDeskIndexByAgentId = useMemo(() => {
     const next: Record<string, number> = {};
     deskItems.forEach((item, index) => {
@@ -2881,6 +2885,7 @@ export function RetroOffice3D({
     qaLabStations,
     meetingSeatLocations,
     furnitureRef,
+    collisionWorld,
     lastSeenByAgentId,
     resolvedDeskHoldByAgentId,
     resolvedDanceUntilByAgentId,
@@ -4512,7 +4517,7 @@ export function RetroOffice3D({
           target: [tableWx, 0.45, tableWz],
           zoom: 105,
         };
-        const targets = resolvePingPongTargets(item);
+        const targets = resolvePingPongTargets(item, collisionWorld.ownerBounds(item._uid));
         const activePlayers = [...renderAgentsRef.current]
           .filter((agent) => agent.pingPongTableUid === item._uid)
           .sort(
@@ -4548,7 +4553,7 @@ export function RetroOffice3D({
           Object.assign(agent, {
             targetX: target.x,
             targetY: target.y,
-            path: planPath(agent.x, agent.y, target.x, target.y),
+            path: planPath(agent.x, agent.y, target.x, target.y, agent.id),
             facing: target.facing,
             state: "walking",
             walkSpeed: Math.max(agent.walkSpeed, PING_PONG_APPROACH_SPEED),
@@ -4693,6 +4698,7 @@ export function RetroOffice3D({
     [
       closeManualSmsBoothView,
       closeManualPhoneBoothView,
+      collisionWorld,
       editMode,
       furniture,
       manualSmsBoothOpen,
@@ -4718,17 +4724,20 @@ export function RetroOffice3D({
       if (!agentId) return;
       const agent = renderAgentLookupRef.current.get(agentId);
       if (!agent) return;
-      const tx = deskItem.x + 40;
-      const ty = deskItem.y - 5;
-      const path = planPath(agent.x, agent.y, tx, ty);
+      const station = deskLocations.find(location => location.deskUid === deskItem._uid);
+      if (!station) return;
+      const tx = station.x, ty = station.y;
+      const path = planPath(agent.x, agent.y, tx, ty, agent.id);
       Object.assign(agent, {
         targetX: tx,
         targetY: ty,
+        workstation: station,
+        interactionTarget: "desk",
         path,
         state: "walking",
       });
     },
-    [deskAssignmentByDeskUid, planPath, renderAgentLookupRef],
+    [deskAssignmentByDeskUid, deskLocations, planPath, renderAgentLookupRef],
   );
 
   const handleGoToDesk = useCallback(() => {
@@ -5297,7 +5306,9 @@ export function RetroOffice3D({
             />
 
             {/* Floor + walls — always visible, no async loading. */}
-            <SceneFloorAndWalls showRemoteOffice={remoteOfficeEnabled} />
+            <SceneColliders world={collisionWorld} source="shell" revision={remoteOfficeEnabled}>
+              <SceneFloorAndWalls showRemoteOffice={remoteOfficeEnabled} />
+            </SceneColliders>
             {companyLayout ? <>
               <CompanyWorkAreas layout={companyLayout} />
               <CompanyAreaCamera layout={companyLayout} focus={companyFocus} presetRef={cameraPresetRef} />
@@ -5313,6 +5324,7 @@ export function RetroOffice3D({
 
             {/* Furniture models — each loads its GLB asynchronously. */}
             <Suspense fallback={null}>
+              <SceneColliders world={collisionWorld} source="furniture" layout={furniture} revision={`${editMode}:${kanbanDeskTaskCount}`}>
               {!editMode ? (
                 <PrimitiveInstancedWallSegmentsModel items={wallItems} />
               ) : null}
@@ -5329,7 +5341,7 @@ export function RetroOffice3D({
                   items={chairItems}
                 />
               ) : null}
-              {furniture.map((item) =>
+              {furniture.map((item) => <CollisionItem key={item._uid} item={item}>{
                 item.type === "wall" ? (
                   editMode ? (
                     <PrimitiveWallSegmentModel
@@ -5733,18 +5745,19 @@ export function RetroOffice3D({
                     onPointerOut={handleFurniturePointerOut}
                     onClick={handleDeskClick}
                   />
-                ),
-              )}
+                )
+              }</CollisionItem>)}
+              </SceneColliders>
             </Suspense>
 
             {remoteLayoutFurniture.length > 0 ? (
-              <ReadOnlyFurnitureClone furniture={remoteLayoutFurniture} />
+              <ReadOnlyFurnitureClone furniture={remoteLayoutFurniture} world={collisionWorld} agentsRef={renderAgentsRef} />
             ) : null}
 
             {/* Removed standalone Jukebox as it's now in the furniture loop */}
 
             {/* Agents — purely imperative, driven by renderAgentsRef inside useFrame. */}
-            {sceneAgents.map((agent) => {
+            {collisionGeometryReady ? sceneAgents.map((agent) => {
               const isJanitor = "role" in agent && agent.role === "janitor";
               return (
                 <AgentObjectModel
@@ -5788,7 +5801,7 @@ export function RetroOffice3D({
                   }
                 />
               );
-            })}
+            }) : null}
 
             <ScenePingPongBall agentsRef={renderAgentsRef} />
 

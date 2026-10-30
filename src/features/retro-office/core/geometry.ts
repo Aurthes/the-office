@@ -113,8 +113,9 @@ export const getItemBaseSize = (item: FurnitureItem) => {
  * blocksNavigation: true  → solid floor-standing prop; marks grid cells as impassable.
  * blocksNavigation: false → desk decoration, wall-mounted, elevated, or passable item.
  *
- * This is the single source of truth for nav-blocking behaviour. `buildNavGrid` in
- * navigation.ts reads this instead of maintaining its own hardcoded type set.
+ * This is fallback metadata for non-rendered layout previews. Live scenes use
+ * measured geometry and height from CollisionWorld; a false value here does not
+ * exempt an actual solid mesh from runtime collisions.
  */
 export const ITEM_METADATA: Record<string, { blocksNavigation: boolean; navPadding?: number }> = {
   // ── structural ────────────────────────────────────────────────────────────

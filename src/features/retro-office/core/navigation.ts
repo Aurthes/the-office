@@ -1,4 +1,5 @@
-import { CANVAS_H, CANVAS_W } from "@/features/retro-office/core/constants";
+import { circleHitsBox, collisionBounds, segmentHitsBox, type CollisionBox } from "./collision";
+import { AGENT_RADIUS, CANVAS_H, CANVAS_W } from "@/features/retro-office/core/constants";
 import {
   getNavigationBounds,
   getItemBounds,
@@ -41,7 +42,15 @@ export {
 
 export const resolvePingPongTargets = (
   item: FurnitureItem,
+  physical?: CollisionBox,
 ): [FacingPoint, FacingPoint] => {
+  if (physical) {
+    return [-1, 1].map(side => {
+      const distance = side * (physical.halfX + AGENT_RADIUS + 8);
+      const x = physical.x + Math.cos(physical.angle) * distance, y = physical.y + Math.sin(physical.angle) * distance;
+      return { x, y, facing: Math.atan2(physical.x - x, physical.y - y) };
+    }) as [FacingPoint, FacingPoint];
+  }
   const width = item.w ?? 100;
   const depth = item.h ?? 60;
   const centerY = snap(item.y + depth / 2);
@@ -82,17 +91,68 @@ export type NavGrid = Uint8Array;
 // chair/standing point may share a raster cell with a desk edge.
 type NavVolume = { contains: (x: number, y: number) => boolean; intersects: (from: CanvasPoint, to: CanvasPoint) => boolean };
 const gridVolumes = new WeakMap<NavGrid, NavVolume[]>();
+const gridMetrics = new WeakMap<NavGrid, { cell: number; cols: number; rows: number; offset: number; near: Map<number, NavVolume[]> }>();
+
+function buildCollisionGrid(boxes: CollisionBox[]): NavGrid {
+  const cell = 10, cols = Math.ceil(CANVAS_W / cell), rows = Math.ceil(CANVAS_H / cell);
+  const grid = new Uint8Array(cols * rows), volumes: NavVolume[] = [], near = new Map<number, NavVolume[]>();
+  for (const box of boxes) {
+    const volume: NavVolume = { contains: (x, y) => circleHitsBox({ x, y }, box), intersects: (a, b) => segmentHitsBox(a, b, box) };
+    volumes.push(volume);
+    const bounds = collisionBounds(box, AGENT_RADIUS + cell);
+    const c1 = Math.max(0, Math.floor(bounds.x / cell)), c2 = Math.min(cols - 1, Math.ceil((bounds.x + bounds.w) / cell));
+    const r1 = Math.max(0, Math.floor(bounds.y / cell)), r2 = Math.min(rows - 1, Math.ceil((bounds.y + bounds.h) / cell));
+    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) {
+      const index = r * cols + c, bucket = near.get(index);
+      if (bucket) bucket.push(volume); else near.set(index, [volume]);
+      if (volume.contains(c * cell, r * cell)) grid[index] = 1;
+    }
+  }
+  for (let c = 0; c < cols; c++) { grid[c] = 1; grid[(rows - 1) * cols + c] = 1; }
+  for (let r = 0; r < rows; r++) { grid[r * cols] = 1; grid[r * cols + cols - 1] = 1; }
+  gridVolumes.set(grid, volumes);
+  gridMetrics.set(grid, { cell, cols, rows, offset: 0, near });
+  return grid;
+}
+
+// Only needed after a physical contact; moving people are not baked into the
+// cached static grid every frame. The same swept-volume checks cover both.
+export function withAgentObstacles(grid: NavGrid, positions: CanvasPoint[]): NavGrid {
+  const copy = grid.slice(), metrics = gridMetrics.get(grid);
+  if (!metrics) return grid;
+  const volumes = [...(gridVolumes.get(grid) ?? [])], near = new Map([...metrics.near].map(([key, values]) => [key, [...values]]));
+  const radius = AGENT_RADIUS * 2 + .001;
+  for (const p of positions) {
+    const volume: NavVolume = { contains: (x, y) => Math.hypot(x - p.x, y - p.y) < radius,
+      intersects: (a, b) => {
+        const dx = b.x - a.x, dy = b.y - a.y, length2 = dx * dx + dy * dy;
+        const t = length2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / length2)) : 0;
+        return Math.hypot(a.x + t * dx - p.x, a.y + t * dy - p.y) < radius;
+      } };
+    volumes.push(volume);
+    for (let r = Math.max(1, Math.floor((p.y - radius - metrics.cell) / metrics.cell)); r <= Math.min(metrics.rows - 2, Math.ceil((p.y + radius + metrics.cell) / metrics.cell)); r++) {
+      for (let c = Math.max(1, Math.floor((p.x - radius - metrics.cell) / metrics.cell)); c <= Math.min(metrics.cols - 2, Math.ceil((p.x + radius + metrics.cell) / metrics.cell)); c++) {
+        const index = r * metrics.cols + c, bucket = near.get(index);
+        if (bucket) bucket.push(volume); else near.set(index, [volume]);
+        if (volume.contains(c * metrics.cell, r * metrics.cell)) copy[index] = 1;
+      }
+    }
+  }
+  gridVolumes.set(copy, volumes); gridMetrics.set(copy, { ...metrics, near }); return copy;
+}
 
 /**
  * Returns true if the given item type should block pathfinding cells.
- * Driven by ITEM_METADATA.blocksNavigation — the single source of truth for
- * nav-blocking behaviour. Unknown types default to false (non-blocking) so
- * newly added decorative items never accidentally block navigation.
+ * Only for non-rendered layout previews. Live scenes supply all measured
+ * collision boxes, including new types absent from this legacy metadata.
  */
 const itemBlocksNavigation = (type: string): boolean =>
   ITEM_METADATA[type]?.blocksNavigation ?? false;
 
-export function buildNavGrid(furniture: FurnitureItem[]): NavGrid {
+export function buildNavGrid(furniture: FurnitureItem[], measuredGeometry?: CollisionBox[]): NavGrid {
+  // Live scenes always supply measured meshes. The footprint fallback remains
+  // for non-rendered layout previews and callers that have no Three.js scene.
+  if (measuredGeometry) return buildCollisionGrid(measuredGeometry);
   const grid = new Uint8Array(GRID_COLS * GRID_ROWS);
   const defaultPad = GRID_CELL * 0.6;
   const volumes: NavVolume[] = [];
@@ -139,26 +199,30 @@ export function astar(
   ey: number,
   grid: NavGrid,
 ): { x: number; y: number }[] {
+  const metrics = gridMetrics.get(grid);
+  const cellSize = metrics?.cell ?? GRID_CELL, columns = metrics?.cols ?? GRID_COLS, rows = metrics?.rows ?? GRID_ROWS;
+  const centreOffset = metrics?.offset ?? GRID_CELL / 2;
   const clamp = (value: number, low: number, high: number) =>
     Math.min(high, Math.max(low, value));
   const toCell = (x: number, y: number) => ({
-    c: clamp(Math.floor(x / GRID_CELL), 0, GRID_COLS - 1),
-    r: clamp(Math.floor(y / GRID_CELL), 0, GRID_ROWS - 1),
+    c: clamp(Math.round((x - centreOffset) / cellSize), 0, columns - 1),
+    r: clamp(Math.round((y - centreOffset) / cellSize), 0, rows - 1),
   });
-  const cellCx = (column: number) => column * GRID_CELL + GRID_CELL / 2;
-  const cellCy = (row: number) => row * GRID_CELL + GRID_CELL / 2;
+  const cellCx = (column: number) => column * cellSize + centreOffset;
+  const cellCy = (row: number) => row * cellSize + centreOffset;
   const volumes = gridVolumes.get(grid);
   const exactPointIsSafe = (x: number, y: number) => {
     const cell = toCell(x, y);
-    const insideFloor = x >= GRID_CELL && y >= GRID_CELL && x < (GRID_COLS - 1) * GRID_CELL && y < (GRID_ROWS - 1) * GRID_CELL;
-    return insideFloor && (volumes ? !volumes.some(volume => volume.contains(x, y)) : !grid[cell.r * GRID_COLS + cell.c]);
+    const insideFloor = x >= cellSize && y >= cellSize && x < (columns - 1) * cellSize && y < (rows - 1) * cellSize;
+    return insideFloor && (volumes ? !volumes.some(volume => volume.contains(x, y)) : !grid[cell.r * columns + cell.c]);
   };
   const exactStartIsSafe = exactPointIsSafe(sx, sy), exactEndIsSafe = exactPointIsSafe(ex, ey);
+  if (metrics && exactStartIsSafe && exactEndIsSafe && !volumes?.some(v => v.intersects({ x: sx, y: sy }, { x: ex, y: ey }))) return [{ x: ex, y: ey }];
   const connects = (point: CanvasPoint, c: number, r: number) => !volumes
     || !volumes.some(volume => volume.intersects({ x: cellCx(c), y: cellCy(r) }, point));
 
   const findFree = (column: number, row: number, accept: (c: number, r: number) => boolean = () => true) => {
-    if (!grid[row * GRID_COLS + column] && accept(column, row)) return { c: column, r: row };
+    if (!grid[row * columns + column] && accept(column, row)) return { c: column, r: row };
     for (let distance = 1; distance < 10; distance += 1) {
       for (let rowOffset = -distance; rowOffset <= distance; rowOffset += 1) {
         for (
@@ -176,13 +240,13 @@ export function astar(
           const nextColumn = column + columnOffset;
           if (
             nextRow < 0 ||
-            nextRow >= GRID_ROWS ||
+            nextRow >= rows ||
             nextColumn < 0 ||
-            nextColumn >= GRID_COLS
+            nextColumn >= columns
           ) {
             continue;
           }
-          if (!grid[nextRow * GRID_COLS + nextColumn] && accept(nextColumn, nextRow)) {
+          if (!grid[nextRow * columns + nextColumn] && accept(nextColumn, nextRow)) {
             return { c: nextColumn, r: nextRow };
           }
         }
@@ -218,12 +282,12 @@ export function astar(
       ? finishPath([]) : [destination];
   }
 
-  const nodeCount = GRID_COLS * GRID_ROWS;
+  const nodeCount = columns * rows;
   const gCost = new Float32Array(nodeCount).fill(Infinity);
   const parent = new Int32Array(nodeCount).fill(-1);
   const visited = new Uint8Array(nodeCount);
-  const startIndex = sr * GRID_COLS + sc;
-  const endIndex = er * GRID_COLS + ec;
+  const startIndex = sr * columns + sc;
+  const endIndex = er * columns + ec;
   gCost[startIndex] = 0;
 
   const open: [number, number][] = [];
@@ -286,8 +350,8 @@ export function astar(
       let node = current;
       while (node !== startIndex) {
         path.push({
-          x: cellCx(node % GRID_COLS),
-          y: cellCy(Math.floor(node / GRID_COLS)),
+          x: cellCx(node % columns),
+          y: cellCy(Math.floor(node / columns)),
         });
         node = parent[node];
       }
@@ -295,30 +359,33 @@ export function astar(
       return finishPath(path);
     }
 
-    const currentColumn = current % GRID_COLS;
-    const currentRow = Math.floor(current / GRID_COLS);
+    const currentColumn = current % columns;
+    const currentRow = Math.floor(current / columns);
     for (const [columnOffset, rowOffset, cost] of directions) {
       const nextColumn = currentColumn + columnOffset;
       const nextRow = currentRow + rowOffset;
       if (
         nextColumn < 0 ||
-        nextColumn >= GRID_COLS ||
+        nextColumn >= columns ||
         nextRow < 0 ||
-        nextRow >= GRID_ROWS
+        nextRow >= rows
       ) {
         continue;
       }
-      const nextIndex = nextRow * GRID_COLS + nextColumn;
+      const nextIndex = nextRow * columns + nextColumn;
       if (visited[nextIndex] || grid[nextIndex]) continue;
+      if (metrics?.near.get(current)?.some(volume => volume.intersects(
+        { x: cellCx(currentColumn), y: cellCy(currentRow) },
+        { x: cellCx(nextColumn), y: cellCy(nextRow) }))) continue;
 
       // For diagonal moves, require both orthogonal neighbours to be free so
       // agents cannot clip through the corner of a blocked cell (issue #6).
       // E.g. moving NE (dc=+1, dr=-1) requires N (dc=0, dr=-1) and E (dc=+1, dr=0) to be clear.
       if (columnOffset !== 0 && rowOffset !== 0) {
         const orthogonalA =
-          (currentRow + rowOffset) * GRID_COLS + currentColumn;
+          (currentRow + rowOffset) * columns + currentColumn;
         const orthogonalB =
-          currentRow * GRID_COLS + (currentColumn + columnOffset);
+          currentRow * columns + (currentColumn + columnOffset);
         if (grid[orthogonalA] || grid[orthogonalB]) continue;
       }
       const nextCost = gCost[current] + cost;

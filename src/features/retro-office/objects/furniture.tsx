@@ -160,7 +160,7 @@ const resolveFurnitureTemplate = (params: {
   return template;
 };
 
-const buildFurnitureItemMatrix = (item: FurnitureItem, itemType: string) => {
+export const buildFurnitureItemMatrix = (item: FurnitureItem, itemType: string) => {
   const [wx, , wz] = toWorld(item.x, item.y);
   const yOffset = (FURNITURE_Y_OFFSET[itemType] ?? 0) + (item.elevation ?? 0);
   const scale = FURNITURE_SCALE[itemType] ?? [1, 1, 1];
@@ -281,6 +281,7 @@ export function InstancedFurnitureItems({
           castShadow={def.castShadow}
           receiveShadow={def.receiveShadow}
           onClick={handleClick}
+          userData={{ collisionItems: items.map(item => ({ id: item._uid, rotation: getItemRotationRadians(item) })) }}
         />
       ))}
     </>

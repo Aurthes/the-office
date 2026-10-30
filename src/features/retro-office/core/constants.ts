@@ -20,7 +20,9 @@ export const WALK_ANIM_SPEED = 0.15;
 export const AGENT_SCALE = 1.75;
 export const BUMP_FREEZE_MS = 1500;
 export const BUMP_RECOVERY_MS = 1200;
-export const AGENT_RADIUS = 20;
+// Covers the avatar's shoulders (0.30 * AGENT_SCALE metres) plus clearance.
+export const AGENT_RADIUS = 16;
+export const AGENT_HEIGHT = 0.65 * AGENT_SCALE;
 export const SEPARATION_STRENGTH = 3;
 export const CANVAS_W = 1800;
 export const CANVAS_H = 1800;
