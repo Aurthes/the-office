@@ -1,6 +1,9 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/messages";
+import { SHARED_PROJECT_ID } from "./layout";
 import * as THREE from "three";
 import { cabinDeck } from "./shell-shapes";
 import { addCabinDetails } from "./interior-details";
+import { addRainforest, addMachineRoom } from "./ship-biomes";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
 import workstationModels from "@/features/retro-office/core/workstation-models.json";
@@ -8,7 +11,11 @@ import { CHAIR_SEAT, DESK_SURFACE_HEIGHT, WORKSTATION_SCALE } from "@/features/r
 import { cabinAngle, seatPosition, shipPoint, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
 
 export const FURNITURE_MODELS = ["desk", "chairDesk", "pottedPlant", "plantSmall1", "loungeSofa", "tableRound", "kitchenCoffeeMachine", "kitchenCabinet", "bookcaseClosed", "lampRoundFloor", "kitchenFridgeSmall", "chairModernCushion", "tableCoffee", "table", "loungeDesignChair"] as const;
-export type ModelTemplates = Partial<Record<typeof FURNITURE_MODELS[number], GLTF["scene"]>>;
+export const SHIP_MODELS = [...FURNITURE_MODELS, "rainforestTree", "rainforestFern", "rainforestBush", "rainforestRock", "machineConsole", "machineFan"] as const;
+export type ModelName = typeof SHIP_MODELS[number];
+export type ModelTemplates = Partial<Record<ModelName, GLTF["scene"]>>;
+const legacyFurniture = (name: ModelName) => FURNITURE_MODELS.includes(name as typeof FURNITURE_MODELS[number]);
+export const shipModelUrl = (name: ModelName) => legacyFurniture(name) ? `/office-assets/models/furniture/${name}.glb` : `/office-assets/models/ship/${name}.gltf`;
 export const SHIP_WORKSTATION = {
   deskWidth: (workstationModels.desk.max[0] - workstationModels.desk.min[0]) * WORKSTATION_SCALE.desk_cubicle,
   chairWidth: (workstationModels.chairDesk.max[0] - workstationModels.chairDesk.min[0]) * WORKSTATION_SCALE.chair,
@@ -25,15 +32,20 @@ export class Builder {
   groups = new Map<string, { material: THREE.MeshStandardMaterial; geometries: THREE.BufferGeometry[] }>();
   labels: Array<{ texture: THREE.Texture; position: THREE.Vector3; rotation: THREE.Euler; width: number; height: number }> = [];
   constructor(private models: ModelTemplates) {}
-  add(geometry: THREE.BufferGeometry, color: string, matrix = new THREE.Matrix4(), glow = false) {
-    const key = `${color}:${glow}`;
-    if (!this.groups.has(key)) this.groups.set(key, { material: new THREE.MeshStandardMaterial({ color, roughness: 0.68, metalness: 0.13,
-      ...(glow ? { emissive: color, emissiveIntensity: 0.8 } : {}) }), geometries: [] });
+  add(geometry: THREE.BufferGeometry, color: string, matrix = new THREE.Matrix4(), glow = false, surface?: THREE.MeshStandardMaterial) {
+    const key = `${color}:${glow}:${surface?.uuid || ""}`;
+    if (!this.groups.has(key)) {
+      const material = surface ? surface.clone() : new THREE.MeshStandardMaterial({ color, roughness: 0.68, metalness: 0.13,
+        ...(glow ? { emissive: color, emissiveIntensity: 0.8 } : {}) });
+      material.color.set(color);
+      this.groups.set(key, { material, geometries: [] });
+    }
     let value = geometry.index ? geometry.toNonIndexed() : geometry.clone();
     geometry.dispose();
-    for (const attribute of Object.keys(value.attributes)) if (!["position", "normal", "uv"].includes(attribute)) value.deleteAttribute(attribute);
+    for (const attribute of Object.keys(value.attributes)) if (!["position", "normal", "uv", ...(surface?.vertexColors ? ["color"] : [])].includes(attribute)) value.deleteAttribute(attribute);
     if (!value.attributes.normal) value.computeVertexNormals();
     if (!value.attributes.uv) value.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(value.attributes.position.count * 2), 2));
+    if (surface?.vertexColors && !value.attributes.color) value.setAttribute("color", new THREE.BufferAttribute(new Float32Array(value.attributes.position.count * 3).fill(1), 3));
     value = value.applyMatrix4(matrix); this.groups.get(key)!.geometries.push(value);
   }
   box(size: [number, number, number], p: [number, number, number], color: string, rotation = 0, glow = false) {
@@ -44,6 +56,9 @@ export class Builder {
   }
   ball(radius: number, p: [number, number, number], color: string, scale: [number, number, number] = [1, 1, 1]) {
     this.add(new THREE.IcosahedronGeometry(radius, 1), color, transform(p, 0, scale));
+  }
+  curve(points: [number, number, number][], radius: number, color: string) {
+    this.add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points.map(p => new THREE.Vector3(...p))), points.length * 5, radius, 6, false), color);
   }
   annulus(inner: number, outer: number, start: number, end: number, y: number, height: number, color: string, glow = false) {
     const shape = new THREE.Shape();
@@ -61,7 +76,7 @@ export class Builder {
     const p = shipPoint(ring.radius + radial, angle);
     this.box(size, [p.x, y, p.z], color, angle + rotation, glow);
   }
-  furniture(name: typeof FURNITURE_MODELS[number], width: number, p: ShipPoint, y = 0.08, rotation = 0) {
+  furniture(name: ModelName, width: number, p: ShipPoint, y = 0.08, rotation = 0) {
     const model = this.models[name];
     if (!model) return false;
     model.updateMatrixWorld(true);
@@ -73,8 +88,8 @@ export class Builder {
       const mesh = object as THREE.Mesh;
       if (!mesh.isMesh || Array.isArray(mesh.material)) return;
       const source = mesh.material as THREE.MeshStandardMaterial;
-      const color = ASSET_COLORS[source.name] || `#${source.color?.getHexString() || "b6c2c9"}`;
-      this.add(mesh.geometry.clone(), color, world.clone().multiply(mesh.matrixWorld));
+      const color = (legacyFurniture(name) ? ASSET_COLORS[source.name] : null) || `#${source.color?.getHexString() || "b6c2c9"}`;
+      this.add(mesh.geometry.clone(), color, world.clone().multiply(mesh.matrixWorld), false, legacyFurniture(name) ? undefined : source);
     });
     return true;
   }
@@ -112,12 +127,16 @@ export function disposeShipGeometry(group: THREE.Group) {
     if (!mesh.isMesh) return;
     mesh.geometry.dispose();
     for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
-      const value = material as THREE.MeshBasicMaterial; value.map?.dispose(); material.dispose();
+      // Imported textures belong to the persistent model cache. Only labels
+      // created for this geometry own their canvas textures.
+      const value = material as THREE.MeshBasicMaterial;
+      if (value.map instanceof THREE.CanvasTexture) value.map.dispose();
+      material.dispose();
     }
   });
 }
 
-export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {}) {
+export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {}, t: UiTranslator = (text, values) => translateUi(text, "en", values)) {
   const b = new Builder(models), step = TAU / layout.allocation.sectors;
   const spokeSlots = new Set(layout.spokes.map(angle => Math.round(angle / step)));
   for (const cabin of layout.cabins) {
@@ -143,7 +162,7 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
       }
     }
     const sign = shipPoint(inner + 0.65, theta);
-    b.sign(cabin.name, reserve ? "STANDBY / 待启用" : cabin.kind === "work" ? `${ring.capacity} SEATS / 工作舱` : "COMMON / 公共舱", sign, theta, Math.min(5.2, ring.radius * step * 0.68), cabin.color);
+    b.sign(cabin.kind === "work" && cabin.projectId !== SHARED_PROJECT_ID ? cabin.name : t(cabin.name), reserve ? t("Standby") : cabin.kind === "work" ? t("{0} seats", { "0": ring.capacity }) : t("Common cabin"), sign, theta, Math.min(5.2, ring.radius * step * 0.68), cabin.color);
     if (reserve) {
       addCabinDetails(b, layout, cabin);
       for (const u of [-1, 1]) b.localBox(layout, cabin, u * Math.min(2, ring.radius * step / 4), 0.5, 0.08, [1.0, 0.02, 0.04], "#c6d5d5");
@@ -172,7 +191,7 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
   b.cylinder(2.52, 0.12, [0, 1.2, 0], ORANGE, 48);
   b.cylinder(1.7, 0.2, [0, 1.45, 0], METAL, 40);
   b.cylinder(0.95, 0.15, [0, 1.59, 0], "#ffd189", 32, true);
-  b.sign("中央升降梯", "CENTRAL SHUTTLE", { x: 0, z: 2.7 }, 0, 2.7, "#e3b775");
+  b.sign(t("Central lift"), "", { x: 0, z: 2.7 }, 0, 2.7, "#e3b775");
   for (const angle of layout.spokes) {
     const start = 3.2, end = layout.radius, p = shipPoint((start + end) / 2, angle);
     b.box([1.25, 0.22, end - start], [p.x, -0.08, p.z], HULL, angle);
@@ -188,14 +207,7 @@ function addAmenity(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
   const ring = layout.rings[cabin.ring], width = ring.radius * TAU / layout.allocation.sectors;
   const local = (u: number, v: number) => shipPoint(ring.radius + v, cabinAngle(layout, cabin.slot) + u / ring.radius);
   if (cabin.kind === "garden") {
-    for (const u of [-width * 0.22, width * 0.22]) {
-      b.localBox(layout, cabin, u, 1.2, 0.2, [2.4, 0.28, 1.7], "#b2c198");
-      const p = local(u, 1.2);
-      b.cylinder(0.12, 1.7, [p.x, 0.95, p.z], "#917858", 7);
-      for (const [dx, dz, y, radius] of [[0, 0, 2.2, 0.9], [-0.5, 0.15, 1.85, 0.7], [0.5, -0.2, 1.9, 0.75]]) b.ball(radius, [p.x + dx, y, p.z + dz], y > 2 ? "#4d9466" : "#6ca475", [1, 0.86, 1]);
-      b.furniture("plantSmall1", 0.6, local(u + 1, 0.9), 0.32);
-      b.furniture("loungeSofa", 1.7, local(u, -1.2), 0.1, cabinAngle(layout, cabin.slot) + Math.PI);
-    }
+    addRainforest(b, layout, cabin);
   } else if (cabin.kind === "hydroponics") {
     for (const u of [-width * 0.27, 0, width * 0.27]) for (const v of [-1.35, 1.35]) {
       b.localBox(layout, cabin, u, v, 0.4, [2, 0.65, 0.9], HULL);
@@ -208,10 +220,7 @@ function addAmenity(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
       b.localBox(layout, cabin, u + 0.95, v, 1.1, [0.07, 2, 0.08], METAL);
     }
   } else if (cabin.kind === "servers") {
-    for (const u of [-width * 0.24, 0, width * 0.24]) {
-      b.localBox(layout, cabin, u, 1.2, 0.85, [1.15, 1.7, 0.7], METAL);
-      for (let i = 0; i < 6; i++) b.localBox(layout, cabin, u, 0.83, 0.3 + i * 0.21, [0.85, 0.045, 0.06], i % 2 ? TEAL : "#8bb6d2", 0, true);
-    }
+    addMachineRoom(b, layout, cabin);
   } else if (cabin.kind === "gym") {
     for (const u of [-width * 0.25, 0, width * 0.25]) {
       b.localBox(layout, cabin, u, 1.2, 0.19, [1.5, 0.3, 2.2], METAL);

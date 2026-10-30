@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
+import { useUiText } from "@/lib/i18n/ui-language";
 
 const THEME_STORAGE_KEY = "theme";
 
@@ -21,6 +22,7 @@ const applyTheme = (mode: ThemeMode) => {
 };
 
 export const ThemeToggle = () => {
+  const t = useUiText();
   // Keep SSR + initial hydration stable ("light") to avoid markup mismatch.
   const [theme, setTheme] = useState<ThemeMode>("light");
 
@@ -48,7 +50,7 @@ export const ThemeToggle = () => {
     <button
       type="button"
       onClick={toggleTheme}
-      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      aria-label={isDark ? t("Switch to light mode") : t("Switch to dark mode")}
       className="ui-btn-icon ui-btn-icon-xs"
     >
       {isDark ? <Sun className="h-3 w-3" /> : <Moon className="h-3 w-3" />}

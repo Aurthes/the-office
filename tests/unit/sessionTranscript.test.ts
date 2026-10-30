@@ -13,12 +13,12 @@ it("collapses native commentary and tools once per turn while leaving user, part
     { id: "f", turnId: "t", role: "assistant", phase: "final_answer", content: "**Final answer**" },
     { id: "legacy", turnId: "old", role: "assistant", content: "Legacy answer" },
   ] }));
-  const details = screen.getByLabelText("工作过程") as HTMLDetailsElement;
+  const details = screen.getByLabelText("Work process") as HTMLDetailsElement;
   expect(details.open).toBe(false);
   expect(details.textContent).toContain("Investigating");
   expect(details.textContent).toContain("echo fixture");
   for (const text of ["Question", "Stable answer", "Final answer", "Legacy answer"]) expect(screen.getByText(text).closest("details")).toBeNull();
-  fireEvent.click(screen.getByText("工作过程 · 2 项"));
+  fireEvent.click(screen.getByText("Work process · 2 items"));
   // Native <details> owns expansion; no custom collapse state is needed.
-  expect(screen.getAllByLabelText("工作过程")).toHaveLength(1);
+  expect(screen.getAllByLabelText("Work process")).toHaveLength(1);
 });

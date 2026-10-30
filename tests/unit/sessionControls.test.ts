@@ -42,7 +42,7 @@ describe("shared-session composer", () => {
     await act(async () => listener({ event: "session.stream", payload: { ...snapshot, threadId: "original", subscriptionId: first, items: [{ id: "stale", content: "stale" }] } }));
     expect(onItems).not.toHaveBeenCalled();
     await act(async () => listener({ event: "session.stream", payload: { ...snapshot, version: 0, threadId: "original", subscriptionId: second } }));
-    expect((screen.getByLabelText("发送到原会话") as HTMLTextAreaElement).disabled).toBe(false);
+    expect((screen.getByLabelText("Send to session") as HTMLTextAreaElement).disabled).toBe(false);
   });
   it("resynchronizes a missing append base with one new subscription instead of guessing or pulling", async () => {
     let listener!: (event: { event: string; payload?: unknown }) => void;
@@ -64,9 +64,9 @@ describe("shared-session composer", () => {
     await act(async () => {});
     const push = (version: number, model: string, accessMode: string) => listener({ event: "session.stream", payload: { ...snapshot, version, threadId: "original", subscriptionId, settings: { model, effort: "high", accessMode } } });
     await act(async () => push(1, "a", ":workspace"));
-    expect(screen.getByRole("button", { name: "模型设置" }).textContent).toContain("Native A");
+    expect(screen.getByRole("button", { name: "Model settings" }).textContent).toContain("Native A");
     await act(async () => push(2, "b", ":danger-full-access"));
-    expect(screen.getByRole("button", { name: "模型设置" }).textContent).toContain("Native B");
+    expect(screen.getByRole("button", { name: "Model settings" }).textContent).toContain("Native B");
     expect((screen.getByLabelText("Select access mode") as HTMLSelectElement).value).toBe(":danger-full-access");
     expect(call.mock.calls.map(([method]) => method)).toEqual(["session.subscribe", "session.settings.choices"]);
   });
@@ -75,10 +75,10 @@ describe("shared-session composer", () => {
     const pending = new Promise(r => { resolve = r; });
     const call = vi.fn((method: string) => method === "session.send" ? pending : Promise.resolve(snapshot));
     render(React.createElement(SessionControls, { client: { call }, threadId: "original", onItems: vi.fn() }));
-    const input = screen.getByLabelText("发送到原会话");
+    const input = screen.getByLabelText("Send to session");
     await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false));
     fireEvent.change(input, { target: { value: "hello" } });
-    const button = screen.getByRole("button", { name: "追加消息" });
+    const button = screen.getByRole("button", { name: "Add message" });
     fireEvent.click(button); fireEvent.click(button);
     expect(call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(1);
     expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ threadId: "original", message: "hello", requestId: expect.any(String) }));
@@ -88,18 +88,18 @@ describe("shared-session composer", () => {
   it("uses the exact cancel decision offered by the original server", async () => {
     const call = vi.fn(async () => ({ ...snapshot, approvals: [{ requestId: "approval", method: "item/commandExecution/requestApproval", params: { command: "echo fixture" }, decisions: ["accept", "cancel"], supported: true }] }));
     render(React.createElement(SessionControls, { client: { call }, threadId: "original", onItems: vi.fn() }));
-    fireEvent.click(await screen.findByRole("button", { name: "取消本轮" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel turn" }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("session.approval.reply", { threadId: "original", requestId: "approval", decision: "cancel" }));
   });
   it("stops the original thread and leaves uncertain send text available for reconciliation", async () => {
     const call = vi.fn(async (method: string) => { if (method === "session.send") throw new Error("结果未确认"); return snapshot; });
     render(React.createElement(SessionControls, { client: { call }, threadId: "original", onItems: vi.fn() }));
-    fireEvent.click(await screen.findByRole("button", { name: "停止" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("session.stop", { threadId: "original" }));
-    const input = screen.getByLabelText("发送到原会话");
+    const input = screen.getByLabelText("Send to session");
     await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false));
     fireEvent.change(input, { target: { value: "keep draft" } });
-    fireEvent.click(screen.getByRole("button", { name: "追加消息" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add message" }));
     await screen.findByRole("alert");
     expect((input as HTMLTextAreaElement).value).toBe("keep draft");
   });

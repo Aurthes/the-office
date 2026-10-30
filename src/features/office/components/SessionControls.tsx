@@ -5,6 +5,7 @@ import { SessionSettings, type ChatSettings } from "./SessionSettings";
 import { useSessionVoice } from "./useSessionVoice";
 import { SessionQuestions, type SessionQuestionRequest } from "./SessionQuestions";
 import { useNativeDictation } from "./useNativeDictation";
+import { useUiText } from "@/lib/i18n/ui-language";
 
 export type SessionAsset = { source: string; name: string; kind: "image" | "markdown" | "html" | "file"; url: string; inline?: boolean; attached?: boolean };
 export type LiveSessionItem = { id: string; turnId?: string; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number };
@@ -27,6 +28,7 @@ export function SessionControls({ client, threadId, onItems }: {
   client: SessionClient;
   threadId: string; onItems: (items: LiveSessionItem[]) => void;
 }) {
+  const t = useUiText();
   const [state, setState] = useState<Snapshot | null>(null);
   const [text, setTextState] = useState(() => sessionDrafts.get(threadId) || "");
   const setText = useCallback((value: string) => {
@@ -51,14 +53,14 @@ export function SessionControls({ client, threadId, onItems }: {
     const requests = uploadRequests.current;
     return () => {
       for (const request of requests.values()) request.abort();
-      const kept = uploadsRef.current.map(file => file.ref || file.error ? file : { ...file, error: "上传中断，请重新选择文件" });
+      const kept = uploadsRef.current.map(file => file.ref || file.error ? file : { ...file, error: "Upload interrupted. Please select the file again." });
       if (kept.length) attachmentDrafts.set(threadId, kept); else attachmentDrafts.delete(threadId);
     };
   }, [threadId]);
   const addFiles = async (files: File[]) => {
     if (actionBusy.current || settingsBusy || !state?.connected) return;
-    if (uploadsRef.current.length + files.length > 8) { setError("每次最多 8 个附件"); return; }
-    if (files.some(file => file.size > 20 * 1024 * 1024 || !file.size)) { setError("附件不能为空，每个最多 20 MB"); return; }
+    if (uploadsRef.current.length + files.length > 8) { setError("Up to 8 attachments per message"); return; }
+    if (files.some(file => file.size > 20 * 1024 * 1024 || !file.size)) { setError("Attachments must not be empty and must be under 20 MB each"); return; }
     setError(""); setNotice("");
     const added = files.map(file => ({ id: crypto.randomUUID(), name: file.name, size: file.size }));
     updateUploads([...uploadsRef.current, ...added]);
@@ -68,10 +70,10 @@ export function SessionControls({ client, threadId, onItems }: {
       try {
         const response = await fetch("/api/session-uploads?" + new URLSearchParams({ threadId, name: file.name }), { method: "POST", body: file, headers: { "Content-Type": "application/octet-stream" }, signal: controller.signal });
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || "上传失败");
+        if (!response.ok) throw new Error(result.error || "Upload failed");
         if (!controller.signal.aborted) updateUploads(uploadsRef.current.map(item => item.id === id ? { ...item, ref: result.ref } : item));
       } catch (cause) {
-        if (!controller.signal.aborted) updateUploads(uploadsRef.current.map(item => item.id === id ? { ...item, error: cause instanceof Error ? cause.message : "上传失败" } : item));
+        if (!controller.signal.aborted) updateUploads(uploadsRef.current.map(item => item.id === id ? { ...item, error: cause instanceof Error ? cause.message : "Upload failed" } : item));
       } finally { uploadRequests.current.delete(id); }
     }));
   };
@@ -113,7 +115,7 @@ export function SessionControls({ client, threadId, onItems }: {
         }
       } catch (cause) {
         if (!stopped && subscriptionId === id) {
-          setState(null); setConnectionError(cause instanceof Error ? cause.message : "实时连接失败");
+          setState(null); setConnectionError(cause instanceof Error ? cause.message : "Live connection failed");
         }
       } finally {
         pending = false;
@@ -148,61 +150,61 @@ export function SessionControls({ client, threadId, onItems }: {
     setBusy(true); setError(""); setNotice("");
     try {
       await client.call(method, { threadId, ...params });
-      if (method === "session.send") { setText(""); if (!dictation.error) dictation.clear(); updateUploads([]); setNotice("已提交到原会话"); }
-      if (method === "session.stop") setNotice("停止请求已提交");
-      if (method === "session.approval.reply") setNotice("审批答复已提交，等待后台确认");
+      if (method === "session.send") { setText(""); if (!dictation.error) dictation.clear(); updateUploads([]); setNotice("Submitted to the session"); }
+      if (method === "session.stop") setNotice("Stop request submitted");
+      if (method === "session.approval.reply") setNotice("Approval reply submitted; waiting for confirmation");
       if (!client.onEvent) await refresh.current?.();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "操作失败，请核对原会话后再试"); }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Action failed. Check the session before retrying."); }
     finally { actionBusy.current = false; setBusy(false); }
   };
   return <div onDragOver={event => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={event => { if (event.dataTransfer.files.length) { event.preventDefault(); void addFiles(Array.from(event.dataTransfer.files)); } }} className="max-h-[60dvh] shrink-0 overflow-y-auto border-t border-white/10 bg-[#111b27] p-3 text-xs [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))] md:px-4">
     <div className="mx-auto max-w-3xl">
     {state?.settings ? <SessionSettings key={threadId} client={client} threadId={threadId} current={state.settings} disabled={busy || !state.connected} active={Boolean(state.activeTurnId)} onBusyChange={setSettingsBusy} /> : null}
-    <input ref={picker} type="file" multiple className="hidden" aria-label="选择附件" onChange={event => { void addFiles(Array.from(event.target.files || [])); event.target.value = ""; }} />
-    {uploads.length ? <div className="mb-2 flex max-h-24 flex-wrap gap-2 overflow-y-auto" aria-label="待发送附件">{uploads.map(file => <div key={file.id} className="flex max-w-full items-center gap-2 rounded-lg border border-white/15 bg-white/5 py-1 pl-2">
-      <span className="min-w-0 truncate" title={file.name}>{file.name}</span><span className={file.error ? "text-rose-200" : "shrink-0 text-white/40"}>{file.error || (!file.ref ? "上传中…" : Math.max(1, Math.ceil(file.size / 1024)) + " KB")}</span>
-      <button aria-label={"移除附件 " + file.name} disabled={busy} onClick={() => removeFile(file.id)} className="min-h-9 shrink-0 px-2 text-white/60"><X size={14} /></button>
+    <input ref={picker} type="file" multiple className="hidden" aria-label={t("Choose attachments")} onChange={event => { void addFiles(Array.from(event.target.files || [])); event.target.value = ""; }} />
+    {uploads.length ? <div className="mb-2 flex max-h-24 flex-wrap gap-2 overflow-y-auto" aria-label={t("Pending attachments")}>{uploads.map(file => <div key={file.id} className="flex max-w-full items-center gap-2 rounded-lg border border-white/15 bg-white/5 py-1 pl-2">
+      <span className="min-w-0 truncate" title={file.name}>{file.name}</span><span className={file.error ? "text-rose-200" : "shrink-0 text-white/40"}>{file.error ? t(file.error) : (!file.ref ? t("Uploading…") : Math.max(1, Math.ceil(file.size / 1024)) + " KB")}</span>
+      <button aria-label={t("Remove attachment {name}", { name: file.name })} disabled={busy} onClick={() => removeFile(file.id)} className="min-h-9 shrink-0 px-2 text-white/60"><X size={14} /></button>
     </div>)}</div> : null}
-    {voice.status !== "off" ? <section aria-label="语音通话" className="mb-3 rounded-xl border border-cyan-300/30 bg-cyan-950/30 p-3">
-      <div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 text-cyan-100"><span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300" />{voice.status === "connecting" ? "正在连接 Codex 语音…" : "正在与 Codex 通话"}</span><button onClick={voice.stop} className="flex min-h-10 items-center gap-2 rounded-lg px-3 text-rose-200"><PhoneOff size={16} />结束</button></div>
-      {voice.captions.length ? <div className="mt-2 max-h-24 space-y-1 overflow-y-auto text-xs text-white/70">{voice.captions.map((line, index) => <p key={index}><span className="text-white/40">{line.role === "user" ? "你" : "Codex"}：</span>{line.text}</p>)}</div> : <p className="text-[11px] text-white/40">同一条原会话 · 可随时开口 · 离开聊天会结束通话</p>}
-      {voice.playbackBlocked ? <button onClick={() => void voice.play()} className="mt-2 rounded border border-cyan-300/40 px-3 py-2 text-cyan-100">播放声音</button> : null}
+    {voice.status !== "off" ? <section aria-label={t("Voice call")} className="mb-3 rounded-xl border border-cyan-300/30 bg-cyan-950/30 p-3">
+      <div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 text-cyan-100"><span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300" />{voice.status === "connecting" ? t("Connecting to Codex voice…") : t("In a call with Codex")}</span><button onClick={voice.stop} className="flex min-h-10 items-center gap-2 rounded-lg px-3 text-rose-200"><PhoneOff size={16} />{t("End call")}</button></div>
+      {voice.captions.length ? <div className="mt-2 max-h-24 space-y-1 overflow-y-auto text-xs text-white/70">{voice.captions.map((line, index) => <p key={index}><span className="text-white/40">{line.role === "user" ? t("You") : "Codex"}: </span>{line.text}</p>)}</div> : <p className="text-[11px] text-white/40">{t("Same session · Speak anytime · Leaving chat ends the call")}</p>}
+      {voice.playbackBlocked ? <button onClick={() => void voice.play()} className="mt-2 rounded border border-cyan-300/40 px-3 py-2 text-cyan-100">{t("Play audio")}</button> : null}
     </section> : null}
-    {state?.approvals.length ? <div className="mb-3 max-h-[32vh] space-y-3 overflow-y-auto" aria-label="待处理审批">
+    {state?.approvals.length ? <div className="mb-3 max-h-[32vh] space-y-3 overflow-y-auto" aria-label={t("Pending approvals")}>
       {state.approvals.map(request => <div key={request.requestId} className="rounded border border-amber-300/40 bg-amber-900/15 p-2">
-        <p className="font-semibold text-amber-100">{request.method === "item/fileChange/requestApproval" ? "文件修改审批" : request.method === "item/commandExecution/requestApproval" ? "命令执行审批" : "原会话需要处理请求"}</p>
+        <p className="font-semibold text-amber-100">{request.method === "item/fileChange/requestApproval" ? t("File change approval") : request.method === "item/commandExecution/requestApproval" ? t("Command execution approval") : t("This session needs your input")}</p>
         <pre className="my-2 max-h-40 overflow-auto whitespace-pre-wrap break-all text-[10px] text-white/80">{JSON.stringify({ command: request.params.command, cwd: request.params.cwd, reason: request.params.reason, message: request.params.message, network: request.params.networkApprovalContext, permissions: request.params.additionalPermissions, grantRoot: request.params.grantRoot }, null, 2)}{request.details ? `\n${request.details}` : ""}</pre>
         {request.supported ? <div className="flex gap-2">
-          <button disabled={busy || request.submitted || !request.decisions.includes("accept")} onClick={() => void action("session.approval.reply", { requestId: request.requestId, decision: "accept" })} className="rounded border border-emerald-300/50 px-3 py-1 text-emerald-100 disabled:opacity-40">允许本次</button>
-          <button disabled={busy || request.submitted} onClick={() => void action("session.approval.reply", { requestId: request.requestId, decision: request.decisions.includes("decline") ? "decline" : "cancel" })} className="rounded border border-rose-300/50 px-3 py-1 text-rose-100 disabled:opacity-40">{request.decisions.includes("decline") ? "拒绝" : "取消本轮"}</button>
-        </div> : <p className="text-amber-100">此类请求请在原 App 中处理。</p>}
+          <button disabled={busy || request.submitted || !request.decisions.includes("accept")} onClick={() => void action("session.approval.reply", { requestId: request.requestId, decision: "accept" })} className="rounded border border-emerald-300/50 px-3 py-1 text-emerald-100 disabled:opacity-40">{t("Allow once")}</button>
+          <button disabled={busy || request.submitted} onClick={() => void action("session.approval.reply", { requestId: request.requestId, decision: request.decisions.includes("decline") ? "decline" : "cancel" })} className="rounded border border-rose-300/50 px-3 py-1 text-rose-100 disabled:opacity-40">{request.decisions.includes("decline") ? t("Decline") : t("Cancel turn")}</button>
+        </div> : <p className="text-amber-100">{t("Handle this request in the desktop app.")}</p>}
       </div>)}
-      {(state.approvalCount || 0) > state.approvals.length ? <p className="text-amber-100">还有待处理请求，完成以上审批后显示。</p> : null}
+      {(state.approvalCount || 0) > state.approvals.length ? <p className="text-amber-100">{t("More requests will appear after these approvals are handled.")}</p> : null}
     </div> : null}
     {state?.questions?.map(request => <SessionQuestions key={threadId + request.requestId} client={client} threadId={threadId} request={request} />)}
-    <textarea aria-label="发送到原会话" placeholder="继续同一条 Codex 会话…" rows={2} value={text} onChange={event => setText(event.target.value)} onKeyDown={event => {
+    <textarea aria-label={t("Send to session")} placeholder={t("Continue this Codex session…")} rows={2} value={text} onChange={event => setText(event.target.value)} onKeyDown={event => {
       if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); }
     }} onPaste={event => { if (event.clipboardData.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)); } }} disabled={busy || settingsBusy || !state?.connected || dictation.busy} className="max-h-36 min-h-14 w-full resize-none rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50" />
     <div className="mt-2 flex items-center justify-between gap-2">
       <div className="flex shrink-0 items-center gap-1">
-        <button aria-label="添加附件" title="添加附件，也可拖入文件或粘贴图片" disabled={busy || settingsBusy || !state?.connected} onClick={() => picker.current?.click()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Paperclip size={19} /></button>
-        <button aria-label={dictation.phase === "recording" || dictation.phase === "starting" ? "结束录音并转写" : "原生听写"} title="网页录音，Codex 原生转文字；再次点击结束，文字填入草稿后再发送" disabled={dictation.phase === "transcribing" || (!(dictation.phase === "recording" || dictation.phase === "starting") && (busy || settingsBusy || !state?.connected || voice.status !== "off"))} onClick={() => { if (dictation.phase === "recording" || dictation.phase === "starting") void dictation.stop(); else void dictation.start(); }} className={"grid h-10 w-10 place-items-center rounded-lg disabled:opacity-40 " + (dictation.phase === "recording" ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65 hover:bg-white/5")}><Mic size={19} /></button>
-        <button aria-label="语音对话" title="与此会话实时语音对话" disabled={busy || settingsBusy || !state?.connected || dictation.busy || voice.status !== "off"} onClick={() => void voice.start()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button>
+        <button aria-label={t("Add attachments")} title={t("Add attachments, drag files, or paste images")} disabled={busy || settingsBusy || !state?.connected} onClick={() => picker.current?.click()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Paperclip size={19} /></button>
+        <button aria-label={dictation.phase === "recording" || dictation.phase === "starting" ? t("Stop recording and transcribe") : t("Native dictation")} title={t("Record here and transcribe with Codex. Click again to stop; review the draft before sending.")} disabled={dictation.phase === "transcribing" || (!(dictation.phase === "recording" || dictation.phase === "starting") && (busy || settingsBusy || !state?.connected || voice.status !== "off"))} onClick={() => { if (dictation.phase === "recording" || dictation.phase === "starting") void dictation.stop(); else void dictation.start(); }} className={"grid h-10 w-10 place-items-center rounded-lg disabled:opacity-40 " + (dictation.phase === "recording" ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65 hover:bg-white/5")}><Mic size={19} /></button>
+        <button aria-label={t("Voice chat")} title={t("Start a live voice chat in this session")} disabled={busy || settingsBusy || !state?.connected || dictation.busy || voice.status !== "off"} onClick={() => void voice.start()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button>
       </div>
-      <span className="hidden min-w-0 flex-1 truncate text-xs text-white/45 sm:block">{state?.connected ? state.activeTurnId ? "Codex 正在工作…" : state.turnStatus === "interrupted" ? "已停止" : "Codex · 已连接" : "连接 Codex…"}</span>
+      <span className="hidden min-w-0 flex-1 truncate text-xs text-white/45 sm:block">{state?.connected ? state.activeTurnId ? t("Codex is working…") : state.turnStatus === "interrupted" ? t("Stopped") : t("Codex · Connected") : t("Connecting to Codex…")}</span>
       <div className="flex shrink-0 items-center gap-2">
-        {state?.activeTurnId ? <button disabled={busy || settingsBusy} onClick={() => void action("session.stop", {})} className="min-h-10 rounded-lg px-3 text-sm text-rose-200 hover:bg-white/5 disabled:opacity-40">停止</button> : null}
-        <button disabled={busy || settingsBusy || !state?.connected || !readyToSend} onClick={send} className="min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40">{busy ? "提交中…" : state?.activeTurnId ? "追加消息" : "发送"}</button>
+        {state?.activeTurnId ? <button disabled={busy || settingsBusy} onClick={() => void action("session.stop", {})} className="min-h-10 rounded-lg px-3 text-sm text-rose-200 hover:bg-white/5 disabled:opacity-40">{t("Stop")}</button> : null}
+        <button disabled={busy || settingsBusy || !state?.connected || !readyToSend} onClick={send} className="min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40">{busy ? t("Submitting…") : state?.activeTurnId ? t("Add message") : t("Send")}</button>
       </div>
     </div>
-    {dictation.phase === "starting" ? <p role="status" className="mt-1 text-xs text-cyan-100">正在准备麦克风…</p> : dictation.phase === "recording" ? <p role="status" className="mt-1 text-xs text-rose-200">正在录音 · {Math.floor(dictation.seconds / 60)}:{String(Math.floor(dictation.seconds % 60)).padStart(2, "0")} · 点击麦克风结束 · 最长 10 分钟</p> : dictation.phase === "transcribing" ? <p role="status" className="mt-1 text-xs text-cyan-100">Codex 原生转写中… <button onClick={dictation.cancel} className="underline">取消并保留录音</button></p> : null}
-    {dictation.clip && !dictation.busy ? <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] text-white/55"><span>录音时长 {Math.ceil(dictation.clip.seconds)} 秒 · 已保留</span>{dictation.transcriptionTime ? <span>{dictation.transcriptionTime.retry ? "本次重试耗时" : "停止后出字"} {dictation.transcriptionTime.seconds.toFixed(1)} 秒</span> : null}{dictation.phase === "error" ? <button className="text-cyan-200 underline" onClick={() => void dictation.retry()}>重试转写</button> : null}<button className="underline" onClick={dictation.download}>下载录音</button><button className="underline" onClick={dictation.clear}>清除录音</button></div> : null}
-    {dictation.error ? <p role="alert" className="mt-1 text-xs text-amber-100">{dictation.error}</p> : null}
-    {notice ? <p role="status" className="mt-2 text-[10px] text-cyan-100">{notice}</p> : null}
-    {voice.error ? <p role="alert" className="mt-2 break-words text-xs text-amber-100">{voice.error}</p> : null}
-    {error ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{error}</p> : null}
+    {dictation.phase === "starting" ? <p role="status" className="mt-1 text-xs text-cyan-100">{t("Preparing microphone…")}</p> : dictation.phase === "recording" ? <p role="status" className="mt-1 text-xs text-rose-200">{t("Recording · {time} · Click the microphone to stop · Up to 10 minutes", { time: `${Math.floor(dictation.seconds / 60)}:${String(Math.floor(dictation.seconds % 60)).padStart(2, "0")}` })}</p> : dictation.phase === "transcribing" ? <p role="status" className="mt-1 text-xs text-cyan-100">{t("Transcribing with Codex…")}<button onClick={dictation.cancel} className="underline">{t("Cancel and keep recording")}</button></p> : null}
+    {dictation.clip && !dictation.busy ? <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] text-white/55"><span>{t("Recording: {seconds} seconds · Kept", { seconds: Math.ceil(dictation.clip.seconds) })}</span>{dictation.transcriptionTime ? <span>{t(dictation.transcriptionTime.retry ? "Retry took {seconds} seconds" : "Transcription took {seconds} seconds", { seconds: dictation.transcriptionTime.seconds.toFixed(1) })}</span> : null}{dictation.phase === "error" ? <button className="text-cyan-200 underline" onClick={() => void dictation.retry()}>{t("Retry transcription")}</button> : null}<button className="underline" onClick={dictation.download}>{t("Download recording")}</button><button className="underline" onClick={dictation.clear}>{t("Clear recording")}</button></div> : null}
+    {dictation.error ? <p role="alert" className="mt-1 text-xs text-amber-100">{t(dictation.error)}</p> : null}
+    {notice ? <p role="status" className="mt-2 text-[10px] text-cyan-100">{t(notice)}</p> : null}
+    {voice.error ? <p role="alert" className="mt-2 break-words text-xs text-amber-100">{t(voice.error)}</p> : null}
+    {error ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{t(error)}</p> : null}
     {state?.error ? <p role="alert" className="mt-2 break-words text-xs text-rose-200">{state.error}</p> : null}
-    {connectionError ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{connectionError} <button className="underline" onClick={() => void refresh.current?.()}>重新连接</button></p> : null}
+    {connectionError ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{t(connectionError)} <button className="underline" onClick={() => void refresh.current?.()}>{t("Reconnect")}</button></p> : null}
     </div>
   </div>;
 }

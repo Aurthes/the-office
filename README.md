@@ -103,6 +103,16 @@ Studio. Secrets, authentication databases, uploads and chat state belong outside
 the source checkout. Publishing this repository does not publish a running office
 or its conversations.
 
+## Interface language
+
+English is the default. Open **Settings → Language** to switch between English
+and Simplified Chinese. The choice takes effect immediately and is saved in the
+current browser. It changes interface labels and hints only; project names,
+agent/session names, questions, and conversation content stay as written.
+
+For UI changes, keep English labels in code and render them through
+`src/lib/i18n/ui-language.ts`; keep user content outside the translator.
+
 ## Development
 
 ```sh

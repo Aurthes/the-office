@@ -27,10 +27,10 @@ export function useSessionVoice(client: SessionClient, threadId: string) {
   const start = useCallback(async () => {
     if (connection.current) return;
     setError(""); setCaptions([]);
-    if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === "undefined") { setError("此浏览器无法使用实时语音，请通过 HTTPS 用 Chrome 或 Safari 打开。"); return; }
+    if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === "undefined") { setError("This browser does not support live voice. Use Chrome or Safari over HTTPS."); return; }
     let session: VoiceConnection;
     try { session = { id: crypto.randomUUID(), pc: new RTCPeerConnection(), audio: new Audio() }; }
-    catch { setError("浏览器无法创建语音连接，请检查 WebRTC 设置或换用 Chrome / Safari。"); return; }
+    catch { setError("Could not create a voice connection. Check WebRTC settings or use Chrome or Safari."); return; }
     connection.current = session; setStatus("connecting");
     const caption = (role: string, text: string) => {
       if (connection.current !== session || !text.trim()) return;
@@ -45,8 +45,8 @@ export function useSessionVoice(client: SessionClient, threadId: string) {
     session.pc.onconnectionstatechange = () => {
       if (connection.current !== session) return;
       if (session.pc.connectionState === "connected") { clearTimeout(session.timer); setStatus("connected"); }
-      if (session.pc.connectionState === "failed") finish(session, true, "语音网络连接失败，请检查网络后重试。");
-      if (session.pc.connectionState === "disconnected") session.timer = setTimeout(() => finish(session, true, "语音连接已断开，请重新连接。"), 8000);
+      if (session.pc.connectionState === "failed") finish(session, true, "Voice network connection failed. Check your connection and retry.");
+      if (session.pc.connectionState === "disconnected") session.timer = setTimeout(() => finish(session, true, "Voice disconnected. Please reconnect."), 8000);
     };
     const channel = session.pc.createDataChannel("oai-events");
     channel.onmessage = event => {
@@ -61,10 +61,10 @@ export function useSessionVoice(client: SessionClient, threadId: string) {
       const value = event.payload as { threadId?: string; voiceId?: string; method?: string; params?: { sdp?: string; role?: string; text?: string; message?: string; reason?: string } };
       if (event.event !== "session.voice" || value?.threadId !== threadId || value.voiceId !== session.id || connection.current !== session) return;
       const params = value.params || {};
-      if (value.method === "thread/realtime/sdp" && params.sdp) void session.pc.setRemoteDescription({ type: "answer", sdp: params.sdp }).catch(() => finish(session, true, "语音协商失败，请重试。"));
+      if (value.method === "thread/realtime/sdp" && params.sdp) void session.pc.setRemoteDescription({ type: "answer", sdp: params.sdp }).catch(() => finish(session, true, "Voice negotiation failed. Please retry."));
       if (value.method === "thread/realtime/transcript/done") caption(params.role || "assistant", params.text || "");
-      if (value.method === "thread/realtime/error") finish(session, true, params.message?.slice(0, 400) || "Codex 语音出现错误，请重试。");
-      if (value.method === "thread/realtime/closed") finish(session, false, params.reason && params.reason !== "requested" ? "语音已结束：" + params.reason.slice(0, 200) : "");
+      if (value.method === "thread/realtime/error") finish(session, true, params.message?.slice(0, 400) || "Codex voice error. Please retry.");
+      if (value.method === "thread/realtime/closed") finish(session, false, params.reason && params.reason !== "requested" ? "Voice ended: " + params.reason.slice(0, 200) : "");
     });
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
@@ -73,15 +73,15 @@ export function useSessionVoice(client: SessionClient, threadId: string) {
       stream.getTracks().forEach(track => session.pc.addTrack(track, stream));
       const offer = await session.pc.createOffer(); await session.pc.setLocalDescription(offer);
       if (connection.current !== session) return;
-      session.timer = setTimeout(() => finish(session, true, "语音连接超时，请检查网络后重试。"), 35000);
+      session.timer = setTimeout(() => finish(session, true, "Voice connection timed out. Check your connection and retry."), 35000);
       await client.call("session.voice.start", { threadId, voiceId: session.id, sdp: offer.sdp });
     } catch (cause) {
-      finish(session, true, cause instanceof DOMException && cause.name === "NotAllowedError" ? "请允许此网页使用麦克风，然后重试。" : cause instanceof Error ? cause.message : "无法连接语音");
+      finish(session, true, cause instanceof DOMException && cause.name === "NotAllowedError" ? "Allow microphone access for this page, then retry." : cause instanceof Error ? cause.message : "Could not connect voice");
     }
   }, [client, threadId, finish]);
   const play = async () => {
     try { await connection.current?.audio.play(); setPlaybackBlocked(false); }
-    catch { setError("声音播放被浏览器阻止，请再点一次播放声音。"); }
+    catch { setError("Audio playback was blocked. Click Play audio again."); }
   };
   return { status, error, captions, playbackBlocked, start, stop, play };
 }

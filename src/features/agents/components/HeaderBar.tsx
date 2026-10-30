@@ -4,6 +4,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import type { GatewayStatus } from "@/lib/gateway/GatewayClient";
 import { ArrowLeft, Plug } from "lucide-react";
 import { resolveGatewayStatusBadgeClass } from "./colorSemantics";
+import { useUiText } from "@/lib/i18n/ui-language";
 
 type HeaderBarProps = {
   status: GatewayStatus;
@@ -16,6 +17,7 @@ export const HeaderBar = ({
   onConnectionSettings,
   showConnectionSettings = true,
 }: HeaderBarProps) => {
+  const t = useUiText();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -43,11 +45,11 @@ export const HeaderBar = ({
         <div aria-hidden="true" className="hidden sm:block" />
         <Link
           href="/office"
-          aria-label="返回3D办公室"
+          aria-label={t("Back to 3D office")}
           className="inline-flex min-w-0 items-center gap-1 text-sm font-semibold tracking-[0.01em] text-foreground hover:text-primary"
         >
           <ArrowLeft className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <span className="truncate">3D 办公室</span>
+          <span className="truncate">{t("3D office")}</span>
         </Link>
         <div className="flex items-center justify-end gap-1">
           {status !== "disconnected" ? (
@@ -57,12 +59,12 @@ export const HeaderBar = ({
               data-status={status}
               aria-label={`Gateway ${status}`}
             >
-              {status === "connecting" ? "Connecting" : "Connected"}
+              {status === "connecting" ? t("Connecting") : t("Connected")}
             </span>
           ) : null}
           <ThemeToggle />
           {process.env.NEXT_PUBLIC_CLAW3D_WEB_ACCESS === "1" ? (
-            <button type="button" data-logout className="ui-btn-ghost shrink-0 whitespace-nowrap px-2 text-xs">退出登录</button>
+            <button type="button" data-logout className="ui-btn-ghost shrink-0 whitespace-nowrap px-2 text-xs">{t("Sign out")}</button>
           ) : null}
           {showConnectionSettings ? (
             <div className="relative z-[210]" ref={menuRef}>
@@ -75,7 +77,7 @@ export const HeaderBar = ({
                 onClick={() => setMenuOpen((prev) => !prev)}
               >
                 <Plug className="h-3.5 w-3.5" />
-                <span className="sr-only">Open studio menu</span>
+                <span className="sr-only">{t("Open studio menu")}</span>
               </button>
               {menuOpen ? (
                 <div className="ui-card ui-menu-popover absolute right-0 top-9 z-[260] min-w-44 p-1">
@@ -87,9 +89,7 @@ export const HeaderBar = ({
                       setMenuOpen(false);
                     }}
                     data-testid="gateway-settings-toggle"
-                  >
-                    Gateway connection
-                  </button>
+                  >{t("Gateway connection")}</button>
                 </div>
               ) : null}
             </div>
