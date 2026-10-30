@@ -5454,7 +5454,7 @@ export function OfficeScreen({
 
       <div
         className={sessionView && chatOpen
-          ? `fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[#11161e] text-white shadow-2xl md:inset-y-3 md:right-3 md:left-auto md:rounded-xl md:border md:border-white/15 ${chatExpanded ? "md:w-[calc(100vw-1.5rem)]" : "md:w-[min(960px,calc(100vw-1.5rem))]"}`
+          ? `office-session-chat fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[#11161e] text-white shadow-2xl md:inset-y-3 md:right-3 md:left-auto md:rounded-xl md:border md:border-white/15 ${chatExpanded ? "md:w-[calc(100vw-1.5rem)]" : "md:w-[min(960px,calc(100vw-1.5rem))]"}`
           : `fixed bottom-3 ${sessionView ? "z-50" : "z-30"} flex flex-col items-end gap-2 ${sidebarOpen ? "right-84" : "right-3"} ${debugEnabled ? "hidden" : ""}`}
         style={sessionView && chatOpen && chatViewport ? { height: chatViewport.height, top: chatViewport.top, bottom: "auto" } : undefined}
       >

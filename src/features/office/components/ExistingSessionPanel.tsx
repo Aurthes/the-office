@@ -117,7 +117,7 @@ export function ExistingSessionPanel({ client, threadId }: {
   }, [client, threadId]);
 
   return <section className="flex min-h-0 flex-1 flex-col text-white" aria-label="App 原会话">
-    <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+    <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-2">
       <div className="min-w-0">
         <h2 className="truncate text-sm font-semibold" title={data?.name}>{data?.id === threadId ? data.name : "读取会话信息…"}</h2>
         {data?.id === threadId ? <p className="mt-1 truncate text-xs text-white/45">{data.project}</p> : null}
@@ -148,8 +148,8 @@ export function ExistingSessionPanel({ client, threadId }: {
     }} onTouchStart={event => { touchY.current = event.touches[0]?.clientY ?? 0; }} onTouchMove={event => {
       const y = event.touches[0]?.clientY ?? touchY.current;
       if (y > touchY.current + 20 && event.currentTarget.scrollTop < 80) { touchY.current = y; void load.current?.("older"); }
-    }} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-4 [overflow-anchor:none] md:px-8">
-      <div className="mx-auto w-full max-w-3xl space-y-4">
+    }} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3 [overflow-anchor:none] md:px-4">
+      <div className="mx-auto w-full max-w-3xl space-y-3">
       <div className="flex min-h-8 items-center justify-center text-[10px] text-white/50">
         {loading ? <span role="status">读取这一块…</span> : olderCursor ? <button onClick={() => void load.current?.("older")} className="px-3 py-1 text-cyan-200">↑ 读取更早记录</button> : loaded ? "已到最早记录" : null}
       </div>
