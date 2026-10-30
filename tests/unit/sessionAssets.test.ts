@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { gunzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET } from "../../src/app/api/session-assets/route";
 const { describeSessionAssets, referenceForPath, readSessionAsset } = createRequire(import.meta.url)("../../server/codex-session-assets");
@@ -63,5 +64,18 @@ describe("conversation file references", () => {
     expect((await readSessionAsset(ref(body.assets[0].url))).bytes.toString()).toBe("fixture");
     vi.stubEnv("CLAW3D_CODEX_GATEWAY", "0");
     expect((await GET(new Request("https://office.test" + referenceForPath(html).url))).status).toBe(404);
+  });
+  it("compresses large HTML when accepted, while retaining the sandbox and signed-reference checks", async () => {
+    const html = path.join(directory, "large.html"), body = "<!doctype html><h1>Sample</h1>" + "<!-- repeated model data -->".repeat(1000);
+    fs.writeFileSync(html, body);
+    const url = "https://office.test" + referenceForPath(html).url;
+    const response = await GET(new Request(url, { headers: { "Accept-Encoding": "br, gzip" } }));
+    expect(response.headers.get("content-encoding")).toBe("gzip");
+    expect(response.headers.get("vary")).toBe("Accept-Encoding");
+    expect(response.headers.get("content-security-policy")).toContain("sandbox allow-scripts");
+    const bytes = Buffer.from(await response.arrayBuffer());
+    expect(gunzipSync(bytes).toString()).toBe(body); expect(bytes.length).toBeLessThan(Buffer.byteLength(body) / 4);
+    const plain = await GET(new Request(url, { headers: { "Accept-Encoding": "gzip;q=0, identity" } }));
+    expect(plain.headers.get("content-encoding")).toBeNull(); expect(await plain.text()).toBe(body);
   });
 });
