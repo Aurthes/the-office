@@ -38,6 +38,8 @@ export function applyAgentCollisionBumps({
     if ("role" in mi && mi.role === "janitor") continue;
     if (
       moved[i].state === "sitting" ||
+      (moved[i].state === "standing" && moved[i].status === "working" && moved[i].interactionTarget === "desk"
+        && Math.hypot(moved[i].x - moved[i].targetX, moved[i].y - moved[i].targetY) < 1) ||
       moved[i].state === "working_out" ||
       moved[i].state === "dancing"
     )

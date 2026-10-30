@@ -69,6 +69,11 @@ export const AgentModel = memo(function AgentModel({
   const rightArmRef = useRef<THREE.Group>(null);
   const leftLegRef = useRef<THREE.Group>(null);
   const rightLegRef = useRef<THREE.Group>(null);
+  const leftKneeRef = useRef<THREE.Group>(null);
+  const rightKneeRef = useRef<THREE.Group>(null);
+  const leftShoeRef = useRef<THREE.Mesh>(null);
+  const rightShoeRef = useRef<THREE.Mesh>(null);
+  const shadowRef = useRef<THREE.Mesh>(null);
   const statusDotMatRef = useRef<THREE.MeshBasicMaterial>(null);
   const pulseRingRef = useRef<THREE.Mesh>(null);
   const pulseRingMatRef = useRef<THREE.MeshBasicMaterial>(null);
@@ -97,6 +102,8 @@ export const AgentModel = memo(function AgentModel({
     [agentId, appearance],
   );
 
+  const bottomStyle = resolvedAppearance.clothing.bottomStyle;
+
   useFrame(() => {
     const agent =
       agentLookupRef?.current?.get(agentId) ??
@@ -122,10 +129,14 @@ export const AgentModel = memo(function AgentModel({
     const frameValue = agent.frame + (agent.phaseOffset ?? 0) / WALK_ANIM_SPEED;
     const walkPhase = Math.sin(frameValue * WALK_ANIM_SPEED);
     const seated = agent.state === "sitting";
+    const deskWorking = agent.interactionTarget === "desk" && (seated || agent.state === "standing");
+    const seatOffset = seated && deskWorking && agent.workstation ? agent.workstation.seatHeight - 0.18 * AGENT_SCALE : 0;
+    const handTarget = (agent.workstation?.surfaceHeight ?? 0.58) + 0.025;
+    const typingAngle = -Math.acos(THREE.MathUtils.clamp(-(handTarget - seatOffset - 0.28 * AGENT_SCALE) / (0.18 * AGENT_SCALE), -0.95, 0.95));
     // Stagger each person's typing, thinking and small posture changes.
     const deskCycle = (frameValue * 0.016) % 20;
-    const typing = deskCycle < 13;
-    const thinking = deskCycle >= 13 && deskCycle < 17;
+    const typing = deskWorking && deskCycle < 13;
+    const thinking = deskWorking && deskCycle >= 13 && deskCycle < 17;
     if (seated) groupRef.current.rotation.y += Math.sin(frameValue * 0.013) * (typing ? 0.012 : 0.035);
     const workoutPhase = Math.sin(
       agent.frame * 0.18 + (agent.phaseOffset ?? 0),
@@ -135,8 +146,8 @@ export const AgentModel = memo(function AgentModel({
     );
     groupRef.current.rotation.z = 0;
     groupRef.current.rotation.x =
-      seated
-        ? -0.1 + Math.sin(frameValue * 0.026) * 0.025
+      seated || deskWorking
+        ? 0.02 + Math.sin(frameValue * 0.026) * 0.015
         : isDancing
           ? Math.sin(agent.frame * 0.18 + (agent.phaseOffset ?? 0)) * 0.06
           : isWorkout
@@ -172,7 +183,9 @@ export const AgentModel = memo(function AgentModel({
       seated || agent.state === "standing" || isWorkout || agent.pingPongUntil
         ? Math.sin(frameValue * 0.03) * 0.01
         : 0;
-    groupRef.current.position.y = bounce + breathe;
+    groupRef.current.position.y = seatOffset + bounce + breathe;
+    if (shadowRef.current) shadowRef.current.position.y = 0.001 - groupRef.current.position.y / AGENT_SCALE;
+    if (pulseRingRef.current) pulseRingRef.current.position.y = 0.008 - groupRef.current.position.y / AGENT_SCALE;
 
     if (leftArmRef.current) {
       leftArmRef.current.rotation.x = 0;
@@ -228,8 +241,8 @@ export const AgentModel = memo(function AgentModel({
       } else if (agent.pingPongUntil) {
         leftArmRef.current.rotation.x =
           0.2 + Math.sin(agent.frame * 0.08) * 0.28;
-      } else if (agent.state === "sitting") {
-        leftArmRef.current.rotation.x = typing ? -0.85 + Math.sin(frameValue * 0.5) * 0.1 : -0.45;
+      } else if (seated || deskWorking) {
+        leftArmRef.current.rotation.x = typing ? typingAngle + Math.sin(frameValue * 0.5) * 0.035 : -0.45;
         leftArmRef.current.rotation.z = -0.08;
       }
     }
@@ -288,12 +301,13 @@ export const AgentModel = memo(function AgentModel({
       } else if (agent.pingPongUntil) {
         rightArmRef.current.rotation.x =
           0.08 - Math.sin(agent.frame * 0.08) * 0.16;
-      } else if (agent.state === "sitting") {
-        rightArmRef.current.rotation.x = typing ? -0.85 + Math.sin(frameValue * 0.5 + 1.8) * 0.1 : thinking ? -2.3 : -0.35;
+      } else if (seated || deskWorking) {
+        rightArmRef.current.rotation.x = typing ? typingAngle + Math.sin(frameValue * 0.5 + 1.8) * 0.035 : thinking ? -2.3 : -0.35;
         rightArmRef.current.rotation.z = thinking ? 0.2 : 0.08;
       }
     }
     if (leftLegRef.current) {
+      leftLegRef.current.position.y = seated ? 0.18 : 0.17;
       leftLegRef.current.rotation.x =
         agent.state === "walking"
           ? walkPhase * 0.35
@@ -311,9 +325,10 @@ export const AgentModel = memo(function AgentModel({
                       : workoutStyle === "box"
                         ? 0.06 + workoutPhase * 0.14
                         : workoutPhase * 0.18
-              : seated ? -0.65 : 0;
+              : seated ? -Math.PI / 2 : 0;
     }
     if (rightLegRef.current) {
+      rightLegRef.current.position.y = seated ? 0.18 : 0.17;
       rightLegRef.current.rotation.x =
         agent.state === "walking"
           ? -walkPhase * 0.35
@@ -331,8 +346,16 @@ export const AgentModel = memo(function AgentModel({
                       : workoutStyle === "box"
                         ? 0.06 - workoutPhase * 0.14
                         : -workoutPhase * 0.18
-              : seated ? -0.65 + Math.sin(frameValue * 0.035) * 0.025 : 0;
+              : seated ? -Math.PI / 2 + Math.sin(frameValue * 0.035) * 0.025 : 0;
     }
+
+    // Hip sits on the cushion, thighs point forward, shins stay vertical and feet
+    // remain on the floor. Merely rotating a straight leg does not make a sit.
+    const shinScale = seated ? Math.max(1, (seatOffset / AGENT_SCALE + 0.18 - 0.025) / (bottomStyle === "shorts" ? 0.08 : 0.09)) : 1;
+    if (leftKneeRef.current) { leftKneeRef.current.rotation.x = seated ? -(leftLegRef.current?.rotation.x ?? 0) : 0; leftKneeRef.current.scale.y = shinScale; }
+    if (rightKneeRef.current) { rightKneeRef.current.rotation.x = seated ? -(rightLegRef.current?.rotation.x ?? 0) : 0; rightKneeRef.current.scale.y = shinScale; }
+    if (leftShoeRef.current) { leftShoeRef.current.rotation.x = 0; leftShoeRef.current.scale.y = 1 / shinScale; }
+    if (rightShoeRef.current) { rightShoeRef.current.rotation.x = 0; rightShoeRef.current.scale.y = 1 / shinScale; }
 
     const working =
       agent.state === "sitting" ||
@@ -580,7 +603,6 @@ export const AgentModel = memo(function AgentModel({
   const hairColor = resolvedAppearance.hair.color;
   const hairStyle = resolvedAppearance.hair.style;
   const topStyle = resolvedAppearance.clothing.topStyle;
-  const bottomStyle = resolvedAppearance.clothing.bottomStyle;
   const hatStyle = resolvedAppearance.accessories.hatStyle;
   const showGlasses = resolvedAppearance.accessories.glasses;
   const showHeadset = resolvedAppearance.accessories.headset;
@@ -702,72 +724,30 @@ export const AgentModel = memo(function AgentModel({
         onContextMenu?.(agentId, nativeEvent.clientX, nativeEvent.clientY);
       }}
     >
-      <mesh position={[0, 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh ref={shadowRef} position={[0, 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <circleGeometry args={[0.12, 12]} />
         <meshBasicMaterial color="#000" transparent opacity={0.2} />
       </mesh>
-      <group ref={rightLegRef} position={[-0.045, 0.1, 0]}>
-        {bottomStyle === "shorts" ? (
-          <>
-            <mesh position={[0, 0.03, 0]}>
-              <boxGeometry args={[0.07, 0.08, 0.08]} />
-              <meshLambertMaterial color={trouserColor} />
-            </mesh>
-            <mesh position={[0, -0.045, 0]}>
-              <boxGeometry args={[0.05, 0.06, 0.05]} />
-              <meshLambertMaterial color={skin} />
-            </mesh>
-          </>
-        ) : (
-          <>
-            <mesh>
-              <boxGeometry args={[0.07, 0.14, 0.08]} />
-              <meshLambertMaterial color={trouserColor} />
-            </mesh>
-            {bottomStyle === "cuffed" ? (
-              <mesh position={[0, -0.05, 0]}>
-                <boxGeometry args={[0.074, 0.022, 0.084]} />
-                <meshLambertMaterial color="#d1d5db" />
-              </mesh>
-            ) : null}
-          </>
-        )}
-        <mesh position={[0, -0.09, 0]}>
-          <boxGeometry args={[0.07, 0.05, 0.12]} />
-          <meshLambertMaterial color={shoeColor} />
+      {([-1, 1] as const).map(side => <group key={side} ref={side < 0 ? rightLegRef : leftLegRef} position={[side * 0.045, 0.17, 0]}>
+        <mesh position={[0, bottomStyle === "shorts" ? -0.04 : -0.035, 0]}>
+          <boxGeometry args={[0.07, bottomStyle === "shorts" ? 0.08 : 0.07, 0.08]} />
+          <meshLambertMaterial color={trouserColor} />
         </mesh>
-      </group>
-      <group ref={leftLegRef} position={[0.045, 0.1, 0]}>
-        {bottomStyle === "shorts" ? (
-          <>
-            <mesh position={[0, 0.03, 0]}>
-              <boxGeometry args={[0.07, 0.08, 0.08]} />
-              <meshLambertMaterial color={trouserColor} />
-            </mesh>
-            <mesh position={[0, -0.045, 0]}>
-              <boxGeometry args={[0.05, 0.06, 0.05]} />
-              <meshLambertMaterial color={skin} />
-            </mesh>
-          </>
-        ) : (
-          <>
-            <mesh>
-              <boxGeometry args={[0.07, 0.14, 0.08]} />
-              <meshLambertMaterial color={trouserColor} />
-            </mesh>
-            {bottomStyle === "cuffed" ? (
-              <mesh position={[0, -0.05, 0]}>
-                <boxGeometry args={[0.074, 0.022, 0.084]} />
-                <meshLambertMaterial color="#d1d5db" />
-              </mesh>
-            ) : null}
-          </>
-        )}
-        <mesh position={[0, -0.09, 0]}>
-          <boxGeometry args={[0.07, 0.05, 0.12]} />
-          <meshLambertMaterial color={shoeColor} />
-        </mesh>
-      </group>
+        <group ref={side < 0 ? rightKneeRef : leftKneeRef} position={[0, bottomStyle === "shorts" ? -0.08 : -0.07, 0]}>
+          <mesh position={[0, -0.035, 0]}>
+            <boxGeometry args={bottomStyle === "shorts" ? [0.05, 0.06, 0.05] : [0.07, 0.07, 0.08]} />
+            <meshLambertMaterial color={bottomStyle === "shorts" ? skin : trouserColor} />
+          </mesh>
+          {bottomStyle === "cuffed" ? <mesh position={[0, -0.05, 0]}>
+            <boxGeometry args={[0.074, 0.022, 0.084]} />
+            <meshLambertMaterial color="#d1d5db" />
+          </mesh> : null}
+          <mesh ref={side < 0 ? rightShoeRef : leftShoeRef} position={[0, bottomStyle === "shorts" ? -0.08 : -0.09, 0]}>
+            <boxGeometry args={[0.07, 0.05, 0.12]} />
+            <meshLambertMaterial color={shoeColor} />
+          </mesh>
+        </group>
+      </group>)}
       {showBackpack ? (
         <group position={[0, 0.28, -0.08]}>
           <mesh>

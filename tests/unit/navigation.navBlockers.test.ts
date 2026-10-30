@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { CANVAS_H, CANVAS_W } from "@/features/retro-office/core/constants";
+import { AGENT_RADIUS, CANVAS_H, CANVAS_W } from "@/features/retro-office/core/constants";
 import { astar, buildNavGrid } from "@/features/retro-office/core/navigation";
 import { ITEM_METADATA } from "@/features/retro-office/core/geometry";
 import type { FurnitureItem } from "@/features/retro-office/core/types";
@@ -203,19 +203,13 @@ describe("buildNavGrid + astar – full pathfinding integration (issue #4)", () 
 });
 
 describe("buildNavGrid – specific non-blocking item types (issue #4)", () => {
-  it("desk_cubicle blocks navigation with zero padding — agents route around desks", () => {
-    /*
-     * desk_cubicle has blocksNavigation: true with navPadding: 0 in ITEM_METADATA.
-     * The desk body is blocked in the nav grid so agents route around it,
-     * but zero padding keeps aisles between desks navigable.
-     * Agents sit at the chair position (y - 5), which is above the blocked zone.
-     */
+  it("desk_cubicle blocks its model volume plus the person's radius", () => {
     const item = makeItem("desk_cubicle", 400, 300);
     const grid = buildNavGrid([item]);
     expect(isBlocked(grid, 400, 300)).toBe(true);
     // Confirm via metadata as the authoritative source.
     expect(ITEM_METADATA["desk_cubicle"]?.blocksNavigation).toBe(true);
-    expect(ITEM_METADATA["desk_cubicle"]?.navPadding).toBe(0);
+    expect(ITEM_METADATA["desk_cubicle"]?.navPadding).toBe(AGENT_RADIUS);
   });
 
   it("door does NOT block navigation — agents must be able to walk through doors", () => {

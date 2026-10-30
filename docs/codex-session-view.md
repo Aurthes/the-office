@@ -186,3 +186,12 @@ protocol clients and a local fake model provider in a temporary Codex home. It
 verified one original thread, cross-client approval, steer and stop, without a
 real model request. That evidence does not replace validating the actual App
 reconnection and its tools after the migration.
+
+Desk work positions and navigation now use the actual bundled GLB bounds and
+render transforms, including rotation and agent radius. `npm run prebuild`
+regenerates `workstation-models.json` from the desk and chair assets; tests pin
+the asset hashes. The editor footprint is not the physical desk volume.
+An assigned chair supplies the actual cushion position, height and facing; a
+desk without a usable chair gets a standing position outside its front edge.
+Paths keep clear approach/departure segments rather than substituting unsafe
+exact endpoints. This is model-aligned navigation, not a rigid-body simulation.

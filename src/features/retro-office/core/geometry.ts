@@ -1,6 +1,7 @@
 import {
   CANVAS_H,
   CANVAS_W,
+  AGENT_RADIUS,
   DOOR_LENGTH,
   DOOR_THICKNESS,
   MIN_WALL_LENGTH,
@@ -12,6 +13,13 @@ import type {
   CanvasPoint,
   FurnitureItem,
 } from "@/features/retro-office/core/types";
+import workstationModels from "./workstation-models.json";
+
+// Scale is shared with the GLB renderer. Bounds and the chair seat are generated
+// from those exact meshes by scripts/generate-workstation-geometry.mjs.
+export const WORKSTATION_SCALE = { desk_cubicle: 1.5, chair: 1.2 };
+export const CHAIR_SEAT = workstationModels.chairDesk.seat;
+export const DESK_SURFACE_HEIGHT = workstationModels.desk.max[1] * WORKSTATION_SCALE.desk_cubicle;
 
 export const toWorld = (cx: number, cy: number): [number, number, number] => [
   cx * SCALE - CANVAS_W * SCALE * 0.5,
@@ -118,7 +126,7 @@ export const ITEM_METADATA: Record<string, { blocksNavigation: boolean; navPaddi
   couch_v:         { blocksNavigation: true  },
   beanbag:         { blocksNavigation: true  }, // large floor seat (issue #4)
   // ── desks / workstations ──────────────────────────────────────────────────
-  desk_cubicle:    { blocksNavigation: true, navPadding: 0 }, // blocks nav with zero padding (tight to desk body)
+  desk_cubicle:    { blocksNavigation: true, navPadding: AGENT_RADIUS },
   executive_desk:  { blocksNavigation: true  },
   // ── tables ────────────────────────────────────────────────────────────────
   round_table:     { blocksNavigation: true  },
@@ -203,6 +211,65 @@ export const getItemBounds = (item: FurnitureItem) => {
     width,
     height,
   };
+};
+
+export const workstationPoint = (item: FurnitureItem, x: number, z: number) => {
+  const scale = WORKSTATION_SCALE[item.type as keyof typeof WORKSTATION_SCALE];
+  const { width, height } = getItemBaseSize(item), angle = getItemRotationRadians(item);
+  const dx = x * scale / SCALE - width / 2, dy = z * scale / SCALE - height / 2;
+  // Same pivot and Three.js Y rotation as buildFurnitureItemMatrix.
+  return { x: item.x + width / 2 + dx * Math.cos(angle) + dy * Math.sin(angle),
+    y: item.y + height / 2 - dx * Math.sin(angle) + dy * Math.cos(angle) };
+};
+
+export const getNavigationBounds = (item: FurnitureItem) => {
+  if (item.type !== "desk_cubicle" && item.type !== "chair") return getItemBounds(item);
+  const model = item.type === "chair" ? workstationModels.chairDesk : workstationModels.desk;
+  const points = [workstationPoint(item, model.min[0], model.min[2]), workstationPoint(item, model.min[0], model.max[2]),
+    workstationPoint(item, model.max[0], model.min[2]), workstationPoint(item, model.max[0], model.max[2])];
+  const x = Math.min(...points.map(p => p.x)), y = Math.min(...points.map(p => p.y));
+  return { x, y, w: Math.max(...points.map(p => p.x)) - x, h: Math.max(...points.map(p => p.y)) - y };
+};
+
+const workstationLocalPoint = (point: CanvasPoint, item: FurnitureItem) => {
+  const scale = WORKSTATION_SCALE[item.type as keyof typeof WORKSTATION_SCALE];
+  const { width, height } = getItemBaseSize(item), angle = getItemRotationRadians(item);
+  const dx = point.x - item.x - width / 2, dy = point.y - item.y - height / 2;
+  const x = (dx * Math.cos(angle) - dy * Math.sin(angle) + width / 2) * SCALE / scale;
+  const z = (dx * Math.sin(angle) + dy * Math.cos(angle) + height / 2) * SCALE / scale;
+  return { x, y: z };
+};
+
+export const workstationClearance = (point: CanvasPoint, item: FurnitureItem) => {
+  const model = item.type === "chair" ? workstationModels.chairDesk : workstationModels.desk;
+  const scale = WORKSTATION_SCALE[item.type as keyof typeof WORKSTATION_SCALE];
+  const { x, y: z } = workstationLocalPoint(point, item);
+  return Math.hypot(Math.max(model.min[0] - x, 0, x - model.max[0]), Math.max(model.min[2] - z, 0, z - model.max[2])) * scale / SCALE;
+};
+
+export const segmentIntersectsBounds = (from: CanvasPoint, to: CanvasPoint, bounds: { x: number; y: number; w: number; h: number }) => {
+  let enter = 0, exit = 1;
+  for (const axis of ["x", "y"] as const) {
+    const delta = to[axis] - from[axis], min = bounds[axis], max = min + (axis === "x" ? bounds.w : bounds.h);
+    if (Math.abs(delta) < 1e-10) { if (from[axis] < min || from[axis] > max) return false; continue; }
+    const a = (min - from[axis]) / delta, b = (max - from[axis]) / delta;
+    enter = Math.max(enter, Math.min(a, b)); exit = Math.min(exit, Math.max(a, b));
+    if (enter > exit) return false;
+  }
+  return true;
+};
+
+export const segmentIntersectsWorkstation = (from: CanvasPoint, to: CanvasPoint, item: FurnitureItem, padding: number) => {
+  const model = item.type === "chair" ? workstationModels.chairDesk : workstationModels.desk;
+  const scale = WORKSTATION_SCALE[item.type as keyof typeof WORKSTATION_SCALE], pad = padding * SCALE / scale;
+  return segmentIntersectsBounds(workstationLocalPoint(from, item), workstationLocalPoint(to, item),
+    { x: model.min[0] - pad, y: model.min[2] - pad, w: model.max[0] - model.min[0] + 2 * pad, h: model.max[2] - model.min[2] + 2 * pad });
+};
+
+export const deskFrontPoint = (item: FurnitureItem) => {
+  const model = workstationModels.desk;
+  return workstationPoint(item, (model.min[0] + model.max[0]) / 2,
+    model.max[2] + (AGENT_RADIUS + 2) * SCALE / WORKSTATION_SCALE.desk_cubicle);
 };
 
 export const createWallItem = (

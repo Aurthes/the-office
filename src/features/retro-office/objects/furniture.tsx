@@ -11,6 +11,7 @@ import {
   getItemRotationRadians,
   resolveItemTypeKey,
   toWorld,
+  WORKSTATION_SCALE,
 } from "@/features/retro-office/core/geometry";
 import type { FurnitureItem } from "@/features/retro-office/core/types";
 import type { InteractiveFurnitureModelProps } from "@/features/retro-office/objects/types";
@@ -39,9 +40,9 @@ export const FURNITURE_GLB: Record<string, string> = {
 };
 
 export const FURNITURE_SCALE: Record<string, [number, number, number]> = {
-  desk_cubicle: [1.5, 1.5, 1.5],
+  desk_cubicle: Array(3).fill(WORKSTATION_SCALE.desk_cubicle) as [number, number, number],
   executive_desk: [1.8, 1.8, 1.8],
-  chair: [1.2, 1.2, 1.2],
+  chair: Array(3).fill(WORKSTATION_SCALE.chair) as [number, number, number],
   round_table: [3.2, 3.2, 3.2],
   couch: [1.8, 1.8, 1.8],
   couch_v: [1.4, 1.4, 1.4],

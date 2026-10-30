@@ -54,6 +54,7 @@ export type RenderAgent = SceneActor & {
   pingPongSide?: 0 | 1;
   pingPongPreviousWalkSpeed?: number;
   interactionTarget?: OfficeInteractionTargetId;
+  workstation?: DeskWorkstation;
   smsBoothStage?: "door_outer" | "door_inner" | "typing";
   phoneBoothStage?: "door_outer" | "door_inner" | "receiver";
   serverRoomStage?: "door_outer" | "door_inner" | "terminal";
@@ -89,6 +90,14 @@ export type CanvasPoint = {
 
 export type FacingPoint = CanvasPoint & {
   facing: number;
+};
+
+export type DeskWorkstation = FacingPoint & {
+  deskUid: string;
+  chairUid?: string;
+  pose: "sitting" | "standing";
+  seatHeight: number;
+  surfaceHeight: number;
 };
 
 export type QaLabStationType = "console" | "device_rack" | "bench";

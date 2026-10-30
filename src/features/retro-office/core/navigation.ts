@@ -1,12 +1,18 @@
 import { CANVAS_H, CANVAS_W } from "@/features/retro-office/core/constants";
 import {
+  getNavigationBounds,
   getItemBounds,
+  workstationClearance,
+  segmentIntersectsBounds,
+  segmentIntersectsWorkstation,
   ITEM_FOOTPRINT,
   ITEM_METADATA,
   snap,
 } from "@/features/retro-office/core/geometry";
 import type {
   FacingPoint,
+  DeskWorkstation,
+  CanvasPoint,
   FurnitureItem,
   GymWorkoutLocation,
   QaLabStationLocation,
@@ -72,6 +78,10 @@ const GRID_COLS = Math.ceil(CANVAS_W / GRID_CELL);
 const GRID_ROWS = Math.ceil(CANVAS_H / GRID_CELL);
 
 export type NavGrid = Uint8Array;
+// Preserve precise obstacle volumes beside the conservative raster. A valid
+// chair/standing point may share a raster cell with a desk edge.
+type NavVolume = { contains: (x: number, y: number) => boolean; intersects: (from: CanvasPoint, to: CanvasPoint) => boolean };
+const gridVolumes = new WeakMap<NavGrid, NavVolume[]>();
 
 /**
  * Returns true if the given item type should block pathfinding cells.
@@ -85,14 +95,20 @@ const itemBlocksNavigation = (type: string): boolean =>
 export function buildNavGrid(furniture: FurnitureItem[]): NavGrid {
   const grid = new Uint8Array(GRID_COLS * GRID_ROWS);
   const defaultPad = GRID_CELL * 0.6;
+  const volumes: NavVolume[] = [];
   for (const item of furniture) {
     if (!itemBlocksNavigation(item.type)) continue;
     const itemPad = ITEM_METADATA[item.type]?.navPadding ?? defaultPad;
-    const bounds = getItemBounds(item);
+    const bounds = getNavigationBounds(item);
     const x1 = bounds.x - itemPad;
     const y1 = bounds.y - itemPad;
     const x2 = bounds.x + bounds.w + itemPad;
     const y2 = bounds.y + bounds.h + itemPad;
+    volumes.push(item.type === "desk_cubicle"
+      ? { contains: (x, y) => workstationClearance({ x, y }, item) <= itemPad,
+          intersects: (from, to) => segmentIntersectsWorkstation(from, to, item, itemPad) }
+      : { contains: (x, y) => x >= x1 && x <= x2 && y >= y1 && y <= y2,
+          intersects: (from, to) => segmentIntersectsBounds(from, to, { x: x1, y: y1, w: x2 - x1, h: y2 - y1 }) });
     const c1 = Math.max(0, Math.floor(x1 / GRID_CELL));
     const c2 = Math.min(GRID_COLS - 1, Math.floor(x2 / GRID_CELL));
     const r1 = Math.max(0, Math.floor(y1 / GRID_CELL));
@@ -112,6 +128,7 @@ export function buildNavGrid(furniture: FurnitureItem[]): NavGrid {
     grid[row * GRID_COLS] = 1;
     grid[row * GRID_COLS + GRID_COLS - 1] = 1;
   }
+  gridVolumes.set(grid, volumes);
   return grid;
 }
 
@@ -130,9 +147,18 @@ export function astar(
   });
   const cellCx = (column: number) => column * GRID_CELL + GRID_CELL / 2;
   const cellCy = (row: number) => row * GRID_CELL + GRID_CELL / 2;
+  const volumes = gridVolumes.get(grid);
+  const exactPointIsSafe = (x: number, y: number) => {
+    const cell = toCell(x, y);
+    const insideFloor = x >= GRID_CELL && y >= GRID_CELL && x < (GRID_COLS - 1) * GRID_CELL && y < (GRID_ROWS - 1) * GRID_CELL;
+    return insideFloor && (volumes ? !volumes.some(volume => volume.contains(x, y)) : !grid[cell.r * GRID_COLS + cell.c]);
+  };
+  const exactStartIsSafe = exactPointIsSafe(sx, sy), exactEndIsSafe = exactPointIsSafe(ex, ey);
+  const connects = (point: CanvasPoint, c: number, r: number) => !volumes
+    || !volumes.some(volume => volume.intersects({ x: cellCx(c), y: cellCy(r) }, point));
 
-  const findFree = (column: number, row: number) => {
-    if (!grid[row * GRID_COLS + column]) return { c: column, r: row };
+  const findFree = (column: number, row: number, accept: (c: number, r: number) => boolean = () => true) => {
+    if (!grid[row * GRID_COLS + column] && accept(column, row)) return { c: column, r: row };
     for (let distance = 1; distance < 10; distance += 1) {
       for (let rowOffset = -distance; rowOffset <= distance; rowOffset += 1) {
         for (
@@ -156,7 +182,7 @@ export function astar(
           ) {
             continue;
           }
-          if (!grid[nextRow * GRID_COLS + nextColumn]) {
+          if (!grid[nextRow * GRID_COLS + nextColumn] && accept(nextColumn, nextRow)) {
             return { c: nextColumn, r: nextRow };
           }
         }
@@ -167,18 +193,30 @@ export function astar(
 
   let { c: sc, r: sr } = toCell(sx, sy);
   let { c: ec, r: er } = toCell(ex, ey);
-  const startFree = findFree(sc, sr);
-  const endFree = findFree(ec, er);
+  const startFree = findFree(sc, sr, (c, r) => !exactStartIsSafe || connects({ x: sx, y: sy }, c, r));
+  const endFree = findFree(ec, er, (c, r) => !exactEndIsSafe || connects({ x: ex, y: ey }, c, r));
   if (!startFree || !endFree) return [];
   sc = startFree.c;
   sr = startFree.r;
   ec = endFree.c;
   er = endFree.r;
+  const destination = exactEndIsSafe ? { x: ex, y: ey } : { x: cellCx(ec), y: cellCy(er) };
+  const finishPath = (path: CanvasPoint[]) => {
+    // Keep the safe cell centres: replacing one with the exact pixel can cut
+    // across a rotated desk, even when that pixel itself is outside the desk.
+    if (volumes && exactStartIsSafe) path.unshift({ x: cellCx(sc), y: cellCy(sr) });
+    const last = path.at(-1);
+    if (!last || last.x !== destination.x || last.y !== destination.y) path.push(destination);
+    return path;
+  };
   // Same nav cell: start and end are close enough that A* has no grid edges
   // to traverse. The destination is still reachable — return a single-waypoint
   // path to the exact target pixel so the movement layer can make the final
   // fine-grained adjustment instead of staying put.
-  if (sc === ec && sr === er) return [{ x: ex, y: ey }];
+  if (sc === ec && sr === er) {
+    return volumes?.some(volume => volume.intersects({ x: sx, y: sy }, destination))
+      ? finishPath([]) : [destination];
+  }
 
   const nodeCount = GRID_COLS * GRID_ROWS;
   const gCost = new Float32Array(nodeCount).fill(Infinity);
@@ -254,9 +292,7 @@ export function astar(
         node = parent[node];
       }
       path.reverse();
-      if (path.length) path[path.length - 1] = { x: ex, y: ey };
-      else path.push({ x: ex, y: ey });
-      return path;
+      return finishPath(path);
     }
 
     const currentColumn = current % GRID_COLS;
@@ -300,10 +336,7 @@ export function astar(
   return [];
 }
 
-export const getDeskLocations = (items: FurnitureItem[]) =>
-  items
-    .filter((item) => item.type === "desk_cubicle")
-    .map((item) => ({ x: item.x + 40, y: item.y - 5 }));
+export { getDeskWorkstations as getDeskLocations } from "./workstations";
 
 export const getMeetingSeatLocations = (items: FurnitureItem[]) => {
   // Meeting seats are inferred from chair placement in the conference area so standup
@@ -493,12 +526,12 @@ export const MEETING_OVERFLOW_LOCATIONS = [
 
 export const resolveDeskIndexForItem = (
   item: FurnitureItem,
-  deskLocations: { x: number; y: number }[],
+  deskLocations: DeskWorkstation[],
 ): number => {
   if (deskLocations.length === 0) return -1;
   if (item.type === "desk_cubicle") {
     return deskLocations.findIndex(
-      (desk) => desk.x === item.x + 40 && desk.y === item.y - 5,
+      (desk) => desk.deskUid === item._uid,
     );
   }
 

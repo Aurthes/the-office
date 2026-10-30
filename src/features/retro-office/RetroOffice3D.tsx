@@ -852,7 +852,7 @@ function AdaptiveDprController() {
 // concrete targets, paths, and per-frame actor motion.
 function useAgentTick(
   agents: SceneActor[],
-  deskLocations: { x: number; y: number }[],
+  deskLocations: import("./core/types").DeskWorkstation[],
   assignedDeskIndexByAgentId: Record<string, number> = {},
   gymWorkoutLocations: {
     x: number;
@@ -919,12 +919,12 @@ function useAgentTick(
     }
     const actor = agents.find(a => a.id === agentId);
     const home = actor && "homeRoamPoints" in actor ? actor.homeRoamPoints : undefined;
-    if (home?.length) return home[Math.floor(Math.random() * home.length)];
-    return {
+    const candidate = home?.length ? home[Math.floor(Math.random() * home.length)] : {
       x: Math.random() * 800 + 100,
       y: Math.random() * 500 + 100,
     };
-  }, [agents]);
+    return astar(candidate.x, candidate.y, candidate.x, candidate.y, getNavGrid()).at(-1) ?? candidate;
+  }, [agents, getNavGrid]);
 
   const standupActive =
     standupMeeting?.phase === "gathering" ||
@@ -1104,7 +1104,7 @@ function useAgentTick(
 
       let ns: Partial<RenderAgent> = {};
       if (existing) {
-        ns = { ...existing };
+        ns = { ...existing, workstation: deskPos ?? undefined };
         if (explicitMeetingHold && meetingTarget) {
           ns.pingPongUntil = undefined;
           ns.pingPongTargetX = undefined;
@@ -1397,8 +1397,8 @@ function useAgentTick(
           if (targetChanged)
             ns.path = planPath(existing.x, existing.y, deskPos.x, deskPos.y);
           ns.state =
-            Math.hypot(existing.x - deskPos.x, existing.y - deskPos.y) < 15
-              ? "sitting"
+            Math.hypot(existing.x - deskPos.x, existing.y - deskPos.y) < 1
+              ? deskPos.pose
               : "walking";
         } else if (effectiveStatus === "working") {
           ns.pingPongUntil = undefined;
@@ -1650,6 +1650,7 @@ function useAgentTick(
         ns = {
           x: sx,
           y: sy,
+          workstation: deskPos ?? undefined,
           targetX: initialTarget.x,
           targetY: initialTarget.y,
           path: planPath(sx, sy, initialTarget.x, initialTarget.y),
@@ -1838,13 +1839,17 @@ function useAgentTick(
             frame: agent.frame + 1,
           };
         }
+        const resumeTarget = agent.status === "working" && agent.interactionTarget === "desk" && agent.workstation
+          ? agent.workstation : { x: agent.targetX, y: agent.targetY };
         return {
           ...agent,
           bumpedUntil: undefined,
           bumpTalkUntil: undefined,
           collisionCooldownUntil: now + BUMP_RECOVERY_MS,
           state: "walking" as const,
-          path: astar(agent.x, agent.y, agent.targetX, agent.targetY, grid),
+          targetX: resumeTarget.x,
+          targetY: resumeTarget.y,
+          path: astar(agent.x, agent.y, resumeTarget.x, resumeTarget.y, grid),
           frame: agent.frame + 1,
         };
       }
@@ -2056,7 +2061,11 @@ function useAgentTick(
                       ? "working_out"
                       : agent.interactionTarget === "qa_lab"
                         ? "standing"
-                        : "sitting";
+                        : agent.interactionTarget === "meeting_room"
+                          ? "sitting"
+                          : agent.interactionTarget === "desk" && agent.workstation
+                            ? agent.workstation.pose
+                            : "standing";
             if (agent.interactionTarget === "sms_booth") {
               nf = agent.facing;
             } else if (agent.interactionTarget === "phone_booth") {
@@ -2070,9 +2079,12 @@ function useAgentTick(
             } else if (agent.interactionTarget === "meeting_room") {
               nf = agent.facing;
             } else if (agent.interactionTarget === "desk") {
-              // Desks sit immediately south of their navigation seat; face the screen,
-              // rather than keeping the direction of the last walking waypoint.
-              nf = 0;
+              const station = agent.workstation;
+              // A missing/blocked route is not arrival. Never sit at an arbitrary
+              // position or teleport through a desk to reach its assigned seat.
+              if (station && Math.hypot(nx - station.x, ny - station.y) < 1) {
+                nx = station.x; ny = station.y; nf = station.facing;
+              } else ns = "standing";
             }
           } else if (agent.status === "error") {
             ns = "standing";
