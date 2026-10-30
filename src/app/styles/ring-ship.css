@@ -46,24 +46,40 @@
   .ship-summary > div:nth-child(2) { display: none; }
 }
 
-.ship-lift-anchor { position: relative; width: 140px; pointer-events: auto; }
-.ship-lift-entry { display: flex; align-items: center; gap: 8px; width: 140px; padding: 7px 11px; border: 1px solid #e6b66f; border-radius: 8px; background: #14333ef0; color: #e8d2a5; text-align: left; cursor: pointer; font-size: 11px; box-shadow: 0 0 22px #d6a45c33; }
-.ship-lift-entry > span:first-child { font-size: 25px; line-height: 1; }
-.ship-lift-entry small { display: block; color: #93c3c2; font-size: 9px; }
-.ship-lift-entry:after { content: ''; position: absolute; top: 100%; left: 50%; width: 1px; height: 15px; background: #e2bb79; }
-.ship-lift-menu { position: absolute; left: 155px; top: -75px; width: 290px; max-height: min(360px, calc(100dvh - 150px)); overflow: auto; overscroll-behavior: contain; padding: 15px; border: 1px solid #d8ab71; border-radius: 12px; background: #102a36fa; color: #d6e6e8; box-shadow: 0 12px 50px #0009; font: 12px/1.5 system-ui, sans-serif; }
-.ship-lift-heading { display: flex; align-items: center; justify-content: space-between; color: #91b8c0; font-size: 9px; letter-spacing: 2px; }
-.ship-lift-heading button { padding: 0 5px; border: 0; background: none; color: #c9dadd; font-size: 24px; line-height: 1; cursor: pointer; }
-.ship-lift-menu h2 { margin: 8px 0 4px; color: #edd2a5; font-size: 17px; font-weight: 550; }
-.ship-lift-menu p { margin: 8px 0; color: #a3bcc6; font-size: 10px; }
-.ship-lift-destination { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 55px; margin-top: 7px; padding: 9px 10px; border: 1px solid #b0d7db29; border-radius: 8px; background: #112a39; color: #c8dadd; text-align: left; cursor: pointer; }
-.ship-lift-destination b { color: #e7c38b; font-size: 20px; font-weight: 500; }
+.ship-lift-anchor { position: relative; width: 162px; pointer-events: none; }
+.ship-lift-entry { position: relative; display: flex; align-items: center; gap: 9px; width: 162px; min-height: 43px; padding: 7px 9px; border: 1px solid #b6c0bf; border-radius: 3px; background: linear-gradient(160deg, #e0e3df, #c3ccca 60%, #cfd5d1); color: #293b42; text-align: left; cursor: pointer; box-shadow: 0 2px 6px #0005, inset 0 1px 0 #f8faf4bd; opacity: 0; pointer-events: none; transition: opacity .12s, border-color .16s, box-shadow .16s; }
+.ship-lift-anchor[data-hovered="true"] .ship-lift-entry,
+.ship-lift-anchor[data-open="true"] .ship-lift-entry,
+.ship-lift-entry:focus-visible { opacity: 1; pointer-events: auto; }
+/* Keep the plaque visible while the pointer moves from the shaft onto it.
+   Touch devices open the menu by tapping the actual shaft, without a hidden hitbox. */
+@media (any-hover: hover) {
+  .ship-lift-anchor:hover .ship-lift-entry { opacity: 1; pointer-events: auto; }
+}
+
+.ship-lift-mark { display: flex; align-items: center; justify-content: center; width: 23px; height: 27px; flex-shrink: 0; border-right: 1px solid #8c9b9c80; padding-right: 6px; color: #42585b; }
+.ship-lift-entry-copy { flex: 1; white-space: nowrap; font: 500 10px/1.3 system-ui, sans-serif; letter-spacing: .5px; }
+.ship-lift-entry-copy small { display: block; margin-top: 3px; color: #667b7e; font: 500 6px/1.2 system-ui, sans-serif; letter-spacing: 1px; }
+.ship-lift-deck { align-self: stretch; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 23px; padding-left: 7px; border-left: 1px solid #8c9b9c70; color: #2f4d51; font: 500 13px/1.1 ui-monospace, monospace; }
+.ship-lift-deck small { margin-bottom: 3px; color: #718588; font: 500 5px/1 ui-monospace, monospace; letter-spacing: .7px; }
+.ship-lift-entry:after { content: ''; position: absolute; top: 100%; left: 50%; width: 1px; height: 18px; background: #a4b8b9b3; }
+.ship-lift-entry:hover, .ship-lift-entry[aria-expanded="true"] { border-color: #e6eee7; box-shadow: 0 3px 9px #0006, inset 0 1px 0 #fff; }
+.ship-lift-entry:active { box-shadow: 0 1px 3px #0005, inset 0 1px 2px #546c6b33; }
+.ship-lift-menu { pointer-events: auto; position: absolute; left: 176px; top: -75px; width: 290px; max-height: min(360px, calc(100dvh - 150px)); overflow: auto; overscroll-behavior: contain; padding: 15px; border: 1px solid #7d969e80; border-radius: 4px; background: #15242df7; color: #d5dedd; box-shadow: 0 12px 32px #0006, inset 0 1px 0 #e0e9e31a; font: 12px/1.5 system-ui, sans-serif; }
+.ship-lift-heading { display: flex; align-items: center; justify-content: space-between; color: #8caaa9; font: 9px/1.5 ui-monospace, monospace; letter-spacing: 1.5px; }
+.ship-lift-heading button { display: flex; align-items: center; justify-content: center; min-width: 28px; min-height: 28px; border: 0; background: none; color: #8fa5a9; cursor: pointer; }
+.ship-lift-heading button:hover { color: #eef1e9; }
+.ship-lift-menu h2 { margin: 8px 0 4px; color: #e4e8df; font-size: 16px; font-weight: 500; }
+.ship-lift-menu p { margin: 8px 0; color: #829ba3; font-size: 10px; }
+.ship-lift-destination { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 55px; padding: 10px 3px; border-top: 1px solid #819b9b33; background: transparent; color: #bfcfd0; text-align: left; cursor: pointer; transition: background .16s, color .16s; }
+.ship-lift-destination:first-of-type { margin-top: 12px; }
+.ship-lift-destination b { min-width: 30px; color: #d6ded5; font: 400 20px/1 ui-monospace, monospace; }
 .ship-lift-destination span { flex: 1; font-size: 12px; }
-.ship-lift-destination small { display: block; color: #7da3ae; font-size: 9px; }
-.ship-lift-destination em { color: #96c5bf; font-size: 10px; font-style: normal; }
-.ship-lift-destination:disabled { opacity: .4; cursor: default; }
-.ship-lift-entry:hover, .ship-lift-destination:hover:not(:disabled) { border-color: #e9ba78; }
-.ship-lift-anchor button:focus-visible { outline: 2px solid #e6b878; outline-offset: 2px; }
+.ship-lift-destination small { display: block; margin-top: 3px; color: #718e97; font-size: 9px; }
+.ship-lift-destination em { display: flex; align-items: center; padding-right: 4px; color: #8eaaa9; font-size: 9px; font-style: normal; }
+.ship-lift-destination:disabled { opacity: .38; cursor: default; }
+.ship-lift-destination:hover:not(:disabled) { background: #b4c8be0d; color: #edf1e8; }
+.ship-lift-anchor button:focus-visible { outline: 1px solid #bfcec5; outline-offset: 3px; }
 .ship-lift-transit { position: absolute; inset: 0; z-index: 35; pointer-events: none; overflow: hidden; }
 .ship-cabin-window { position: absolute; inset: 0; background: linear-gradient(90deg, #0a1e31aa, transparent 19%, transparent 81%, #0a1e31aa); }
 .ship-cabin-frame { position: absolute; inset: 0; border: clamp(20px, 4vw, 65px) solid #193447; border-top-width: 48px; border-bottom-width: 52px; box-shadow: inset 0 0 0 2px #98bec3, inset 0 0 45px #05151ccc; }

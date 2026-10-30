@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useRef, type ComponentRef, type RefObject } from "react";
+import { useMemo, useRef, useState, type ComponentRef, type RefObject } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Html, OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
+import { ArrowRight, DoorClosed, X } from "lucide-react";
 import { DECK_NAMES, DECK_STEP, DECKS, type DeckIndex, type ShipLayout } from "./layout";
 import { shipCameraPose } from "./cameraPose";
 
@@ -16,26 +17,32 @@ export function LiftEntry({ deck, whole, open, disabled, counts, onOpen, onClose
   onOpen: () => void; onClose: () => void; onTravel: (deck: DeckIndex) => void;
 }) {
   const entry = useRef<HTMLButtonElement>(null);
-  const close = () => { onClose(); entry.current?.focus({ preventScroll: true }); };
+  const [hovered, setHovered] = useState(false);
+  const showMenu = () => { setHovered(false); onOpen(); };
+  const close = (restoreFocus = false) => { onClose(); if (restoreFocus) entry.current?.focus({ preventScroll: true }); };
   return <group position={[0, whole ? DECK_STEP : deck * DECK_STEP, 0]} visible={!disabled}>
-    <mesh onClick={event => { if (event.delta < 6) { event.stopPropagation(); onOpen(); } }}>
+    <mesh onPointerOver={event => { if (event.pointerType === "mouse") { event.stopPropagation(); setHovered(true); } }}
+      onPointerOut={() => setHovered(false)}
+      onClick={event => { if (event.delta < 6) { event.stopPropagation(); showMenu(); } }}>
       <cylinderGeometry args={[3.6, 3.6, whole ? DECK_STEP * 2 + 8 : 8, 24]} />
       <meshBasicMaterial visible={false} />
     </mesh>
     {!disabled ? <Html position={[0, 2.5, 0]} center zIndexRange={[15, 14]} style={{ pointerEvents: "none" }}>
-      <div className="ship-lift-anchor" onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
-        <button ref={entry} className="ship-lift-entry" aria-label="乘坐中央升降梯" aria-expanded={open} aria-controls="ship-lift-menu" onClick={onOpen}>
-          <span aria-hidden="true">↕</span><span>中央升降梯<small>L{deck + 1} · 点击乘坐</small></span>
+      <div className="ship-lift-anchor" data-hovered={hovered} data-open={open} onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
+        <button ref={entry} className="ship-lift-entry" aria-label="乘坐中央升降梯" aria-expanded={open} aria-controls="ship-lift-menu" onClick={showMenu}>
+          <span className="ship-lift-mark" aria-hidden="true"><DoorClosed size={19} strokeWidth={1.25} /></span>
+          <span className="ship-lift-entry-copy">中央升降梯<small>CENTRAL SHUTTLE</small></span>
+          <span className="ship-lift-deck" aria-hidden="true"><small>DECK</small>L{deck + 1}</span>
         </button>
         {open ? <section id="ship-lift-menu" role="dialog" aria-label="中央升降梯" className="ship-lift-menu"
-          onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); } }}>
-          <div className="ship-lift-heading"><span>CENTRAL SHUTTLE</span><button aria-label="关闭升降梯菜单" onClick={close}>×</button></div>
+          onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(true); } }}>
+          <div className="ship-lift-heading"><span>CENTRAL SHUTTLE</span><button aria-label="关闭升降梯菜单" onClick={event => close(event.detail === 0)}><X size={16} strokeWidth={1.5} /></button></div>
           <h2>前往哪一层？</h2><p>当前位置：L{deck + 1} · {DECK_NAMES[deck]}</p>
           {/* Html mounts its own DOM root: focus the button there, not from the scene effect. */}
           {DECKS.map((destination, index) => <button key={destination} autoFocus={destination === DECKS.find(d => d !== deck)}
             className="ship-lift-destination" disabled={destination === deck} aria-current={destination === deck ? "location" : undefined}
             aria-label={`穿梭到 L${destination + 1}`} onClick={() => onTravel(destination)}>
-            <b>L{destination + 1}</b><span>{DECK_NAMES[index]}<small>{counts[index]} 个会话 · 三环甲板</small></span><em>{destination === deck ? "当前" : "前往 →"}</em>
+            <b>L{destination + 1}</b><span>{DECK_NAMES[index]}<small>{counts[index]} 个会话 · 三环甲板</small></span><em>{destination === deck ? "当前" : <ArrowRight size={15} strokeWidth={1.25} aria-hidden="true" />}</em>
           </button>)}
           <p>从中央轴乘梯，到站后展开目的甲板。</p>
         </section> : null}
