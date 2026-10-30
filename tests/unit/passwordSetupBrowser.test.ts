@@ -1,11 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { JSDOM } from "jsdom";
+import { createRequire } from "node:module";
+const { JSDOM } = createRequire(import.meta.url)("jsdom");
 const { passwordSetupView } = await import("../../server/web-access/views.js");
 const script = readFileSync(new URL("../../server/web-access/login.js", import.meta.url), "utf8");
 const token = "a".repeat(43);
-const html = passwordSetupView({ username: "fixture", csrf: "fixture", active: true, enrollNext: true });
+const html = passwordSetupView({ username: "fixture", csrf: "fixture", active: true, error: "", enrollNext: true });
 describe("password setup invitation in the browser", () => {
   it("takes the token from the fragment, removes it from the address, and supports refresh without exposing it in HTML", () => {
     expect(html).not.toContain(token);

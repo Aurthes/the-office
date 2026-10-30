@@ -1,20 +1,19 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { SessionControls, type LiveSessionItem } from "./SessionControls";
+import { SessionControls, type LiveSessionItem, type SessionClient } from "./SessionControls";
+import { SessionTranscript } from "./SessionTranscript";
 
 type Inspection = {
   id: string; name: string; workspace: string; project: string;
   status: "running" | "idle" | "unknown";
   controlsAvailable?: boolean;
 };
-type Message = { id: string; role: string; content: string; timestamp?: number; truncated?: boolean; status?: string };
+type Message = LiveSessionItem;
 type HistoryPage = { threadId: string; messages: Message[]; nextCursor: string | null };
 type LoadMode = "latest" | "older";
 
 export function ExistingSessionPanel({ client, threadId }: {
-  client: { call: (method: string, params: unknown) => Promise<unknown> };
+  client: SessionClient;
   threadId: string;
 }) {
   const [data, setData] = useState<Inspection | null>(null);
@@ -34,7 +33,7 @@ export function ExistingSessionPanel({ client, threadId }: {
   const liveItems = useRef(new Map<string, LiveSessionItem>());
   const onLiveItems = useCallback((items: LiveSessionItem[]) => {
     for (const item of items) liveItems.current.set(item.id, item);
-    while (liveItems.current.size > 24) liveItems.current.delete(liveItems.current.keys().next().value!);
+    while (liveItems.current.size > 128) liveItems.current.delete(liveItems.current.keys().next().value!);
     setMessages(previous => {
       const next = [...previous];
       for (const item of items) {
@@ -130,11 +129,7 @@ export function ExistingSessionPanel({ client, threadId }: {
         {loading ? <span role="status">读取这一块…</span> : olderCursor ? <button onClick={() => void load.current?.("older")} className="px-3 py-1 text-cyan-200">↑ 读取更早记录</button> : loaded ? "已到最早记录" : null}
       </div>
       {loaded && messages.length === 0 ? <p className="text-center text-xs text-white/50">这一块没有对话文字（工具活动已略过）。{olderCursor ? "向上滚动或点上方按钮，读取更早一块。" : ""}</p> : null}
-      {messages.map(message => <article key={message.id} className={`rounded-lg border border-l-4 p-3 ${message.role === "user" ? "border-cyan-400/60 bg-[#0b5268] text-cyan-50" : "border-slate-500/55 bg-[#242932] text-slate-100"}`}>
-        <div className={`mb-2 text-[10px] font-semibold ${message.role === "user" ? "text-cyan-100" : "text-slate-300"}`}>{message.role === "user" ? "你" : message.role === "tool" ? "工具活动" : "助手"}{message.role === "tool" && message.status ? ` · ${{ inProgress: "进行中", completed: "已完成", failed: "失败", declined: "已拒绝" }[message.status] || message.status}` : ""}{message.timestamp ? ` · ${new Date(message.timestamp).toLocaleString()}` : ""}</div>
-        {message.role === "tool" ? <details><summary className="cursor-pointer text-xs text-white/60">查看工具信息</summary><pre className="mt-2 overflow-auto whitespace-pre-wrap break-all text-xs">{message.content}</pre></details> : <div className="agent-markdown min-w-0 break-words text-xs leading-relaxed [&_a]:text-sky-200 [&_a]:underline"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown></div>}
-        {message.truncated ? <p className="mt-2 text-[10px] text-amber-200/70">长消息已截断，全文可在原 App 查看。</p> : null}
-      </article>)}
+      <SessionTranscript messages={messages} />
     </div>
     {data?.id === threadId && data.controlsAvailable ? <SessionControls client={client} threadId={threadId} onItems={onLiveItems} /> : null}
     <footer className="shrink-0 space-y-1 border-t border-white/10 p-3 text-[10px] text-white/50">

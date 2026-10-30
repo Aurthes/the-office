@@ -1,12 +1,12 @@
 "use strict";
 const crypto = require("node:crypto");
-const textOf = item => item.text || (item.content || []).filter(p => ["text", "inputText"].includes(p.type)).map(p => p.text).join("\n");
+const { sessionItem, clipText } = require("./codex-session-items");
 const supportedApprovals = new Set(["item/commandExecution/requestApproval", "item/fileChange/requestApproval"]);
 
 class CodexSessionControls {
   constructor(client) { this.client = client; this.states = new Map(); this.requests = new Map(); this.sends = new Map(); this.attaching = new Map(); }
   state(id) {
-    if (!this.states.has(id)) this.states.set(id, { version: 0, activeTurnId: null, items: new Map() });
+    if (!this.states.has(id)) this.states.set(id, { version: 0, activeTurnId: null, items: new Map(), turnStatus: null, error: null });
     return this.states.get(id);
   }
   requireReady() { if (!this.client?.ready) throw new Error("原 App 共享控制通道未连接，当前仍为只读"); }
@@ -25,7 +25,9 @@ class CodexSessionControls {
   }
   async refreshTurn(id) {
     const result = await this.client.call("thread/turns/list", { threadId: id, limit: 1, itemsView: "notLoaded", sortDirection: "desc" });
-    const turn = result.data[0]; this.state(id).activeTurnId = turn?.status === "inProgress" ? turn.id : null;
+    const turn = result.data[0], state = this.state(id);
+    state.activeTurnId = turn?.status === "inProgress" ? turn.id : null;
+    state.turnStatus = turn?.status || null; state.error = turn?.error?.message || null;
   }
   handle(frame) {
     const p = frame.params || {}, id = p.threadId;
@@ -37,9 +39,9 @@ class CodexSessionControls {
       state.version++; return;
     }
     if (frame.method === "serverRequest/resolved") { this.requests.delete(String(p.requestId)); state.version++; return; }
-    if (frame.method === "turn/started") { state.activeTurnId = p.turn.id; state.version++; }
+    if (frame.method === "turn/started") { state.activeTurnId = p.turn.id; state.turnStatus = "inProgress"; state.error = null; state.version++; }
     if (frame.method === "turn/completed") {
-      if (state.activeTurnId === p.turn.id) state.activeTurnId = null;
+      if (state.activeTurnId === p.turn.id) { state.activeTurnId = null; state.turnStatus = p.turn.status; state.error = p.turn.error?.message || null; }
       for (const [key, request] of this.requests) if (request.params.threadId === id && request.params.turnId === p.turn.id) this.requests.delete(key);
       state.version++;
     }
@@ -47,22 +49,28 @@ class CodexSessionControls {
     if (frame.method === "item/agentMessage/delta") {
       const key = `${p.turnId}:${p.itemId}`, previous = state.items.get(key);
       const text = (previous?.content || "") + p.delta;
-      state.items.set(key, { id: key, role: "assistant", content: text.slice(0, 2048), truncated: text.length > 2048 || previous?.truncated, version: ++state.version });
-    } else if ((frame.method === "item/completed" && item?.type === "agentMessage") || (["item/started", "item/completed"].includes(frame.method) && item?.type === "userMessage")) {
-      const text = textOf(item), key = `${p.turnId}:${item.id}`;
-      state.items.set(key, { id: key, role: item.type === "userMessage" ? "user" : "assistant", content: text.slice(0, 2048), truncated: text.length > 2048, version: ++state.version });
-    } else if (["item/started", "item/completed"].includes(frame.method) && ["commandExecution", "fileChange", "mcpToolCall", "webSearch"].includes(item?.type)) {
-      const key = `${p.turnId}:${item.id}`;
+      state.items.set(key, { ...previous, id: key, turnId: p.turnId, role: "assistant", ...clipText(text, 64 * 1024), truncated: Buffer.byteLength(text) > 64 * 1024 || previous?.truncated, version: ++state.version });
+    } else if (["item/started", "item/completed"].includes(frame.method) && item) {
+      const normalized = sessionItem(item, p.turnId);
+      if (!normalized) return;
+      const key = normalized.id;
       const details = item.type === "fileChange" ? JSON.stringify(item.changes || []) : null;
-      state.items.set(key, { id: key, role: "tool", content: String(item.command || item.tool || item.type).slice(0, 2000), status: item.status || (frame.method === "item/started" ? "inProgress" : "completed"), details: details?.slice(0, 4000), incompleteDetails: details ? Buffer.byteLength(details) > 16000 || details.length > 4000 : false, version: ++state.version });
+      state.items.set(key, { ...normalized, ...clipText(normalized.content, normalized.role === "tool" ? 2000 : 64 * 1024), status: item.status || (frame.method === "item/started" ? "inProgress" : "completed"), details: details?.slice(0, 4000), incompleteDetails: details ? Buffer.byteLength(details) > 16000 || details.length > 4000 : false, version: ++state.version });
     }
-    while (state.items.size > 24) state.items.delete(state.items.keys().next().value);
+    while (state.items.size > 128) state.items.delete(state.items.keys().next().value);
   }
   snapshot(id, since = 0) {
     this.requireReady(); const state = this.state(id);
-    return { connected: true, version: state.version, activeTurnId: state.activeTurnId,
-      items: [...state.items.values()].filter(item => item.version > (since > state.version ? 0 : since)).slice(-12)
-        .map(item => ({ id: item.id, role: item.role, content: item.content, status: item.status, truncated: item.truncated, version: item.version })),
+    const changed = [...state.items.values()].filter(item => item.version > (since > state.version ? 0 : since)).sort((a, b) => a.version - b.version);
+    const items = []; let bytes = 0;
+    for (const item of changed) {
+      const visible = { ...item }; delete visible.details; delete visible.incompleteDetails;
+      const size = Buffer.byteLength(JSON.stringify(visible));
+      if (items.length && bytes + size > 192 * 1024) break;
+      items.push(visible); bytes += size;
+    }
+    const hasMore = items.length < changed.length;
+    return { connected: true, version: hasMore ? items.at(-1).version : state.version, hasMore, activeTurnId: state.activeTurnId, turnStatus: state.turnStatus, error: state.error, items,
       approvalCount: [...this.requests.values()].filter(r => r.params.threadId === id).length,
       approvals: [...this.requests.values()].filter(r => r.params.threadId === id).slice(0, 2).map(request => {
         const item = state.items.get(`${request.params.turnId}:${request.params.itemId}`);

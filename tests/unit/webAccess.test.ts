@@ -27,10 +27,10 @@ async function start(secureCookies = false, requireTotp = false) {
   gate = createWebAccessServer({ dataDir, credentials, upstream, secureCookies, requireTotp });
   base = await listen(gate);
 }
-async function stop() { await new Promise<void>(resolve => gate.shutdown(resolve)); }
+async function stop() { await new Promise<void>(resolve => (gate as typeof gate & { shutdown: (done: () => void) => void }).shutdown(resolve)); }
 function cookie(response: Response) { return response.headers.getSetCookie()[0].split(";")[0]; }
 async function login(secure = false, code = "") {
-  const headers = secure ? { "X-Forwarded-Proto": "https" } : {};
+  const headers: Record<string, string> = secure ? { "X-Forwarded-Proto": "https" } : {};
   const page = await fetch(base + "/login", { headers });
   const csrf = (await page.text()).match(/name="csrf" value="([^"]+)"/)?.[1];
   const response = await fetch(base + "/auth/login", { method: "POST", redirect: "manual", headers: { ...headers, Cookie: cookie(page), Origin: base }, body: new URLSearchParams({ username: credentials.username, password: credentials.password, csrf: csrf || "", code }) });

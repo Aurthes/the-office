@@ -1,6 +1,7 @@
 "use strict";
 const PAGE_TURNS = 12;
-const PAGE_TEXT_BYTES = 48 * 1024;
+const PAGE_TEXT_BYTES = 128 * 1024;
+const { sessionItem, clipText } = require("./codex-session-items");
 
 // Keep conversation pages in turns. Tool items stay out of the browser payload.
 async function loadSessionHistoryPage(call, row, cursor) {
@@ -11,19 +12,13 @@ async function loadSessionHistoryPage(call, row, cursor) {
     ...(cursor === undefined ? {} : { cursor }),
   });
   const visible = result.data.toReversed().flatMap(turn => (turn.items || [])
-    .filter(item => ["userMessage", "agentMessage"].includes(item.type))
-    .map(item => ({ item, turnId: turn.id, startedAtMs: turn.startedAt ? turn.startedAt * (turn.startedAt < 1e12 ? 1000 : 1) : row.updatedAt })));
-  const texts = visible.map(({ item }) => Buffer.from(item.text || (item.content || [])
-    .filter(part => ["text", "inputText", "input_text"].includes(part.type)).map(part => part.text).join("\n"), "utf8"));
-  const total = texts.reduce((sum, bytes) => sum + Math.min(bytes.length, 8192), 0);
-  const textLimit = total <= PAGE_TEXT_BYTES ? 8192 : Math.min(8192, Math.floor(PAGE_TEXT_BYTES / Math.max(1, visible.length)));
-  const messages = visible.map((entry, i) => {
-    const item = entry.item;
-    const bytes = texts[i];
-    return { id: `${entry.turnId}:${item.id}`, role: item.type === "userMessage" ? "user" : "assistant",
-      content: new TextDecoder().decode(bytes.subarray(0, textLimit), { stream: true }),
-      truncated: bytes.length > textLimit, timestamp: entry.startedAtMs || entry.completedAtMs || row.updatedAt };
-  });
+    .map(item => sessionItem(item, turn.id)).filter(Boolean)
+    .map(item => ({ ...item, timestamp: turn.startedAt ? turn.startedAt * (turn.startedAt < 1e12 ? 1000 : 1) : row.updatedAt })));
+  // Tool summaries are short; never transfer raw reasoning or command output.
+  const sizes = visible.map(item => Math.min(Buffer.byteLength(item.content), item.role === "tool" ? 1000 : PAGE_TEXT_BYTES));
+  const total = sizes.reduce((sum, size) => sum + size, 0);
+  const messages = visible.map((item, i) => ({ ...item, ...clipText(item.content,
+    total <= PAGE_TEXT_BYTES ? sizes[i] : Math.floor(PAGE_TEXT_BYTES * sizes[i] / total)) }));
   return { threadId: row.id, messages, nextCursor: result.nextCursor || null, turnCount: result.data.length };
 }
 

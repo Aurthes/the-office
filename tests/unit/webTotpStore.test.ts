@@ -25,6 +25,7 @@ describe("persistent web two-factor credentials", () => {
   it("allows a single clock step and consumes each recovery code once without storing it in plaintext", () => {
     const store = new TotpStore(directory);
     const codes = store.activate(secret, "755224", 0);
+    if (!codes) throw new Error("Fixture enrollment failed");
     expect(store.consume("359152", 90000)).toBe(true);
     expect(readFileSync(join(directory, "totp.json"), "utf8")).not.toContain(codes[0]);
     expect(store.consume(codes[0].toLowerCase(), 90000)).toBe(true);

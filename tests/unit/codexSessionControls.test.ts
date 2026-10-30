@@ -56,13 +56,28 @@ describe("shared App session controls", () => {
     expect(() => controls.reply("id", "2", "accept")).toThrow("完整文件");
     expect(client.respond).not.toHaveBeenCalled();
   });
-  it("bounds streamed text and returns only changed items", () => {
+  it("preserves long replies and native phases through start, delta and authoritative completion", () => {
     const { controls } = setup();
+    controls.handle({ method: "item/started", params: { threadId: "id", turnId: "t", item: { id: "m", type: "agentMessage", phase: "commentary", text: "" } } });
     controls.handle({ method: "item/agentMessage/delta", params: { threadId: "id", turnId: "t", itemId: "m", delta: "字".repeat(10000) } });
     const snapshot = controls.snapshot("id");
-    expect(snapshot.items[0].content.length).toBe(2048);
-    expect(snapshot.items[0].truncated).toBe(true);
+    expect(snapshot.items[0]).toMatchObject({ content: "字".repeat(10000), truncated: false, phase: "commentary", turnId: "t" });
     expect(controls.snapshot("id", snapshot.version).items).toEqual([]);
+    controls.handle({ method: "item/completed", params: { threadId: "id", turnId: "t", item: { id: "m", type: "agentMessage", phase: "final_answer", text: "authoritative final" } } });
+    expect(controls.snapshot("id", snapshot.version).items[0]).toMatchObject({ content: "authoritative final", phase: "final_answer" });
+  });
+  it("drains busy snapshots in bounded chunks without skipping intermediate versions", () => {
+    const { controls } = setup();
+    for (let i = 0; i < 30; i++) controls.handle({ method: "item/completed", params: { threadId: "id", turnId: "t", item: { id: String(i), type: "agentMessage", text: "a".repeat(16000), phase: "commentary" } } });
+    let since = 0; const ids: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const result = controls.snapshot("id", since);
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(256 * 1024);
+      ids.push(...result.items.map((item: { id: string }) => item.id)); since = result.version;
+      if (!result.hasMore) break;
+    }
+    expect(ids).toEqual(Array.from({ length: 30 }, (_, i) => `t:${i}`));
+    expect(controls.snapshot("id", since).items).toEqual([]);
   });
   it("does not create a substitute runtime for a thread the App has not loaded", async () => {
     const { client, controls } = setup();

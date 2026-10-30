@@ -1,12 +1,13 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 
-export type LiveSessionItem = { id: string; role: string; content: string; truncated?: boolean; status?: string; version?: number };
+export type LiveSessionItem = { id: string; turnId?: string; role: string; phase?: string; content: string; truncated?: boolean; status?: string; version?: number; timestamp?: number };
+export type SessionClient = { call: (method: string, params: unknown) => Promise<unknown>; onEvent?: (handler: (event: { event: string; payload?: unknown }) => void) => () => void };
 type Approval = { requestId: string; method: string; params: Record<string, unknown>; details?: string; decisions: string[]; supported: boolean; submitted?: boolean };
-type Snapshot = { connected: boolean; version: number; activeTurnId: string | null; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number };
+type Snapshot = { connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; turnStatus?: string; error?: string | null; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number };
 
 export function SessionControls({ client, threadId, onItems }: {
-  client: { call: (method: string, params: unknown) => Promise<unknown> };
+  client: SessionClient;
   threadId: string; onItems: (items: LiveSessionItem[]) => void;
 }) {
   const [state, setState] = useState<Snapshot | null>(null);
@@ -18,22 +19,32 @@ export function SessionControls({ client, threadId, onItems }: {
   const refresh = useRef<(() => Promise<void>) | null>(null);
   const actionBusy = useRef(false);
   useEffect(() => {
-    let stopped = false, pending = false, attached = false, version = 0;
+    let stopped = false, pending = false, dirty = false, attached = false, version = 0;
     const read = async () => {
-      if (stopped || pending) return;
+      if (stopped) return;
+      if (pending) { dirty = true; return; }
       pending = true;
       try {
-        const result = await client.call(attached ? "session.live" : "session.attach", { threadId, since: version }) as Snapshot;
-        if (stopped) return;
-        attached = true; version = result.version; setState(result); setConnectionError("");
-        if (result.items.length) onItems(result.items);
+        do {
+          dirty = false;
+          const result = await client.call(attached ? "session.live" : "session.attach", { threadId, since: version }) as Snapshot;
+          if (stopped) return;
+          attached = true; version = result.version; setState(result); setConnectionError("");
+          if (result.items.length) onItems(result.items);
+          dirty ||= Boolean(result.hasMore);
+        } while (dirty && !stopped);
       } catch (cause) {
         if (!stopped) { attached = false; setState(null); setConnectionError(cause instanceof Error ? cause.message : "实时连接失败"); }
       } finally { pending = false; }
     };
+    const unsubscribe = client.onEvent?.(event => {
+      if (event.event === "session.updated" && (event.payload as { threadId?: string })?.threadId === threadId) void read();
+    });
+    const onVisible = () => { if (document.visibilityState === "visible") void read(); };
     refresh.current = read; void read();
-    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void read(); }, 1000);
-    return () => { stopped = true; refresh.current = null; clearInterval(timer); };
+    const timer = window.setInterval(onVisible, client.onEvent ? 15000 : 1000);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { stopped = true; refresh.current = null; clearInterval(timer); unsubscribe?.(); document.removeEventListener("visibilitychange", onVisible); };
   }, [client, threadId, onItems]);
   const action = async (method: string, params: object) => {
     if (actionBusy.current || !state?.connected) return;
@@ -61,7 +72,7 @@ export function SessionControls({ client, threadId, onItems }: {
       {(state.approvalCount || 0) > state.approvals.length ? <p className="text-amber-100">还有待处理请求，完成以上审批后显示。</p> : null}
     </div> : null}
     <div className="mb-2 flex items-center justify-between text-[10px] text-white/60">
-      <span>{state?.connected ? "原会话 · 实时连接" : "连接原会话…"}</span>
+      <span>{state?.connected ? state.activeTurnId ? "Codex 正在工作…" : state.turnStatus === "interrupted" ? "已停止" : "Codex · 已连接" : "连接 Codex…"}</span>
       {state?.activeTurnId ? <button disabled={busy} onClick={() => void action("session.stop", {})} className="rounded border border-rose-400/50 px-3 py-1 text-rose-100 disabled:opacity-40">停止</button> : null}
     </div>
     <textarea aria-label="发送到原会话" placeholder="继续同一条 Codex 会话…" rows={2} maxLength={16000} value={text} onChange={event => setText(event.target.value)} onKeyDown={event => {
@@ -73,6 +84,7 @@ export function SessionControls({ client, threadId, onItems }: {
     </div>
     {notice ? <p role="status" className="mt-2 text-[10px] text-cyan-100">{notice}</p> : null}
     {error ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{error}</p> : null}
+    {state?.error ? <p role="alert" className="mt-2 break-words text-xs text-rose-200">{state.error}</p> : null}
     {connectionError ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{connectionError}</p> : null}
   </div>;
 }

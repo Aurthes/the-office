@@ -39,11 +39,13 @@ indication that the model is executing a task.
 Click a person or CHAT to inspect the original session ID, directory and recent
 history. The official app-server reader uses only initialize and
 thread/turns/list: it never starts, resumes, stops, archives or edits a thread.
-The first request reads one page of 12 turns, filters out tools and
-reasoning, and bounds total visible text to 48 KiB (at most 8 KiB per message).
+The first request reads one page of 12 turns and bounds visible text to 128 KiB.
+Tool entries contain short labels only, never raw command output or raw reasoning.
 Long previews are explicitly marked as truncated. Ordinary text is preserved
-when it fits the preview budget. User messages and intermediate assistant replies
-remain visible; turn-summary mode is not used because it omits some of them.
+when it fits the preview budget. Native `commentary` messages and public work
+summaries are grouped in one closed disclosure per turn. User messages, stable
+`partial_answer` text and `final_answer` replies remain expanded. Missing phases
+remain visible for compatibility; text is never guessed to be a final answer.
 Scroll upward or use the older-records button to read one earlier page. The panel
 allows one history request at a time, preserves the visible position when
 prepending, and rejects stale responses after switching sessions. A page may
@@ -51,7 +53,7 @@ contain only hidden tool items; it does not automatically scan additional pages.
 The five-second timer reads metadata only. Use Refresh latest to replace the
 current history window with the newest page. This avoids silently rereading long
 histories and keeps each history read a deliberate, paginated operation. The
-48 KiB budget bounds browser text, not the native API's full turn response. A
+128 KiB budget bounds browser text, not the native API's full turn response. A
 12-turn response can contain tool items that are filtered before transmission;
 turn count alone is not evidence that a reported delay comes from history size.
 The desktop App link uses `codex://threads/<original-id>`.
@@ -85,6 +87,14 @@ Only the backend's offered one-time decisions are exposed; persistent policy
 amendments are not exposed. Oversized or unsupported requests remain for the App
 to handle. Attachment upload, other structured prompts and full historical tool
 logs are not implemented here, so this is not yet complete native UI parity.
+
+Native changes trigger coalesced `session.updated` WebSocket events. The visible
+chat immediately reads changed items, draining bounded chunks sequentially without
+advancing its cursor past omitted items. A visibility refresh and 15-second read
+repair a missed notification. Live messages preserve phases and up to 64 KiB of
+UTF-8 text; only unusually large messages retain a marked preview limit. The final
+native `item/completed` replaces streamed text authoritatively. Native turn errors
+and interruption status remain visible beside the composer.
 
 The pinned Mac App starts its normal owner over stdio. Switching to a shared
 listener requires one deliberate App quit/relaunch after current work finishes.

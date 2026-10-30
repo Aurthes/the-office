@@ -33,4 +33,19 @@ describe("bounded original-session history", () => {
     expect(page.messages).toHaveLength(80);
     expect(page.messages.every((m: { truncated: boolean; content: string }) => !m.truncated && m.content === "word ".repeat(100))).toBe(true);
   });
+  it("keeps native phases and only public tool summaries for collapsed work", async () => {
+    const call = vi.fn().mockResolvedValue({ data: [{ id: "turn", items: [
+      { type: "userMessage", id: "u", content: [{ type: "text", text: "hello" }] },
+      { type: "agentMessage", id: "c", phase: "commentary", text: "working" },
+      { type: "reasoning", id: "r", summary: ["public summary"], content: ["private reasoning"] },
+      { type: "commandExecution", id: "tool", command: "echo fixture", aggregatedOutput: "huge output" },
+      { type: "agentMessage", id: "f", phase: "final_answer", text: "final".repeat(3000) },
+    ] }] });
+    const page = await loadSessionHistoryPage(call, row);
+    expect(page.messages.map((m: { phase?: string }) => m.phase)).toEqual([undefined, "commentary", undefined, undefined, "final_answer"]);
+    expect(page.messages.every((m: { turnId: string }) => m.turnId === "turn")).toBe(true);
+    expect(JSON.stringify(page)).not.toContain("private reasoning");
+    expect(JSON.stringify(page)).not.toContain("huge output");
+    expect(page.messages.at(-1)).toMatchObject({ truncated: false, content: "final".repeat(3000) });
+  });
 });

@@ -5,6 +5,22 @@ import { SessionControls } from "../../src/features/office/components/SessionCon
 const snapshot = { connected: true, version: 1, activeTurnId: "turn", items: [], approvals: [] };
 afterEach(cleanup);
 describe("shared-session composer", () => {
+  it("updates immediately from matching native events and drains one bounded chunk at a time", async () => {
+    let listener!: (event: { event: string; payload?: unknown }) => void;
+    const onItems = vi.fn();
+    let version = 1;
+    const call = vi.fn(async () => ({ ...snapshot, version: version++, hasMore: version === 3, items: [{ id: String(version), role: "assistant", content: "reply" }] }));
+    const unsubscribe = vi.fn();
+    const onEvent = vi.fn(handler => { listener = handler; return unsubscribe; });
+    const view = render(React.createElement(SessionControls, { client: { call, onEvent }, threadId: "original", onItems }));
+    await waitFor(() => expect(onItems).toHaveBeenCalledTimes(1));
+    await act(async () => listener({ event: "session.updated", payload: { threadId: "other" } }));
+    expect(call).toHaveBeenCalledTimes(1);
+    await act(async () => listener({ event: "session.updated", payload: { threadId: "original" } }));
+    expect(call).toHaveBeenCalledTimes(3);
+    expect(call).toHaveBeenLastCalledWith("session.live", { threadId: "original", since: 2 });
+    view.unmount(); expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
   it("sends to the original thread once while a submission is pending", async () => {
     let resolve!: (value: unknown) => void;
     const pending = new Promise(r => { resolve = r; });

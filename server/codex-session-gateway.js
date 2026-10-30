@@ -16,8 +16,19 @@ const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
 const port = Number(process.env.CODEX_ADAPTER_PORT || 18790);
 let controls;
+const liveNotifications = new Map();
+function notifyLive(threadId) {
+  if (!threadId || liveNotifications.has(threadId)) return;
+  liveNotifications.set(threadId, setTimeout(() => {
+    liveNotifications.delete(threadId);
+    const frame = JSON.stringify({ type: "event", event: "session.updated", seq: seq++, payload: { threadId } });
+    for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame);
+  }, 50));
+}
 const shared = process.env.CLAW3D_CODEX_CONTROL_SOCKET ? new CodexSharedClient(process.env.CLAW3D_CODEX_CONTROL_SOCKET, frame => {
+  const threadId = frame.params?.threadId, previous = threadId ? controls?.state(threadId).version : null;
   controls?.handle(frame);
+  if (threadId && previous !== controls?.state(threadId).version) notifyLive(threadId);
   if (frame.method === "connection/closed" && !stopping) process.exit(1);
 }) : null;
 controls = shared ? new CodexSessionControls(shared) : null;
@@ -91,7 +102,7 @@ wss.on("connection", ws => {
         if (!ready) throw new Error("Session reader is starting");
         connected = true; clients.add(ws);
         result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "codex-app-session-view-1", connId: crypto.randomUUID() },
-          features: { methods: Object.keys(methods), events: ["tick"] },
+          features: { methods: Object.keys(methods), events: ["tick", "session.updated"] },
           snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: rows()[0]?.id }, sessionDefaults: { mainKey: "main" } },
           auth: { role: "operator", scopes: shared ? ["operator.read", "operator.write", "operator.approvals"] : ["operator.read"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000 } };
       } else {
