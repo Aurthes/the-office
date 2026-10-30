@@ -60,7 +60,7 @@ export function SessionControls({ client, threadId, onItems }: {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "操作失败，请核对原会话后再试"); }
     finally { actionBusy.current = false; setBusy(false); }
   };
-  return <div className="max-h-[40dvh] shrink-0 overflow-y-auto border-t border-white/10 bg-[#111b27] p-3 text-xs [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))] md:px-6">
+  return <div className="max-h-[60dvh] shrink-0 overflow-y-auto border-t border-white/10 bg-[#111b27] p-3 text-xs [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))] md:px-6">
     <div className="mx-auto max-w-3xl">
     {state?.approvals.length ? <div className="mb-3 max-h-[32vh] space-y-3 overflow-y-auto" aria-label="待处理审批">
       {state.approvals.map(request => <div key={request.requestId} className="rounded border border-amber-300/40 bg-amber-900/15 p-2">
