@@ -146,6 +146,7 @@ Kenney's CC0 license; the bundled environment map is Greg Zaal's *Potsdamer Plat
 from Poly Haven, also CC0. The adapted OpenClaw browser client retains its MIT
 notice. Full provenance and included notices are in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The Dockerfile also copies these notices and license files into the runtime image.
 
 Claw3D, OpenClaw, Codex and other product names identify their respective projects;
 they do not imply endorsement of The Office.

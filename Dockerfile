@@ -28,6 +28,9 @@ COPY --from=builder /app/server ./server
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/next.config.ts ./next.config.ts
+COPY --from=builder /app/LICENSE ./LICENSE
+COPY --from=builder /app/THIRD_PARTY_NOTICES.md ./THIRD_PARTY_NOTICES.md
+COPY --from=builder /app/licenses ./licenses
 
 EXPOSE 3000
 
