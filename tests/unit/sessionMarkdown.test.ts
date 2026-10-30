@@ -44,7 +44,7 @@ it("keeps actionable file and image nodes mounted as streamed text grows", () =>
   expect(screen.getByRole("link", { name: /Report/ })).toBe(link);
   expect(screen.getByRole("img", { name: "Chart" })).toBe(image);
 });
-it("shows loading and slow feedback for HTML, offers a separate window, and retries failures", () => {
+it("shows loading and slow feedback for HTML, offers a separate window, and allows a manual retry", () => {
   vi.useFakeTimers();
   try {
     const html = { source: "/report.html", name: "report.html", kind: "html" as const, url: "/api/session-assets?ref=html" };
@@ -55,8 +55,7 @@ it("shows loading and slow feedback for HTML, offers a separate window, and retr
     expect(external.getAttribute("href")).toBe(html.url); expect(external.getAttribute("target")).toBe("_blank");
     act(() => vi.advanceTimersByTime(8000));
     expect(screen.getByRole("status").textContent).toContain("继续等待");
-    const original = screen.getByTitle("report.html"); fireEvent.error(original);
-    expect(screen.getByRole("alert").textContent).toContain("加载失败");
+    const original = screen.getByTitle("report.html");
     fireEvent.click(screen.getByRole("button", { name: "重新加载" }));
     expect(screen.getByTitle("report.html")).not.toBe(original);
     expect(screen.getByTitle("report.html").getAttribute("sandbox")).toBe("allow-scripts");

@@ -26,7 +26,6 @@ function AssetPreview({ asset, onClose }: { asset: SessionAsset; onClose: () => 
   const [fullSize, setFullSize] = useState(false);
   const [htmlLoading, setHtmlLoading] = useState(true);
   const [htmlSlow, setHtmlSlow] = useState(false);
-  const [htmlFailed, setHtmlFailed] = useState(false);
   const [htmlRetry, setHtmlRetry] = useState(0);
   useEffect(() => { const node = dialog.current; node?.showModal(); return () => node?.close(); }, []);
   useEffect(() => {
@@ -34,7 +33,7 @@ function AssetPreview({ asset, onClose }: { asset: SessionAsset; onClose: () => 
     const timer = setTimeout(() => setHtmlSlow(true), 8000);
     return () => clearTimeout(timer);
   }, [asset.kind, htmlLoading, htmlRetry]);
-  const retryHtml = () => { setHtmlLoading(true); setHtmlSlow(false); setHtmlFailed(false); setHtmlRetry(value => value + 1); };
+  const retryHtml = () => { setHtmlLoading(true); setHtmlSlow(false); setHtmlRetry(value => value + 1); };
   useEffect(() => {
     if (asset.kind !== "markdown") return;
     const controller = new AbortController();
@@ -53,13 +52,13 @@ function AssetPreview({ asset, onClose }: { asset: SessionAsset; onClose: () => 
       <a href={asset.url} download={asset.name} className="shrink-0 rounded-lg px-3 py-3 text-xs text-white/60">下载</a>
     </header>
     {asset.kind === "html" ? <div className="relative min-h-0 flex-1">
-      <iframe key={htmlRetry} src={asset.url} title={asset.name} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={() => setHtmlLoading(false)} onError={() => { setHtmlLoading(false); setHtmlFailed(true); }} className="h-full w-full border-0 bg-[#111923]" />
-      {htmlLoading || htmlFailed ? <div className="absolute inset-0 flex items-center justify-center bg-[#111923] px-6 text-center">
+      <iframe key={htmlRetry} src={asset.url} title={asset.name} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={() => setHtmlLoading(false)} className="h-full w-full border-0 bg-[#111923]" />
+      {htmlLoading ? <div className="absolute inset-0 flex items-center justify-center bg-[#111923] px-6 text-center">
         <div className="max-w-sm space-y-3">
           {htmlLoading ? <span aria-hidden="true" className="mx-auto block h-6 w-6 animate-spin rounded-full border-2 border-cyan-100/20 border-t-cyan-100" /> : null}
-          <p role={htmlFailed ? "alert" : "status"} className="text-sm text-cyan-50">{htmlFailed ? "预览加载失败" : htmlSlow ? "预览仍在加载，可以继续等待" : "正在加载 HTML 预览…"}</p>
-          <p className="text-xs leading-5 text-white/55">{htmlFailed ? "检查网络后重试，也可以单独打开。" : "较大的 3D 样板首次打开可能需要几秒。"}</p>
-          {htmlFailed || htmlSlow ? <div className="flex justify-center gap-3"><button onClick={retryHtml} className="min-h-10 rounded-lg border border-white/20 px-4 text-xs">重新加载</button><a href={asset.url} target="_blank" rel="noopener noreferrer" onClick={onClose} className="min-h-10 rounded-lg bg-cyan-950 px-4 py-3 text-xs text-cyan-100">单独打开 ↗</a></div> : null}
+          <p role="status" className="text-sm text-cyan-50">{htmlSlow ? "预览仍在加载，可以继续等待" : "正在加载 HTML 预览…"}</p>
+          <p className="text-xs leading-5 text-white/55">较大的 3D 样板首次打开可能需要几秒。</p>
+          {htmlSlow ? <div className="flex justify-center gap-3"><button onClick={retryHtml} className="min-h-10 rounded-lg border border-white/20 px-4 text-xs">重新加载</button><a href={asset.url} target="_blank" rel="noopener noreferrer" onClick={onClose} className="min-h-10 rounded-lg bg-cyan-950 px-4 py-3 text-xs text-cyan-100">单独打开 ↗</a></div> : null}
         </div>
       </div> : null}
     </div> : <div className="min-h-0 flex-1 overflow-auto p-4 md:p-8">
