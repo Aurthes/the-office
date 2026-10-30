@@ -4,7 +4,7 @@
 // Protocol v4 support (maxProtocol: 4) added 2026-05-17 to match OpenClaw
 // ≥ 2026.3.x which bumped the required gateway protocol version from 3 to 4.
 // Update this file via `npm run sync:gateway-client -- /path/to/gateway.ts` and record
-// provenance changes in `THIRD_PARTY_CODE.md` whenever the upstream source changes.
+// provenance changes in `THIRD_PARTY_NOTICES.md` whenever the upstream source changes.
 import { getPublicKeyAsync, signAsync, utils } from "@noble/ed25519";
 import { GatewayResponseError } from "@/lib/gateway/errors";
 

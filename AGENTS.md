@@ -2,7 +2,7 @@
 
 Keep repository instructions generic and safe for open source.
 
-This repo is a frontend for OpenClaw. Keep any OpenClaw runtime checkout separate from this repository.
+The Office is an independently maintained Claw3D derivative with native Codex session integration. Preserve upstream attribution and license notices. Keep any runtime checkout and all private deployment state separate from this repository.
 
 Do not modify the OpenClaw source code. When the user asks for changes, they are asking for changes to this app. Your solutions should be applied to this app but to understand the full context of implementing your solution, you will need to search through OpenClaw's source code.
 
@@ -14,12 +14,12 @@ Do not commit personal, environment-specific, or secret instructions to this rep
 
 ### Service overview
 
-Claw3D is a Next.js 16 frontend (TypeScript, React 19, Three.js, Phaser) for OpenClaw. It runs a custom Node.js server (`server/index.js`) that bundles a same-origin WebSocket proxy to the upstream OpenClaw Gateway. No database or Docker is required. The only hard system dependency is Node.js 20+ with npm 10+.
+The Office is a Next.js 16 frontend derived from Claw3D (TypeScript, React 19, Three.js, Phaser) for OpenClaw. It runs a custom Node.js server (`server/index.js`) that bundles a same-origin WebSocket proxy to the upstream OpenClaw Gateway. No database or Docker is required. The only hard system dependency is Node.js 20+ with npm 10+.
 
 ### Running the app
 
 - `npm run dev` starts the dev server on port 3000 via the custom server (`node server/index.js --dev`).
-- The app requires a running OpenClaw Gateway to show agent data. Without one, the UI loads but shows the gateway connection form. This is expected and not an error.
+- Use the demo gateway for local exploration, or follow docs/codex-session-view.md for existing Codex chats. OpenClaw is optional. A disconnected gateway shows the connection form.
 - `.env` is copied from `.env.example`; see `README.md` "Configuration" for variable descriptions.
 
 ### Lint, typecheck, and tests

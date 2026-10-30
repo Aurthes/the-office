@@ -1,4 +1,4 @@
-# Security Policy
+# The Office security policy
 
 ## Reporting A Vulnerability
 
@@ -6,7 +6,7 @@ Please do not open public GitHub issues for security vulnerabilities.
 
 Preferred path:
 
-- If the repository host exposes private vulnerability reporting or GitHub Security Advisories for this repo, use that path first.
+- Use [private vulnerability reporting](https://github.com/Aurthes/the-office/security/advisories/new) for this repository.
 
 Fallback path:
 
@@ -25,7 +25,7 @@ We aim to acknowledge reports promptly, investigate them, and coordinate a fix a
 
 - Studio gateway settings are stored on disk in plaintext under the local OpenClaw state directory.
 - The current UI loads the configured upstream gateway URL/token into browser memory at runtime, even though those values are not stored in browser persistent storage.
-- There is currently no built-in cookie issuance/login flow for `STUDIO_ACCESS_TOKEN`; deployments that enable the access gate must provision the `studio_access` cookie outside the app.
+- Remote access uses the optional web-access gateway. Its password/TOTP login protects HTTP and WebSocket access; Studio and Codex remain on loopback. Authentication adds a remote access boundary and is not a complete security audit.
 
 ## Scope
 
