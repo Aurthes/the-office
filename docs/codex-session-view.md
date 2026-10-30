@@ -16,25 +16,62 @@ The session index opens `$CODEX_HOME/state_5.sqlite` read-only (default
 Task start/completion events provide observed working/idle state. Missing or
 older unsupported records are reported as unknown. These observations do not
 claim to reproduce every App state such as approval prompts or a crashed turn.
-The visible office refreshes its roster and observed state every five seconds.
+Roster changes are pushed as `roster.updated` over the existing authenticated
+WebSocket. Native project/thread/lifecycle notifications trigger a coalesced
+snapshot comparison. A watcher also covers legacy App state and SQLite WAL
+updates. One server-side check every 30 seconds recovers missed notifications;
+unchanged snapshots and text deltas do not trigger browser roster reads. The
+browser reconciles on connection, event gaps and visibility recovery, queues a
+trailing read if another change arrives during a read, and retains the last good
+roster on read errors. Failed reads retry after 30 seconds; creation never
+automatically retries. Hidden pages catch up immediately when visible.
 
-The company view doubles the original floor depth, retaining the original office
-as Open Workspace (shared desks, lounge and roaming) and adding project work areas
+The company view retains the original office
+as Open Workspace (shared desks, lounge and roaming) and adds project work areas
 behind a shared passage. Use the work-area selector to frame the whole company or
 one area; it also fits narrow phone viewports. Each App project gets a named area,
 including projects without a visible session. Project members receive desks in
 their area and can visit the shared space when idle. Projectless chats have their
-home area and shared desks in Open Workspace.
+home area and shared desks in Open Workspace. Project areas use three fixed-width
+lanes with three desks per row, fixed desk spacing and clear aisles. Each area's
+height grows with its session count; additional projects append down the lanes.
+Shared-desk overflow gets additional rows too. Floor, exterior walls, camera
+bounds, movement bounds and the measured-geometry navigation grid grow together.
+Existing areas never shrink just because another project is added.
 
-Project membership is read from the same local `.codex-global-state.json` as the
-App: explicit projectless membership takes precedence; explicit assignments also
-recognize worktrees outside a project's root. Otherwise a matching project root
-is used. An unmatched or unavailable project goes to Open Workspace. This is an
-internal, version-pinned App format, like the session index above. The layout is
-derived from membership without writing App project assignments or replacing the
-user's saved furniture layout. Existing thread IDs stay unchanged. Changes in the
-App appear on the next roster refresh. Idle movement is visual animation, not an
-indication that the model is executing a task.
+Project definitions and new thread assignments come from the native SQLite
+project tables, opened read-only. For older App conversations without a native
+assignment, the legacy `.codex-global-state.json` supplies explicit assignments
+and projectless membership. Host-scoped migration IDs translate legacy App
+Project IDs to canonical server IDs while thread migration is incomplete;
+otherwise a matching project root is used. Unknown
+projects go to Open Workspace. These are internal, version-pinned formats.
+Layout derivation does not write App state or replace saved furniture. Idle
+movement is animation, not evidence that the model is working.
+
+With the shared owner connected, the work-area controls offer **+ Project** and
+**+ 招募 agent**. A Project needs a name and an existing absolute directory on
+the Codex host. `project/create` uses a native idempotency key. Recruitment selects
+an existing Project and calls `thread/start` with its native project ID and first
+root directory, then `thread/name/set`; it creates an empty original conversation
+without sending a prompt. Native project model/tool/permission configuration is
+inherited. Opening the new chat permits its first message through the same shared
+owner. Existing chats keep their UUIDs and are never forked or reset.
+
+The pinned desktop App still maintains a separate legacy sidebar Project cache.
+A native `project/create` is durable and visible to protocol clients, but that
+alone does not guarantee an immediate new Project entry in the desktop sidebar.
+This integration does not rewrite its private cache or restart the App. Use the
+chat's **⋯ → 在桌面 App 中打开原会话** link to open the exact created conversation;
+desktop sidebar Project refresh remains an App compatibility limitation.
+
+Duplicate requests are coalesced in the gateway. Creation is never automatically
+retried after a timeout or disconnect: check the existing Project/session list
+before submitting a new request. A naming failure after thread creation returns
+the created thread ID and a warning. Read-only mode disables creation. The pinned
+native project APIs and two-client notifications are covered by
+`CLAW3D_NATIVE_CODEX_BIN=/path/to/codex npx vitest run tests/unit/nativeWorkspaceCreation.test.ts`
+in a disposable Codex home, without inference.
 
 Click a person or CHAT to inspect the original session ID, directory and recent
 history. The official app-server reader uses only initialize and

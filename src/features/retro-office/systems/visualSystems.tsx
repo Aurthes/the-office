@@ -16,18 +16,19 @@ import type {
   RenderAgent,
 } from "@/features/retro-office/core/types";
 
-const HEAT_COLS = Math.floor(CANVAS_W / SNAP_GRID);
-const HEAT_ROWS = Math.floor(CANVAS_H / SNAP_GRID);
-
 export function HeatmapSystem({
   agentsRef,
   heatmapMode,
   heatGridRef,
+  width = CANVAS_W,
+  height = CANVAS_H,
 }: {
   agentsRef: RefObject<RenderAgent[]>;
   heatmapMode: boolean;
   heatGridRef: MutableRefObject<Uint16Array | null>;
+  width?: number; height?: number;
 }) {
+  const HEAT_COLS = Math.floor(width / SNAP_GRID), HEAT_ROWS = Math.floor(height / SNAP_GRID);
   const frameRef = useRef(0);
   const cellsRef = useRef<{ x: number; z: number; v: number }[]>([]);
   const fallbackHeatGridRef = useRef<Uint16Array>(
@@ -40,10 +41,13 @@ export function HeatmapSystem({
   }, [cells]);
 
   useEffect(() => {
-    if (heatGridRef.current == null) {
-      heatGridRef.current = fallbackHeatGridRef.current;
+    const length = HEAT_COLS * HEAT_ROWS;
+    if (heatGridRef.current?.length !== length) {
+      const next = new Uint16Array(length);
+      if (heatGridRef.current) next.set(heatGridRef.current.subarray(0, length));
+      heatGridRef.current = next;
     }
-  }, [heatGridRef]);
+  }, [heatGridRef, HEAT_COLS, HEAT_ROWS]);
 
   useFrame(() => {
     frameRef.current += 1;

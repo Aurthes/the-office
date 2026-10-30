@@ -900,7 +900,7 @@ function useAgentTick(
     const ignore = station?.chairUid && tx !== undefined && ty !== undefined && Math.hypot(tx - station.x, ty - station.y) < 1 ? station.chairUid : "";
     let grid = cache.grids.get(ignore);
     if (!grid) {
-      grid = buildNavGrid(furnitureRef.current ?? [], collisionWorld.boxes.filter(box => box.owner !== ignore));
+      grid = buildNavGrid(furnitureRef.current ?? [], collisionWorld.boxes.filter(box => box.owner !== ignore), collisionWorld.bounds);
       cache.grids.set(ignore, grid);
     }
     return grid;
@@ -2274,6 +2274,7 @@ export function RetroOffice3D({
   storageNamespace = "default",
   layoutPreset = "office",
   companyLayout = null,
+  companyActions = null,
   deskAssignmentByDeskUid = EMPTY_STRING_RECORD,
   cleaningCues = EMPTY_CLEANING_CUES,
   deskHoldByAgentId = EMPTY_BOOLEAN_RECORD,
@@ -2389,6 +2390,7 @@ export function RetroOffice3D({
   storageNamespace?: string;
   layoutPreset?: OfficeLayoutPreset;
   companyLayout?: CompanyLayout | null;
+  companyActions?: React.ReactNode;
   deskAssignmentByDeskUid?: Record<string, string>;
   cleaningCues?: OfficeCleaningCue[];
   deskHoldByAgentId?: Record<string, boolean>;
@@ -2792,6 +2794,9 @@ export function RetroOffice3D({
     [furniture],
   );
   const collisionWorld = useMemo(() => new CollisionWorld(), []);
+  useEffect(() => {
+    collisionWorld.setBounds(companyLayout?.width ?? CANVAS_W, companyLayout?.height ?? CANVAS_H);
+  }, [collisionWorld, companyLayout?.width, companyLayout?.height]);
   const collisionRevision = useSyncExternalStore(collisionWorld.subscribe, collisionWorld.getSnapshot, () => 0);
   const collisionGeometryReady = collisionWorld.ready(furniture);
   const deskLocations = useMemo(() => getDeskLocations(furniture, collisionRevision > 0 && collisionWorld.ready(furniture) ? collisionWorld : undefined), [furniture, collisionWorld, collisionRevision]);
@@ -5254,7 +5259,7 @@ export function RetroOffice3D({
               rotateSpeed={0.6}
               zoomSpeed={0.8}
               panSpeed={0.6}
-              minZoom={companyLayout ? 4 : 25}
+              minZoom={companyLayout ? 0.25 : 25}
               maxZoom={120}
               maxPolarAngle={Math.PI / 2.2}
               enableRotate={!spaceDown}
@@ -5306,8 +5311,8 @@ export function RetroOffice3D({
             />
 
             {/* Floor + walls — always visible, no async loading. */}
-            <SceneColliders world={collisionWorld} source="shell" revision={remoteOfficeEnabled}>
-              <SceneFloorAndWalls showRemoteOffice={remoteOfficeEnabled} />
+            <SceneColliders world={collisionWorld} source="shell" revision={companyLayout ?? remoteOfficeEnabled}>
+              <SceneFloorAndWalls showRemoteOffice={remoteOfficeEnabled} companySize={companyLayout ?? undefined} />
             </SceneColliders>
             {companyLayout ? <>
               <CompanyWorkAreas layout={companyLayout} />
@@ -5315,7 +5320,7 @@ export function RetroOffice3D({
             </> : null}
 
             {/* Wall pictures — procedural, no async loading. */}
-            <SceneWallPictures showRemoteOffice={remoteOfficeEnabled} />
+            <SceneWallPictures showRemoteOffice={remoteOfficeEnabled} companySize={companyLayout ?? undefined} />
 
             {/* Environment lighting — async, wrapped in its own Suspense so floor stays visible. */}
             <Suspense fallback={null}>
@@ -5819,6 +5824,8 @@ export function RetroOffice3D({
                 agentsRef={renderAgentsRef}
                 heatmapMode={heatmapMode}
                 heatGridRef={heatGridRef}
+                width={companyLayout?.width}
+                height={companyLayout?.height}
               />
             ) : null}
 
@@ -5880,13 +5887,14 @@ export function RetroOffice3D({
         ) : null}
       </div>
 
-      {companyLayout && !immersiveOverlayActive ? <div className="absolute left-3 top-3 z-20 max-w-[calc(100vw-180px)] rounded-xl border border-emerald-200/20 bg-[#0d1b22]/95 p-2 shadow-lg backdrop-blur-sm md:top-28 md:max-w-[75vw] md:p-3">
+      {companyLayout && !immersiveOverlayActive ? <div className="absolute left-3 top-3 z-20 max-w-[calc(100vw-24px)] rounded-xl border border-emerald-200/20 bg-[#0d1b22]/95 p-2 shadow-lg backdrop-blur-sm md:top-28 md:max-w-[75vw] md:p-3">
         <label className="mb-1 hidden text-[10px] tracking-widest text-emerald-200/70 md:block" htmlFor="company-area">公司工区</label>
         <select id="company-area" aria-label="前往工区" value={companyFocus.id} onChange={event => { setFollowAgentId(null); setCompanyFocus(old => ({ id: event.target.value, request: old.request + 1 })); }} className="max-w-full rounded-md border border-white/15 bg-[#152b35] px-2 py-2 text-base text-white md:text-xs">
           <option value="">全公司 · {agents.length} 个会话</option>
           {companyLayout.areas.map(area => <option key={area.id} value={area.id}>{area.name} · {area.agentIds.length}</option>)}
         </select>
         <div className="mt-2 hidden text-[10px] text-white/50 md:block">自由区：共享办公 · 休息 · 闲逛</div>
+        {companyActions}
       </div> : null}
 
       {/* New Idea 2: Camera preset buttons — top left. */}

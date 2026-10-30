@@ -98,6 +98,12 @@ export function captureCollisionGeometry(root: Object3D, prefix = "scene", inclu
 
 /** One scene-owned collision world, shared by navigation and movement. */
 export class CollisionWorld {
+  bounds = { width: CANVAS_W, height: CANVAS_H };
+  setBounds(width: number, height: number) {
+    if (this.bounds.width === width && this.bounds.height === height) return;
+    this.bounds = { width, height };
+    this.rebuild();
+  }
   private listeners = new Set<() => void>();
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   getSnapshot = () => this.revision;
@@ -166,11 +172,11 @@ export class CollisionWorld {
     return this.insideFloor(point) && this.nearby(point).every(box => box.owner === ignore || !circleHitsBox(point, box));
   }
   private insideFloor(p: CanvasPoint) {
-    return p.x >= AGENT_RADIUS && p.y >= AGENT_RADIUS && p.x <= CANVAS_W - AGENT_RADIUS && p.y <= CANVAS_H - AGENT_RADIUS;
+    return p.x >= AGENT_RADIUS && p.y >= AGENT_RADIUS && p.x <= this.bounds.width - AGENT_RADIUS && p.y <= this.bounds.height - AGENT_RADIUS;
   }
   resolve(point: CanvasPoint, ignore?: string): CanvasPoint {
-    let result = { x: Math.max(AGENT_RADIUS, Math.min(CANVAS_W - AGENT_RADIUS, point.x)),
-      y: Math.max(AGENT_RADIUS, Math.min(CANVAS_H - AGENT_RADIUS, point.y)) };
+    let result = { x: Math.max(AGENT_RADIUS, Math.min(this.bounds.width - AGENT_RADIUS, point.x)),
+      y: Math.max(AGENT_RADIUS, Math.min(this.bounds.height - AGENT_RADIUS, point.y)) };
     for (let pass = 0; pass < 12; pass++) {
       let changed = false;
       for (const box of this.nearby(result)) {

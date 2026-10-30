@@ -50,11 +50,11 @@ export function CompanyAreaCamera({ layout, focus, presetRef }: {
   const { size } = useThree();
   useEffect(() => {
     const area = layout.areas.find(a => a.id === focus.id);
-    const bounds = area || { minX: 0, maxX: 1800, minY: 0, maxY: 1440 };
+    const bounds = area || { minX: 0, maxX: layout.width, minY: 0, maxY: layout.height };
     const target = toWorld((bounds.minX + bounds.maxX) / 2, (bounds.minY + bounds.maxY) / 2);
     const span = (bounds.maxX - bounds.minX + bounds.maxY - bounds.minY) * SCALE;
     presetRef.current = { target, pos: [target[0] + 14, target[1] + 16, target[2] + 18],
-      zoom: Math.max(4, Math.min(size.width / (span * 0.8 + 4), size.height / (span * 0.55 + 6)) * 0.9) };
-  }, [layout.areas, focus, presetRef, size.width, size.height]);
+      zoom: Math.max(0.25, Math.min(size.width / (span * 0.8 + 4), size.height / (span * 0.55 + 6)) * 0.9) };
+  }, [layout.areas, layout.width, layout.height, focus, presetRef, size.width, size.height]);
   return null;
 }

@@ -9,22 +9,30 @@ class CodexSessionIndex {
     this.home = path.resolve(home);
     this.db = new DatabaseSync(path.join(this.home, "state_5.sqlite"), { readOnly: true });
     this.states = new Map();
+    this.hasProjectIds = this.db.prepare("PRAGMA table_info(threads)").all().some(column => column.name === "project_id");
+    this.hasProjects = Boolean(this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='projects'").get());
+    this.nativeStatuses = new Map();
   }
   list() {
     const state = this.projectState();
     const projects = this.projects(state);
+    const migratedIds = state["app-server-project-id-by-legacy-project-id-by-host"]?.[`local:${this.home}`] || {};
     return this.db.prepare(`SELECT id, name, title, cwd, rollout_path, updated_at, model,
-      reasoning_effort, is_pinned FROM threads WHERE archived = 0
+      reasoning_effort, is_pinned${this.hasProjectIds ? ", project_id" : ""} FROM threads WHERE archived = 0
       AND source IN ('vscode', 'cli', 'appServer') ORDER BY updated_at DESC`).all().map(row => {
       const name = row.name || row.title || row.id;
-      const assigned = state["thread-project-assignments"]?.[row.id];
-      const projectless = (state["projectless-thread-ids"] || []).includes(row.id);
+      const legacyId = state["thread-project-assignments"]?.[row.id]?.projectId;
+      const assignedId = row.project_id || migratedIds[legacyId] || legacyId;
+      const assigned = assignedId ? { projectId: assignedId } : null;
+      const projectless = !row.project_id && (state["projectless-thread-ids"] || []).includes(row.id);
       const project = projectless ? null : assigned ? projects.find(p => p.id === assigned.projectId) :
         projects.flatMap(p => p.rootPaths.filter(root => row.cwd === root || row.cwd.startsWith(root + path.sep))
           .map(root => ({ project: p, length: root.length }))).sort((a, b) => b.length - a.length)[0]?.project;
+      const diskStatus = this.status(row.rollout_path), live = this.nativeStatuses.get(row.id);
+      const status = live && (!diskStatus.statusAt || live.statusAt >= diskStatus.statusAt) ? live : diskStatus;
       return { id: row.id, name, workspace: row.cwd, projectId: project?.id || null, project: project?.name || "Open Workspace",
         updatedAt: row.updated_at * 1000, model: row.model, effort: row.reasoning_effort,
-        pinned: Boolean(row.is_pinned), ...this.status(row.rollout_path) };
+        pinned: Boolean(row.is_pinned), ...status };
     });
   }
   projectState() {
@@ -32,11 +40,26 @@ class CodexSessionIndex {
     catch { return {}; }
   }
   projects(state = this.projectState()) {
+    if (this.hasProjects) {
+      const roots = this.db.prepare("SELECT project_id, path FROM project_roots ORDER BY position").all();
+      return this.db.prepare("SELECT id, name FROM projects ORDER BY position").all().map(project => ({
+        ...project, rootPaths: roots.filter(root => root.project_id === project.id).map(root => root.path),
+      }));
+    }
     const projects = Object.values(state["local-projects"] || {}).filter(p =>
       typeof p?.id === "string" && typeof p.name === "string" && Array.isArray(p.rootPaths));
     const order = state["project-order"] || [];
     return projects.map(p => ({ id: p.id, name: p.name, rootPaths: p.rootPaths.filter(r => typeof r === "string") }))
       .sort((a, b) => (order.indexOf(a.id) < 0 ? order.length : order.indexOf(a.id)) - (order.indexOf(b.id) < 0 ? order.length : order.indexOf(b.id)));
+  }
+  handle(frame) {
+    const p = frame.params || {}, id = p.threadId || p.thread?.id;
+    if (!id) return;
+    const type = frame.method === "thread/status/changed" ? p.status?.type :
+      frame.method === "turn/started" ? "active" : frame.method === "turn/completed" ? "idle" : null;
+    const status = { active: "running", idle: "idle", systemError: "error" }[type];
+    if (status) this.nativeStatuses.set(id, { status, statusAt: Date.now() });
+    if (["thread/archived", "thread/deleted", "thread/closed"].includes(frame.method)) this.nativeStatuses.delete(id);
   }
   status(filename) {
     if (typeof filename !== "string" || !filename) return { status: "unknown" };

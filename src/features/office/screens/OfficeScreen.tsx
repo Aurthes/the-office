@@ -14,6 +14,8 @@ import { MessageSquare, ChevronDown, ChevronLeft, ChevronRight, Mic, Maximize2, 
 import type { OfficeAgent } from "@/features/retro-office/core/types";
 import { RunningAvatarLoader } from "@/features/agents/components/RunningAvatarLoader";
 import { ExistingSessionPanel } from "@/features/office/components/ExistingSessionPanel";
+import { CompanyActions } from "@/features/office/components/CompanyActions";
+import { useCompanyRosterSync } from "@/features/office/hooks/useCompanyRosterSync";
 import { GatewayConnectScreen } from "@/features/agents/components/GatewayConnectScreen";
 import { useAgentStore, type AgentState } from "@/features/agents/state/store";
 import {
@@ -1104,6 +1106,7 @@ export function OfficeScreen({
   }, [chatOpen, sessionView]);
   const [sessionSearch, setSessionSearch] = useState("");
   const [companyRoster, setCompanyRoster] = useState<CompanyRoster | null>(null);
+  const [companyCreationAvailable, setCompanyCreationAvailable] = useState(false);
   const companyLayout = useMemo(() => companyRoster ? buildCompanyLayout(companyRoster) : null, [companyRoster]);
   const [selectedChatAgentId, setSelectedChatAgentId] = useState<string | null>(
     null,
@@ -1844,7 +1847,8 @@ export function OfficeScreen({
           return;
         }
         if (process.env.NEXT_PUBLIC_CLAW3D_SESSION_VIEW === "1") {
-          const snapshot = await client.call<{ agents: Array<{ id: string; status: string; projectId: string | null }>; projects: CompanyRoster["projects"] }>("agents.list", {});
+          const snapshot = await client.call<{ agents: Array<{ id: string; status: string; projectId: string | null }>; projects: CompanyRoster["projects"]; creationAvailable?: boolean }>("agents.list", {});
+          setCompanyCreationAvailable(Boolean(snapshot.creationAvailable));
           const roster: CompanyRoster = { projects: snapshot.projects || [], members: snapshot.agents.map(({ id, projectId }) => ({ id, projectId })).sort((a, b) => a.id.localeCompare(b.id)) };
           setCompanyRoster(previous => JSON.stringify(previous) === JSON.stringify(roster) ? previous : roster);
           for (const agent of snapshot.agents) {
@@ -3000,25 +3004,11 @@ export function OfficeScreen({
     status,
   ]);
 
-  useEffect(() => {
-    if (status !== "connected" || !agentsLoaded) return;
-    if (!sessionView) return;
-    let busy = false, stopped = false;
-    const refresh = async () => {
-      if (busy || stopped || document.visibilityState !== "visible") return;
-      busy = true;
-      try {
-        await loadAgents({ minIntervalMs: 4000, silent: true });
-      } catch { /* The connection and inspector show read failures. */ }
-      finally { busy = false; }
-    };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 5000);
-    return () => { stopped = true; window.clearInterval(timer); };
-  }, [agentsLoaded, client, dispatch, loadAgents, sessionView, status]);
+  useCompanyRosterSync(client, sessionView && status === "connected" && agentsLoaded, loadAgents);
 
   useEffect(() => {
     if (status !== "connected" || !agentsLoaded) return;
+    if (sessionView) return;
     const intervalId = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
       void loadAgents({
@@ -3031,10 +3021,11 @@ export function OfficeScreen({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [agentsLoaded, loadAgents, status]);
+  }, [agentsLoaded, loadAgents, sessionView, status]);
 
   useEffect(() => {
     if (status !== "connected" || !agentsLoaded) return;
+    if (sessionView) return;
     const handleFocus = () => {
       if (document.visibilityState !== "visible") return;
       void loadAgents({
@@ -3049,7 +3040,7 @@ export function OfficeScreen({
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleFocus);
     };
-  }, [agentsLoaded, loadAgents, status]);
+  }, [agentsLoaded, loadAgents, sessionView, status]);
 
   useEffect(() => {
     setOfficeTriggerState((previous) =>
@@ -4832,6 +4823,11 @@ export function OfficeScreen({
           officeCenterSignal={officeCameraCenterSignal}
           animationState={officeAnimationState}
           companyLayout={companyLayout}
+          companyActions={sessionView && companyRoster ? <CompanyActions client={client} projects={companyRoster.projects}
+            disabled={status !== "connected" || !companyCreationAvailable} onCreated={async threadId => {
+              await loadAgents({ silent: true });
+              if (threadId) handleOpenAgentChat(threadId);
+            }} /> : null}
           deskAssignmentByDeskUid={companyLayout?.deskAssignments ?? deskAssignmentByDeskUid}
           githubReviewAgentId={githubReviewAgentId}
           qaTestingAgentId={qaTestingAgentId}

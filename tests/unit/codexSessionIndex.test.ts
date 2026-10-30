@@ -68,4 +68,35 @@ describe("existing App session index", () => {
     fs.writeFileSync(filename, JSON.stringify({ "local-projects": {} }));
     expect(index.list()[0].projectId).toBeNull();
   });
+  it("reads native Projects and atomic thread assignments ahead of legacy App caches", () => {
+    index.close();
+    const db = new DatabaseSync(path.join(root, "state_5.sqlite"));
+    db.exec("ALTER TABLE threads ADD COLUMN project_id TEXT; CREATE TABLE projects(id TEXT, name TEXT, position INTEGER); CREATE TABLE project_roots(project_id TEXT, path TEXT, position INTEGER)");
+    db.prepare("INSERT INTO projects VALUES (?, ?, 0)").run("native", "Native Project");
+    db.prepare("INSERT INTO project_roots VALUES (?, ?, 0)").run("native", root);
+    db.exec("UPDATE threads SET project_id='native' WHERE id='existing'"); db.close();
+    fs.writeFileSync(path.join(root, ".codex-global-state.json"), JSON.stringify({ "projectless-thread-ids": ["existing"], "local-projects": { stale: { id: "stale", name: "Stale", rootPaths: [root] } } }));
+    index = new CodexSessionIndex(root);
+    expect(index.projects()).toEqual([{ id: "native", name: "Native Project", rootPaths: [root] }]);
+    expect(index.list()[0].projectId).toBe("native");
+  });
+  it("uses immediate native lifecycle state before delayed log persistence", () => {
+    index.handle({ method: "turn/completed", params: { threadId: "existing" } });
+    expect(index.list()[0].status).toBe("idle");
+    index.handle({ method: "thread/status/changed", params: { threadId: "existing", status: { type: "active" } } });
+    expect(index.list()[0].status).toBe("running");
+  });
+  it("maps the App's legacy project IDs to native IDs while thread migration is incomplete", () => {
+    index.close();
+    const db = new DatabaseSync(path.join(root, "state_5.sqlite"));
+    db.exec("ALTER TABLE threads ADD COLUMN project_id TEXT; CREATE TABLE projects(id TEXT, name TEXT, position INTEGER); CREATE TABLE project_roots(project_id TEXT, path TEXT, position INTEGER)");
+    db.prepare("INSERT INTO projects VALUES (?, ?, 0)").run("native", "Moved Project");
+    db.prepare("INSERT INTO project_roots VALUES (?, ?, 0)").run("native", "/another/root"); db.close();
+    fs.writeFileSync(path.join(root, ".codex-global-state.json"), JSON.stringify({
+      "thread-project-assignments": { existing: { projectId: "legacy-id" } },
+      "app-server-project-id-by-legacy-project-id-by-host": { [`local:${root}`]: { "legacy-id": "native" } },
+    }));
+    index = new CodexSessionIndex(root);
+    expect(index.list()[0]).toMatchObject({ projectId: "native", project: "Moved Project", workspace: root });
+  });
 });

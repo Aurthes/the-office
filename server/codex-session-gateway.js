@@ -12,12 +12,14 @@ const { CodexSharedClient } = require("./codex-shared-client");
 const { CodexSessionControls } = require("./codex-session-controls");
 const { CodexSessionVoice } = require("./codex-session-voice");
 const { CodexSessionStream } = require("./codex-session-stream");
+const { CodexRosterSync } = require("./codex-roster-sync");
+const { CodexWorkspaceActions } = require("./codex-workspace-actions");
 
 const index = new CodexSessionIndex(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"));
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
 const port = Number(process.env.CODEX_ADAPTER_PORT || 18790);
-let controls, voice, stream;
+let controls, voice, stream, rosterSync;
 const liveNotifications = new Map();
 function notifyLive(threadId) {
   stream?.changed(threadId);
@@ -32,6 +34,7 @@ const shared = process.env.CLAW3D_CODEX_CONTROL_SOCKET ? new CodexSharedClient(p
   const threadId = frame.params?.threadId, previous = threadId ? controls?.state(threadId).version : null;
   controls?.handle(frame);
   voice?.handle(frame);
+  rosterSync?.native(frame);
   if (threadId && previous !== controls?.state(threadId).version) notifyLive(threadId);
   if (frame.method === "connection/closed" && !stopping) process.exit(1);
 }) : null;
@@ -67,6 +70,11 @@ const key = id => `agent:${id}:main`;
 const get = id => { const row = rows().find(r => r.id === id); if (!row) throw new Error("Original App session is missing or archived"); return row; };
 const fromKey = value => get(String(value).split(":")[1]);
 const agents = () => rows().map(r => ({ ...r, role: r.project, identity: { name: r.name, emoji: "💬" } }));
+const workspaceActions = new CodexWorkspaceActions(shared);
+rosterSync = new CodexRosterSync(index, payload => {
+  const frame = JSON.stringify({ type: "event", event: "roster.updated", seq: seq++, payload });
+  for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame);
+});
 async function history(row, cursor) {
   if (controls && !cursor) {
     try { await controls.attach(row.id); }
@@ -75,7 +83,9 @@ async function history(row, cursor) {
   return loadSessionHistoryPage(call, row, cursor);
 }
 const methods = {
-  "agents.list": async () => ({ defaultId: rows()[0]?.id, mainKey: "main", agents: agents(), projects: index.projects().map(({ id, name }) => ({ id, name })) }),
+  "agents.list": async () => ({ defaultId: rows()[0]?.id, mainKey: "main", agents: agents(), projects: index.projects(), creationAvailable: Boolean(shared?.ready) }),
+  "project.create": async p => { const result = await workspaceActions.createProject(p); rosterSync.changed(); return result; },
+  "session.create": async p => { const result = await workspaceActions.createSession(p); rosterSync.changed(); return result; },
   "config.get": async () => ({ exists: true, hash: "codex-app-session-view", config: { gateway: { reload: { mode: "hot" } }, agents: { list: agents() } } }),
   "sessions.list": async p => ({ sessions: rows().filter(r => !p.agentId || r.id === p.agentId).map(r => ({ key: key(r.id), displayName: r.name, updatedAt: r.updatedAt, model: r.model, thinkingLevel: r.effort, execHost: "gateway", execSecurity: "deny", execAsk: "always" })) }),
   "sessions.preview": async p => ({ ts: Date.now(), previews: (p.keys || []).map(k => ({ key: k, status: "empty", items: [] })) }),
@@ -116,12 +126,12 @@ wss.on("connection", ws => {
         if (!ready) throw new Error("Session reader is starting");
         connected = true; clients.add(ws);
         result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "codex-app-session-view-1", connId: crypto.randomUUID() },
-          features: { methods: Object.keys(methods), events: ["tick", "session.updated", "session.stream", "session.voice"] },
+          features: { methods: Object.keys(methods), events: ["tick", "session.updated", "session.stream", "session.voice", "roster.updated"] },
           snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: rows()[0]?.id }, sessionDefaults: { mainKey: "main" } },
           auth: { role: "operator", scopes: shared ? ["operator.read", "operator.write", "operator.approvals"] : ["operator.read"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000 } };
       } else {
         if (!connected) throw new Error("Connect first");
-        if (!Object.hasOwn(methods, frame.method)) throw new Error("此视图整理 App 原会话，不新建、重置或接管会话。请在原 App 中继续操作。");
+        if (!Object.hasOwn(methods, frame.method)) throw new Error("此操作暂不支持，请在 Codex App 中处理。");
         result = await methods[frame.method](frame.params || {}, ws);
       }
       send({ type: "res", id: frame.id, ok: true, payload: result });
@@ -133,8 +143,8 @@ setInterval(() => {
   const frame = JSON.stringify({ type: "event", event: "tick", seq: seq++, payload: { ts: Date.now() } });
   for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame);
 }, 30000).unref();
-for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => { stopping = true; server.close(); for (const ws of clients) ws.close(1001, "Server stopping"); reader?.stdin.end(); shared?.close(); index.close(); });
+for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => { stopping = true; rosterSync.close(); server.close(); for (const ws of clients) ws.close(1001, "Server stopping"); reader?.stdin.end(); shared?.close(); index.close(); });
 (shared ? shared.initialize() : call("initialize", { clientInfo: { name: "claw3d_session_reader", title: "Claw3D existing sessions", version: "1" } })).then(() => {
-  reader?.stdin.write(JSON.stringify({ method: "initialized" }) + "\n"); ready = true;
+  reader?.stdin.write(JSON.stringify({ method: "initialized" }) + "\n"); rosterSync.start(); ready = true;
   server.listen(port, "127.0.0.1", () => console.log(`[session-view] ${shared ? "Shared App owner connected" : "Read-only reader; controls disabled"}`));
 }).catch(error => { console.error(error.message); reader?.stdin.end(); shared?.close(); process.exitCode = 1; });

@@ -169,17 +169,19 @@ function OfficeFlagPole({
 
 export const FloorAndWalls = memo(function FloorAndWalls({
   showRemoteOffice = true,
+  companySize,
 }: {
   showRemoteOffice?: boolean;
+  companySize?: { width: number; height: number };
 }) {
   const districtWidth = CANVAS_W * SCALE;
   const districtHeight = CANVAS_H * SCALE;
-  const localOfficeWidth = LOCAL_OFFICE_CANVAS_WIDTH * SCALE;
-  const localOfficeHeight = LOCAL_OFFICE_CANVAS_HEIGHT * SCALE;
+  const localOfficeWidth = (companySize?.width ?? LOCAL_OFFICE_CANVAS_WIDTH) * SCALE;
+  const localOfficeHeight = (companySize?.height ?? LOCAL_OFFICE_CANVAS_HEIGHT) * SCALE;
   const [districtCenterX, , districtCenterZ] = toWorld(CANVAS_W / 2, CANVAS_H / 2);
   const [localOfficeCenterX, , localOfficeCenterZ] = toWorld(
-    LOCAL_OFFICE_CANVAS_WIDTH / 2,
-    LOCAL_OFFICE_CANVAS_HEIGHT / 2,
+    (companySize?.width ?? LOCAL_OFFICE_CANVAS_WIDTH) / 2,
+    (companySize?.height ?? LOCAL_OFFICE_CANVAS_HEIGHT) / 2,
   );
   const [gymZoneCenterX, , roomZoneCenterZ] = toWorld(
     GYM_ROOM_X + GYM_ROOM_WIDTH / 2,
@@ -211,10 +213,11 @@ export const FloorAndWalls = memo(function FloorAndWalls({
   const localSouthWallZ = localOfficeCenterZ + localOfficeHeight / 2;
   const localWestWallX = localOfficeCenterX - localOfficeWidth / 2;
   const localEastWallX = localOfficeCenterX + localOfficeWidth / 2;
-  const groundCenterX = showRemoteOffice ? districtCenterX : localOfficeCenterX;
-  const groundCenterZ = showRemoteOffice ? districtCenterZ : localOfficeCenterZ;
-  const groundWidth = showRemoteOffice ? districtWidth : localOfficeWidth;
-  const groundHeight = showRemoteOffice ? districtHeight : localOfficeHeight;
+  const companyCenter = companySize ? toWorld(companySize.width / 2, companySize.height / 2) : null;
+  const groundCenterX = companyCenter?.[0] ?? (showRemoteOffice ? districtCenterX : localOfficeCenterX);
+  const groundCenterZ = companyCenter?.[2] ?? (showRemoteOffice ? districtCenterZ : localOfficeCenterZ);
+  const groundWidth = companySize ? companySize.width * SCALE : showRemoteOffice ? districtWidth : localOfficeWidth;
+  const groundHeight = companySize ? companySize.height * SCALE : showRemoteOffice ? districtHeight : localOfficeHeight;
 
   return (
     <group>
@@ -680,14 +683,16 @@ export const FloorAndWalls = memo(function FloorAndWalls({
 
 export const WallPictures = memo(function WallPictures({
   showRemoteOffice = true,
+  companySize,
 }: {
   showRemoteOffice?: boolean;
+  companySize?: { width: number; height: number };
 }) {
-  const localWidth = LOCAL_OFFICE_CANVAS_WIDTH * SCALE;
-  const localHeight = LOCAL_OFFICE_CANVAS_HEIGHT * SCALE;
+  const localWidth = (companySize?.width ?? LOCAL_OFFICE_CANVAS_WIDTH) * SCALE;
+  const localHeight = (companySize?.height ?? LOCAL_OFFICE_CANVAS_HEIGHT) * SCALE;
   const [localCenterX, , localCenterZ] = toWorld(
-    LOCAL_OFFICE_CANVAS_WIDTH / 2,
-    LOCAL_OFFICE_CANVAS_HEIGHT / 2,
+    (companySize?.width ?? LOCAL_OFFICE_CANVAS_WIDTH) / 2,
+    (companySize?.height ?? LOCAL_OFFICE_CANVAS_HEIGHT) / 2,
   );
   const northZ = localCenterZ - localHeight / 2 + 0.07;
   const southZ = localCenterZ + localHeight / 2 - 0.07;

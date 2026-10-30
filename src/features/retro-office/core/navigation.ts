@@ -93,8 +93,8 @@ type NavVolume = { contains: (x: number, y: number) => boolean; intersects: (fro
 const gridVolumes = new WeakMap<NavGrid, NavVolume[]>();
 const gridMetrics = new WeakMap<NavGrid, { cell: number; cols: number; rows: number; offset: number; near: Map<number, NavVolume[]> }>();
 
-function buildCollisionGrid(boxes: CollisionBox[]): NavGrid {
-  const cell = 10, cols = Math.ceil(CANVAS_W / cell), rows = Math.ceil(CANVAS_H / cell);
+function buildCollisionGrid(boxes: CollisionBox[], bounds = { width: CANVAS_W, height: CANVAS_H }): NavGrid {
+  const cell = 10, cols = Math.ceil(bounds.width / cell), rows = Math.ceil(bounds.height / cell);
   const grid = new Uint8Array(cols * rows), volumes: NavVolume[] = [], near = new Map<number, NavVolume[]>();
   for (const box of boxes) {
     const volume: NavVolume = { contains: (x, y) => circleHitsBox({ x, y }, box), intersects: (a, b) => segmentHitsBox(a, b, box) };
@@ -149,10 +149,10 @@ export function withAgentObstacles(grid: NavGrid, positions: CanvasPoint[]): Nav
 const itemBlocksNavigation = (type: string): boolean =>
   ITEM_METADATA[type]?.blocksNavigation ?? false;
 
-export function buildNavGrid(furniture: FurnitureItem[], measuredGeometry?: CollisionBox[]): NavGrid {
+export function buildNavGrid(furniture: FurnitureItem[], measuredGeometry?: CollisionBox[], bounds?: { width: number; height: number }): NavGrid {
   // Live scenes always supply measured meshes. The footprint fallback remains
   // for non-rendered layout previews and callers that have no Three.js scene.
-  if (measuredGeometry) return buildCollisionGrid(measuredGeometry);
+  if (measuredGeometry) return buildCollisionGrid(measuredGeometry, bounds);
   const grid = new Uint8Array(GRID_COLS * GRID_ROWS);
   const defaultPad = GRID_CELL * 0.6;
   const volumes: NavVolume[] = [];
