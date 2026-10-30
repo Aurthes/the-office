@@ -120,7 +120,6 @@ export function ExistingSessionPanel({ client, threadId }: {
         {data?.id === threadId ? <p className="mt-1 truncate text-xs text-white/45">{data.project}</p> : null}
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        <button disabled={loading} aria-label="刷新最新" title="刷新最新" onClick={() => void load.current?.("latest")} className="min-h-10 min-w-10 rounded-md text-lg text-white/55 hover:bg-white/10 disabled:opacity-40">↻</button>
         <details className="relative" aria-label="会话信息">
           <summary aria-label="会话信息" className="flex min-h-10 min-w-10 cursor-pointer list-none items-center justify-center rounded-md text-lg text-white/55 hover:bg-white/10">⋯</summary>
           <div className="absolute right-0 top-full z-30 mt-1 max-h-[50dvh] w-[min(320px,calc(100vw-3rem))] space-y-3 overflow-auto rounded-xl border border-white/15 bg-[#1b2532] p-4 text-xs text-white/60 shadow-xl">
