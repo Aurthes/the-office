@@ -30,6 +30,8 @@ The reactor hub and four open radial corridors connect the rings. Permanent
 amenities include a botanical garden, separate hydroponic food garden, cafeteria,
 gym, server room, workshop, lounge, observatory, supply bay and crew quarters.
 Idle agents can visit public spaces; working agents stay at their assigned desks.
+Ship crew use original procedural duck figures with matte feather surfaces,
+webbed feet and no equipment. Existing routes, nameplates and session actions remain in use.
 
 Hull and small props are procedural geometry, merged by material. Furniture uses
 the existing local Kenney Furniture Kit assets under CC0 (see

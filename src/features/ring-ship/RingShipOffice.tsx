@@ -10,7 +10,7 @@ import type { RetroOffice3D } from "@/features/retro-office/RetroOffice3D";
 import type { OfficeAgent, RenderAgent } from "@/features/retro-office/core/types";
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
 import { CANVAS_W, CANVAS_H, SCALE } from "@/features/retro-office/core/constants";
-import { AgentModel } from "@/features/retro-office/objects/agents";
+import { DuckCrewModel } from "./DuckCrewModel";
 import { CompanyWorkAreaMenu } from "@/features/office/components/CompanyWorkAreaMenu";
 import { SettingsPanel } from "@/features/office/components/panels/SettingsPanel";
 import { areaBounds, PUBLIC_DESCRIPTIONS, routeBetweenCabins, SHARED_PROJECT_ID, type ShipLayout, type ShipPoint } from "./layout";
@@ -176,8 +176,8 @@ function Crew({ agents, layout, focus, onOpen }: { agents: OfficeAgent[]; layout
   return <>{agents.map(agent => {
     const seat = layout.seats[agent.id]; if (!seat) return null;
     return <group key={agent.id}>
-      <AgentModel agentId={agent.id} name={agent.name} status={agent.status} color={agent.color} appearance={agent.avatarProfile}
-        agentsRef={agentsRef} agentLookupRef={lookup} initialPosition={initialPositions[agent.id]} hideLabels
+      <DuckCrewModel agentId={agent.id}
+        agentsRef={agentsRef} agentLookupRef={lookup} initialPosition={initialPositions[agent.id]}
         onHover={setHovered} onUnhover={unhover} onClick={onOpen} />
       <CrewLabel agent={agent} lookup={lookup} placement={nameplatePlacement} onOpen={onOpen} expanded={hovered === agent.id || focus === seat.projectId || !!agent.needsInput || !!agent.needsReview} />
     </group>;
