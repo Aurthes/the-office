@@ -6,6 +6,25 @@ import { useSessionVoice } from "../../src/features/office/components/useSession
 const snapshot = { connected: true, version: 1, activeTurnId: null, items: [], approvals: [] };
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe("web composer media", () => {
+  it("keeps a per-conversation draft and uploaded attachments across closing and reopening", async () => {
+    const call = vi.fn(async () => snapshot), client = { call }, onItems = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ ref: "kept-ref" }) })));
+    const first = render(React.createElement(SessionControls, { client, threadId: "draft-camera", onItems }));
+    const input = screen.getByLabelText("发送到原会话"); await waitFor(() => expect(input).not.toBeDisabled());
+    fireEvent.change(input, { target: { value: "keep my draft" } });
+    fireEvent.change(screen.getByLabelText("选择附件"), { target: { files: [new File(["hello"], "kept.md")] } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "发送" })).not.toBeDisabled());
+    first.unmount();
+    const other = render(React.createElement(SessionControls, { client, threadId: "another-camera", onItems }));
+    expect(screen.getByLabelText("发送到原会话")).toHaveValue(""); other.unmount();
+    render(React.createElement(SessionControls, { client, threadId: "draft-camera", onItems }));
+    expect(screen.getByLabelText("发送到原会话")).toHaveValue("keep my draft");
+    expect(screen.getByLabelText("移除附件 kept.md")).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("button", { name: "发送" })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ threadId: "draft-camera", message: "keep my draft", attachments: ["kept-ref"] })));
+    await waitFor(() => expect(screen.getByLabelText("发送到原会话")).toHaveValue(""));
+  });
   it("uploads before sending, allows attachment-only messages, and keeps failed-send attachments", async () => {
     const call = vi.fn(async (method: string) => { if (method === "session.send") throw new Error("not confirmed"); return snapshot; });
     let complete!: (value: unknown) => void;

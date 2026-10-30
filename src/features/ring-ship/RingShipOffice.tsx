@@ -16,6 +16,9 @@ import { SettingsPanel } from "@/features/office/components/panels/SettingsPanel
 import { areaBounds, PUBLIC_DESCRIPTIONS, routeBetweenCabins, SHARED_PROJECT_ID, type ShipLayout, type ShipPoint } from "./layout";
 import { buildShipGeometry, disposeShipGeometry, FURNITURE_MODELS, SHIP_WORKSTATION, type ModelTemplates } from "./geometry";
 import { useShipLayout } from "./useShipLayout";
+import { getAgentActivity, workChatter } from "@/features/retro-office/core/agentActivity";
+import { paintCrewNameplate } from "./crewNameplate";
+import { chatCameraPose } from "./chatCamera";
 
 type Props = ComponentProps<typeof RetroOffice3D>;
 type Controls = ComponentRef<typeof OrbitControls>;
@@ -56,17 +59,31 @@ function Lighting() {
     <directionalLight position={[25, 12, -25]} intensity={0.65} color="#a0d7ed" />
   </>;
 }
-function CameraRig({ layout, focus, controlsRef }: { layout: ShipLayout; focus: { id: string; request: number }; controlsRef: RefObject<Controls | null> }) {
-  const { size } = useThree();
+export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, chatExpanded }: { layout: ShipLayout; focus: { id: string; request: number }; controlsRef: RefObject<Controls | null>; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null; chatExpanded?: boolean }) {
+  const { size, camera, gl } = useThree();
+  const previousView = useRef<{ target: THREE.Vector3; position: THREE.Vector3; zoom: number } | null>(null);
+  const followed = useRef<{ id: string; x: number; z: number } | null>(null);
   const move = useRef<{ target: THREE.Vector3; position: THREE.Vector3; zoom: number } | null>(null);
   useEffect(() => {
+    const controls = controlsRef.current;
+    const person = chatAgentId ? lookupRef.current.get(chatAgentId) : null;
+    const point = person ? worldPoint(person) : chatAgentId ? layout.seats[chatAgentId] : null;
+    if (chatAgentId && point && controls) {
+      if (!previousView.current) previousView.current = { target: controls.target.clone(), position: camera.position.clone(), zoom: camera.zoom };
+      const panel = document.querySelector(".office-session-chat")?.getBoundingClientRect();
+      const left = panel ? panel.left - gl.domElement.getBoundingClientRect().left : size.width;
+      move.current = chatCameraPose(point, size.width, size.height, left);
+      followed.current = { id: chatAgentId, x: point.x, z: point.z };
+      return;
+    }
+    if (previousView.current) { move.current = previousView.current; previousView.current = null; followed.current = null; return; }
     const bounds = areaBounds(layout, focus.id), target = new THREE.Vector3(bounds.x, 0, bounds.z);
     const span = Math.max(bounds.width, bounds.depth);
     const zoom = focus.id ? Math.min(size.width / (span * 1.35 + 7), size.height / (span * 0.8 + 8)) : Math.min(size.width / (layout.radius * 2.5), size.height / (layout.radius * 1.82));
     const offset = new THREE.Vector3(25, 40, 36);
     if (focus.id) offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(bounds.x, bounds.z));
     move.current = { target, position: target.clone().add(offset), zoom: Math.max(0.2, zoom * 0.92) };
-  }, [layout, focus, size.width, size.height]);
+  }, [layout, focus, size.width, size.height, camera, gl, controlsRef, lookupRef, chatAgentId, chatExpanded]);
   useEffect(() => {
     const controls = controlsRef.current;
     const stop = () => { move.current = null; };
@@ -75,6 +92,15 @@ function CameraRig({ layout, focus, controlsRef }: { layout: ShipLayout; focus: 
   }, [controlsRef]);
   useFrame((state, delta) => {
     const camera = state.camera;
+    const person = followed.current && lookupRef.current.get(followed.current.id);
+    if (person && followed.current) {
+      const point = worldPoint(person);
+      if (Math.hypot(point.x - followed.current.x, point.z - followed.current.z) > 0.1) {
+        const panel = document.querySelector(".office-session-chat")?.getBoundingClientRect();
+        move.current = chatCameraPose(point, size.width, size.height, panel ? panel.left - gl.domElement.getBoundingClientRect().left : size.width);
+        followed.current = { ...followed.current, x: point.x, z: point.z };
+      }
+    }
     const next = move.current, controls = controlsRef.current;
     if (!next || !controls) return;
     const rate = 1 - Math.exp(-delta * 7);
@@ -114,14 +140,15 @@ function canvasPoint(point: ShipPoint) { return { x: point.x / SCALE + CANVAS_W 
 function worldPoint(agent: RenderAgent): ShipPoint { return { x: (agent.x - CANVAS_W / 2) * SCALE, z: (agent.y - CANVAS_H / 2) * SCALE }; }
 function hash(value: string) { let result = 0; for (const char of value) result = (result * 31 + char.charCodeAt(0)) >>> 0; return result; }
 // These are mutable animation objects owned by Three.js, not React state.
-function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number, delta: number) {
+function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number, delta: number, chatAgentId?: string | null) {
   const dt = Math.min(delta, 0.05), amenities = layout.cabins.filter(c => ["garden", "lounge", "canteen", "gym", "observatory"].includes(c.kind));
   for (const a of crew) {
     const seat = layout.seats[a.id]; if (!seat) continue;
     a.frame += dt * 60;
+    if (a.id === chatAgentId && a.status === "idle" && !a.needsInput) { a.state = "standing"; continue; }
     if (a.status === "working" || a.status === "error" || a.needsInput) {
       a.route = []; a.visiting = false; const p = canvasPoint(a.home); a.x = p.x; a.y = p.y; a.facing = seat.facing;
-      a.state = a.status === "working" ? "sitting" : "standing"; a.interactionTarget = a.status === "working" ? "desk" : undefined; continue;
+      a.state = "sitting"; a.interactionTarget = "desk"; continue;
     }
     a.interactionTarget = undefined;
     if (!a.route.length && now > a.pauseUntil && amenities.length) {
@@ -142,15 +169,15 @@ function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number, delta
     }
   }
 }
-function Crew({ agents, layout, focus, onOpen }: { agents: OfficeAgent[]; layout: ShipLayout; focus: string; onOpen: (id: string) => void }) {
-  const agentsRef = useRef<RenderAgent[]>([]), lookup = useRef(new Map<string, RenderAgent>());
+function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId }: { agents: OfficeAgent[]; layout: ShipLayout; focus: string; onOpen: (id: string) => void; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null }) {
+  const agentsRef = useRef<RenderAgent[]>([]);
   const statsAt = useRef(-3);
   const nameplatePlacement = useRef<NameplatePlacement>({ frame: -1, rects: [] });
   const [hovered, setHovered] = useState<string | null>(null);
   const unhover = useCallback(() => setHovered(null), []);
   const initialPositions = useMemo(() => Object.fromEntries(Object.values(layout.seats).map(seat => [seat.agentId, [seat.x, 0, seat.z] as [number, number, number]])), [layout]);
   useEffect(() => {
-    const old = lookup.current, now = performance.now();
+    const old = lookupRef.current, now = performance.now();
     const values: MovingAgent[] = agents.flatMap(agent => {
       const seat = layout.seats[agent.id]; if (!seat) return [];
       const previous = old.get(agent.id) as MovingAgent | undefined, p = canvasPoint(seat);
@@ -163,10 +190,10 @@ function Crew({ agents, layout, focus, onOpen }: { agents: OfficeAgent[]; layout
         home: { x: seat.x, z: seat.z }, route: keepRoute ? previous.route : [], routeIndex: keepRoute ? previous.routeIndex : 0,
         visiting: keepRoute ? previous.visiting : false, pauseUntil: keepRoute ? previous.pauseUntil : now + 7000 + hash(agent.id) % 18000 }];
     });
-    agentsRef.current = values; lookup.current = new Map(values.map(a => [a.id, a]));
-  }, [agents, layout]);
+    agentsRef.current = values; lookupRef.current = new Map(values.map(a => [a.id, a]));
+  }, [agents, layout, lookupRef]);
   useFrame((state, delta) => {
-    advanceCrew(agentsRef.current as MovingAgent[], layout, performance.now(), delta);
+    advanceCrew(agentsRef.current as MovingAgent[], layout, performance.now(), delta, chatAgentId);
     // Expose bounded renderer evidence to browser checks, outside product UI.
     if (state.clock.elapsedTime - statsAt.current >= 3) {
       state.gl.domElement.dataset.shipDrawCalls = String(state.gl.info.render.calls);
@@ -177,35 +204,43 @@ function Crew({ agents, layout, focus, onOpen }: { agents: OfficeAgent[]; layout
     const seat = layout.seats[agent.id]; if (!seat) return null;
     return <group key={agent.id}>
       <AgentModel agentId={agent.id} name={agent.name} status={agent.status} color={agent.color} appearance={agent.avatarProfile}
-        agentsRef={agentsRef} agentLookupRef={lookup} initialPosition={initialPositions[agent.id]} hideLabels
+        agentsRef={agentsRef} agentLookupRef={lookupRef} initialPosition={initialPositions[agent.id]} hideLabels
         onHover={setHovered} onUnhover={unhover} onClick={onOpen} />
-      <CrewLabel agent={agent} lookup={lookup} placement={nameplatePlacement} onOpen={onOpen} expanded={hovered === agent.id || focus === seat.projectId || !!agent.needsInput || !!agent.needsReview} />
+      <CrewLabel agent={agent} lookupRef={lookupRef} placement={nameplatePlacement} onOpen={onOpen} expanded={hovered === agent.id || focus === seat.projectId || !!agent.needsInput || !!agent.needsReview} />
     </group>;
   })}</>;
 }
-function CrewLabel({ agent, lookup, placement, expanded, onOpen }: { agent: OfficeAgent; lookup: RefObject<Map<string, RenderAgent>>; placement: RefObject<NameplatePlacement>; expanded: boolean; onOpen: (id: string) => void }) {
+function CrewLabel({ agent, lookupRef, placement, expanded, onOpen }: { agent: OfficeAgent; lookupRef: RefObject<Map<string, RenderAgent>>; placement: RefObject<NameplatePlacement>; expanded: boolean; onOpen: (id: string) => void }) {
   const ref = useRef<THREE.Sprite>(null);
   const leader = useRef<THREE.BufferGeometry>(null);
   const vectors = useMemo(() => ({ anchor: new THREE.Vector3(), up: new THREE.Vector3(), projected: new THREE.Vector3(), bottom: new THREE.Vector3() }), []);
+  const activity = getAgentActivity(agent);
+  const { name, color, status, needsInput, needsReview } = agent;
+  const lastBubble = useRef("");
+  const lastPaint = useRef(-1);
+  const textureRef = useRef<THREE.CanvasTexture | null>(null);
   const texture = useMemo(() => {
-    const canvas = document.createElement("canvas"); canvas.width = expanded ? 640 : 512; canvas.height = expanded ? 144 : 128;
-    const c = canvas.getContext("2d")!; c.fillStyle = "#122733"; c.fillRect(0, 0, canvas.width, canvas.height);
-    c.fillStyle = agent.color; c.fillRect(0, 0, 10, canvas.height); c.font = expanded ? "600 42px system-ui" : "600 64px system-ui";
-    const marker = agent.needsInput ? "!" : agent.needsReview ? "?" : "";
-    if (marker) { c.fillStyle = "#facc15"; c.fillText(marker, 24, 58); }
-    const limit = expanded ? 13 : 6, name = agent.name.length > limit ? `${agent.name.slice(0, limit)}…` : agent.name;
-    c.fillStyle = "#f3ecdc"; c.fillText(name, marker ? 70 : 24, expanded ? 58 : 86, canvas.width - (marker ? 95 : 45));
-    if (expanded) { c.font = "28px system-ui"; c.fillStyle = "#9cb4c3"; c.fillText(agent.needsInput ? "等待你的回复" : agent.needsReview ? "有新结果" : agent.status === "working" ? "正在工作" : "空闲", 25, 110); }
+    const canvas = document.createElement("canvas");
+    paintCrewNameplate(canvas, { name, color, status, needsInput, needsReview }, expanded, activity.kind === "working" ? "" : activity.marker);
     const result = new THREE.CanvasTexture(canvas); result.colorSpace = THREE.SRGBColorSpace; return result;
-  }, [agent.name, agent.color, agent.needsInput, agent.needsReview, agent.status, expanded]);
-  useEffect(() => () => texture.dispose(), [texture]);
+  }, [name, color, status, needsInput, needsReview, activity, expanded]);
+  useEffect(() => { textureRef.current = texture; lastBubble.current = ""; return () => texture.dispose(); }, [texture]);
   useFrame(state => {
-    const value = lookup.current.get(agent.id); if (!ref.current) return;
+    const value = lookupRef.current.get(agent.id); if (!ref.current) return;
     // Identity is always shown for every placed crew member. Alert state only
     // adds a marker/details; it must never decide whether a name exists.
     ref.current.visible = !!value;
     if (!value) return;
-    const p = worldPoint(value), width = expanded ? 160 : 84, height = expanded ? 36 : 21;
+    if (activity.kind === "working") {
+      const bubble = workChatter(agent.id, state.clock.elapsedTime * 1000);
+      const currentTexture = textureRef.current, tick = Math.floor(state.clock.elapsedTime * 10);
+      if (currentTexture && (bubble !== lastBubble.current || (!bubble && tick !== lastPaint.current))) {
+        paintCrewNameplate(currentTexture.image as HTMLCanvasElement, agent, expanded, bubble, state.clock.elapsedTime * Math.PI * 2 / 3);
+        currentTexture.needsUpdate = true; lastBubble.current = bubble; lastPaint.current = tick;
+      }
+    }
+    const p = worldPoint(value), width = expanded ? 160 : 84;
+    const height = expanded ? 36 : 21;
     const zoom = state.camera.zoom;
     vectors.anchor.set(p.x, 1.3, p.z);
     vectors.projected.copy(vectors.anchor).project(state.camera);
@@ -230,6 +265,11 @@ function CrewLabel({ agent, lookup, placement, expanded, onOpen }: { agent: Offi
   </lineSegments></>;
 }
 
+function ActivityBadge({ agent }: { agent: OfficeAgent }) {
+  const activity = getAgentActivity(agent);
+  return activity.marker ? <span aria-label={activity.label} title={activity.label} className={`absolute -right-1 -top-2 rounded bg-[#132a38] px-1 text-sm leading-5 ${activity.kind === "working" ? "motion-safe:animate-spin" : ""}`} style={{ color: activity.color, animationDuration: "3s" }}>{activity.marker}</span> : null;
+}
+
 export function RingShipOffice(props: Props) {
   const { agents, companyRoster, companyActions, gatewayStatus = "disconnected", officeTitle = "Orbital Headquarters", storageNamespace = "default", gatewayUrl = "", officeCenterSignal = 0 } = props;
   const roster = companyRoster || EMPTY_ROSTER;
@@ -237,6 +277,7 @@ export function RingShipOffice(props: Props) {
   const [focus, setFocus] = useState({ id: "", request: 0 });
   const [menuOpen, setMenuOpen] = useState(false), [settingsOpen, setSettingsOpen] = useState(false), [fleetOpen, setFleetOpen] = useState(false);
   const controlsRef = useRef<Controls>(null);
+  const crewLookupRef = useRef(new Map<string, RenderAgent>());
   const validFocus = layout.cabins.some(c => c.id === focus.id || c.projectId === focus.id) ? focus.id : "";
   const cameraFocus = useMemo(() => ({ id: validFocus, request: focus.request + officeCenterSignal }), [validFocus, focus.request, officeCenterSignal]);
   const selected = layout.cabins.find(c => c.id === validFocus || c.projectId === validFocus);
@@ -264,9 +305,9 @@ export function RingShipOffice(props: Props) {
       <Stars radius={100} depth={50} count={1800} factor={15} saturation={0} fade speed={0} />
       <StaticShip layout={layout} />
       <CabinTargets layout={layout} focus={validFocus} onSelect={select} />
-      <Crew agents={agents} layout={layout} focus={validFocus} onOpen={open} />
+      <Crew agents={agents} layout={layout} focus={validFocus} onOpen={open} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} />
       <OrbitControls ref={controlsRef} makeDefault enableDamping dampingFactor={0.15} minZoom={0.15} maxZoom={110} minPolarAngle={0.12} maxPolarAngle={Math.PI / 2.2} />
-      <CameraRig layout={layout} focus={cameraFocus} controlsRef={controlsRef} />
+      <CameraRig layout={layout} focus={cameraFocus} controlsRef={controlsRef} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} chatExpanded={props.chatExpanded} />
     </Canvas>
     <div className="ship-heading pointer-events-none absolute left-1/2 top-5 z-10 -translate-x-1/2 text-center">
       <div className="truncate text-xs font-semibold uppercase tracking-[0.28em] text-[#e3c894]">{officeTitle}</div>
@@ -274,7 +315,7 @@ export function RingShipOffice(props: Props) {
       <div className="pointer-events-auto mt-3 flex items-center justify-center gap-1 rounded-full border border-white/15 bg-[#102734]/95 p-1.5">
         {agents.slice(0, 6).map(agent => <button key={agent.id} title={agent.name} aria-label={`打开会话：${agent.name}`} onClick={() => open(agent.id)}
           className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-[#102531]" style={{ background: agent.color }}>
-          {agent.name.slice(0, 2)}{agent.needsInput || agent.needsReview ? <span className="absolute -right-0.5 -top-1 text-sm text-[#ffd177]">{agent.needsInput ? "!" : "?"}</span> : null}
+          {agent.name.slice(0, 2)}<ActivityBadge agent={agent} />
         </button>)}
         <button onClick={() => setFleetOpen(value => !value)} className="flex h-8 items-center gap-1.5 rounded-full px-3 text-[10px]" aria-expanded={fleetOpen} aria-label="会话列表"><Users size={13} />{agents.length} AGENTS</button>
       </div>
@@ -287,7 +328,7 @@ export function RingShipOffice(props: Props) {
     <CompanyWorkAreaMenu areas={areas} activeId={validFocus} sessionCount={agents.length} open={menuOpen} onOpenChange={setMenuOpen} onSelect={select} actions={companyActions} description="公共舱常驻 · 空舱随时可启用" />
     {fleetOpen ? <div className="ship-fleet absolute left-1/2 top-28 z-30 max-h-[60vh] w-80 max-w-[90vw] -translate-x-1/2 overflow-auto rounded-xl border border-white/15 bg-[#0d2431]/98 p-2 shadow-xl">
       {agents.map(agent => <button key={agent.id} className="flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-white/10" onClick={() => open(agent.id)}>
-        <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: agent.color }} /><span className="min-w-0 flex-1 truncate text-xs">{agent.name}</span><span className="text-[10px] text-[#d7bc80]">{agent.needsInput ? "待回复" : agent.needsReview ? "新结果" : agent.status === "working" ? "工作中" : "空闲"}</span>
+        <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: agent.color }} /><span className="min-w-0 flex-1 truncate text-xs">{agent.name}</span><span className="text-[10px]" style={{ color: getAgentActivity(agent).color }}>{getAgentActivity(agent).marker} {getAgentActivity(agent).label}</span>
       </button>)}
     </div> : null}
     <div className="ship-summary pointer-events-none absolute bottom-4 left-4 z-10 max-w-[min(70vw,460px)] rounded-xl border border-white/10 bg-[#102531]/90 px-4 py-3">

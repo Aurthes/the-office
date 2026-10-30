@@ -141,8 +141,9 @@ export const AgentModel = memo(function AgentModel({
     const typingAngle = -Math.acos(THREE.MathUtils.clamp(-(handTarget - seatOffset - 0.28 * AGENT_SCALE) / (0.18 * AGENT_SCALE), -0.95, 0.95));
     // Stagger each person's typing, thinking and small posture changes.
     const deskCycle = (frameValue * 0.016) % 20;
-    const typing = deskWorking && deskCycle < 13;
-    const thinking = deskWorking && deskCycle >= 13 && deskCycle < 17;
+    const paused = "needsInput" in agent && agent.needsInput;
+    const typing = deskWorking && agent.status === "working" && !paused && deskCycle < 13;
+    const thinking = deskWorking && agent.status === "working" && !paused && deskCycle >= 13 && deskCycle < 17;
     if (seated) groupRef.current.rotation.y += Math.sin(frameValue * 0.013) * (typing ? 0.012 : 0.035);
     const workoutPhase = Math.sin(
       agent.frame * 0.18 + (agent.phaseOffset ?? 0),
@@ -363,11 +364,9 @@ export const AgentModel = memo(function AgentModel({
     if (leftShoeRef.current) { leftShoeRef.current.rotation.x = 0; leftShoeRef.current.scale.y = 1 / shinScale; }
     if (rightShoeRef.current) { rightShoeRef.current.rotation.x = 0; rightShoeRef.current.scale.y = 1 / shinScale; }
 
-    const working =
-      agent.state === "sitting" ||
-      isWorkout ||
-      isDancing ||
-      agent.status === "working";
+    const working = !("needsInput" in agent && agent.needsInput) && (
+      agent.state === "sitting" || isWorkout || isDancing || agent.status === "working"
+    );
     const isError = agent.status === "error";
     const isAway = agent.state === "away";
 

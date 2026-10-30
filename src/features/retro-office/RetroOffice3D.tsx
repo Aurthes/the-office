@@ -2459,6 +2459,8 @@ export function RetroOffice3D({
   onStandupStartRequested?: () => void;
   onMonitorSelect?: (agentId: string | null) => void;
   onAgentChatSelect?: (agentId: string) => void;
+  activeChatAgentId?: string | null;
+  chatExpanded?: boolean;
   onAddAgent?: () => void;
   onAgentEdit?: (agentId: string) => void;
   onAgentDelete?: (agentId: string) => void;

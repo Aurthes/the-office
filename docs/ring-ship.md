@@ -48,3 +48,23 @@ stable placements, cache parsing and routes. `ringShipHydration.test.ts` checks
 startup and authoritative roster changes. Browser checks should include desktop,
 portrait and landscape layouts, project/public focus, chat, creation dialogs,
 refresh persistence and unavailable optional furniture.
+
+## Activity and chat navigation
+
+Each nameplate has one mutually exclusive state: a slowly rotating green gear for
+work, yellow `!` for required user input, yellow `?` for a new unread result, red
+`!` for a session error, or no marker when idle. Error and input states take priority;
+a new run supersedes an older unread result. Native status and existing completion
+read receipts remain authoritative.
+
+Working people occasionally show brief ambient chatter or thinking dots. While
+they speak, a separate speech bubble replaces the entire nameplate; afterwards
+the name and status return. Flavor text is decorative and never enters the chat
+or claims actual task progress. Input requests and errors interrupt chatter.
+
+Opening a person’s chat eases the camera toward that person in the area left
+uncovered by the chat. Switching conversations follows the next person. Clicking
+outside the chat or its close button restores the prior office view. Closing and
+reopening preserves text drafts and completed uploads in this page’s memory;
+incomplete uploads are stopped and show a reselect prompt. A page reload clears
+these unsent drafts.
