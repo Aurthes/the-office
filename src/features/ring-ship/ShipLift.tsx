@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, type ComponentRef, type RefObject } from "react";
+import { useMemo, useRef, useState, type ComponentRef, type RefObject } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Html, OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
@@ -19,22 +19,26 @@ export function LiftEntry({ deck, whole, open, disabled, counts, onOpen, onClose
 }) {
   const t = useUiText();
   const entry = useRef<HTMLButtonElement>(null);
-  const close = () => { onClose(); entry.current?.focus({ preventScroll: true }); };
+  const [hovered, setHovered] = useState(false);
+  const showMenu = () => { setHovered(false); onOpen(); };
+  const close = (restoreFocus = false) => { onClose(); if (restoreFocus) entry.current?.focus({ preventScroll: true }); };
   return <group position={[0, whole ? DECK_STEP : deck * DECK_STEP, 0]} visible={!disabled}>
-    <mesh onClick={event => { if (event.delta < 6) { event.stopPropagation(); onOpen(); } }}>
+    <mesh onPointerOver={event => { if (event.pointerType === "mouse") { event.stopPropagation(); setHovered(true); } }}
+      onPointerOut={() => setHovered(false)}
+      onClick={event => { if (event.delta < 6) { event.stopPropagation(); showMenu(); } }}>
       <cylinderGeometry args={[3.6, 3.6, whole ? DECK_STEP * 2 + 8 : 8, 24]} />
       <meshBasicMaterial visible={false} />
     </mesh>
     {!disabled ? <Html position={[0, 2.5, 0]} center zIndexRange={[15, 14]} style={{ pointerEvents: "none" }}>
-      <div className="ship-lift-anchor" onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
-        <button ref={entry} className="ship-lift-entry" aria-label={t("Take the central lift")} aria-expanded={open} aria-controls="ship-lift-menu" onClick={onOpen}>
+      <div className="ship-lift-anchor" data-hovered={hovered} data-open={open} onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
+        <button ref={entry} className="ship-lift-entry" aria-label={t("Take the central lift")} aria-expanded={open} aria-controls="ship-lift-menu" onClick={showMenu}>
           <span className="ship-lift-mark" aria-hidden="true"><DoorClosed size={19} strokeWidth={1.25} /></span>
           <span className="ship-lift-entry-copy">{t("Central lift")}<small>{t("CENTRAL SHUTTLE")}</small></span>
           <span className="ship-lift-deck" aria-hidden="true"><small>{t("DECK")}</small>L{deck + 1}</span>
         </button>
         {open ? <section id="ship-lift-menu" role="dialog" aria-label={t("Central lift")} className="ship-lift-menu"
-          onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); } }}>
-          <div className="ship-lift-heading"><span>{t("CENTRAL SHUTTLE")}</span><button aria-label={t("Close lift menu")} onClick={close}><X size={16} strokeWidth={1.5} /></button></div>
+          onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(true); } }}>
+          <div className="ship-lift-heading"><span>{t("CENTRAL SHUTTLE")}</span><button aria-label={t("Close lift menu")} onClick={event => close(event.detail === 0)}><X size={16} strokeWidth={1.5} /></button></div>
           <h2>{t("Which deck?")}</h2><p>{t("Current location: L{deck} · {name}", { deck: deck + 1, name: t(DECK_NAMES[deck]) })}</p>
           {/* Html mounts its own DOM root: focus the button there, not from the scene effect. */}
           {DECKS.map((destination, index) => <button key={destination} autoFocus={destination === DECKS.find(d => d !== deck)}

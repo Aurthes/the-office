@@ -46,8 +46,17 @@
   .ship-summary > div:nth-child(2) { display: none; }
 }
 
-.ship-lift-anchor { position: relative; width: 162px; pointer-events: auto; }
-.ship-lift-entry { position: relative; display: flex; align-items: center; gap: 9px; width: 162px; min-height: 43px; padding: 7px 9px; border: 1px solid #b6c0bf; border-radius: 3px; background: linear-gradient(160deg, #e0e3df, #c3ccca 60%, #cfd5d1); color: #293b42; text-align: left; cursor: pointer; box-shadow: 0 2px 6px #0005, inset 0 1px 0 #f8faf4bd; transition: border-color .16s, box-shadow .16s; }
+.ship-lift-anchor { position: relative; width: 162px; pointer-events: none; }
+.ship-lift-entry { position: relative; display: flex; align-items: center; gap: 9px; width: 162px; min-height: 43px; padding: 7px 9px; border: 1px solid #b6c0bf; border-radius: 3px; background: linear-gradient(160deg, #e0e3df, #c3ccca 60%, #cfd5d1); color: #293b42; text-align: left; cursor: pointer; box-shadow: 0 2px 6px #0005, inset 0 1px 0 #f8faf4bd; opacity: 0; pointer-events: none; transition: opacity .12s, border-color .16s, box-shadow .16s; }
+.ship-lift-anchor[data-hovered="true"] .ship-lift-entry,
+.ship-lift-anchor[data-open="true"] .ship-lift-entry,
+.ship-lift-entry:focus-visible { opacity: 1; pointer-events: auto; }
+/* Keep the plaque visible while the pointer moves from the shaft onto it.
+   Touch devices open the menu by tapping the actual shaft, without a hidden hitbox. */
+@media (any-hover: hover) {
+  .ship-lift-anchor:hover .ship-lift-entry { opacity: 1; pointer-events: auto; }
+}
+
 .ship-lift-mark { display: flex; align-items: center; justify-content: center; width: 23px; height: 27px; flex-shrink: 0; border-right: 1px solid #8c9b9c80; padding-right: 6px; color: #42585b; }
 .ship-lift-entry-copy { flex: 1; white-space: nowrap; font: 500 10px/1.3 system-ui, sans-serif; letter-spacing: .5px; }
 .ship-lift-entry-copy small { display: block; margin-top: 3px; color: #667b7e; font: 500 6px/1.2 system-ui, sans-serif; letter-spacing: 1px; }
@@ -56,7 +65,7 @@
 .ship-lift-entry:after { content: ''; position: absolute; top: 100%; left: 50%; width: 1px; height: 18px; background: #a4b8b9b3; }
 .ship-lift-entry:hover, .ship-lift-entry[aria-expanded="true"] { border-color: #e6eee7; box-shadow: 0 3px 9px #0006, inset 0 1px 0 #fff; }
 .ship-lift-entry:active { box-shadow: 0 1px 3px #0005, inset 0 1px 2px #546c6b33; }
-.ship-lift-menu { position: absolute; left: 176px; top: -75px; width: 290px; max-height: min(360px, calc(100dvh - 150px)); overflow: auto; overscroll-behavior: contain; padding: 15px; border: 1px solid #7d969e80; border-radius: 4px; background: #15242df7; color: #d5dedd; box-shadow: 0 12px 32px #0006, inset 0 1px 0 #e0e9e31a; font: 12px/1.5 system-ui, sans-serif; }
+.ship-lift-menu { pointer-events: auto; position: absolute; left: 176px; top: -75px; width: 290px; max-height: min(360px, calc(100dvh - 150px)); overflow: auto; overscroll-behavior: contain; padding: 15px; border: 1px solid #7d969e80; border-radius: 4px; background: #15242df7; color: #d5dedd; box-shadow: 0 12px 32px #0006, inset 0 1px 0 #e0e9e31a; font: 12px/1.5 system-ui, sans-serif; }
 .ship-lift-heading { display: flex; align-items: center; justify-content: space-between; color: #8caaa9; font: 9px/1.5 ui-monospace, monospace; letter-spacing: 1.5px; }
 .ship-lift-heading button { display: flex; align-items: center; justify-content: center; min-width: 28px; min-height: 28px; border: 0; background: none; color: #8fa5a9; cursor: pointer; }
 .ship-lift-heading button:hover { color: #eef1e9; }
