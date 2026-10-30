@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildShipLayout, parseShipAllocation, PUBLIC_CABINS, RING_CAPACITIES, RING_RADII, routeBetweenCabins, type ShipLayout } from "@/features/ring-ship/layout";
+import { buildShipLayout, DECKS, shipDeck, parseShipAllocation, PUBLIC_CABINS, RING_CAPACITIES, RING_RADII, routeBetweenCabins, type ShipLayout } from "@/features/ring-ship/layout";
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
 
 function roster(counts: number[]): CompanyRoster {
@@ -33,14 +33,14 @@ describe("three-ring ship allocation", () => {
   });
   it("adds one bay to all rings and preserves physical bay size when full", () => {
     let layout = buildShipLayout(roster([]));
-    const projectCount = 3 * 8 - PUBLIC_CABINS.length - 1;
+    const projectCount = DECKS.length * (3 * 8 - PUBLIC_CABINS.length) - 1;
     for (let i = 1; i <= projectCount; i++) layout = buildShipLayout(roster(Array(i).fill(0)), layout.allocation);
     expect(layout.allocation.sectors).toBe(8);
     expect(layout.cabins.filter(c => c.kind === "reserve")).toHaveLength(0);
     const after = buildShipLayout(roster(Array(projectCount + 1).fill(0)), layout.allocation);
     expect(after.allocation.sectors).toBe(9);
-    expect(after.cabins.length - layout.cabins.length).toBe(3);
-    expect(after.cabins.filter(c => c.kind === "reserve")).toHaveLength(2);
+    expect(after.cabins.length - layout.cabins.length).toBe(3 * DECKS.length);
+    expect(after.cabins.filter(c => c.kind === "reserve")).toHaveLength(3 * DECKS.length - 1);
     after.rings.forEach((ring, i) => {
       expect(ring.radius / layout.rings[i].radius).toBeCloseTo(9 / 8);
       expect(ring.radius / after.allocation.sectors).toBeCloseTo(layout.rings[i].radius / layout.allocation.sectors);
@@ -60,7 +60,7 @@ describe("three-ring ship allocation", () => {
       const cabin = layout.cabins.find(c => c.id === p.id);
       expect(cabin?.kind).toBe(p.kind); expect(cabin?.projectId).toBeUndefined();
     }
-    expect(layout.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length);
+    expect(layout.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length * DECKS.length);
     checkSeats(layout, 100);
   });
   it("uses contiguous outer cabins for teams larger than one bay without shrinking furniture", () => {
@@ -101,7 +101,7 @@ describe("three-ring ship allocation", () => {
   });
   it("routes workers between rings along occupied decks and radial spokes", () => {
     const layout = buildShipLayout(roster([2])); const seat = layout.seats["agent-0-0"];
-    for (const cabin of layout.cabins.filter(c => c.kind === "garden" || c.kind === "gym")) {
+    for (const cabin of layout.cabins.filter(c => c.deck === seat.deck && (c.kind === "garden" || c.kind === "gym"))) {
       const route = routeBetweenCabins(layout, seat, cabin);
       expect(route.length).toBeGreaterThan(2);
       const path = [{ x: seat.x, z: seat.z }, ...route];
@@ -114,4 +114,32 @@ describe("three-ring ship allocation", () => {
       }
     }
   });
+});
+
+it("fills ready decks before expanding and assigns every worker to exactly one deck", () => {
+  const layout = buildShipLayout(roster(Array(32).fill(2)));
+  expect(layout.allocation.sectors).toBe(8);
+  expect(new Set(Object.values(layout.seats).map(s => s.deck))).toEqual(new Set(DECKS));
+  const cabins = layout.cabins.filter(c => c.kind === "work");
+  const ids = cabins.flatMap(c => c.agentIds);
+  expect(ids).toHaveLength(64); expect(new Set(ids).size).toBe(64);
+  for (const deck of DECKS) {
+    const floor = shipDeck(layout, deck);
+    expect(floor.cabins).toHaveLength(24);
+    expect(floor.cabins.every(c => c.deck === deck)).toBe(true);
+    expect(floor.rings).toBe(layout.rings);
+    expect(floor.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length);
+    for (const seat of Object.values(floor.seats)) expect(floor.cabins.find(c => c.id === seat.cabinId)?.deck).toBe(deck);
+  }
+  checkSeats(layout, 64);
+});
+it("upgrades an existing single-deck allocation without moving its projects", () => {
+  const data = roster([2, 5, 8]), before = buildShipLayout(data);
+  for (const assignment of Object.values(before.allocation.projects)) delete assignment.deck;
+  const saved = parseShipAllocation(JSON.stringify(before.allocation));
+  const after = buildShipLayout(data, saved);
+  for (const [id, assignment] of Object.entries(before.allocation.projects)) {
+    expect(after.allocation.projects[id]).toEqual({ ...assignment, deck: 0 });
+  }
+  expect(parseShipAllocation(JSON.stringify({ ...after.allocation, projects: { p: { deck: 3, ring: 0, slot: 1, span: 1 } } }))).toBeUndefined();
 });

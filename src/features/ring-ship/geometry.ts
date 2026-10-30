@@ -1,11 +1,13 @@
 import * as THREE from "three";
+import { cabinDeck } from "./shell-shapes";
+import { addCabinDetails } from "./interior-details";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
 import workstationModels from "@/features/retro-office/core/workstation-models.json";
 import { CHAIR_SEAT, DESK_SURFACE_HEIGHT, WORKSTATION_SCALE } from "@/features/retro-office/core/geometry";
 import { cabinAngle, seatPosition, shipPoint, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
 
-export const FURNITURE_MODELS = ["desk", "chairDesk", "pottedPlant", "plantSmall1", "loungeSofa", "tableRound", "kitchenCoffeeMachine", "kitchenCabinet"] as const;
+export const FURNITURE_MODELS = ["desk", "chairDesk", "pottedPlant", "plantSmall1", "loungeSofa", "tableRound", "kitchenCoffeeMachine", "kitchenCabinet", "bookcaseClosed", "lampRoundFloor", "kitchenFridgeSmall", "chairModernCushion", "tableCoffee", "table", "loungeDesignChair"] as const;
 export type ModelTemplates = Partial<Record<typeof FURNITURE_MODELS[number], GLTF["scene"]>>;
 export const SHIP_WORKSTATION = {
   deskWidth: (workstationModels.desk.max[0] - workstationModels.desk.min[0]) * WORKSTATION_SCALE.desk_cubicle,
@@ -19,7 +21,7 @@ const ASSET_COLORS: Record<string, string> = { wood: "#d3c2a7", woodDark: "#5261
 
 // Bake repeated furniture and hull pieces into a small number of material meshes.
 // Camera/agent changes do not rebuild these buffers or add asset requests.
-class Builder {
+export class Builder {
   groups = new Map<string, { material: THREE.MeshStandardMaterial; geometries: THREE.BufferGeometry[] }>();
   labels: Array<{ texture: THREE.Texture; position: THREE.Vector3; rotation: THREE.Euler; width: number; height: number }> = [];
   constructor(private models: ModelTemplates) {}
@@ -120,22 +122,14 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
   const spokeSlots = new Set(layout.spokes.map(angle => Math.round(angle / step)));
   for (const cabin of layout.cabins) {
     const ring = layout.rings[cabin.ring], inner = ring.radius - ring.depth / 2, outer = ring.radius + ring.depth / 2;
-    // Shape XY becomes world X,-Z after rotation: this maps to shipPoint angles.
-    const start = cabin.slot * step - Math.PI / 2, end = start + step;
     const theta = cabinAngle(layout, cabin.slot), reserve = cabin.kind === "reserve";
-    const spokeAtStart = spokeSlots.has(cabin.slot), spokeAtEnd = spokeSlots.has((cabin.slot + 1) % layout.allocation.sectors);
-    const wallStart = start + (spokeAtStart ? 0.8 / inner : 0), wallEnd = end - (spokeAtEnd ? 0.8 / inner : 0);
-    b.annulus(inner, outer, start, end, -0.65, 0.65, HULL);
-    b.annulus(inner + 0.08, outer - 0.08, start + 0.003, end - 0.003, 0.005, 0.05, reserve ? "#9daeb3" : cabin.kind === "garden" ? "#bbc5ab" : "#d1c9b8");
-    b.annulus(outer - 0.15, outer, wallStart, wallEnd, 0, 0.9, HULL);
-    b.annulus(outer - 0.18, outer + 0.02, wallStart, wallEnd, 0.9, 0.06, reserve ? "#9eafae" : ORANGE);
-    b.annulus(inner, inner + 0.12, wallStart, wallEnd, 0, 0.24, HULL);
-    b.annulus(inner - 0.035, inner + 0.015, start, end, -0.4, 0.1, METAL);
-    const seam = shipPoint(outer - 0.08, cabin.slot * step);
-    if (!spokeAtStart) b.box([0.13, 1.04, 0.34], [seam.x, 0.45, seam.z], "#a8bdc1", cabin.slot * step);
+    const spokeAtEnd = spokeSlots.has((cabin.slot + 1) % layout.allocation.sectors);
+
+    b.add(cabinDeck(ring.radius, ring.depth/2, cabin.slot*step, (cabin.slot+1)*step), reserve ? "#8fa5ac" : cabin.kind === "garden" ? "#a2b48f" : "#c7bca6");
+
     for (const t of [-0.27, 0, 0.27]) {
       const a = theta + t * step, p = shipPoint(outer - 0.2, a);
-      b.box([Math.min(1.5, ring.radius * step / 5), 0.45, 0.05], [p.x, 0.45, p.z], METAL, a);
+      b.box([Math.min(1.5, ring.radius * step / 5), 0.2, 0.05], [p.x, 0.23, p.z], METAL, a);
       const light = shipPoint(inner - 0.04, a);
       b.box([0.6, 0.07, 0.08], [light.x, -0.24, light.z], reserve ? "#82a8b1" : "#edbf78", a, true);
     }
@@ -144,30 +138,33 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
       const angle = (cabin.slot + 1) * step;
       // A central opening keeps the ring's circulation lane unobstructed.
       for (const side of [-1, 1]) {
-        const length = ring.depth / 2 - 0.65, p = shipPoint(ring.radius + side * (0.65 + length / 2), angle);
-        b.box([0.14, 0.78, length], [p.x, 0.39, p.z], HULL, angle);
+        const length = ring.depth / 2 * .79 - 0.65, p = shipPoint(ring.radius + side * (0.65 + length / 2), angle);
+        b.box([0.14, 0.42, length], [p.x, 0.21, p.z], HULL, angle);
       }
     }
     const sign = shipPoint(inner + 0.65, theta);
-    b.sign(cabin.name, reserve ? "STANDBY / 待启用" : cabin.kind === "work" ? `${cabin.agentIds.length} CREW / 工作舱` : "COMMON / 公共舱", sign, theta, Math.min(5.2, ring.radius * step * 0.68), cabin.color);
+    b.sign(cabin.name, reserve ? "STANDBY / 待启用" : cabin.kind === "work" ? `${ring.capacity} SEATS / 工作舱` : "COMMON / 公共舱", sign, theta, Math.min(5.2, ring.radius * step * 0.68), cabin.color);
     if (reserve) {
+      addCabinDetails(b, layout, cabin);
       for (const u of [-1, 1]) b.localBox(layout, cabin, u * Math.min(2, ring.radius * step / 4), 0.5, 0.08, [1.0, 0.02, 0.04], "#c6d5d5");
       continue;
     }
     if (cabin.kind === "work") {
       for (let i = 0; i < ring.capacity; i++) {
         const seat = seatPosition(layout, cabin, i);
+        b.box([2.2, .012, 1.7], [seat.desk.x, .067, seat.desk.z], "#829f9e", seat.facing);
         if (!b.furniture("desk", SHIP_WORKSTATION.deskWidth, seat.desk, 0.08, seat.facing)) {
           b.box([SHIP_WORKSTATION.deskWidth, 0.1, 0.6], [seat.desk.x, SHIP_WORKSTATION.surfaceHeight - 0.05, seat.desk.z], "#ded5bf", seat.facing);
           b.box([0.95, 0.5, 0.35], [seat.desk.x, 0.33, seat.desk.z], HULL, seat.facing);
         }
-        const screen = shipPoint(ring.radius + (cabin.ring === 0 ? 1.18 : i < (cabin.ring === 2 ? 4 : 3) ? 1.78 : -1.78), seat.angle);
+        const screen = shipPoint(Math.hypot(seat.desk.x, seat.desk.z) + (i < (cabin.ring === 2 ? 4 : 3) ? 0.13 : -0.13), seat.angle);
         b.box([0.48, 0.32, 0.035], [screen.x, SHIP_WORKSTATION.surfaceHeight + 0.19, screen.z], METAL, seat.facing);
         const glow = shipPoint(Math.hypot(screen.x, screen.z) + (seat.facing === seat.angle ? -0.03 : 0.03), seat.angle);
         b.box([0.4, 0.22, 0.025], [glow.x, SHIP_WORKSTATION.surfaceHeight + 0.2, glow.z], "#579eb3", seat.facing, true);
         b.furniture("chairDesk", SHIP_WORKSTATION.chairWidth, seat.agent, 0.08, seat.facing);
       }
     } else addAmenity(b, layout, cabin);
+    addCabinDetails(b, layout, cabin);
   }
   // A low central reactor leaves inner cabins visible in the overhead view.
   b.cylinder(3.5, 0.6, [0, -0.2, 0], HULL, 48);
@@ -175,7 +172,7 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
   b.cylinder(2.52, 0.12, [0, 1.2, 0], ORANGE, 48);
   b.cylinder(1.7, 0.2, [0, 1.45, 0], METAL, 40);
   b.cylinder(0.95, 0.15, [0, 1.59, 0], "#ffd189", 32, true);
-  b.sign("动力核心", "REACTOR / TRANSIT", { x: 0, z: 2.7 }, 0, 2.7, "#e3b775");
+  b.sign("中央升降梯", "CENTRAL SHUTTLE", { x: 0, z: 2.7 }, 0, 2.7, "#e3b775");
   for (const angle of layout.spokes) {
     const start = 3.2, end = layout.radius, p = shipPoint((start + end) / 2, angle);
     b.box([1.25, 0.22, end - start], [p.x, -0.08, p.z], HULL, angle);

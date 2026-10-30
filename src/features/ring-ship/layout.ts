@@ -1,24 +1,28 @@
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
 
 export type RingIndex = 0 | 1 | 2;
+export type DeckIndex = 0 | 1 | 2;
+export const DECKS = [0, 1, 2] as const;
+export const DECK_STEP = 10;
+export const DECK_NAMES = ["主甲板", "扩展甲板", "预留甲板"] as const;
 export type CabinKind = "work" | "reserve" | "garden" | "hydroponics" | "canteen" | "gym" | "servers" | "maintenance" | "lounge" | "cargo" | "observatory" | "quarters";
 export type ShipPoint = { x: number; z: number };
-export type ShipAssignment = { ring: RingIndex; slot: number; span: number };
+export type ShipAssignment = { deck?: DeckIndex; ring: RingIndex; slot: number; span: number };
 export type ShipAllocation = { version: 1; sectors: number; projects: Record<string, ShipAssignment> };
 export type ShipRing = { index: RingIndex; radius: number; depth: number; capacity: number };
 export type ShipCabin = {
-  id: string; ring: RingIndex; slot: number; kind: CabinKind; name: string; color: string;
+  id: string; deck: DeckIndex; ring: RingIndex; slot: number; kind: CabinKind; name: string; color: string;
   projectId?: string; agentIds: string[];
 };
-export type ShipSeat = ShipPoint & { agentId: string; cabinId: string; projectId: string; ring: RingIndex; angle: number; facing: number };
+export type ShipSeat = ShipPoint & { agentId: string; cabinId: string; projectId: string; deck: DeckIndex; ring: RingIndex; angle: number; facing: number };
 export type ShipLayout = {
   allocation: ShipAllocation; rings: ShipRing[]; cabins: ShipCabin[];
   seats: Record<string, ShipSeat>; radius: number; spokes: number[];
 };
 export const BASE_SECTORS = 8;
 export const SHARED_PROJECT_ID = "open-workspace";
-export const RING_RADII = [10, 17, 24] as const;
-export const RING_DEPTHS = [4.4, 5.4, 6.4] as const;
+export const RING_RADII = [12, 26, 42] as const;
+export const RING_DEPTHS = [5.6, 6.8, 8] as const;
 export const RING_CAPACITIES = [3, 6, 8] as const;
 export const PUBLIC_CABINS: ReadonlyArray<{ id: string; ring: RingIndex; slot: number; kind: CabinKind; name: string; color: string }> = [
   { id: "public:lounge", ring: 0, slot: 0, kind: "lounge", name: "观景休息舱", color: "#d6af71" },
@@ -48,7 +52,7 @@ export function parseShipAllocation(value: string | null): ShipAllocation | unde
     const parsed = JSON.parse(value || "null");
     if (parsed?.version !== 1 || !Number.isInteger(parsed.sectors) || parsed.sectors < BASE_SECTORS || parsed.sectors > 4096 || !parsed.projects || typeof parsed.projects !== "object" || Array.isArray(parsed.projects)) return;
     for (const a of Object.values(parsed.projects) as ShipAssignment[]) {
-      if (!a || ![0, 1, 2].includes(a.ring) || !Number.isInteger(a.slot) || !Number.isInteger(a.span) || a.slot < 0 || a.span < 1 || a.slot + a.span > parsed.sectors) return;
+      if (!a || (a.deck !== undefined && !DECKS.includes(a.deck)) || ![0, 1, 2].includes(a.ring) || !Number.isInteger(a.slot) || !Number.isInteger(a.span) || a.slot < 0 || a.span < 1 || a.slot + a.span > parsed.sectors) return;
     }
     return parsed as ShipAllocation;
   } catch { return; }
@@ -72,31 +76,30 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
   });
   for (const group of groups) group.agentIds.sort();
   let sectors = Math.max(BASE_SECTORS, previous?.sectors || 0);
-  if (!previous) {
-    for (const ring of [0, 1, 2] as const) {
-      const needed = groups.filter(g => desiredRing(g.agentIds.length) === ring).reduce((sum, group) => sum + Math.max(1, Math.ceil(group.agentIds.length / RING_CAPACITIES[ring])), 0);
-      sectors = Math.max(sectors, needed + PUBLIC_CABINS.filter(p => p.ring === ring).length + 2);
-    }
-  }
   let assignments: Record<string, ShipAssignment>;
   for (;;) {
-    const occupied = [new Set<number>(), new Set<number>(), new Set<number>()];
-    for (const cabin of PUBLIC_CABINS) occupied[cabin.ring].add(cabin.slot);
+    const occupied = DECKS.map(() => [new Set<number>(), new Set<number>(), new Set<number>()]);
+    for (const deck of DECKS) for (const cabin of PUBLIC_CABINS) occupied[deck][cabin.ring].add(cabin.slot);
     assignments = Object.create(null) as Record<string, ShipAssignment>;
     let complete = true;
     for (const group of groups) {
       const firstRing = desiredRing(group.agentIds.length);
       const old = previous?.projects[group.id];
       let assigned = false;
-      for (let candidate = firstRing; candidate <= 2; candidate++) {
-        const ring = candidate as RingIndex;
-        const span = Math.max(1, Math.ceil(group.agentIds.length / RING_CAPACITIES[ring]));
-        const free = (slot: number) => slot >= 0 && slot + span <= sectors && Array.from({ length: span }, (_, i) => slot + i).every(i => !occupied[ring].has(i));
-        const slot = old?.ring === ring && free(old.slot) ? old.slot : Array.from({ length: sectors }, (_, i) => i).find(free);
-        if (slot === undefined) continue;
-        assignments[group.id] = { ring, slot, span };
-        for (let i = 0; i < span; i++) occupied[ring].add(slot + i);
-        assigned = true; break;
+      // Prefer the existing deck, then ready cabins on the other decks.
+      const decks = old ? [old.deck ?? 0, ...DECKS.filter(d => d !== (old.deck ?? 0))] : DECKS;
+      for (const deck of decks) {
+        for (let candidate = firstRing; candidate <= 2; candidate++) {
+          const ring = candidate as RingIndex;
+          const span = Math.max(1, Math.ceil(group.agentIds.length / RING_CAPACITIES[ring]));
+          const free = (slot: number) => slot >= 0 && slot + span <= sectors && Array.from({ length: span }, (_, i) => slot + i).every(i => !occupied[deck][ring].has(i));
+          const slot = old?.ring === ring && (old.deck ?? 0) === deck && free(old.slot) ? old.slot : Array.from({ length: sectors }, (_, i) => i).find(free);
+          if (slot === undefined) continue;
+          assignments[group.id] = { deck, ring, slot, span };
+          for (let i = 0; i < span; i++) occupied[deck][ring].add(slot + i);
+          assigned = true; break;
+        }
+        if (assigned) break;
       }
       if (!assigned) { complete = false; break; }
     }
@@ -105,21 +108,21 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
   }
   const allocation: ShipAllocation = { version: 1, sectors, projects: assignments! };
   const rings: ShipRing[] = RING_RADII.map((r, index) => ({ index: index as RingIndex, radius: r * sectors / BASE_SECTORS, depth: RING_DEPTHS[index], capacity: RING_CAPACITIES[index] }));
-  const cabins: ShipCabin[] = rings.flatMap(ring => Array.from({ length: sectors }, (_, slot) => ({
-    id: `bay:${ring.index}:${slot}`, ring: ring.index, slot, kind: "reserve" as const,
+  const cabins: ShipCabin[] = DECKS.flatMap(deck => rings.flatMap(ring => Array.from({ length: sectors }, (_, slot) => ({
+    id: cabinId(`bay:${ring.index}:${slot}`, deck), deck, ring: ring.index, slot, kind: "reserve" as const,
     name: "预留舱", color: "#819ea6", agentIds: [],
-  })));
-  for (const p of PUBLIC_CABINS) Object.assign(cabins[p.ring * sectors + p.slot], p, { id: p.id });
+  }))));
+  for (const deck of DECKS) for (const p of PUBLIC_CABINS) Object.assign(cabins[deck * 3 * sectors + p.ring * sectors + p.slot], p, { id: cabinId(p.id, deck) });
   const seats: Record<string, ShipSeat> = Object.create(null);
   for (const group of groups) {
     const assignment = assignments![group.id], ring = rings[assignment.ring];
     for (let part = 0; part < assignment.span; part++) {
-      const slot = assignment.slot + part, cabin = cabins[assignment.ring * sectors + slot];
+      const slot = assignment.slot + part, deck = assignment.deck ?? 0, cabin = cabins[deck * 3 * sectors + assignment.ring * sectors + slot];
       const ids = group.agentIds.slice(part * ring.capacity, (part + 1) * ring.capacity);
       Object.assign(cabin, { kind: "work", name: group.name, color: projectColor(group.id), projectId: group.id, agentIds: ids });
       ids.forEach((agentId, seat) => {
         const desk = seatPosition({ allocation, rings }, cabin, seat);
-        seats[agentId] = { ...desk.agent, agentId, cabinId: cabin.id, projectId: group.id, ring: ring.index, angle: desk.angle, facing: desk.facing };
+        seats[agentId] = { ...desk.agent, agentId, cabinId: cabin.id, projectId: group.id, deck, ring: ring.index, angle: desk.angle, facing: desk.facing };
       });
     }
   }
@@ -127,12 +130,19 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
     spokes: Array.from({ length: 4 }, (_, i) => Math.floor(i * sectors / 4) * TAU / sectors) };
 }
 
+// Keep original L1 ids and saved v1 placements readable after the upgrade.
+export function cabinId(id: string, deck: DeckIndex) { return deck === 0 ? id : `${id}:deck:${deck}`; }
+export function shipDeck(layout: ShipLayout, deck: DeckIndex): ShipLayout {
+  return { ...layout, cabins: layout.cabins.filter(c => c.deck === deck),
+    seats: Object.fromEntries(Object.entries(layout.seats).filter(([, seat]) => seat.deck === deck)) };
+}
+
 export function seatPosition(layout: Pick<ShipLayout, "allocation" | "rings">, cabin: ShipCabin, index: number) {
   const ring = layout.rings[cabin.ring], columns = cabin.ring === 2 ? 4 : 3;
   const column = index % columns, row = Math.floor(index / columns);
   const arcWidth = TAU * ring.radius / layout.allocation.sectors;
-  const tangent = (column - (columns - 1) / 2) * (arcWidth - 2.0) / columns;
-  const radial = cabin.ring === 0 ? 1.05 : row === 0 ? 1.6 : -1.6;
+  const tangent = (column - (columns - 1) / 2) * Math.min((arcWidth - 2.0) / columns, cabin.ring === 0 ? 2.5 : cabin.ring === 1 ? 3.5 : 4);
+  const radial = cabin.ring === 0 ? 1.35 : row === 0 ? 1.9 : -1.9;
   const angle = cabinAngle(layout, cabin.slot) + tangent / ring.radius;
   const chairOffset = radial > 0 ? -0.53 : 0.53;
   return { angle, desk: shipPoint(ring.radius + radial, angle), agent: shipPoint(ring.radius + radial + chairOffset, angle),
