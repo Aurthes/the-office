@@ -82,3 +82,69 @@
 .office-session-chat .session-user-text:first-child { margin-top: 0; }
 .session-image-thumbnail { width: 120px; height: 120px; max-width: 100%; overflow: hidden; border: 1px solid #ffffff1a; border-radius: 12px; background: #18212a; }
 .session-image-thumbnail img { width: 100%; height: 100%; max-height: none; object-fit: cover; border-radius: inherit; }
+
+/* Compact crew controls: etched edges, restrained accents, clear hit targets. */
+.session-actions-trigger,
+.session-action-back {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 36px; padding: 0 11px; border: 1px solid #ffffff24; border-radius: 6px;
+  background: #202a33; color: #bdcbd2; cursor: pointer;
+  box-shadow: inset 0 1px 0 #ffffff08, 0 1px 2px #00000024;
+  transition: background-color .14s, border-color .14s, color .14s;
+}
+.session-actions-trigger { width: 36px; padding: 0; list-style: none; }
+.session-actions-trigger::-webkit-details-marker { display: none; }
+.session-actions-trigger::marker { content: ""; }
+.session-action-back { font-size: 11px; }
+.session-action-back svg { color: #c9b892; }
+.session-actions-trigger:hover,
+.session-action-back:hover { background: #2b3842; border-color: #a8bdc660; color: #f0f3f1; }
+.session-actions[open] .session-actions-trigger { background: #2a343b; color: #ddc69e; border-color: #bba17866; }
+.session-actions-popover {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 30;
+  width: min(304px, calc(100vw - 2rem)); max-height: min(640px, 70dvh); overflow: auto;
+  padding: 8px; border: 1px solid #ffffff26; border-radius: 9px;
+  background: #16212a; color: #9babb5; font-size: 11px;
+  box-shadow: inset 0 1px 0 #ffffff08, 0 20px 48px #00000066, 0 3px 10px #00000030;
+}
+.session-actions-list { display: grid; gap: 5px; }
+.session-action {
+  --action-accent: #b3c8cf;
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 46px; padding: 7px 10px;
+  border: 1px solid #ffffff19; border-radius: 5px; text-align: left; cursor: pointer;
+  background: linear-gradient(180deg, #27323b, #222c34); color: #e0e6e8;
+  box-shadow: inset 0 1px 0 #ffffff05, 0 1px 2px #00000018;
+  transition: border-color .14s, background .14s, box-shadow .14s;
+}
+.session-action-icon {
+  display: flex; align-items: center; justify-content: center; flex: 0 0 28px; height: 28px;
+  border: 1px solid #ffffff10; border-radius: 4px; background: #15212a; color: var(--action-accent);
+  box-shadow: inset 0 1px 3px #00000024;
+}
+.session-action-label { flex: 1; min-width: 0; font-size: 12px; font-weight: 500; line-height: 1.4; }
+.session-action-chevron { flex-shrink: 0; color: #8596a1; opacity: .65; }
+.session-action--edit { --action-accent: #d2bc96; }
+.session-action--rename { --action-accent: #b5c3d9; }
+.session-action--return { --action-accent: #d0ad79; margin-top: 4px; border-color: #b294622e; background: linear-gradient(180deg, #302e27, #282821); }
+.session-action:not(:disabled):hover { background: #303e49; border-color: #a8bdc65c; box-shadow: inset 0 1px 0 #ffffff0a; }
+.session-action--return:not(:disabled):hover { background: #3b3529; border-color: #c5a16d80; }
+.session-action:not(:disabled):active { background: #1c2831; box-shadow: inset 0 1px 4px #00000030; }
+.session-action:disabled { opacity: .44; cursor: not-allowed; box-shadow: none; }
+.session-actions-desktop {
+  display: flex; align-items: center; gap: 8px; min-height: 38px; margin: 8px 2px 0; padding: 7px 9px;
+  border: 1px solid #ffffff14; border-radius: 4px; background: #ffffff04; color: #a9c0cc;
+}
+.session-actions-desktop:hover { color: #dfebee; background: #ffffff09; border-color: #ffffff29; }
+.session-actions-meta { display: grid; gap: 9px; margin: 10px 3px 0; padding: 12px 6px 5px; border-top: 1px solid #ffffff10; color: #81939e; font-size: 10px; line-height: 1.6; }
+.session-actions-trigger:focus-visible,
+.session-action-back:focus-visible,
+.session-action:focus-visible,
+.session-actions-desktop:focus-visible { outline: 2px solid #c5b58c; outline-offset: 2px; }
+@media (max-width: 620px) {
+  .session-actions-trigger, .session-action-back { min-height: 40px; }
+  .session-actions-trigger { width: 40px; }
+  .session-action { min-height: 48px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-action, .session-action-back, .session-actions-trigger { transition: none; }
+}

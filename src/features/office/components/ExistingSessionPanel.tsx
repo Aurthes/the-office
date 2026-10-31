@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ChevronRight, ExternalLink, LogOut, MoreHorizontal, SlidersHorizontal, PencilLine, UserRound } from "lucide-react";
 import type { CharacterMode } from "@/features/ring-ship/DuckCharacterPanel";
 import type { AgentAvatarProfile } from "@/lib/avatars/profile";
 import { SessionControls, type LiveSessionItem, type SessionClient } from "./SessionControls";
@@ -155,25 +155,26 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
         {data?.id === threadId ? <p className="mt-1 truncate text-xs text-white/45">{data.project}</p> : null}
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        {characterOpen ? <button type="button" onClick={() => setCharacterMode("chat")} className="flex min-h-10 items-center gap-2 rounded-md px-3 text-xs text-[#d2bb88] hover:bg-white/5"><ArrowLeft size={14} />{t("Back to chat")}</button> : null}
-        <details className="relative" aria-label={t("Session information")}>
-          <summary aria-label={t("Session information")} className="flex min-h-10 min-w-10 cursor-pointer list-none items-center justify-center rounded-md text-lg text-white/55 hover:bg-white/10">⋯</summary>
-          <div className="absolute right-0 top-full z-30 mt-1 max-h-[50dvh] w-[min(320px,calc(100vw-3rem))] space-y-3 overflow-auto rounded-xl border border-white/15 bg-[#1b2532] p-4 text-xs text-white/60 shadow-xl">
-            <div className="space-y-1 border-b border-white/10 pb-3">
+        {characterOpen ? <button type="button" onClick={() => setCharacterMode("chat")} className="session-action-back"><ArrowLeft size={14} />{t("Back to chat")}</button> : null}
+        <details className="session-actions relative" aria-label={t("Session information")}>
+          <summary aria-label={t("Session information")} className="session-actions-trigger"><MoreHorizontal size={18} aria-hidden="true" /></summary>
+          <div className="session-actions-popover">
+            <div className="session-actions-list">
             {onSaveCharacter ? <>
-              <button type="button" disabled={!data} onClick={event => openCharacter(event, "view")} className="block min-h-10 w-full rounded px-2 text-left text-white/80 hover:bg-white/5">{t("Character")}</button>
-              <button type="button" disabled={!data} onClick={event => openCharacter(event, "edit")} className="block min-h-10 w-full rounded px-2 text-left text-white/80 hover:bg-white/5">{t("Edit character")}</button>
-              <button type="button" disabled={!data?.controlsAvailable} onClick={event => openCharacter(event, "rename")} className="block min-h-10 w-full rounded px-2 text-left text-white/80 hover:bg-white/5 disabled:opacity-40">{t("Rename session")}</button>
+              <button type="button" disabled={!data} onClick={event => openCharacter(event, "view")} className="session-action session-action--view"><span className="session-action-icon"><UserRound size={16} aria-hidden="true" /></span><span className="session-action-label">{t("Character")}</span><ChevronRight className="session-action-chevron" size={14} aria-hidden="true" /></button>
+              <button type="button" disabled={!data} onClick={event => openCharacter(event, "edit")} className="session-action session-action--edit"><span className="session-action-icon"><SlidersHorizontal size={16} aria-hidden="true" /></span><span className="session-action-label">{t("Edit character")}</span><ChevronRight className="session-action-chevron" size={14} aria-hidden="true" /></button>
+              <button type="button" disabled={!data?.controlsAvailable} onClick={event => openCharacter(event, "rename")} className="session-action session-action--rename"><span className="session-action-icon"><PencilLine size={16} aria-hidden="true" /></span><span className="session-action-label">{t("Rename session")}</span><ChevronRight className="session-action-chevron" size={14} aria-hidden="true" /></button>
             </> : null}
             {onReturnToEarth ? <button type="button" disabled={returnDisabled || !data?.controlsAvailable} onClick={onReturnToEarth}
               title={returnDisabled ? t("Stop the current task or wait for the previous return journey") : t("Archive this original session and keep its history")}
-              className="block w-full rounded-md border border-amber-300/25 px-3 py-2 text-left text-amber-200 hover:bg-amber-200/10 disabled:opacity-40">↓ {t("Return to Earth (archive)")}</button> : null}
+              className="session-action session-action--return"><span className="session-action-icon"><LogOut size={16} aria-hidden="true" /></span><span className="session-action-label">{t("Return to Earth (archive)")}</span><ChevronRight className="session-action-chevron" size={14} aria-hidden="true" /></button> : null}
             </div>
-            <a href={`codex://threads/${encodeURIComponent(threadId)}`} className="block text-cyan-100">{t("Open session in desktop app ↗")}</a>
+            <a href={`codex://threads/${encodeURIComponent(threadId)}`} className="session-actions-desktop"><ExternalLink size={14} aria-hidden="true" /><span>{t("Open session in desktop app ↗")}</span></a>
+            <div className="session-actions-meta">
             <p className="break-all">{t("Session ID")}: {threadId}</p>
             {data?.id === threadId ? <p className="break-all">{t("Directory:")} {data.workspace}</p> : null}
             <p>{data?.controlsAvailable ? t("Session synced with the desktop app") : t("Read-only preview. Continue in the desktop app.")}</p>
-
+            </div>
           </div>
         </details>
       </div>
