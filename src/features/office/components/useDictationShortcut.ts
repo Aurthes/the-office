@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, type RefObject } from "react";
+import { matchesDictationShortcut, useDictationShortcutSetting } from "./dictationShortcutSettings";
 
 const HOLD_MS = 250;
 type Options = {
@@ -11,12 +12,12 @@ type Options = {
   discard: () => void;
 };
 
-// A lone Option tap toggles recording; a hold records until release.
+// Tap the chosen shortcut to toggle recording; hold it to dictate until release.
 export function useDictationShortcut(options: Options) {
+  const shortcut = useDictationShortcutSetting();
   const latest = useRef(options);
   useEffect(() => { latest.current = options; });
   useEffect(() => {
-    if (!/Mac/.test(navigator.platform)) return;
     let press: { code: string; wasRecording: boolean; started: boolean; timer?: ReturnType<typeof setTimeout> } | null = null;
     const recording = () => ["starting", "recording"].includes(latest.current.phase);
     const visible = () => !document.hidden && Boolean(latest.current.input.current?.getClientRects().length);
@@ -32,13 +33,14 @@ export function useDictationShortcut(options: Options) {
       if (event.key === "Enter" && recording() && !press && !event.repeat && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
         consume(event); void latest.current.stop(true); return;
       }
-      if (event.key !== "Alt") {
+      if (!matchesDictationShortcut(event, shortcut)) {
         const started = press?.started; reset();
         if (started) latest.current.discard();
-        return; // Leave Option combinations to the browser/editor.
+        return; // Leave other combinations to the browser/editor.
       }
-      if (event.repeat || press || event.ctrlKey || event.metaKey || event.shiftKey || (!recording() && (!latest.current.enabled || latest.current.phase === "transcribing"))) return;
-      event.preventDefault();
+      if (event.repeat || press) { if (press) consume(event); return; }
+      if (!recording() && (!latest.current.enabled || latest.current.phase === "transcribing")) return;
+      consume(event);
       const current = { code: event.code, wasRecording: recording(), started: false, timer: undefined as ReturnType<typeof setTimeout> | undefined };
       press = current;
       if (!current.wasRecording) current.timer = setTimeout(() => {
@@ -47,8 +49,8 @@ export function useDictationShortcut(options: Options) {
       }, HOLD_MS);
     };
     const keyup = (event: KeyboardEvent) => {
-      if (event.key !== "Alt" || !press || event.code !== press.code) return;
-      const current = press; reset(); event.preventDefault();
+      if (!press || event.code !== press.code) return;
+      const current = press; reset(); consume(event);
       if (!visible()) return;
       if (current.wasRecording || current.started) void latest.current.stop(false);
       else if (latest.current.enabled) void latest.current.start();
@@ -61,5 +63,6 @@ export function useDictationShortcut(options: Options) {
       reset(); window.removeEventListener("keydown", keydown, true); window.removeEventListener("keyup", keyup, true);
       window.removeEventListener("blur", blur); document.removeEventListener("visibilitychange", hidden);
     };
-  }, []);
+  }, [shortcut]);
+  return shortcut;
 }

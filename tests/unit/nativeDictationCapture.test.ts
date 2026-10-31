@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@t
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionControls } from "../../src/features/office/components/SessionControls";
 import { useNativeDictation } from "../../src/features/office/components/useNativeDictation";
+import { DICTATION_SHORTCUT_KEY } from "../../src/features/office/components/dictationShortcutSettings";
 let port: { onmessage: ((event: { data: unknown }) => void) | null; postMessage: (value: unknown) => void };
 const stopTrack = vi.fn();
 function microphone() {
@@ -23,7 +24,7 @@ function microphone() {
   vi.stubGlobal("navigator", { get platform() { return "MacIntel"; }, mediaDevices: { getUserMedia: vi.fn(async () => stream) } });
   return stream;
 }
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); localStorage.removeItem(DICTATION_SHORTCUT_KEY); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.restoreAllMocks(); });
 describe("browser recording to native dictation", () => {
   it("flushes without waiting for the last audio ACK, but checks it before inserting text", async () => {
     microphone(); const inserted = vi.fn(); const clock = vi.spyOn(performance, "now").mockReturnValue(1000);
@@ -224,6 +225,7 @@ describe("browser recording to native dictation", () => {
 describe("dictation composer shortcuts", () => {
   async function composer(id: string, finish: () => Promise<unknown>) {
     microphone();
+    localStorage.setItem(DICTATION_SHORTCUT_KEY, "option");
     vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
     vi.spyOn(HTMLTextAreaElement.prototype, "getClientRects").mockReturnValue([{}] as unknown as DOMRectList);
     const call = vi.fn(async (method: string) => method === "session.dictation.finish" ? finish() :

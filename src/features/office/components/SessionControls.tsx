@@ -6,6 +6,7 @@ import { useSessionVoice } from "./useSessionVoice";
 import { SessionQuestions, type SessionQuestionRequest } from "./SessionQuestions";
 import { useNativeDictation } from "./useNativeDictation";
 import { useDictationShortcut } from "./useDictationShortcut";
+import { dictationShortcutLabel } from "./dictationShortcutSettings";
 import { useUiText } from "@/lib/i18n/ui-language";
 
 export type SessionAsset = { source: string; name: string; kind: "image" | "markdown" | "html" | "file"; url: string; inline?: boolean; attached?: boolean };
@@ -151,7 +152,7 @@ export function SessionControls({ client, threadId, onItems }: {
     setPrediction(null);
     void action("session.send", { message, attachments: uploads.map(file => file.ref), requestId: crypto.randomUUID() });
   };
-  useDictationShortcut({ input, phase: dictation.phase, enabled: !busy && !settingsBusy && Boolean(state?.connected) && voice.status === "off",
+  const dictationShortcut = useDictationShortcut({ input, phase: dictation.phase, enabled: !busy && !settingsBusy && Boolean(state?.connected) && voice.status === "off",
     start: dictation.start, stop: submit => submit ? send() : stopDictation(), discard: dictation.discard });
   useEffect(() => {
     let stopped = false, pending = false, retry = false, connected = true, version = -1;
@@ -275,7 +276,7 @@ export function SessionControls({ client, threadId, onItems }: {
       <div className="flex shrink-0 items-center gap-1">
         {dictation.busy ? <button aria-label={t("Cancel recording")} title={t("Cancel recording (Esc)")} onClick={dictation.discard} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5"><X size={19} /></button> :
           <button aria-label={t("Add attachments")} title={t("Add attachments, drag files, or paste images")} disabled={busy || settingsBusy || !state?.connected} onClick={() => picker.current?.click()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Paperclip size={19} /></button>}
-        <button aria-label={recording ? t("Stop recording and transcribe") : t("Native dictation")} title={t("Click to record. Option: tap to toggle, hold to dictate. Enter: transcribe and send. Esc: cancel.")} disabled={dictation.phase === "transcribing" || (!recording && (busy || settingsBusy || !state?.connected || voice.status !== "off"))} onClick={() => { if (recording) void stopDictation(); else void dictation.start(); }} className={"grid h-10 w-10 place-items-center rounded-lg disabled:opacity-40 " + (dictation.phase === "recording" ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65 hover:bg-white/5")}><Mic size={19} /></button>
+        <button aria-label={recording ? t("Stop recording and transcribe") : t("Native dictation")} title={dictationShortcut === "off" ? t("Click to record. Enter: transcribe and send. Esc: cancel.") : t("Click to record. {shortcut}: tap to toggle, hold to dictate. Enter: transcribe and send. Esc: cancel.", { shortcut: dictationShortcutLabel(dictationShortcut) })} disabled={dictation.phase === "transcribing" || (!recording && (busy || settingsBusy || !state?.connected || voice.status !== "off"))} onClick={() => { if (recording) void stopDictation(); else void dictation.start(); }} className={"grid h-10 w-10 place-items-center rounded-lg disabled:opacity-40 " + (dictation.phase === "recording" ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65 hover:bg-white/5")}><Mic size={19} /></button>
         {!dictation.busy ? <button aria-label={t("Voice chat")} title={t("Start a live voice chat in this session")} disabled={busy || settingsBusy || !state?.connected || dictation.busy || voice.status !== "off"} onClick={() => void voice.start()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button> : null}
       </div>
       {dictation.busy ? <span role="status" className="min-w-0 flex-1 truncate text-xs text-rose-200">
