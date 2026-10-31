@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { nativeDictationRequest } from "@/features/office/components/nativeDictationRequest";
 import { GatewayBrowserClient } from "@/lib/gateway/openclaw/GatewayBrowserClient";
 
 const UUID_V4_RE =
@@ -63,9 +64,9 @@ describe("GatewayBrowserClient", () => {
     }
   });
 
-  async function connected(policy = { tickIntervalMs: 1000, requestTimeoutMs: 2000 }) {
+  async function connected(policy = { tickIntervalMs: 1000, requestTimeoutMs: 2000 }, onEvent?: (event: { event: string; payload?: unknown }) => void) {
     const onClose = vi.fn();
-    const client = new GatewayBrowserClient({ url: "ws://example.com", onClose });
+    const client = new GatewayBrowserClient({ url: "ws://example.com", onClose, onEvent });
     client.start(); const ws = MockWebSocket.instances.at(-1)!;
     ws.onopen?.();
     ws.onmessage?.({ data: JSON.stringify({ type: "event", event: "connect.challenge", payload: { nonce: "fixture" } }) } as MessageEvent);
@@ -82,6 +83,20 @@ describe("GatewayBrowserClient", () => {
     expect(client.connected).toBe(false);
     await vi.advanceTimersByTimeAsync(1200);
     expect(MockWebSocket.instances).toHaveLength(2);
+    client.stop(); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps the chat connected while dictation takes longer than its normal 20-second RPC", async () => {
+    const listeners = new Set<(event: { event: string; payload?: unknown }) => void>();
+    const { client, ws, onClose } = await connected({ tickIntervalMs: 30000, requestTimeoutMs: 20000 }, event => { for (const listener of listeners) listener(event); });
+    const dictationClient = { call: (method: string, params: unknown) => client.request(method, params), onEvent: (listener: (event: { event: string; payload?: unknown }) => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; } };
+    const result = nativeDictationRequest(dictationClient, "finish", { threadId: "thread", id: "recording", sequence: 4 });
+    const req = JSON.parse(MockWebSocket.sent.at(-1)!);
+    ws.onmessage?.({ data: JSON.stringify({ type: "res", id: req.id, ok: true, payload: { pending: true } }) } as MessageEvent);
+    await vi.advanceTimersByTimeAsync(25000);
+    expect(client.connected).toBe(true); expect(onClose).not.toHaveBeenCalled();
+    ws.onmessage?.({ data: JSON.stringify({ type: "event", event: "session.dictation", payload: { threadId: "thread", id: "recording", operation: "finish", result: { text: "slow final words" } } }) } as MessageEvent);
+    expect(await result).toEqual({ text: "slow final words" }); expect(listeners.size).toBe(0);
     client.stop(); expect(vi.getTimerCount()).toBe(0);
   });
 

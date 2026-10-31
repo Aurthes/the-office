@@ -2,7 +2,7 @@
 import { EventEmitter } from "node:events";
 import { createServer, request } from "node:http";
 import { describe, expect, it, vi } from "vitest";
-import { readPcm, transcribeNative, createDictationHandler, NativeDictationSessions } from "../../server/codex-dictation";
+import { readPcm, transcribeNative, createDictationHandler, NativeDictationSessions, dictationReply } from "../../server/codex-dictation";
 function wav() {
   const b = Buffer.alloc(6444); b.write("RIFF"); b.writeUInt32LE(b.length - 8, 4); b.write("WAVEfmt ", 8); b.writeUInt32LE(16, 16);
   b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(16000, 24); b.writeUInt32LE(32000, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write("data", 36); b.writeUInt32LE(6400, 40); return b;
@@ -10,6 +10,26 @@ function wav() {
 const account = "test-account", token = "x." + Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: account } })).toString("base64url") + ".sig";
 const native = () => ({ ready: true, userAgent: "native-owner/test", call: vi.fn(async () => ({ authMethod: "chatgpt", authToken: token })) });
 describe("native dictation", () => {
+  it.each(["start", "finish"])("acknowledges slow %s immediately and pushes the correlated result", async operation => {
+    let complete!: (value: unknown) => void;
+    const send = vi.fn(), ws = { readyState: 1, send }, params = { asyncResult: true, threadId: "thread", id: "recording" };
+    const run = vi.fn(() => new Promise(resolve => { complete = resolve; }));
+    expect(dictationReply(ws, params, operation, run)).toEqual({ pending: true });
+    await Promise.resolve(); expect(send).not.toHaveBeenCalled();
+    complete({ text: "final" }); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(JSON.parse(send.mock.calls[0][0])).toEqual({ type: "event", event: "session.dictation", payload: { threadId: "thread", id: "recording", operation, result: { text: "final" } } });
+  });
+  it("pushes native failures, skips closed owners and preserves the legacy reply", async () => {
+    const send = vi.fn(), ws = { readyState: 1, send }, params = { asyncResult: true, threadId: "thread", id: "recording" };
+    dictationReply(ws, params, "finish", async () => { throw new Error("native failed"); });
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+    expect(JSON.parse(send.mock.calls[0][0]).payload.error).toBe("native failed");
+    send.mockClear(); ws.readyState = 3;
+    dictationReply(ws, params, "finish", async () => ({ text: "late" }));
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); expect(send).not.toHaveBeenCalled();
+    expect(await dictationReply(ws, { ...params, asyncResult: false }, "finish", async () => ({ text: "legacy" }))).toEqual({ text: "legacy" });
+  });
+
   it("binds ordered audio chunks to their browser connection and releases on disconnect", async () => {
     const transport = { done: new Promise(() => {}), append: vi.fn(), finish: vi.fn(async () => ({ text: "native" })), cancel: vi.fn() };
     const sessions = new NativeDictationSessions(native(), async () => transport);

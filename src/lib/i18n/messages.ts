@@ -473,6 +473,8 @@ export const ZH_CN: Record<string, string> = {
   "Recruit and create session": "招募并新建会话",
   "Cancel": "取消",
   "A recording was kept. Retry transcription or download it.": "有一段保留的录音，可重试转写或下载",
+  "Native dictation preparation timed out. Recording kept; please retry.": "听写连接准备超时，录音已保留，请重试。",
+  "Native dictation completion timed out. Recording kept; please retry.": "等待转文字结果超时，录音已保留，请重试。",
   "Sign in again before retrying transcription. Recording kept.": "请重新登录后再重试转文字，录音已保留。",
   "Transcription service returned an invalid response. Recording kept; please retry.": "转文字服务返回异常，录音已保留，请重试。",
   "Native dictation returned no text. Recording kept.": "原生听写未返回文字，录音已保留",
