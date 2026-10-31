@@ -221,6 +221,10 @@ Only authoritative final transcripts are inserted after a clean native completio
 Native connection preparation overlaps microphone permission and worklet setup.
 Ordered WebSocket audio frames and the finish request are sent without an extra
 audio-ACK round trip; final insertion still requires all audio requests to succeed.
+Native preparation and completion acknowledge immediately and publish correlated
+results on `session.dictation`. Each waits up to 60 seconds independently of the
+ordinary 20-second RPC limit. Cancelling or timing out a recording cancels only
+that recording and keeps the shared chat connection available.
 The composer labels recording duration separately from stop-to-draft elapsed time.
 Recovery retries show their own elapsed time, which includes real-time audio replay.
 Utterance order and final revisions are preserved. Stopping with the microphone

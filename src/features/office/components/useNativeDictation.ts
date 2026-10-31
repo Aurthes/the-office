@@ -1,7 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SessionClient } from "./SessionControls";
-type Bridge = { id: string; client: SessionClient; ready: Promise<void>; connected: boolean; sent: number; pending: Set<Promise<void>>; error?: Error; cancelled?: boolean };
+import { nativeDictationRequest } from "./nativeDictationRequest";
+type Bridge = { abort: AbortController; id: string; client: SessionClient; ready: Promise<void>; connected: boolean; sent: number; pending: Set<Promise<void>>; error?: Error; cancelled?: boolean };
 type Clip = { blob: Blob; seconds: number; base: string };
 type Capture = { context: AudioContext; node?: AudioWorkletNode; source?: MediaStreamAudioSourceNode; stream?: MediaStream; frames: Int16Array[]; samples: number; stopped: boolean; discarded?: boolean; flush?: () => void; limit?: ReturnType<typeof setTimeout>; bridge?: Bridge };
 // Keep an interrupted recording when switching between chats within this page.
@@ -50,8 +51,10 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
     } finally { if (request.current === controller) request.current = null; }
   }, [threadId]);
   const cancelBridge = useCallback((bridge: Bridge) => {
-    bridge.cancelled = true;
-    void bridge.ready.then(() => bridge.client.call("session.dictation.cancel", { threadId, id: bridge.id })).catch(() => {});
+    if (bridge.cancelled) return;
+    bridge.cancelled = true; bridge.abort.abort();
+    // Ordered start/cancel frames bind to the same owner and recording ID.
+    void bridge.client.call("session.dictation.cancel", { threadId, id: bridge.id }).catch(() => {});
   }, [threadId]);
   const sendFrames = useCallback((current: Pick<Capture, "frames" | "bridge">) => {
     const bridge = current.bridge;
@@ -72,10 +75,10 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
     if (!client) return transcribe(audio);
     if (capture.current || request.current || finishingBridge.current) return;
     const startedAt = performance.now();
-    const bridge: Bridge = { id: crypto.randomUUID(), client, connected: false, sent: 0, pending: new Set(), ready: Promise.resolve() };
+    const bridge: Bridge = { abort: new AbortController(), id: crypto.randomUUID(), client, connected: false, sent: 0, pending: new Set(), ready: Promise.resolve() };
     finishingBridge.current = bridge; setPhase("transcribing"); setError(""); setTranscriptionTime(null);
     try {
-      bridge.ready = client.call("session.dictation.start", { threadId, id: bridge.id }).then(() => { bridge.connected = true; });
+      bridge.ready = nativeDictationRequest(client, "start", { threadId, id: bridge.id }, bridge.abort.signal).then(() => { bridge.connected = true; });
       await bridge.ready;
       const buffer = await audio.blob.arrayBuffer();
       // Retained clips are our own PCM WAVs. Reuse the authenticated live channel
@@ -90,7 +93,7 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
       }
       if (bridge.cancelled) throw new Error("Transcription cancelled. Recording kept.");
       const [result] = await Promise.all([
-        client.call("session.dictation.finish", { threadId, id: bridge.id, sequence: bridge.sent }) as Promise<{ text?: string }>,
+        nativeDictationRequest<{ text?: string }>(client, "finish", { threadId, id: bridge.id, sequence: bridge.sent }, bridge.abort.signal),
         Promise.all([...bridge.pending]),
       ]);
       if (bridge.error) throw bridge.error;
@@ -140,7 +143,7 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
       // The gateway processes ordered WebSocket frames. Flush immediately after
       // the final audio frame instead of paying another round trip for its ACK.
       const [result] = await Promise.all([
-        bridge.client.call("session.dictation.finish", { threadId, id: bridge.id, sequence: bridge.sent }) as Promise<{ text?: string }>,
+        nativeDictationRequest<{ text?: string }>(bridge.client, "finish", { threadId, id: bridge.id, sequence: bridge.sent }, bridge.abort.signal),
         Promise.all([...bridge.pending]),
       ]);
       if (bridge.error) throw bridge.error;
@@ -167,11 +170,11 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
       const resume = context.resume();
       // Native preparation overlaps microphone permission and worklet setup.
       if (latest.current.client) {
-        const bridge: Bridge = { id: crypto.randomUUID(), client: latest.current.client, connected: false, sent: 0, pending: new Set(), ready: Promise.resolve() };
+        const bridge: Bridge = { abort: new AbortController(), id: crypto.randomUUID(), client: latest.current.client, connected: false, sent: 0, pending: new Set(), ready: Promise.resolve() };
         current.bridge = bridge;
-        bridge.ready = bridge.client.call("session.dictation.start", { threadId, id: bridge.id }).then(() => {
+        bridge.ready = nativeDictationRequest(bridge.client, "start", { threadId, id: bridge.id }, bridge.abort.signal).then(() => {
           bridge.connected = true; sendFrames(current);
-        }).catch(cause => { bridge.error = cause instanceof Error ? cause : new Error("Native dictation connection failed"); if (mounted.current && capture.current === current) setError("Native connection unavailable. Recording is kept locally; retry after stopping."); });
+        }).catch(cause => { bridge.error = cause instanceof Error ? cause : new Error("Native dictation connection failed"); if (!bridge.cancelled && mounted.current && capture.current === current) setError("Native connection unavailable. Recording is kept locally; retry after stopping."); });
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }); current.stream = stream;
       await resume;

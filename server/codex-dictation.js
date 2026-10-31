@@ -139,6 +139,15 @@ class NativeDictationSessions {
   close() { for (const entry of this.sessions.values()) this.cancel(entry.owner, entry); }
 }
 
+function dictationReply(ws, params, operation, run) {
+  if (params.asyncResult !== true) return run();
+  const publish = payload => {
+    if (ws.readyState === 1) ws.send(JSON.stringify({ type: "event", event: "session.dictation", payload: { threadId: params.threadId, id: params.id, operation, ...payload } }));
+  };
+  void Promise.resolve().then(run).then(result => publish({ result }), error => publish({ error: error.message || "Native dictation failed. Recording kept." }));
+  return { pending: true };
+}
+
 function createDictationHandler({ client, token, findThread, transcribe = transcribeNative }) {
   let active = 0; const requests = new Set();
   const handler = async (req, res) => {
@@ -171,4 +180,4 @@ function createDictationHandler({ client, token, findThread, transcribe = transc
   handler.close = () => { for (const controller of requests) controller.abort(); };
   return handler;
 }
-module.exports = { readPcm, transcribeNative, openNativeSession, NativeDictationSessions, createDictationHandler, MAX_BYTES };
+module.exports = { readPcm, transcribeNative, openNativeSession, NativeDictationSessions, dictationReply, createDictationHandler, MAX_BYTES };
