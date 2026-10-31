@@ -4,8 +4,36 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionControls } from "../../src/features/office/components/SessionControls";
 import { useSessionVoice } from "../../src/features/office/components/useSessionVoice";
 const snapshot = { connected: true, version: 1, activeTurnId: null, items: [], approvals: [] };
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 describe("web composer media", () => {
+  it.each([true, false])("keeps only the latest voice disconnect deadline (recovers: %s)", async recover => {
+    vi.useFakeTimers();
+    const stopTrack = vi.fn(), close = vi.fn();
+    const peers: Peer[] = [];
+    class Peer {
+      constructor() { peers.push(this); }
+      connectionState = "new"; onconnectionstatechange?: () => void;
+      createDataChannel = () => ({}); addTrack = vi.fn();
+      createOffer = async () => ({ sdp: "v=0" }); setLocalDescription = async () => {}; close = close;
+    }
+    class Audio { setAttribute = vi.fn(); pause = vi.fn(); }
+    vi.stubGlobal("RTCPeerConnection", Peer); vi.stubGlobal("Audio", Audio);
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop: stopTrack }] }) } });
+    const call = vi.fn(async () => ({})), client = { call };
+    const { result } = renderHook(() => useSessionVoice(client, "voice-timer"));
+    await act(async () => result.current.start());
+    const change = (state: string) => act(() => { peers[0].connectionState = state; peers[0].onconnectionstatechange?.(); });
+    change("connected"); change("disconnected");
+    act(() => vi.advanceTimersByTime(5000));
+    change("connecting"); change("disconnected");
+    act(() => vi.advanceTimersByTime(4000));
+    expect(close).not.toHaveBeenCalled();
+    if (recover) change("connected");
+    act(() => vi.advanceTimersByTime(4000));
+    expect(result.current.status).toBe(recover ? "connected" : "off");
+    expect(close).toHaveBeenCalledTimes(recover ? 0 : 1);
+    expect(stopTrack).toHaveBeenCalledTimes(recover ? 0 : 1);
+  });
   it("keeps a per-conversation draft and uploaded attachments across closing and reopening", async () => {
     const call = vi.fn(async () => snapshot), client = { call }, onItems = vi.fn();
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ ref: "kept-ref" }) })));

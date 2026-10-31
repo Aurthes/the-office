@@ -12,9 +12,9 @@ afterEach(cleanup);
 
 function sky() {
   const result = renderHook(() => GalaxyBackdrop({ system: STAR_SYSTEMS[1] })).result;
-  const mesh = result.current as ReactElement<{ children: ReactNode; onBeforeRender: (renderer: unknown, scene: unknown, camera: Camera) => void }>;
+  const mesh = result.current as ReactElement<{ children: ReactNode; onBeforeRender: (renderer: unknown, scene: unknown, camera: Camera, geometry: unknown, material: unknown) => void }>;
   const material = Children.toArray(mesh.props.children).find(child => (child as ReactElement).type === "shaderMaterial") as ReactElement<{ uniforms: { uCameraRotation: { value: Matrix3 }; uAspect: { value: number } } }>;
-  return { rotation: material.props.uniforms.uCameraRotation.value, render: (camera: Camera) => mesh.props.onBeforeRender(null, null, camera) };
+  return { rotation: material.props.uniforms.uCameraRotation.value, render: (camera: Camera) => mesh.props.onBeforeRender(null, null, camera, null, { uniforms: material.props.uniforms }) };
 }
 
 it("moves a fixed star with camera orbit and returns it to the same direction on a round trip", () => {

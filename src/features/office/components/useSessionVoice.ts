@@ -46,7 +46,10 @@ export function useSessionVoice(client: SessionClient, threadId: string) {
       if (connection.current !== session) return;
       if (session.pc.connectionState === "connected") { clearTimeout(session.timer); setStatus("connected"); }
       if (session.pc.connectionState === "failed") finish(session, true, "Voice network connection failed. Check your connection and retry.");
-      if (session.pc.connectionState === "disconnected") session.timer = setTimeout(() => finish(session, true, "Voice disconnected. Please reconnect."), 8000);
+      if (session.pc.connectionState === "disconnected") {
+        clearTimeout(session.timer);
+        session.timer = setTimeout(() => finish(session, true, "Voice disconnected. Please reconnect."), 8000);
+      }
     };
     const channel = session.pc.createDataChannel("oai-events");
     channel.onmessage = event => {

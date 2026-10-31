@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type RefObject } from "react";
 import { useThree } from "@react-three/fiber";
 import { Stars } from "@react-three/drei";
-import { Color, Matrix3 } from "three";
+import { Color, Matrix3, type ShaderMaterial } from "three";
 import type { StarSystem } from "./galaxy";
+import type { SpaceMotion } from "./space-activity";
 
 // The ship has an orthographic camera. Give its distant sky a fixed angular
 // field of view, sharing the camera's world rotation but not its pan or zoom.
@@ -20,6 +21,7 @@ const fragmentShader = `
 varying vec3 vDirection;
 uniform vec3 uCloud, uGlow;
 uniform float uSeed;
+uniform float uTime, uPlanetApproach, uPlanetPass;
 float random(vec3 p) {
   p = fract(p*.1031); p += dot(p,p.yzx+33.33);
   return fract((p.x+p.y)*p.z);
@@ -44,7 +46,7 @@ void main() {
   vec3 up = cross(right,forward);
   vec3 sky = vec3(dot(direction,right),dot(direction,up),dot(direction,forward));
   float s = uSeed*7.19;
-  vec3 q = direction*3.0+vec3(s,s*.63,s*.27);
+  vec3 q = direction*3.0+vec3(s,s*.63,s*.27)+vec3(uTime*.0012,-uTime*.0007,uTime*.0005);
   float warp = fbm(q+vec3(3.1,7.6,1.7));
   float cloud = fbm(q+vec3(warp*2.7,-warp*1.9,warp*.9));
   float ridge = pow(max(0.0,1.0-abs(cloud-.54)*5.0),2.0);
@@ -64,10 +66,10 @@ void main() {
     color += mix(vec3(.57,.69,.95),vec3(1.0,.88,.65),random(cell+3.0))*star*(.7+float(i)*.25);
   }
   // A distant world is drawn after the star field, so stars cannot shine through it.
-  vec3 planetDirection = normalize(forward+right*(.55+.12*sin(s))+up*(.16+.12*cos(s)));
+  vec3 planetDirection = normalize(forward+right*(.55+.12*sin(s)+uPlanetPass*.5)+up*(.16+.12*cos(s)+uPlanetApproach*.08));
   vec3 planetRight = normalize(cross(planetDirection,vec3(0,1,0)));
   vec3 planetUp = cross(planetRight,planetDirection);
-  float radius = .155+.035*sin(s*.8);
+  float radius = .155+.035*sin(s*.8)+uPlanetApproach*.18;
   vec2 planet = vec2(dot(direction,planetRight),dot(direction,planetUp))/sin(radius);
   float d = length(planet);
   float facing = step(0.0,dot(direction,planetDirection));
@@ -76,7 +78,7 @@ void main() {
   if (d<1.0 && facing>0.0) {
     vec3 normal = vec3(planet,sqrt(1.0-d*d));
     float light = max(0.0,dot(normal,normalize(vec3(-.8,.35,-.2))));
-    float bands = fbm(vec3(planet*6.0,s+planet.y*7.0));
+    float bands = fbm(vec3(planet*6.0+vec2(uTime*.003,0.0),s+planet.y*7.0));
     vec3 surface = mix(uCloud*.28,uGlow*.32,bands);
     color = surface*(.015+light*.75)+uGlow*pow(max(0.0,1.0-normal.z),4.0)*light*.12;
   }
@@ -84,10 +86,11 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
-export function GalaxyBackdrop({ system }: { system: StarSystem }) {
+export function GalaxyBackdrop({ system, motion }: { system: StarSystem; motion?: RefObject<SpaceMotion> }) {
   const size = useThree(state => state.size);
   const uniforms = useMemo(() => ({
     uCameraRotation: { value: new Matrix3() }, uAspect: { value: size.width / Math.max(1, size.height) },
+    uTime: { value: 0 }, uPlanetApproach: { value: 0 }, uPlanetPass: { value: 0 },
     uCloud: { value: new Color(system.cloud) }, uGlow: { value: new Color(system.glow) }, uSeed: { value: system.seed },
   }), [system, size.width, size.height]);
   if (system.id === "deep-space") return <>
@@ -95,7 +98,13 @@ export function GalaxyBackdrop({ system }: { system: StarSystem }) {
     <Stars radius={100} depth={50} count={1800} factor={15} saturation={0} fade speed={0} />
   </>;
   return <mesh frustumCulled={false} renderOrder={-1000} raycast={() => {}}
-    onBeforeRender={(_renderer, _scene, camera) => { uniforms.uCameraRotation.value.setFromMatrix4(camera.matrixWorld); }}>
+    onBeforeRender={(_renderer, _scene, camera, _geometry, material) => {
+      const live = (material as ShaderMaterial).uniforms;
+      live.uCameraRotation.value.setFromMatrix4(camera.matrixWorld);
+      live.uTime.value = motion?.current.elapsed ?? 0;
+      live.uPlanetApproach.value = motion?.current.planetApproach ?? 0;
+      live.uPlanetPass.value = motion?.current.planetPass ?? 0;
+    }}>
     <planeGeometry args={[2, 2]} />
     <shaderMaterial vertexShader={vertexShader} fragmentShader={fragmentShader} uniforms={uniforms} depthWrite={false} depthTest={false} toneMapped={false} />
   </mesh>;
