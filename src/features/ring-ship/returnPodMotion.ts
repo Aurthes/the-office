@@ -4,6 +4,13 @@ export type ReturnStage = "walking" | "transferring" | "boarding" | "sealing" | 
 export type ArchiveResult = { status: "pending" | "confirmed" | "failed"; at?: number; error?: string };
 export type ReturnTransfer = { startedAt?: number; completedAt?: number };
 export type ReturnLeg = { deck: DeckIndex; points: ShipPoint[]; duration: number };
+// Scene units/second: an ejection impulse, then constant motor acceleration.
+const launchSpeed = 18, launchAcceleration = 48, launchDistance = 16;
+export const RETURN_LAUNCH_DURATION = (Math.sqrt(launchSpeed ** 2 + 2 * launchAcceleration * launchDistance) - launchSpeed) / launchAcceleration;
+export function returnLaunchDistance(seconds: number) {
+  const t = Math.max(0, Math.min(RETURN_LAUNCH_DURATION, seconds));
+  return launchSpeed * t + .5 * launchAcceleration * t * t;
+}
 export const RETURN_LABELS: Record<ReturnStage, string> = {
   walking: "Clocking out! Heading to the return bay", transferring: "Taking the central lift to the main deck", boarding: "Boarding the return pod", sealing: "Closing the hatch · Preparing to eject",
   waiting: "Waiting for Codex to confirm archive · Holding launch", launching: "Archive confirmed · See you on Earth!", done: "Returned to Earth · Original session archived", failed: "Archive not confirmed · No launch",
@@ -55,6 +62,6 @@ export function returnStage(elapsed: number, walk: number, result: ArchiveResult
   if (elapsed<walk+1.2) return {stage:"boarding",launch:0};
   if (elapsed<walk+2) return {stage:"sealing",launch:0};
   if (result.status!=="confirmed") return {stage:"waiting",launch:0};
-  const launch=Math.max(0,Math.min(1,(elapsed-Math.max(walk+2,result.at??0))/1.6));
+  const launch=Math.max(0,Math.min(1,(elapsed-Math.max(walk+2,result.at??0))/RETURN_LAUNCH_DURATION));
   return {stage:launch>=1?"done":"launching",launch};
 }

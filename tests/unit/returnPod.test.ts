@@ -2,7 +2,7 @@ import {describe,it,expect,vi} from "vitest";
 import {createRequire} from "node:module";
 import * as THREE from "three";
 import {buildShipLayout,cabinAngle,shipDeck,shipPoint} from "@/features/ring-ship/layout";
-import {returnRoute,returnStage,routePoint} from "@/features/ring-ship/returnPodMotion";
+import {returnRoute,returnStage,routePoint,returnLaunchDistance,RETURN_LAUNCH_DURATION} from "@/features/ring-ship/returnPodMotion";
 import {cabinDeck} from "@/features/ring-ship/shell-shapes";
 import {buildShell} from "@/features/ring-ship/shell";
 import {disposeShipGeometry} from "@/features/ring-ship/geometry";
@@ -35,8 +35,15 @@ describe("return pod and native archive",()=>{
     expect(returnStage(4,4,{status:"confirmed",at:1}).stage).toBe("boarding");
     expect(returnStage(5.5,4,{status:"confirmed",at:1}).stage).toBe("sealing");
     expect(returnStage(10,4,{status:"confirmed",at:10})).toEqual({stage:"launching",launch:0});
-    expect(returnStage(10.8,4,{status:"confirmed",at:10}).launch).toBeCloseTo(.5);
-    expect(returnStage(12,4,{status:"confirmed",at:10}).stage).toBe("done");
+    expect(returnStage(10+RETURN_LAUNCH_DURATION/2,4,{status:"confirmed",at:10}).launch).toBeCloseTo(.5);
+    expect(returnStage(10+RETURN_LAUNCH_DURATION+.01,4,{status:"confirmed",at:10}).stage).toBe("done");
+    // Clear the whole launch tube within 200 ms and accelerate all the way
+    // out, instead of drifting through a fixed-duration visual interpolation.
+    expect(returnLaunchDistance(0)).toBe(0);
+    expect(returnLaunchDistance(.2)).toBeGreaterThan(4.25);
+    expect(returnLaunchDistance(.2)-returnLaunchDistance(.1)).toBeGreaterThan(returnLaunchDistance(.1));
+    expect(RETURN_LAUNCH_DURATION).toBeLessThan(.6);
+    expect(returnLaunchDistance(RETURN_LAUNCH_DURATION)).toBeCloseTo(16);
   });
   it("provides one return room below all other decks, with walkable routes and lift transfer",()=>{
     const layout=buildShipLayout({projects:[{id:"p",name:"Project"}],members:[{id:"a",projectId:"p"}]});
