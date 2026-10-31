@@ -1,0 +1,29 @@
+.listening-bar-label { display:flex; align-items:center; gap:7px; white-space:nowrap; border:1px solid #c6a46a80; border-radius:20px; background:#182b25ed; padding:8px 13px; color:#efd9b5; font:500 11px var(--font-sans),sans-serif; cursor:pointer; box-shadow:0 3px 14px #0004; }
+.listening-bar-label:hover,.listening-bar-label[data-hovered="true"] { background:#355146; border-color:#e5c992; }
+.music-dialog { width:min(580px,calc(100vw - 28px)); max-width:none; max-height:calc(100dvh - 28px); margin:auto; padding:0; border:1px solid #c6a46a55; border-radius:22px; background:#15231e; color:#f0e9dc; box-shadow:0 28px 100px #0008; font-family:var(--font-sans),sans-serif; overflow:auto; }
+.music-dialog::backdrop { background:#030b10b8; backdrop-filter:blur(9px); }
+.music-surface { background:radial-gradient(ellipse at 5% 0%,#4e4b2b40,transparent 70%),#15231e; }
+.music-header { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:24px 28px; border-bottom:1px solid #e5d8bc16; }
+.music-heading { display:flex; align-items:center; gap:14px; color:#d1b57d; }
+.music-eyebrow { display:block; margin-bottom:4px; font-size:10px; letter-spacing:.18em; text-transform:uppercase; }
+.music-heading h1 { margin:0; color:#f0e9dc; font-size:23px; font-weight:500; letter-spacing:-.025em; }
+.music-icon-button { display:grid; place-items:center; flex-shrink:0; width:40px; height:40px; border:1px solid #ffffff20; border-radius:50%; cursor:pointer; color:#c6cfc7; background:#ffffff04; }
+.music-icon-button:hover { background:#ffffff10; }
+.music-chooser { padding:28px; }
+.music-record-art { position:relative; display:grid; place-items:center; height:188px; margin-bottom:22px; border-radius:12px; overflow:hidden; background:linear-gradient(105deg,#040c0877,#09120b33),url('/office-assets/bar/wood-color.jpg') center/cover; box-shadow:inset 0 0 40px #0007; }
+.music-vinyl { display:grid; place-items:center; width:164px; height:164px; border:6px solid #0b110f; border-radius:50%; transform:rotate(-20deg); background:repeating-radial-gradient(circle,#131c17 0px,#131c17 2px,#27332a 3px,#111b16 4px); box-shadow:4px 8px 20px #0009; }
+.music-vinyl span { display:grid; place-items:center; width:49px; height:49px; border:1px solid #d5996d; border-radius:50%; background:#ad5c45; color:#f9e4ba; font-size:12px; box-shadow:0 0 0 10px #0d1712; }
+.music-arm { position:absolute; left:calc(50% + 102px); top:28px; height:120px; width:7px; border-radius:8px; background:linear-gradient(90deg,#6b7466,#e0dfc8,#6b7466); transform:rotate(24deg); transform-origin:top; box-shadow:3px 3px 5px #0008; }
+.music-arm::before { content:""; position:absolute; top:-7px; left:-8px; width:23px; height:23px; background:#bda273; border:5px solid #d9c28d; border-radius:50%; }
+.music-arm::after { content:""; position:absolute; bottom:-5px; left:-3px; width:13px; height:24px; background:#c6a46a; border-radius:2px; }
+.music-intro { margin:0 0 18px; font-size:15px; color:#bdc6ba; }
+.music-provider { display:flex; align-items:center; gap:16px; width:100%; min-height:98px; padding:18px; text-align:left; border:1px solid #d4be8c40; border-radius:14px; background:#ffffff06; cursor:pointer; text-decoration:none; color:inherit; transition:background .15s,border-color .15s; }
+.music-provider:hover { border-color:#d4be8ca0; background:#ffffff0b; }
+.music-provider-icon { display:grid; place-items:center; flex-shrink:0; width:52px; height:52px; border-radius:13px; background:#c8433d; color:#fff5e9; }
+.music-provider-name { display:flex; flex-direction:column; flex:1; gap:5px; }
+.music-provider-name strong { font-size:18px; font-weight:500; }
+.music-provider-name small { font-size:11px; color:#a7b5a8; }
+.music-provider-open { display:flex; align-items:center; gap:6px; font-size:11px; color:#d9c294; }
+.music-footnote { margin:18px 0 0; color:#92a08f; font-size:11px; }
+.music-dialog :focus-visible,.listening-bar-label:focus-visible { outline:2px solid #e4c892; outline-offset:4px; }
+@media(max-width:600px) { .music-header { padding:20px; } .music-heading h1 { font-size:21px; } .music-chooser { padding:20px; } .music-provider { flex-wrap:wrap; gap:12px; padding:14px; } .music-provider-open { width:100%; justify-content:flex-end; } .music-record-art { height:170px; } }

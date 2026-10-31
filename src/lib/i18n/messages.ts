@@ -1,5 +1,15 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Listening bar": "音乐吧台",
+  "Listening bar · Design preview": "音乐吧台 · 设计预览",
+  "Choose your player": "选择音乐播放器",
+  "Choose a music player": "选择音乐播放器",
+  "Close music player": "关闭音乐播放器",
+  "Pick a player. Set the mood.": "选个播放器，听点喜欢的音乐。",
+  "NetEase Cloud Music": "网易云音乐",
+  "Open player": "打开播放器",
+  "Opens the official player in a new browser tab.": "在浏览器新标签页中打开官方播放器。",
+  "Music": "音乐",
   "Download this file to open it.": "下载后打开此文件。",
   "Terminal input is busy. Wait and retry.": "终端输入繁忙，请稍后重试。",
   "Back to files": "返回文件",
