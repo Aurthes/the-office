@@ -1,0 +1,26 @@
+{
+  "name": "@the-office/light-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node scripts/check-mcp.mjs",
+    "check:codex": "node scripts/check-codex.mjs",
+    "validate": "node scripts/validate.mjs",
+    "preview": "node scripts/preview.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "1.7.5",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "three": "0.183.2",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@openai/mcp-extensions": "0.2.1",
+    "esbuild": "0.25.12"
+  }
+}

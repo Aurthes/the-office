@@ -1,0 +1,12 @@
+{
+  "name": "the-office-local",
+  "interface": { "displayName": "The Office — local plugins" },
+  "plugins": [
+    {
+      "name": "the-office-light",
+      "source": { "source": "local", "path": "./build/office-light/plugin" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

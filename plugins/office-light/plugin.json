@@ -1,0 +1,18 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "the-office-light",
+  "version": "0.1.0",
+  "description": "A small 3D office with role shortcuts to native Codex chats. Stores only its own role labels and links.",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "The Office — Light",
+        "shortDescription": "Your crew, with native Codex chats",
+        "developerName": "The Office contributors",
+        "category": "Productivity",
+        "capabilities": ["Read", "Write"],
+        "defaultPrompt": ["Open The Office."]
+      }
+    }
+  }
+}
