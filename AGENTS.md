@@ -14,6 +14,11 @@ processes must remain separate from App-owned execution. Treat private session
 files and experimental APIs as version-specific compatibility, never universal
 App support. See `docs/codex-integration-boundary.md`.
 
+A public method, a successful local probe, or no explicit prohibition is not
+enough to establish cross-client App synchronization. Require positive documented
+workflow guidance, including ownership and lifecycle. Test uncertain behavior on
+disposable data; never repair App databases or caches to make an experiment pass.
+
 Do not modify the OpenClaw source code. When the user asks for changes, they are asking for changes to this app. Your solutions should be applied to this app but to understand the full context of implementing your solution, you will need to search through OpenClaw's source code.
 
 If you use local private overlay instructions, keep them outside the repository and do not commit them here.
