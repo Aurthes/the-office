@@ -1,5 +1,6 @@
 "use client";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { createPortal } from "react-dom";
 import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -75,6 +76,9 @@ const NO_ASSETS: SessionAsset[] = [];
 export const SessionMarkdown = memo(function SessionMarkdown({ content, assets = NO_ASSETS, user = false }: { content: string; assets?: SessionAsset[]; user?: boolean }) {
   const t = useUiText();
   const [preview, setPreview] = useState<SessionAsset | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const textRef = useRef<HTMLDivElement>(null);
+  const textId = useId();
   const find = useCallback((source: string) => assets.find(asset => asset.source === source || asset.url === source), [assets]);
   const transform = useCallback((url: string) => find(url)?.url || defaultUrlTransform(url), [find]);
   const components = useMemo<Components>(() => ({
@@ -91,13 +95,24 @@ export const SessionMarkdown = memo(function SessionMarkdown({ content, assets =
         },
   }), [find, t]);
   const text = user ? visibleUserText(content) : content;
+  const collapsible = user && (text.length > 400 || text.split("\n", 9).length > 8);
+  const excerpt = collapsible && !expanded ? text.trimStart().slice(0, 180).split(/\r?\n/, 4).join("\n").trimEnd() + "…" : text;
+  const toggleExpanded = () => {
+    setExpanded(value => !value);
+    if (expanded) requestAnimationFrame(() => textRef.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" }));
+  };
   const attachments = assets.filter(asset => asset.inline || asset.attached).map(asset => asset.kind === "image" ? <AssetImage key={asset.url} src={asset.url} name={asset.name} thumbnail={user} onOpen={() => setPreview(asset)} /> : asset.kind === "file" ? <a key={asset.url} href={asset.url} download={asset.name} className="my-2 inline-block rounded-lg border border-white/15 px-3 py-2 text-sm text-cyan-100">{asset.name}{t("↓ Download")}</a> : <button key={asset.url} type="button" onClick={() => setPreview(asset)} className="my-2 rounded-lg border border-white/15 px-3 py-2 text-sm text-cyan-100">{asset.name}{t("↗ Preview")}</button>);
   return <>
     {user && attachments.length ? <div className="session-user-attachments flex flex-wrap justify-end gap-2">{attachments}</div> : null}
-    {(!user || text.trim()) ? <div className={user ? "session-user-text" : undefined}>
-    <div className="agent-markdown min-w-0 break-words text-base leading-relaxed [&_a]:text-sky-200 [&_a]:underline [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={transform} components={components}>{text}</ReactMarkdown>
+    {(!user || text.trim()) ? <div ref={textRef} className={user ? `session-user-text${collapsible ? " session-user-text--collapsible" : ""}` : undefined}>
+    <div id={textId} className="agent-markdown min-w-0 break-words text-base leading-relaxed [&_a]:text-sky-200 [&_a]:underline [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={transform} components={components}>{excerpt}</ReactMarkdown>
     </div>
+    {collapsible ? <button type="button" className="session-message-toggle" aria-expanded={expanded} aria-controls={textId}
+      aria-label={t(expanded ? "Collapse message" : "Expand message")} onClick={toggleExpanded}>
+      {expanded ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
+      {t(expanded ? "Show less" : "Show more")}
+    </button> : null}
     </div> : null}
     {!user ? attachments : null}
     {preview ? <AssetPreview key={preview.url} asset={preview} onClose={() => setPreview(null)} /> : null}

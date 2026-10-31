@@ -156,3 +156,19 @@
 @media (prefers-reduced-motion: reduce) {
   .session-action, .session-action-back, .session-actions-trigger { transition: none; }
 }
+
+/* Only the sent text folds; attachment thumbnails and the original data stay intact. */
+.office-session-chat .session-user-text--collapsible { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px; }
+.session-message-toggle {
+  position: sticky; top: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  min-height: 30px; padding: 4px 7px; border: 1px solid #ffffff25; border-radius: 5px;
+  background: #35404b; color: #dcc9a5; font-size: 11px; line-height: 1.4; white-space: nowrap; cursor: pointer;
+  box-shadow: inset 0 1px 0 #ffffff06; transition: background-color .14s, border-color .14s;
+}
+.session-message-toggle:hover { background: #404d59; border-color: #d2bb8870; }
+.session-message-toggle:focus-visible { outline: 2px solid #c5b58c; outline-offset: 2px; }
+@media (max-width: 767px), (pointer: coarse) {
+  .office-session-chat .session-user-text--collapsible { gap: 8px; }
+  .session-message-toggle { min-height: 38px; }
+}
+@media (prefers-reduced-motion: reduce) { .session-message-toggle { transition: none; } }

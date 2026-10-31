@@ -5,9 +5,13 @@ import { getAgentActivity } from "@/features/retro-office/core/agentActivity";
 export function paintCrewNameplate(canvas: HTMLCanvasElement, agent: Pick<OfficeAgent, "name" | "color" | "status" | "needsInput" | "needsReview">, expanded: boolean, workText: string, gearAngle = 0, t: UiTranslator = text => text) {
   const activity = getAgentActivity(agent);
   const speaking = activity.kind === "working" && !!workText;
-  canvas.width = expanded ? 640 : 512; canvas.height = expanded ? 144 : 128;
+  const width = expanded ? 640 : 512, height = expanded ? 144 : 128;
+  // Assigning even the same size reallocates and resets the canvas backing store.
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
   const c = canvas.getContext("2d"); if (!c) return;
   c.clearRect(0, 0, canvas.width, canvas.height);
+  c.textAlign = "left"; c.textBaseline = "alphabetic";
   if (speaking) {
     // Speech replaces the identity card briefly; the two never overlap.
     c.fillStyle = "#f7f0db"; c.strokeStyle = "#9cb4c3"; c.lineWidth = 4;

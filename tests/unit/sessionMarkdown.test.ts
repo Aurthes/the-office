@@ -83,3 +83,45 @@ it("shows a user's attached image separately before the clean request and preser
   expect(enlarged.closest('button')?.className).not.toContain('session-image-thumbnail');
   expect(container.querySelectorAll('.session-image-thumbnail')).toHaveLength(1);
 });
+
+it("folds sent long text until explicitly expanded and keeps expansion while history is refreshed", () => {
+  const prefix = "说明。".repeat(180), ending = "最终必须看到的完整要求";
+  const view = render(React.createElement(SessionMarkdown, { user: true, content: prefix + ending }));
+  const expand = screen.getByRole("button", { name: "Expand message" });
+  expect(expand).toHaveAttribute("aria-expanded", "false"); expect(screen.queryByText(ending, { exact: false })).toBeNull();
+  fireEvent.click(expand);
+  expect(screen.getByText(ending, { exact: false })).toBeTruthy();
+  view.rerender(React.createElement(SessionMarkdown, { user: true, content: prefix + ending + "，新增同步内容" }));
+  expect(screen.getByRole("button", { name: "Collapse message" })).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByText("新增同步内容", { exact: false })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Collapse message" }));
+  expect(screen.queryByText(ending, { exact: false })).toBeNull();
+});
+it("folds many short lines while leaving short sent text and assistant replies fully visible", () => {
+  const view = render(React.createElement(SessionMarkdown, { user: true, content: Array.from({ length: 12 }, (_, i) => `第${i + 1}行`).join("\n") }));
+  expect(screen.getByRole("button", { name: "Expand message" })).toBeTruthy();
+  expect(screen.queryByText("第12行", { exact: false })).toBeNull();
+  view.rerender(React.createElement(SessionMarkdown, { user: true, content: "短消息，保持正常展示。" }));
+  expect(screen.queryByRole("button", { name: "Expand message" })).toBeNull();
+  view.rerender(React.createElement(SessionMarkdown, { content: "完整回复。".repeat(200) }));
+  expect(screen.queryByRole("button", { name: "Expand message" })).toBeNull();
+  expect(screen.getByText("完整回复。".repeat(200))).toBeTruthy();
+});
+it("counts the cleaned request and leaves attached thumbnails available outside a folded text bubble", () => {
+  const asset = { source: "attachment:1", name: "image.png", kind: "image" as const, url: "/api/session-assets?ref=image", attached: true };
+  const wrapper = "# Files mentioned by the user:\n" + "metadata ".repeat(200) + "\n## My request for Codex:\n";
+  const view = render(React.createElement(SessionMarkdown, { user: true, content: wrapper + "只显示正文", assets: [asset] }));
+  expect(screen.queryByRole("button", { name: "Expand message" })).toBeNull();
+  view.rerender(React.createElement(SessionMarkdown, { user: true, content: wrapper + "长正文。".repeat(150), assets: [asset] }));
+  expect(screen.getByRole("button", { name: "Expand message" })).toBeTruthy();
+  const image = screen.getByRole("img", { name: "image.png" });
+  expect(image.closest(".session-user-text")).toBeNull();
+  fireEvent.click(image); expect(screen.getByRole("dialog")).toBeTruthy();
+});
+it("does not leave hidden trailing links focusable in a collapsed message", () => {
+  const content = "长文本。".repeat(130) + "\n[末尾链接](https://example.com/details)";
+  render(React.createElement(SessionMarkdown, { user: true, content }));
+  expect(screen.queryByRole("link", { name: "末尾链接" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Expand message" }));
+  expect(screen.getByRole("link", { name: "末尾链接" })).toHaveAttribute("href", "https://example.com/details");
+});
