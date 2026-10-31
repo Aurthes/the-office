@@ -4788,7 +4788,7 @@ export function OfficeScreen({
     (agent) => agent.hasUnseenActivity,
   ).length;
   const showEmptyFleetBanner =
-    status === "connected" && agentsLoaded && state.agents.length === 0;
+    status === "connected" && agentsLoaded && state.agents.length === 0 && !companyCreationAvailable;
   const emptyFleetMessage =
     state.error?.trim() ||
     "Connected to the gateway, but no agents were loaded into the office.";
