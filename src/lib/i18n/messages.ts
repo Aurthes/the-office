@@ -334,6 +334,7 @@ export const ZH_CN: Record<string, string> = {
   "Restore image": "还原图片",
   "Enlarge image": "放大图片",
   "Could not read file": "无法读取文件",
+  "Could not update preview. Retrying…": "预览更新失败，正在重试…",
   "Preview {0}": "预览 {0}",
   "← Back to chat": "← 返回对话",
   "Open separately ↗": "单独打开 ↗",

@@ -41,14 +41,33 @@ export function SessionAssetPreview({ asset, onClose, embedded = false }: { asse
   }, [asset.kind, htmlLoading, htmlRetry]);
   useEffect(() => {
     if (asset.kind !== "html") return;
-    const refresh = (event: MessageEvent) => {
-      if (event.source !== htmlFrame.current?.contentWindow || event.data !== "claw3d:session-asset-refresh") return;
-      // A fresh frame navigated by the app sends SameSite login cookies.
-      // Self-navigation from the opaque sandbox does not. Keep its isolation.
-      setHtmlRetry(value => value + 1);
+    const controller = new AbortController();
+    let pending = false;
+    let lastHtml: string | undefined;
+    const refresh = async (event: MessageEvent) => {
+      const frame = htmlFrame.current?.contentWindow;
+      if (!frame || event.source !== frame || event.data !== "claw3d:session-asset-refresh") return;
+      if (pending) return;
+      pending = true;
+      let html: string | undefined;
+      try {
+        // Fetch from the authenticated app, then relay only this signed file.
+        // Background data updates never navigate or recreate the iframe.
+        const response = await fetch(asset.url, { credentials: "same-origin", cache: "no-store", signal: controller.signal });
+        if (!response.ok) throw new Error("Could not update preview. Retrying…");
+        const content = await response.text();
+        if (content !== lastHtml) html = content;
+        lastHtml = content;
+        if (!controller.signal.aborted) setError("");
+      } catch {
+        if (!controller.signal.aborted) setError("Could not update preview. Retrying…");
+      } finally {
+        pending = false;
+        if (!controller.signal.aborted && frame === htmlFrame.current?.contentWindow) frame.postMessage({ type: "claw3d:session-asset-update", html }, "*");
+      }
     };
     window.addEventListener("message", refresh);
-    return () => window.removeEventListener("message", refresh);
+    return () => { controller.abort(); window.removeEventListener("message", refresh); };
   }, [asset.kind, asset.url]);
   const retryHtml = () => { setHtmlLoading(true); setHtmlSlow(false); setHtmlRetry(value => value + 1); };
   useEffect(() => {
@@ -70,6 +89,7 @@ export function SessionAssetPreview({ asset, onClose, embedded = false }: { asse
     </header>
     {asset.kind === "html" ? <div className="relative min-h-0 flex-1">
       <iframe ref={htmlFrame} key={htmlRetry} src={asset.url + (asset.url.includes("?") ? "&" : "?") + "preview=1"} title={asset.name} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={() => setHtmlLoading(false)} className="h-full w-full border-0 bg-[#111923]" />
+      {error ? <p role="alert" className="absolute bottom-2 left-2 right-2 rounded bg-[#111923] px-3 py-2 text-xs text-amber-100">{t(error)}</p> : null}
       {htmlLoading ? <div className="absolute inset-0 flex items-center justify-center bg-[#111923] px-6 text-center">
         <div className="max-w-sm space-y-3">
           {htmlLoading ? <span aria-hidden="true" className="mx-auto block h-6 w-6 animate-spin rounded-full border-2 border-cyan-100/20 border-t-cyan-100" /> : null}
