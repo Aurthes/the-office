@@ -4,6 +4,16 @@ Keep repository instructions generic and safe for open source.
 
 The Office is an independently maintained Claw3D derivative with native Codex session integration. Preserve upstream attribution and license notices. Keep any runtime checkout and all private deployment state separate from this repository.
 
+## Non-invasive Codex integration
+
+The Office adapts to an unmodified Codex/ChatGPT App. Do not patch its installation,
+change its launcher or global environment, replace its backend owner, or change
+its configuration to make Office work. Use documented interfaces and disable or
+report unavailable capabilities instead of changing the App. Office-owned Codex
+processes must remain separate from App-owned execution. Treat private session
+files and experimental APIs as version-specific compatibility, never universal
+App support. See `docs/codex-integration-boundary.md`.
+
 Do not modify the OpenClaw source code. When the user asks for changes, they are asking for changes to this app. Your solutions should be applied to this app but to understand the full context of implementing your solution, you will need to search through OpenClaw's source code.
 
 If you use local private overlay instructions, keep them outside the repository and do not commit them here.

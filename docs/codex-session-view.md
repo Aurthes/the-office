@@ -1,5 +1,12 @@
 # Existing App session view
 
+**Integration boundary:** the Codex/ChatGPT App must run unmodified, with its own
+normal launcher, environment, configuration, and execution owner. Existing-App
+integration currently supports read-only observation. The shared-owner controls
+described below are a retired implementation record, not an installation path
+or a supported way to enable features. See
+[the capability assessment](codex-integration-boundary.md) before extending this mode.
+
 Use this mode to organize existing local Codex/Work conversations. Each person
 uses the original thread UUID, App title and working directory. Archived threads
 and child-agent sources are excluded. No conversation is copied or forked.
@@ -141,12 +148,14 @@ it never starts a parallel executor against an existing App thread. Ordinary
 cloud ChatGPT conversations and remote-host threads are outside this local
 index. Original standalone gateway state is retained for rollback.
 
-## Optional shared execution owner
+## Retired shared execution owner
 
-Set `CLAW3D_CODEX_CONTROL_SOCKET` on the gateway only after the desktop App and
-the gateway have been configured to connect to one native app-server through its
-private Unix WebSocket listener. In this mode the gateway never starts another
-app-server, falls back to a second executor, or changes a thread's ID or directory.
+This implementation required changing the desktop App's backend connection and
+does not meet the non-invasive integration boundary. Do not activate it or
+reconfigure the App to make it available. The following describes the former
+behavior for understanding existing code, not supported product capabilities.
+In that mode the gateway never started another
+app-server, fell back to a second executor, or changed a thread's ID or directory.
 It preserves the original model and permissions unless the user explicitly changes
 them through the native settings controls. The socket must belong to the current user and have no
 group/other permissions. A lost shared connection stops the gateway; launchd may
@@ -275,31 +284,19 @@ or a missing append base starts a new subscription. Legacy `session.updated` and
 up to 64 KiB of UTF-8 text; only unusually large messages retain a marked preview
 limit. Native turn errors and interruption status remain beside the composer.
 
-The pinned Mac App starts its normal owner over stdio. Switching to a shared
-listener requires one deliberate App quit/relaunch after current work finishes.
-Its bundled transport supports `CODEX_APP_SERVER_WS_URL`; this is a version-bound
-App configuration, not a promise of a stable public App setting. The tested Unix
-URL has a localhost hostname, for example
-`ws+unix://localhost/absolute/path/app-server-control.sock:/rpc`, so the App's
-network selector keeps the connection local rather than using its SOCKS proxy.
-The paired `CODEX_APP_SERVER_USE_LOCAL_DAEMON=1` selects its shared-server tool
-configuration. Both the owner and App use the existing Codex home and pinned CLI;
-the owner's launch arguments retain the App's code-mode host and App-tools plugin
-configuration. No App bundle patch or client impersonation is involved.
+The former migration used private `CODEX_APP_SERVER_WS_URL` and
+`CODEX_APP_SERVER_USE_LOCAL_DAEMON` launch overrides and an Office-managed native
+owner. These are not an acceptable Office dependency. An unchanged App launching
+its own stdio backend is the baseline. No replacement App environment or
+shared-owner activation instructions are provided here.
 
-Before enabling the gateway's shared mode, run the read-only preflight:
-
-```sh
-CLAW3D_CODEX_CONTROL_SOCKET=/absolute/private/socket \
-  node scripts/check-codex-shared.js ORIGINAL_THREAD_ID OLD_OWNER_PID
-```
-
-It refuses while the old owner is alive or the expected original thread has not
-been loaded in the shared owner. Prepare backups of the original gateway service
-and App environment first. Never stop an active owner merely to perform this
-migration. Rollback requires closing the App, disabling web writes, restoring
-the original App environment and read-only gateway configuration, then relaunching
-the App. Check for active native turns before stopping the shared owner.
+For an existing installation, remove Office's shared control connection first,
+restore the App's saved launch environment, and remove the Office-created owner
+from automatic startup. Let active native turns finish before unloading it and
+restart the App normally. Preserve session history, authentication, project data,
+and unrelated settings. Verify the App has no Office launch overrides and owns
+its execution again. Office must stay read-only unless a documented interface
+available without modifying the App supports the requested capability.
 
 Isolated integration validation used the pinned native app-server, two real
 protocol clients and a local fake model provider in a temporary Codex home. It

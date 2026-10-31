@@ -64,7 +64,7 @@ There are two distinct modes:
 
 | Mode | Purpose | Setup |
 | --- | --- | --- |
-| Existing App sessions | Organize existing local conversations; optionally share their native execution owner | [Existing session view](docs/codex-session-view.md) |
+| Existing App sessions | Observe compatible local conversations read-only, without changing the App | [Existing session view](docs/codex-session-view.md), [capability assessment](docs/codex-integration-boundary.md) |
 | Standalone Codex gateway | Create people backed by new native Codex threads | [Minimal Codex gateway](docs/codex-gateway.md) |
 
 For existing chats, build Studio with `NEXT_PUBLIC_CLAW3D_SESSION_VIEW=1` and use
