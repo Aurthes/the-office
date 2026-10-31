@@ -286,7 +286,7 @@ function ActivityBadge({ agent }: { agent: OfficeAgent }) {
 
 export function RingShipOffice(props: Props) {
   const t = useUiText();
-  const { agents, companyRoster, companyActions, gatewayStatus = "disconnected", officeTitle = "Orbital Headquarters", storageNamespace = "default", gatewayUrl = "", officeCenterSignal = 0, navigationPreview = false } = props;
+  const { agents, companyRoster, companyActions, gatewayStatus = "disconnected", officeTitle = "Orbital Headquarters", storageNamespace = "default", gatewayUrl = "", officeCenterSignal = 0, navigationPreview = true } = props;
   const roster = companyRoster || EMPTY_ROSTER;
   const layout = useShipLayout(companyRoster || null, `claw3d:ship:v1:${storageNamespace}:${gatewayUrl}`);
   const { state: navigation, dispatch: navigate } = useStarNavigation(`claw3d:star-system:${storageNamespace}`);
@@ -311,7 +311,8 @@ export function RingShipOffice(props: Props) {
   const currentLayout = decks[visibleDeck];
   const visibleAgents = useMemo(() => agents.filter(a => currentLayout.seats[a.id]), [agents, currentLayout]);
   const counts = decks.map(d => agents.filter(a => d.seats[a.id]).length);
-  const [focus, setFocus] = useState({ id: navigationPreview ? commandCabin?.id ?? "" : "", request: 0 });
+  // Only the explicit preview starts at the console; the office keeps its overview.
+  const [focus, setFocus] = useState({ id: props.navigationPreview ? commandCabin?.id ?? "" : "", request: 0 });
   const arriveSystem = useCallback(() => {
     setWhole(false);
     setFocus(previous => ({ id: "", request: previous.request + 1 }));
