@@ -8,7 +8,7 @@ import { createDuckCrewFigure } from "./duckCrewFigure";
 import { cabinAngle, DECK_STEP, shipPoint, type DeckIndex, type ShipLayout } from "./layout";
 import { returnPodNose } from "./returnPodGeometry";
 import { createReturnPodEffects } from "./returnPodEffects";
-import { routePoint, returnStage, type ArchiveResult, type ReturnStage, type ReturnTransfer, type returnRoute } from "./returnPodMotion";
+import { routePoint, returnStage, returnLaunchDistance, RETURN_LAUNCH_DURATION, type ArchiveResult, type ReturnStage, type ReturnTransfer, type returnRoute } from "./returnPodMotion";
 
 export type ReturnFlight = ReturnType<typeof returnRoute> & { requestId: string; agentId: string; name: string; appearance?: DuckAppearance };
 const ease = (p: number) => { const t = Math.max(0,Math.min(1,p)); return t*t*(3-2*t); };
@@ -104,7 +104,7 @@ export function ReturnPodJourney({ flight, resultRef, transferRef, displayDeck, 
       door.rotation.z=Math.PI/2*(1-ease((clock-flight.duration-1.2)/.8));
     }
     if(phase.stage==="failed" && Math.round(walker.position.y/DECK_STEP)!==displayDeck) walker.visible=false;
-    if(phase.stage==="launching"||phase.stage==="done") pod.position.y=-(12*phase.launch+4*phase.launch*phase.launch);
+    if(phase.stage==="launching"||phase.stage==="done") pod.position.y=-returnLaunchDistance(phase.launch*RETURN_LAUNCH_DURATION);
     effects.update(!reduced && phase.stage==="launching" ? phase.launch : null,pod.position.y,camera);
     if(phase.stage==="done") {
       if(doneAt.current===null) doneAt.current=now;
