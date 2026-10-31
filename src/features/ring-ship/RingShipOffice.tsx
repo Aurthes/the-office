@@ -35,8 +35,10 @@ import { WarpJourney } from "./WarpJourney";
 import { MonitorDashboard } from "./MonitorDashboard";
 import { SpaceActivity } from "./SpaceActivity";
 import { emptySpaceMotion } from "./space-activity";
+import { ListeningBar } from "./ListeningBar";
+import { MusicPlayerDialog } from "./MusicPlayerDialog";
 
-type Props = ComponentProps<typeof RetroOffice3D> & { navigationPreview?: boolean };
+type Props = ComponentProps<typeof RetroOffice3D> & { navigationPreview?: boolean; musicPreview?: boolean };
 type Controls = ComponentRef<typeof OrbitControls>;
 const EMPTY_ROSTER: CompanyRoster = { projects: [], members: [] };
 let modelCache: ModelTemplates | undefined;
@@ -300,6 +302,7 @@ export function RingShipOffice(props: Props) {
   const [deck, setDeck] = useState<DeckIndex>(0), [whole, setWhole] = useState(false), [liftOpen, setLiftOpen] = useState(false);
   const [trip, setTrip] = useState<LiftTrip | null>(null);
   const [monitorOpen, setMonitorOpen] = useState(false);
+  const [musicOpen, setMusicOpen] = useState(false);
   const openMonitor = () => setMonitorOpen(true);
   const overlayRef = useRef<HTMLDivElement>(null);
   const pendingFocus = useRef("");
@@ -312,7 +315,7 @@ export function RingShipOffice(props: Props) {
   const visibleAgents = useMemo(() => agents.filter(a => currentLayout.seats[a.id]), [agents, currentLayout]);
   const counts = decks.map(d => agents.filter(a => d.seats[a.id]).length);
   // Only the explicit preview starts at the console; the office keeps its overview.
-  const [focus, setFocus] = useState({ id: props.navigationPreview ? commandCabin?.id ?? "" : "", request: 0 });
+  const [focus, setFocus] = useState({ id: props.musicPreview ? "public:lounge" : props.navigationPreview ? commandCabin?.id ?? "" : "", request: 0 });
   const arriveSystem = useCallback(() => {
     setWhole(false);
     setFocus(previous => ({ id: "", request: previous.request + 1 }));
@@ -419,6 +422,7 @@ export function RingShipOffice(props: Props) {
       {decks.map((value, index) => <group key={index} position={[0, index * DECK_STEP, 0]} visible={shipView || busy || index === visibleDeck}><StaticShip layout={value} /><ReturnPodBay layout={value} active={!!returnFlight}/></group>)}
       {!shipView && !busy ? <group position={[0, visibleDeck * DECK_STEP, 0]}>
         <CabinTargets layout={currentLayout} focus={validFocus} onSelect={select} />
+        {props.musicPreview && visibleDeck === 0 ? currentLayout.cabins.filter(c => c.kind === "lounge").map(cabin => <ListeningBar key={cabin.id} layout={currentLayout} cabin={cabin} onOpen={() => setMusicOpen(true)} />) : null}
         {currentLayout.cabins.filter(c => c.kind === "monitor").map(cabin => <group key={cabin.id}>
           {!navigationOpen ? <MonitorRoomScreen layout={currentLayout} cabin={cabin} onOpen={openMonitor} /> : null}
           {navigationPreview ? <NavigationConsole layout={currentLayout} cabin={cabin} state={navigation} onAction={navigate} disabled={busy || !!returnFlight || !!props.activeChatAgentId || navigation.phase === "warp"} /> : null}
@@ -474,6 +478,7 @@ export function RingShipOffice(props: Props) {
     {navigationOpen && navigation.phase !== "warp" ? <NavigationOverlay state={navigation} onAction={navigate} /> : null}
     {navigationPreview && navigation.phase === "warp" && navigation.destination ? <WarpJourney destination={starSystem(navigation.destination)} onArrive={arriveSystem} onComplete={completeWarp} /> : null}
     <MonitorDashboard open={monitorOpen} onClose={() => setMonitorOpen(false)} />
+    {musicOpen ? <MusicPlayerDialog onClose={() => setMusicOpen(false)} /> : null}
     <LiftOverlay trip={trip} overlayRef={overlayRef} />
     {returnFlight ? <div role="status" aria-live="polite" className="absolute bottom-20 sm:bottom-4 left-1/2 z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-amber-200/25 bg-[#101e29]/95 px-4 py-3 text-center shadow-xl">
       <div className="truncate text-xs text-amber-100">{returnFlight.name}</div>
