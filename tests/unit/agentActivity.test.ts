@@ -3,6 +3,23 @@ import { getAgentActivity, workChatter } from "@/features/retro-office/core/agen
 import { paintCrewNameplate } from "@/features/ring-ship/crewNameplate";
 
 describe("game-like agent activity", () => {
+  it("reuses the nameplate canvas and restores text alignment after speech", () => {
+    const c = { clearRect: vi.fn(), fillRect: vi.fn(), fillText: vi.fn(), beginPath: vi.fn(), roundRect: vi.fn(), fill: vi.fn(), stroke: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), save: vi.fn(), restore: vi.fn(), translate: vi.fn(), rotate: vi.fn(), textAlign: "left", textBaseline: "alphabetic" };
+    let width = 0, height = 0;
+    const resizeWidth = vi.fn((value: number) => { width = value; });
+    const resizeHeight = vi.fn((value: number) => { height = value; });
+    const canvas = Object.defineProperties({ getContext: () => c }, {
+      width: { get: () => width, set: resizeWidth }, height: { get: () => height, set: resizeHeight },
+    }) as unknown as HTMLCanvasElement;
+    const agent = { name: "Alice", color: "#123456", status: "working" as const };
+    for (let i = 0; i < 100; i++) paintCrewNameplate(canvas, agent, false, i % 2 ? "" : "More coffee!", i);
+    expect(resizeWidth).toHaveBeenCalledOnce(); expect(resizeHeight).toHaveBeenCalledOnce();
+    expect(c.clearRect).toHaveBeenCalledTimes(100);
+    expect(c.textAlign).toBe("left"); expect(c.textBaseline).toBe("alphabetic");
+    paintCrewNameplate(canvas, { ...agent, needsInput: true }, true, "");
+    expect(canvas.width).toBe(640); expect(canvas.height).toBe(144);
+    expect(resizeWidth).toHaveBeenCalledTimes(2); expect(resizeHeight).toHaveBeenCalledTimes(2);
+  });
   it("resolves exactly one of five states, hiding stale unread results during a new run", () => {
     expect(getAgentActivity({ status: "idle" })).toMatchObject({ kind: "idle", marker: "" });
     expect(getAgentActivity({ status: "working", needsReview: true })).toMatchObject({ kind: "working", marker: "⚙︎" });
