@@ -229,8 +229,11 @@ the completed draft to the same session. A recording is limited to 10 minutes an
 20 MiB. Interruption and limit stops preserve the captured portion and expose retry
 and WAV download. Audio stays in browser memory through retries and chat switches;
 refreshing or closing the page warns while a recording is unsent. The local gateway
-does not write an audio file. Recovery uploads the retained WAV and replays it at
-the native audio rate; retry can take about as long as the recording. Accelerated
+does not write an audio file. Recovery replays the retained WAV through the same
+authenticated WebSocket channel at the native audio rate; retry can take about as
+long as the recording. The HTTP upload endpoint remains a fallback for clients
+without a live channel; unexpected HTML responses keep the recording and show a
+service error instead of exposing a JSON parsing exception. Accelerated
 replay is avoided because the native service can reject long audio bursts. Sending successfully
 or explicitly clearing the recording releases the browser copy. Capture stops when
 the page is hidden or the chat closes. Recognition failures keep the original draft
