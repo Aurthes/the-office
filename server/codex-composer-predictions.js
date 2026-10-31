@@ -48,11 +48,16 @@ class CodexComposerPredictions {
     if (this.results.has(key)) return this.results.get(key);
     if (this.active >= 2) return null;
     this.active++;
-    const result = this.generate(row.id, latest.id, context.model, account, generationTrigger).catch(error => {
+    const result = this.generate(row.id, latest.id, context.model, account, generationTrigger).then(prediction => {
+      // Sampling eligibility is not a generated empty prediction. A later live
+      // request for this turn must still be able to run after a catch-up skip.
+      if (prediction === undefined && this.results.get(key) === result) this.results.delete(key);
+      return prediction ?? null;
+    }).catch(error => {
       // A failed generation is not a valid "no suggestion" result. A later
       // explicit request may retry the same completed turn, without polling.
       if (this.results.get(key) === result) this.results.delete(key);
-      this.onError({ threadId: row.id, sourceTurnId: latest.id, code: error.code,
+      this.onError({ threadId: row.id, sourceTurnId: latest.id, code: error.code, stage: error.predictionStage || "sample",
         reason: /timed?\s*out|timeout/i.test(error.message || "") ? "native_timeout" : "native_error" });
       return null;
     }).finally(() => { this.active--; });
@@ -65,16 +70,17 @@ class CodexComposerPredictions {
       const entry = { accountId: account.accountId, expires: Date.now() + 300000 };
       entry.value = this.readConfig(this.client, account).catch(error => {
         if (this.config === entry) this.config = null;
+        error.predictionStage = "configuration";
         throw error;
       });
       this.config = entry;
     }
     const config = await this.config.value;
-    if (config?.is_enabled !== true || !config.prompt || typeof config.prompt !== "string" || config.prompt.length > 16384 || config.unsupported_models?.includes(model)) return null;
+    if (config?.is_enabled !== true || !config.prompt || typeof config.prompt !== "string" || config.prompt.length > 16384 || config.unsupported_models?.includes(model)) return;
     const rate = (generationTrigger === "live" ? config.live_sample_rate : config.catch_up_sample_rate) ?? 1;
-    if (!Number.isFinite(rate) || rate <= 0 || this.random() >= rate) return null;
+    if (!Number.isFinite(rate) || rate <= 0 || this.random() >= rate) return;
     const schema = { type: "object", properties: { suggestion: { type: ["string", "null"] } }, required: ["suggestion"], additionalProperties: false };
-    const result = await this.client.sampleThread({
+    const params = {
       threadId, expectedTurnId: sourceTurnId,
       prompt: config.prompt + "\n\nReturn only JSON matching this schema: " + JSON.stringify(schema) + ".",
       // Inference-only sampling does not execute tools. Preserve the inherited
@@ -82,7 +88,20 @@ class CodexComposerPredictions {
       effort: config.prediction_reasoning_effort || null,
       turnTrigger: "composer_predictions",
       responsesapiClientMetadata: { prediction_source_thread_id: threadId, prediction_source_turn_id: sourceTurnId, prediction_trigger: generationTrigger },
-    });
+    };
+    let result;
+    for (let attempt = 0; ; attempt++) {
+      try { result = await this.client.sampleThread(params); break; }
+      catch (error) {
+        // The native API has a 30-second budget, including fork startup and
+        // cleanup. Retry once with the same context and native effort; never
+        // change the user's model/settings or start an ordinary agent turn.
+        if (attempt !== 0 || error.code !== -32603 || error.message !== "sample timed out") throw error;
+        const latest = (await this.client.call("thread/turns/list", { threadId, limit: 1, itemsView: "notLoaded", sortDirection: "desc" })).data[0];
+        if (latest?.id !== sourceTurnId || latest.status !== "completed") return;
+        this.onError({ threadId, sourceTurnId, code: error.code, stage: "sample", reason: "native_timeout", retrying: true });
+      }
+    }
     if (result.sourceTurnId !== sourceTurnId || !result.text) return null;
     const text = JSON.parse(result.text).suggestion;
     if (typeof text !== "string" || !text.trim() || text.length > 4000) return null;

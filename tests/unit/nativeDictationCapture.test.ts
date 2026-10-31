@@ -286,17 +286,29 @@ describe("dictation composer shortcuts", () => {
     expect(h.input.value).toBe("existing draft");
     expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(0);
   });
-  it("the microphone stops into the draft without sending", async () => {
-    const h = await composer("button-stop-draft", async () => ({ text: "spoken words" }));
-    fireEvent.click(screen.getByRole("button", { name: "Stop recording and transcribe" }));
-    await waitFor(() => expect(h.input.value).toBe("existing draft spoken words"));
+  it("the microphone restores draft focus after transcription so Enter can send", async () => {
+    let finish!: (value: unknown) => void;
+    const h = await composer("button-stop-draft", () => new Promise(resolve => { finish = resolve; }));
+    const stop = screen.getByRole("button", { name: "Stop recording and transcribe" });
+    act(() => stop.focus());
+    fireEvent.click(stop);
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect(h.input).toBeDisabled(); expect(h.input).not.toHaveFocus();
+    await act(async () => finish({ text: "spoken words" }));
+    await waitFor(() => expect(h.input).toHaveFocus());
+    expect(h.input.value).toBe("existing draft spoken words");
+    expect(h.input.selectionStart).toBe(h.input.value.length);
+    expect(h.input.selectionEnd).toBe(h.input.value.length);
     expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: "Clear recording" }));
+    fireEvent.keyDown(document.activeElement!, { key: "Enter" });
+    await waitFor(() => expect(h.call).toHaveBeenCalledWith("session.send", expect.objectContaining({ threadId: "button-stop-draft", message: "existing draft spoken words" })));
+    expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(1);
   });
   it("a second Option tap inserts text without sending", async () => {
     const h = await composer("tap-stop", async () => ({ text: "spoken words" }));
     fireEvent.keyDown(window, { key: "Alt", code: "AltLeft", altKey: true }); fireEvent.keyUp(window, { key: "Alt", code: "AltLeft" });
     await waitFor(() => expect(h.input.value).toBe("existing draft spoken words"));
+    expect(h.input).toHaveFocus();
     expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Clear recording" }));
   });

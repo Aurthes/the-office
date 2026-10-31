@@ -3745,9 +3745,8 @@ export function OfficeScreen({
   const handleOpenAgentChat = useCallback(
     (agentId: string) => {
       focusChatTarget(agentId);
-      if (sessionView) setChatRosterCollapsed(true);
     },
-    [focusChatTarget, sessionView],
+    [focusChatTarget],
   );
   const updateRemoteChatSession = useCallback(
     (

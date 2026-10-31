@@ -98,6 +98,13 @@ export function SessionControls({ client, threadId, onItems }: {
     return () => observer.disconnect();
   }, [resizeInput]);
   const dictation = useNativeDictation(threadId, text, setText, client);
+  useLayoutEffect(() => {
+    if (!dictation.transcriptionTime || dictation.busy) return;
+    const node = input.current;
+    if (!node || node.disabled || document.hidden || !node.getClientRects().length) return;
+    node.focus({ preventScroll: true });
+    node.setSelectionRange(node.value.length, node.value.length);
+  }, [dictation.transcriptionTime, dictation.busy]);
   const voice = useSessionVoice(client, threadId);
   const recording = dictation.phase === "starting" || dictation.phase === "recording";
   const dictatedSend = useRef<((message: string) => void) | null>(null);
