@@ -26,6 +26,7 @@ function AssetImage({ src, name, onOpen, fullSize = false, thumbnail = false }: 
 export function SessionAssetPreview({ asset, onClose, embedded = false }: { asset: SessionAsset; onClose: () => void; embedded?: boolean }) {
   const t = useUiText();
   const dialog = useRef<HTMLDialogElement>(null);
+  const htmlFrame = useRef<HTMLIFrameElement>(null);
   const [markdown, setMarkdown] = useState<{ content: string; assets: SessionAsset[] } | null>(null);
   const [error, setError] = useState("");
   const [fullSize, setFullSize] = useState(false);
@@ -38,6 +39,17 @@ export function SessionAssetPreview({ asset, onClose, embedded = false }: { asse
     const timer = setTimeout(() => setHtmlSlow(true), 8000);
     return () => clearTimeout(timer);
   }, [asset.kind, htmlLoading, htmlRetry]);
+  useEffect(() => {
+    if (asset.kind !== "html") return;
+    const refresh = (event: MessageEvent) => {
+      if (event.source !== htmlFrame.current?.contentWindow || event.data !== "claw3d:session-asset-refresh") return;
+      // A fresh frame navigated by the app sends SameSite login cookies.
+      // Self-navigation from the opaque sandbox does not. Keep its isolation.
+      setHtmlRetry(value => value + 1);
+    };
+    window.addEventListener("message", refresh);
+    return () => window.removeEventListener("message", refresh);
+  }, [asset.kind, asset.url]);
   const retryHtml = () => { setHtmlLoading(true); setHtmlSlow(false); setHtmlRetry(value => value + 1); };
   useEffect(() => {
     if (asset.kind !== "markdown") return;
@@ -57,7 +69,7 @@ export function SessionAssetPreview({ asset, onClose, embedded = false }: { asse
       <a href={asset.url} download={asset.name} className="shrink-0 rounded-lg px-3 py-3 text-xs text-white/60">{t("Download")}</a>
     </header>
     {asset.kind === "html" ? <div className="relative min-h-0 flex-1">
-      <iframe key={htmlRetry} src={asset.url} title={asset.name} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={() => setHtmlLoading(false)} className="h-full w-full border-0 bg-[#111923]" />
+      <iframe ref={htmlFrame} key={htmlRetry} src={asset.url + (asset.url.includes("?") ? "&" : "?") + "preview=1"} title={asset.name} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={() => setHtmlLoading(false)} className="h-full w-full border-0 bg-[#111923]" />
       {htmlLoading ? <div className="absolute inset-0 flex items-center justify-center bg-[#111923] px-6 text-center">
         <div className="max-w-sm space-y-3">
           {htmlLoading ? <span aria-hidden="true" className="mx-auto block h-6 w-6 animate-spin rounded-full border-2 border-cyan-100/20 border-t-cyan-100" /> : null}

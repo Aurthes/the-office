@@ -78,4 +78,20 @@ describe("conversation file references", () => {
     const plain = await GET(new Request(url, { headers: { "Accept-Encoding": "gzip;q=0, identity" } }));
     expect(plain.headers.get("content-encoding")).toBeNull(); expect(await plain.text()).toBe(body);
   });
+  it("delegates embedded self-refresh without changing downloads, authentication references, or sandbox policy", async () => {
+    const filename = path.join(directory, "progress.html");
+    const body = '<!doctype html><meta http-equiv="refresh" content="2"><h1>Current progress</h1>';
+    fs.writeFileSync(filename, body);
+    const url = "https://office.test" + referenceForPath(filename).url;
+    const response = await GET(new Request(url + "&preview=1"));
+    const embedded = await response.text();
+    expect(embedded).not.toContain('<meta http-equiv="refresh"');
+    expect(embedded).toContain('parent.postMessage("claw3d:session-asset-refresh","*")');
+    expect(embedded).toContain("2000");
+    expect(response.headers.get("content-security-policy")).toContain("sandbox allow-scripts");
+    expect(response.headers.get("content-security-policy")).not.toContain("allow-same-origin");
+    expect(response.headers.get("content-security-policy")).toContain("connect-src 'none'");
+    expect(await (await GET(new Request(url))).text()).toBe(body);
+    expect((await GET(new Request("https://office.test/api/session-assets?ref=forged&preview=1"))).status).toBe(400);
+  });
 });
