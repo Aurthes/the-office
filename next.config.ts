@@ -23,6 +23,7 @@ const securityHeaders = [
       // Restrict further when a fixed deployment target is known.
       "connect-src 'self' ws: wss: http: https:",
       "media-src 'self' blob: data: http: https:",
+      "frame-src 'self' https://music.163.com",
       "worker-src 'self' blob:",
       "object-src 'none'",
       "upgrade-insecure-requests",
