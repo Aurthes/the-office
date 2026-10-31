@@ -50,8 +50,16 @@ export function SessionControls({ client, threadId, onItems }: {
   const resizeInput = useCallback(() => {
     const node = input.current;
     if (!node?.clientWidth) return; // The chat stays mounted behind the character page.
-    node.style.height = "auto";
-    node.style.height = `${node.scrollHeight + node.offsetHeight - node.clientHeight}px`;
+    // Measure outside normal flow so a temporary shrink cannot move the transcript.
+    const measure = node.cloneNode(false) as HTMLTextAreaElement;
+    measure.removeAttribute("id"); measure.setAttribute("aria-hidden", "true"); measure.tabIndex = -1;
+    measure.value = node.value;
+    Object.assign(measure.style, { position: "fixed", visibility: "hidden", pointerEvents: "none",
+      width: `${node.getBoundingClientRect().width}px`, height: "auto", maxHeight: "none" });
+    node.after(measure);
+    const height = measure.scrollHeight + measure.offsetHeight - measure.clientHeight;
+    measure.remove();
+    node.style.height = `${height}px`;
   }, []);
   useLayoutEffect(resizeInput, [text, resizeInput]);
   useLayoutEffect(() => {
