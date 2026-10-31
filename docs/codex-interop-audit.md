@@ -1,5 +1,10 @@
 # Codex interoperability audit — 2026-10-31
 
+**Subsequent decision:** the product will use independent Office projects and
+sessions, without native-App interoperability. The experiments and recommendation
+below are historical evidence, not the selected implementation direction. See
+[Office-owned state and chat features](office-owned-state.md).
+
 The Office can reuse the Codex agent engine and some saved-session workflows
 without replacing the desktop App's backend. It cannot promise that two
 independent UIs control the same live execution or share the App's entire project

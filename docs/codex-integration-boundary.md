@@ -1,5 +1,13 @@
 # Non-invasive Codex integration: capability assessment
 
+**Accepted product decision (2026-10-31):** Office projects and sessions are
+independent of the native App. Do not implement App project/session sharing,
+including read-only discovery or queued messages. Reuse Codex for Office-owned
+conversations. [Office-owned state and chat features](office-owned-state.md)
+defines the current direction; the assessment below records earlier research,
+not the selected architecture. The running legacy mode has not been migrated by
+this documentation change.
+
 The Office is an optional companion to an unmodified Codex/ChatGPT App. Installing,
 running, upgrading, or removing Office must not require changing the App's files,
 launcher, global environment, configuration, or execution ownership. Office adapts
@@ -77,10 +85,7 @@ limit and keep the feature unavailable. Do not copy App-specific tool identities
 rewrite private App databases/caches, silently transfer live thread ownership, or
 change user authentication/model/permission settings to simulate compatibility.
 
-The small acceptable baseline is a read-only companion for existing App sessions.
-Official queued follow-ups and the tested saved-thread metadata operations are
-possible extensions; they do not require replacing all shared saved-session
-workflows with unrelated Office sessions. Office-owned execution and project
-grouping remain separate product choices requiring agreement before
-implementation. This assessment does not authorize rebuilding retired controls
-through private mechanisms.
+The selected baseline is independent Office projects, sessions, and runtime
+state. Read-only native discovery, queued follow-ups, and metadata interoperability
+are not planned product extensions even where a bounded experiment succeeded.
+The audit is retained as evidence, not authorization to rebuild shared controls.

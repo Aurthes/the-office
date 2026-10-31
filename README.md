@@ -1,8 +1,12 @@
 # The Office
 
-A self-hosted 3D office for organizing and working with your existing Codex chats.
-Give each project its own work area, keep projectless chats in a shared workspace,
-and click a person to return to the conversation behind them.
+A self-hosted 3D workspace for Codex-backed work. The selected architecture gives
+Office its own projects and sessions, using the documented Codex agent engine
+while preserving normal operation of the native Codex/ChatGPT App.
+
+**Migration status:** independent state is the selected direction, not a completed
+deployment migration. Existing App-session adapters are legacy, and the standalone
+gateway is a limited prototype. See [ownership and chat-feature scope](docs/office-owned-state.md).
 
 **Built on [Claw3D](https://github.com/iamlukethedev/Claw3D), originally created by
 [Luke The Dev](https://github.com/iamlukethedev), and independently maintained by
@@ -12,18 +16,19 @@ preserved in [LICENSE](LICENSE).
 
 ## What this version adds
 
-- **Existing Codex chats as people.** The original thread IDs, project membership
-  and working directories stay attached to their conversations.
+- **Conversations as people.** Each person represents a conversation. The target
+  architecture uses Office-owned records, without native App session discovery or synchronization.
 - **Project work areas and shared space.** Projectless chats live in Open Workspace;
   idle characters can roam the shared office.
 - **Conversation-first chat.** Paginated history, direct push-streamed replies, Markdown, distinct
   message roles and collapsed work/tool activity keep long chats readable.
-- **Shared execution.** Opt-in access to the same native Codex execution owner for
-  continuation, steering, stopping and supported approvals.
+- **Codex execution.** A standalone prototype supports Office-created threads.
+  The former shared execution owner is retired.
 - **Attachments and previews.** Upload files, paste images and view supported
   images, Markdown and sandboxed HTML reports in the conversation.
-- **Dictation and voice.** Web microphone recording with native Codex dictation and version-pinned Codex
-  realtime voice transport, subject to browser and account support.
+- **Voice UI prototypes.** Recording and voice controls exist, but the legacy
+  private/experimental native paths are not part of the independent backend.
+  Public-API replacements require separate implementation and validation.
 - **Authenticated web access.** A separate login gateway supports password setup,
   TOTP authenticators, recovery codes and persistent login sessions.
 - **Shared scene collisions.** Rendered solids and people use common collision
@@ -60,31 +65,27 @@ Open `http://localhost:3000`, select the **Demo** backend and connect to
 
 ## Connect Codex
 
-There are two distinct modes:
+The independent backend is being assessed against the selected ownership boundary:
 
 | Mode | Purpose | Setup |
 | --- | --- | --- |
-| Existing App sessions | Observe compatible local conversations read-only, without changing the App | [Existing session view](docs/codex-session-view.md), [capability assessment](docs/codex-integration-boundary.md) |
-| Standalone Codex gateway | Create people backed by new native Codex threads | [Minimal Codex gateway](docs/codex-gateway.md) |
+| Office-owned Codex runtime | Selected direction; separate projects, sessions and runtime state | [Ownership and features](docs/office-owned-state.md) |
+| Standalone gateway prototype | Limited own-thread implementation; not feature-complete or install-ready under the new boundary | [Minimal Codex gateway](docs/codex-gateway.md) |
+| Existing App sessions | Legacy implementation record; do not deploy or extend this mode | [Historical session view](docs/codex-session-view.md), [audit](docs/codex-interop-audit.md) |
 
-For existing chats, build Studio with `NEXT_PUBLIC_CLAW3D_SESSION_VIEW=1` and use
-`server/codex-session-gateway.js`. The session view starts read-only. Shared writes
-require the documented shared-owner setup and preflight; this is not a one-command
-installer. It must not start a second executor against an existing conversation.
-
-The integration is currently pinned to Codex `0.165.0-alpha.1.2`. Local App index
-formats and the shared/realtime transports are version-dependent. Check
-compatibility before upgrading. Normal cloud ChatGPT chats and remote-host chats
-are outside the local session index. Some structured requests still need the App;
-this project does not claim complete native UI parity.
+Office's runtime must use Office-owned state and documented authentication before
+being presented as install-ready. Composer capabilities need individual validation;
+the presence of an attachment, access, model or voice control is not proof of full
+native App parity. The [feature map](docs/office-owned-state.md#chat-feature-map)
+separates engine capabilities from UI and service work still required.
 
 ### Use the office
 
 1. Select the whole company or a project from the work-area selector.
-2. Click a person to open their original conversation.
+2. Click a person to open their conversation.
 3. Scroll upward to load older history a page at a time.
-4. With shared execution enabled, send messages and attachments, dictate a draft,
-   or start a supported voice conversation from the composer.
+4. Use the composer features supported by the selected backend. The demo uses
+   simulated people; the limited standalone prototype does not enable every control.
 
 Character movement is a visualization, not an additional agent or evidence that a
 model is running a task.
@@ -149,7 +150,7 @@ currently a clean gate. Dependencies are pinned in `package-lock.json`.
 
 Docker publication is manual through the GitHub Actions workflow and targets
 `ghcr.io/<your-account>/the-office`. The inherited image remains a generic Studio
-image; the local App/shared-owner integration requires a compatible host setup.
+image; a validated independent Codex runtime is not bundled with it.
 
 ## Repository and upstream
 

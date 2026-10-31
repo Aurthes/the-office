@@ -2,22 +2,30 @@
 
 Keep repository instructions generic and safe for open source.
 
-The Office is an independently maintained Claw3D derivative with native Codex session integration. Preserve upstream attribution and license notices. Keep any runtime checkout and all private deployment state separate from this repository.
+The Office is an independently maintained Claw3D derivative using Codex through documented interfaces. Preserve upstream attribution and license notices. Keep any runtime checkout and all private deployment state separate from this repository.
 
 ## Non-invasive Codex integration
+
+Office owns its projects, sessions, and Codex runtime state independently of the
+native App. Do not build native project/session synchronization, including
+read-only discovery, metadata edits, queued messages, or execution handoff. Use an
+Office-owned Codex home and documented interfaces for Office's own conversations.
+Do not revive the legacy shared-store adapters. See `docs/office-owned-state.md`
+for the accepted boundary and chat-feature limits.
 
 The Office adapts to an unmodified Codex/ChatGPT App. Do not patch its installation,
 change its launcher or global environment, replace its backend owner, or change
 its configuration to make Office work. Use documented interfaces and disable or
 report unavailable capabilities instead of changing the App. Office-owned Codex
-processes must remain separate from App-owned execution. Treat private session
-files and experimental APIs as version-specific compatibility, never universal
-App support. See `docs/codex-integration-boundary.md`.
+processes must remain separate from App-owned execution. Historical private-file
+adapters are not an approved backend. Disclose experimental interface maturity
+and validate the installed version. See `docs/codex-integration-boundary.md`.
 
 A public method, a successful local probe, or no explicit prohibition is not
-enough to establish cross-client App synchronization. Require positive documented
-workflow guidance, including ownership and lifecycle. Test uncertain behavior on
-disposable data; never repair App databases or caches to make an experiment pass.
+enough to establish cross-client App synchronization. Even documented sharing
+remains outside the selected product scope unless that decision is explicitly
+revisited. Test uncertain behavior on disposable data; never repair App databases
+or caches to make an experiment pass.
 
 Do not modify the OpenClaw source code. When the user asks for changes, they are asking for changes to this app. Your solutions should be applied to this app but to understand the full context of implementing your solution, you will need to search through OpenClaw's source code.
 
@@ -34,7 +42,7 @@ The Office is a Next.js 16 frontend derived from Claw3D (TypeScript, React 19, T
 ### Running the app
 
 - `npm run dev` starts the dev server on port 3000 via the custom server (`node server/index.js --dev`).
-- Use the demo gateway for local exploration, or follow docs/codex-session-view.md for existing Codex chats. OpenClaw is optional. A disconnected gateway shows the connection form.
+- Use the demo gateway for local exploration. Existing-App session mode is legacy; the independent Codex runtime must meet docs/office-owned-state.md before being presented as install-ready. OpenClaw is optional. A disconnected gateway shows the connection form.
 - `.env` is copied from `.env.example`; see `README.md` "Configuration" for variable descriptions.
 
 ### Lint, typecheck, and tests

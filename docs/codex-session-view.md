@@ -1,5 +1,10 @@
 # Existing App session view
 
+**Legacy mode:** native App project/session discovery and sharing are outside the
+selected product direction. Do not extend or use this guide for a new deployment.
+It documents existing code; it does not mean a running legacy instance has already
+been migrated. See [Office-owned state](office-owned-state.md).
+
 **Integration boundary:** the Codex/ChatGPT App must run unmodified, with its own
 normal launcher, environment, configuration, and execution owner. Existing-App
 integration currently supports read-only observation. The shared-owner controls

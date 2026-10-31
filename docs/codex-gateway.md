@@ -1,5 +1,11 @@
 # Minimal Codex gateway
 
+**Prototype status:** the selected architecture requires independent Office
+projects, sessions, authentication and an Office-owned Codex home. The existing
+prototype does not yet enforce that complete boundary or provide all chat
+features. This guide is an implementation reference, not an install-ready
+independent backend. See [Office-owned state](office-owned-state.md).
+
 `server/codex-gateway-adapter.js` implements the small OpenClaw protocol v3
 surface needed for Claw3D people, sessions, text chat, tool activity, and Stop.
 It launches the official `codex app-server` over stdio. Codex owns execution,
