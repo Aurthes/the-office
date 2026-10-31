@@ -24,6 +24,7 @@
 .galaxy-preview .ship-toolbar > div:first-child { display:none; }
 .star-location span { display:block; font-size:11px; letter-spacing:.08em; }
 .star-location small { display:block; margin-top:4px; color:#8aa3b2; font:9px/1.5 var(--font-mono),monospace; }
+.star-location .star-cruise-status { margin-top:8px; color:#b6cdd4; }
 .star-warp { position:absolute; inset:0; z-index:60; background:#020610; opacity:0; color:#d9eef5; }
 .star-warp canvas { width:100%; height:100%; }
 .star-warp-copy { position:absolute; left:0; bottom:12%; width:100%; text-align:center; }

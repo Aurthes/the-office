@@ -33,6 +33,8 @@ import { STAR_SYSTEMS, starSystem } from "./galaxy";
 import { NavigationConsole, NavigationOverlay, navigationConsolePose, useStarNavigation } from "./StarNavigation";
 import { WarpJourney } from "./WarpJourney";
 import { MonitorDashboard } from "./MonitorDashboard";
+import { SpaceActivity } from "./SpaceActivity";
+import { emptySpaceMotion } from "./space-activity";
 
 type Props = ComponentProps<typeof RetroOffice3D> & { navigationPreview?: boolean };
 type Controls = ComponentRef<typeof OrbitControls>;
@@ -289,6 +291,8 @@ export function RingShipOffice(props: Props) {
   const layout = useShipLayout(companyRoster || null, `claw3d:ship:v1:${storageNamespace}:${gatewayUrl}`);
   const { state: navigation, dispatch: navigate } = useStarNavigation(`claw3d:star-system:${storageNamespace}`);
   const system = navigationPreview ? starSystem(navigation.current) : STAR_SYSTEMS[0];
+  const activityEnabled = navigationPreview;
+  const spaceMotion = useRef(emptySpaceMotion()), spaceCaption = useRef<HTMLElement | null>(null);
   const navigationOpen = navigationPreview && navigation.phase !== "idle";
   const commandCabin = layout.cabins.find(cabin => cabin.kind === "monitor");
   const navigationFocus = useMemo(() => navigationOpen && navigation.phase !== "warp" && commandCabin ? { point: navigationConsolePose(layout, commandCabin).point, deck: commandCabin.deck } : null, [navigationOpen, navigation.phase, commandCabin, layout]);
@@ -407,7 +411,8 @@ export function RingShipOffice(props: Props) {
   return <div className={`ship-office relative h-full w-full overflow-hidden bg-[#081421] text-[#deebea]${navigationOpen ? " star-navigation-active" : ""}`} data-star-system={system.id} data-navigation-phase={navigationPreview ? navigation.phase : undefined} data-ship-deck={visibleDeck} data-ship-mode={shipView ? "ship" : "deck"} data-ship-travelling={busy} data-ship-visible-crew={visibleAgents.length} data-ship-sectors={layout.allocation.sectors} data-ship-reserves={reserveCount} data-ship-projects={roster.projects.length} data-ship-placed={agents.filter(agent => layout.seats[agent.id]).length}>
     <Canvas orthographic dpr={[0.85, 1.5]} camera={{ position: [25, 40, 36], zoom: 12, near: 0.1, far: 5000 }} shadows
       gl={{ antialias: true, powerPreference: "high-performance" }} onPointerMissed={() => setLiftOpen(false)} onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.95; gl.domElement.dataset.shipReady = "true"; }}>
-      <GalaxyBackdrop system={system} />
+      <GalaxyBackdrop system={system} motion={activityEnabled ? spaceMotion : undefined} />
+      {activityEnabled ? <SpaceActivity radius={layout.radius} seed={system.seed} paused={navigationOpen || busy} motion={spaceMotion} caption={spaceCaption} /> : null}
       <Lighting radius={layout.radius} dimmed={navigationOpen && navigation.phase !== "warp"} />
       <ShipHull layout={layout} deck={visibleDeck} whole={shipView} busy={busy} />
       {decks.map((value, index) => <group key={index} position={[0, index * DECK_STEP, 0]} visible={shipView || busy || index === visibleDeck}><StaticShip layout={value} /><ReturnPodBay layout={value} active={!!returnFlight}/></group>)}
@@ -460,7 +465,7 @@ export function RingShipOffice(props: Props) {
       <div className="mt-1 text-[9px] text-[#829da9]">{t("{working} working · {idle} idle · Drag to rotate · Scroll to zoom · Use the central lift to change decks", { working: agents.filter(a => a.status === "working").length, idle: agents.filter(a => a.status === "idle").length })}</div>
     </div>
     </fieldset>
-    {navigationPreview && !navigationOpen ? <div className="star-location"><span style={{ color: system.color }}>{t(system.name)}</span><small>{t(system.description)}</small></div> : null}
+    {navigationPreview && !navigationOpen ? <div className="star-location"><span style={{ color: system.color }}>{t(system.name)}</span><small>{t(system.description)}</small>{activityEnabled ? <small ref={spaceCaption} className="star-cruise-status">{t("Cruising")}</small> : null}</div> : null}
     {navigationOpen && navigation.phase !== "warp" ? <NavigationOverlay state={navigation} onAction={navigate} /> : null}
     {navigationPreview && navigation.phase === "warp" && navigation.destination ? <WarpJourney destination={starSystem(navigation.destination)} onArrive={arriveSystem} onComplete={completeWarp} /> : null}
     <MonitorDashboard open={monitorOpen} onClose={() => setMonitorOpen(false)} />
