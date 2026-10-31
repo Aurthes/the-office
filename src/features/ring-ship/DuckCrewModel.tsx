@@ -1,19 +1,20 @@
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { AGENT_SCALE, WALK_ANIM_SPEED } from "@/features/retro-office/core/constants";
 import { toWorld } from "@/features/retro-office/core/geometry";
 import type { AgentModelProps } from "@/features/retro-office/objects/types";
-import { createDuckCrewFigure } from "./duckCrewFigure";
+import type { DuckAppearance } from "@/lib/avatars/duck";
+import { useDuckFigure } from "./useDuckFigure";
 
 export const DuckCrewModel = memo(function DuckCrewModel({
-  agentId, agentsRef, agentLookupRef, initialPosition, onHover, onUnhover, onClick,
-}: Pick<AgentModelProps, "agentId" | "agentsRef" | "agentLookupRef" | "initialPosition" | "onHover" | "onUnhover" | "onClick">) {
+  agentId, agentsRef, agentLookupRef, initialPosition, onHover, onUnhover, onClick, appearance,
+}: Pick<AgentModelProps, "agentId" | "agentsRef" | "agentLookupRef" | "initialPosition" | "onHover" | "onUnhover" | "onClick"> & { appearance?: DuckAppearance }) {
   const group = useRef<THREE.Group>(null);
   const target = useMemo(() => new THREE.Vector3(), []);
-  const figure = useMemo(() => createDuckCrewFigure(), []);
+  const figure = useDuckFigure(appearance);
   const animation = useRef(figure);
-  useEffect(() => () => figure.dispose(), [figure]);
+  useLayoutEffect(() => { animation.current = figure; }, [figure]);
 
   useFrame((_, delta) => {
     const agent = agentLookupRef?.current.get(agentId) ?? agentsRef.current.find(value => value.id === agentId);

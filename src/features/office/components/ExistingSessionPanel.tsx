@@ -1,26 +1,39 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { ArrowLeft, UserRound } from "lucide-react";
+import type { AgentAvatarProfile } from "@/lib/avatars/profile";
 import { SessionControls, type LiveSessionItem, type SessionClient } from "./SessionControls";
 import { SessionTranscript } from "./SessionTranscript";
 import { useUiText } from "@/lib/i18n/ui-language";
 
-type Inspection = {
+export type SessionInspection = {
   id: string; name: string; workspace: string; project: string;
   status: "running" | "idle" | "unknown";
-  controlsAvailable?: boolean;
+  controlsAvailable?: boolean; model?: string | null;
 };
+function CharacterLoading() {
+  const t = useUiText();
+  return <p role="status" className="p-5 text-xs text-white/55">{t("Loading character…")}</p>;
+}
+const DuckCharacterPanel = dynamic(() => import("@/features/ring-ship/DuckCharacterPanel").then(module => module.DuckCharacterPanel), { ssr: false, loading: CharacterLoading });
 type Message = LiveSessionItem;
 type HistoryPage = { threadId: string; messages: Message[]; nextCursor: string | null };
 type LoadMode = "latest" | "older";
 
-export function ExistingSessionPanel({ client, threadId, onReturnToEarth, returnDisabled }: {
+export function ExistingSessionPanel({ client, threadId, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter }: {
   client: SessionClient;
   threadId: string;
   onReturnToEarth?: () => void;
   returnDisabled?: boolean;
+  avatarProfile?: AgentAvatarProfile | null;
+  agentStatus?: string;
+  agentModel?: string | null;
+  onSaveCharacter?: (profile: AgentAvatarProfile) => Promise<void>;
 }) {
   const t = useUiText();
-  const [data, setData] = useState<Inspection | null>(null);
+  const [characterOpen, setCharacterOpen] = useState(false);
+  const [data, setData] = useState<SessionInspection | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [olderCursor, setOlderCursor] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -71,7 +84,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
       if (metadataBusy || stopped) return;
       metadataBusy = true;
       try {
-        const result = await client.call("session.inspect", { threadId, includeHistory: false }) as Inspection;
+        const result = await client.call("session.inspect", { threadId, includeHistory: false }) as SessionInspection;
         if (!stopped) { setData(result); setMetadataError(""); }
       } catch (cause) {
         if (!stopped) setMetadataError(cause instanceof Error ? cause.message : "Could not read session information");
@@ -127,6 +140,10 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
         {data?.id === threadId ? <p className="mt-1 truncate text-xs text-white/45">{data.project}</p> : null}
       </div>
       <div className="flex shrink-0 items-center gap-1">
+        {onSaveCharacter ? <button type="button" disabled={!data} aria-pressed={characterOpen} onClick={() => setCharacterOpen(value => !value)}
+          className="flex min-h-10 items-center gap-2 rounded-md border border-white/10 px-3 text-xs text-[#d2bb88] hover:bg-white/5 disabled:opacity-40">
+          {characterOpen ? <ArrowLeft size={14} /> : <UserRound size={14} />}{t(characterOpen ? "Back to chat" : "Character")}
+        </button> : null}
         <details className="relative" aria-label={t("Session information")}>
           <summary aria-label={t("Session information")} className="flex min-h-10 min-w-10 cursor-pointer list-none items-center justify-center rounded-md text-lg text-white/55 hover:bg-white/10">⋯</summary>
           <div className="absolute right-0 top-full z-30 mt-1 max-h-[50dvh] w-[min(320px,calc(100vw-3rem))] space-y-3 overflow-auto rounded-xl border border-white/15 bg-[#1b2532] p-4 text-xs text-white/60 shadow-xl">
@@ -141,6 +158,8 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
         </details>
       </div>
     </header>
+    {characterOpen && data && onSaveCharacter ? <DuckCharacterPanel key={threadId} info={data} profile={avatarProfile} status={agentStatus || data.status} model={agentModel} onSave={onSaveCharacter} /> : null}
+    <div className={characterOpen ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
     {metadataError ? <p role="alert" className="p-3 text-xs text-amber-200">{t(metadataError)}</p> : null}
     {error ? <p role="alert" className="p-3 text-xs text-amber-200">{t(error)} <button onClick={() => void load.current?.(failedMode.current)} className="underline">{t("Retry")}</button></p> : null}
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -172,5 +191,6 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
     }} className="absolute bottom-3 left-1/2 z-10 min-h-10 -translate-x-1/2 rounded-full border border-white/20 bg-[#243346] px-4 text-xs text-white shadow-xl hover:bg-[#30445c]">{t("↓ Latest messages")}</button> : null}
     </div>
     {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} client={client} threadId={threadId} onItems={onLiveItems} /> : null}
+    </div>
   </section>;
 }
