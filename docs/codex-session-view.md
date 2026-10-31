@@ -223,8 +223,9 @@ Ordered WebSocket audio frames and the finish request are sent without an extra
 audio-ACK round trip; final insertion still requires all audio requests to succeed.
 The composer labels recording duration separately from stop-to-draft elapsed time.
 Recovery retries show their own elapsed time, which includes real-time audio replay.
-Utterance order and final revisions are preserved. Dictation never starts a Codex
-turn; review the draft and Send normally. A recording is limited to 10 minutes and
+Utterance order and final revisions are preserved. Stopping with the microphone
+only fills the draft. Choosing Send during recording transcribes and then submits
+the completed draft to the same session. A recording is limited to 10 minutes and
 20 MiB. Interruption and limit stops preserve the captured portion and expose retry
 and WAV download. Audio stays in browser memory through retries and chat switches;
 refreshing or closing the page warns while a recording is unsent. The local gateway
@@ -355,8 +356,13 @@ sends the completed draft to that same session. Escape cancels the attempt witho
 changing the existing draft. Transcription failures keep the audio for retry and
 never send a message. Option combinations used by the editor/browser are ignored;
 shortcuts are inactive in other form fields and when the composer is hidden.
-The microphone button remains available on desktop and mobile. Neither the
-OpenClaw transcription endpoint nor browser speech recognition is used.
+Desktop and mobile share one recording bar: the attachment button becomes X to
+cancel, the microphone stops and fills the draft, and Send transcribes then sends.
+The elapsed recording time replaces the idle connection label; voice-call and
+agent-stop controls are hidden during capture and transcription. X remains
+available during transcription to discard a cancelled attempt and ignore late
+results. Escape and Enter call the same cancel and send handlers as these buttons.
+Neither the OpenClaw transcription endpoint nor browser speech recognition is used.
 
 ## Composer predictions
 

@@ -189,6 +189,49 @@ describe("dictation composer shortcuts", () => {
     expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(1);
     expect(h.input.value).toBe("");
   });
+  it("shows compact recording controls and enables Send with no typed draft", async () => {
+    let finish!: (value: unknown) => void;
+    const h = await composer("button-send", () => new Promise(resolve => { finish = resolve; }));
+    expect(screen.getByRole("button", { name: "Cancel recording" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Add attachments" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Voice chat" })).toBeNull();
+    expect(screen.getByText("Recording · 0:00")).toBeTruthy();
+    fireEvent.change(h.input, { target: { value: "" } });
+    const send = screen.getByRole("button", { name: "Transcribe and send" }); expect(send).toBeEnabled();
+    fireEvent.click(send); fireEvent.click(send);
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(0);
+    await act(async () => finish({ text: "spoken words" }));
+    await waitFor(() => expect(h.call).toHaveBeenCalledWith("session.send", expect.objectContaining({ threadId: "button-send", message: "spoken words" })));
+    expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(1);
+  });
+  it("X cancels recording, restores the normal buttons and leaves the draft intact", async () => {
+    const h = await composer("button-cancel", async () => ({ text: "must not appear" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel recording" }));
+    await screen.findByRole("button", { name: "Add attachments" });
+    expect(screen.getByRole("button", { name: "Voice chat" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Cancel recording" })).toBeNull();
+    expect(h.input.value).toBe("existing draft"); expect(stopTrack).toHaveBeenCalledOnce();
+    expect(h.call.mock.calls.filter(([method]) => ["session.send", "session.dictation.finish"].includes(method))).toHaveLength(0);
+  });
+  it("X stays available during transcription and prevents a late result from sending", async () => {
+    let finish!: (value: unknown) => void;
+    const h = await composer("button-cancel-transcription", () => new Promise(resolve => { finish = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Transcribe and send" }));
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel recording" }));
+    await act(async () => finish({ text: "must not appear" }));
+    expect(h.input.value).toBe("existing draft");
+    expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(0);
+  });
+  it("the microphone stops into the draft without sending", async () => {
+    const h = await composer("button-stop-draft", async () => ({ text: "spoken words" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording and transcribe" }));
+    await waitFor(() => expect(h.input.value).toBe("existing draft spoken words"));
+    expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Clear recording" }));
+  });
   it("a second Option tap inserts text without sending", async () => {
     const h = await composer("tap-stop", async () => ({ text: "spoken words" }));
     fireEvent.keyDown(window, { key: "Alt", code: "AltLeft", altKey: true }); fireEvent.keyUp(window, { key: "Alt", code: "AltLeft" });
