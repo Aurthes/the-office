@@ -1,23 +1,25 @@
-.ship-office .office-company-menu { top: 122px; }
-.ship-office .office-company-panel { max-width: 260px; }
+.ship-sidebar { position: absolute; top: 12px; left: 12px; z-index: 20; display: flex; flex-direction: column; gap: 12px; width: 260px; max-width: calc(100% - 24px); max-height: calc(100% - 24px); overflow-y: auto; overscroll-behavior: contain; }
+.ship-sidebar > * { flex-shrink: 0; }
+.ship-office .office-company-menu { position: relative; top: auto; left: auto; }
+.ship-office .office-company-panel { max-width: none; }
 .ship-heading { max-width: calc(100% - 520px); }
 .ship-summary { backdrop-filter: blur(8px); }
 @media (max-width: 1000px) {
   .ship-heading { top: 57px; max-width: calc(100% - 28px); }
   .ship-heading > div:first-child { font-size: 10px; }
   .ship-heading > div:nth-child(2) { display: none; }
-  .ship-heading > div:nth-child(3) { margin-top: 8px; }
-  .ship-office .office-company-menu { top: 126px; }
-  .ship-fleet { top: 133px; }
 }
 @media (max-width: 767px), (max-height: 600px) and (orientation: landscape) {
-  .ship-office .office-company-menu { top: 12px; }
+  .ship-sidebar { display: contents; }
+  .ship-office .office-company-menu { position: absolute; top: 12px; left: 12px; }
+  .ship-crew-dock { position: absolute; bottom: 12px; left: 12px; z-index: 20; }
+  .ship-crew-bar { display: flex; padding: 4px; }
+  .ship-crew-avatar { display: none; }
+  .ship-crew-bar > button { min-height: 36px; }
+  .ship-fleet { position: absolute; bottom: calc(100% + 8px); left: 0; width: min(320px, calc(100vw - 24px)); max-height: calc(100dvh - 140px); margin: 0; }
   .ship-office .office-company-toggle { max-width: 180px; }
   .ship-heading { top: 59px; }
   .ship-heading > div:first-child { display: none; }
-  .ship-heading > div:nth-child(3) { margin-top: 0; padding: 4px; }
-  .ship-heading button { width: 27px; height: 27px; font-size: 9px; }
-  .ship-heading button:last-child { width: auto; }
   .ship-toolbar { gap: 4px; }
   .ship-toolbar > div { font-size: 8px; padding: 7px 6px; }
   .ship-toolbar > button { height: 29px; min-width: 29px; padding: 4px; }
@@ -40,8 +42,6 @@
   .ship-office .office-company-panel-heading button { min-width: 36px; min-height: 36px; }
   .ship-office .office-company-label, .ship-office .office-company-description { display: none; }
   .ship-heading { top: 12px; max-width: 48%; }
-  .ship-heading button { width: 24px; height: 24px; }
-  .ship-heading > div:nth-child(3) > button:nth-child(n+4):not(:last-child) { display: none; }
   .ship-summary { bottom: 12px; max-width: 320px; }
   .ship-summary > div:nth-child(2) { display: none; }
 }
@@ -96,7 +96,7 @@
 .ship-travel-label { display: block; margin-top: 4px; color: #a7c7cf; font-size: 11px; }
 .ship-travel-track { height: 2px; margin-top: 10px; background: #41606c; }
 .ship-travel-track i { display: block; height: 100%; background: #e0b477; transform: scaleX(0); transform-origin: left; }
-.ship-office[data-ship-travelling="true"] .ship-heading, .ship-office[data-ship-travelling="true"] .ship-toolbar, .ship-office[data-ship-travelling="true"] .ship-summary, .ship-office[data-ship-travelling="true"] .office-company-menu { visibility: hidden; }
+.ship-office[data-ship-travelling="true"] .ship-heading, .ship-office[data-ship-travelling="true"] .ship-toolbar, .ship-office[data-ship-travelling="true"] .ship-summary, .ship-office[data-ship-travelling="true"] .ship-sidebar { visibility: hidden; }
 @media (max-width: 1000px) {
   .ship-lift-menu { left: 50%; top: -45px; transform: translateX(-50%); width: min(290px, calc(100vw - 28px)); }
 }

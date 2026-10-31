@@ -438,13 +438,6 @@ export function RingShipOffice(props: Props) {
     <div className="ship-heading pointer-events-none absolute left-1/2 top-5 z-10 -translate-x-1/2 text-center">
       <div className="truncate text-xs font-semibold uppercase tracking-[0.28em] text-[#e3c894]">{officeTitle}</div>
       <div className="mt-1 text-[9px] tracking-[0.3em] text-[#9bb8bf]">{shipView ? t("Whole ship · 3 decks") : t("L{0} · {1} · {2} sessions", { "0": visibleDeck + 1, "1": t(DECK_NAMES[visibleDeck]), "2": visibleAgents.length })}</div>
-      <div className="pointer-events-auto mt-3 flex items-center justify-center gap-1 rounded-full border border-white/15 bg-[#102734]/95 p-1.5">
-        {agents.slice(0, 6).map(agent => <button key={agent.id} title={agent.name} aria-label={t("Open session: {0}", { "0": agent.name })} onClick={() => open(agent.id)}
-          className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-[#102531]" style={{ background: agent.color }}>
-          {agent.name.slice(0, 2)}<ActivityBadge agent={agent} />
-        </button>)}
-        <button onClick={() => setFleetOpen(value => !value)} className="flex h-8 items-center gap-1.5 rounded-full px-3 text-[10px]" aria-expanded={fleetOpen} aria-label={t("Session list")}><Users size={13} />{agents.length} {t("AGENTS")}</button>
-      </div>
     </div>
     <div className="ship-toolbar absolute right-3 top-3 z-20 flex items-center gap-2">
       <div title={`Runtime: Codex App (${gatewayStatus})`} className={`rounded-lg border px-2 py-2 text-[10px] uppercase tracking-wider ${gatewayStatus === "connected" ? "border-emerald-300/25 bg-emerald-400/10 text-emerald-200" : "border-amber-300/25 bg-amber-400/10 text-amber-100"}`}><span className="max-md:hidden">CODEX APP · </span>{t(gatewayStatus)}</div>
@@ -452,12 +445,23 @@ export function RingShipOffice(props: Props) {
       <button className={button} title={t("Whole ship")} aria-label={t("Whole ship")} aria-pressed={shipView} onClick={() => { setWhole(value => !value); setLiftOpen(false); setFocus(previous => ({ id: "", request: previous.request + 1 })); }}><Layers3 size={15} /></button>
       <button className={button} title={t("Voice reply settings")} aria-label={t("Settings")} onClick={() => setSettingsOpen(true)}><Settings2 size={15} /></button>
     </div>
-    <CompanyWorkAreaMenu areas={areas} activeId={validFocus} sessionCount={agents.length} open={menuOpen} onOpenChange={setMenuOpen} onSelect={select} actions={companyActions} description={t("Use the central lift to change decks · Empty cabins are ready to use")} />
-    {fleetOpen ? <div className="ship-fleet absolute left-1/2 top-28 z-30 max-h-[60vh] w-80 max-w-[90vw] -translate-x-1/2 overflow-auto rounded-xl border border-white/15 bg-[#0d2431]/98 p-2 shadow-xl">
-      {agents.map(agent => <button key={agent.id} className="flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-white/10" onClick={() => open(agent.id)}>
-        <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: agent.color }} /><span className="min-w-0 flex-1 truncate text-xs">{agent.name}</span><span className="text-[10px]" style={{ color: getAgentActivity(agent).color }}>{getAgentActivity(agent).marker} {t(getAgentActivity(agent).label)}</span>
-      </button>)}
-    </div> : null}
+    <div className="ship-sidebar">
+      <CompanyWorkAreaMenu areas={areas} activeId={validFocus} sessionCount={agents.length} open={menuOpen} onOpenChange={setMenuOpen} onSelect={select} actions={companyActions} description={t("Use the central lift to change decks · Empty cabins are ready to use")} />
+      <div className="ship-crew-dock">
+        <div className="ship-crew-bar grid grid-cols-6 gap-1 rounded-xl border border-white/15 bg-[#102734]/95 p-1.5">
+          {agents.slice(0, 6).map(agent => <button key={agent.id} title={agent.name} aria-label={t("Open session: {0}", { "0": agent.name })} onClick={() => open(agent.id)}
+            className="ship-crew-avatar relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-[#102531]" style={{ background: agent.color }}>
+            {agent.name.slice(0, 2)}<ActivityBadge agent={agent} />
+          </button>)}
+          <button onClick={() => setFleetOpen(value => !value)} className="col-span-full flex h-8 items-center justify-center gap-1.5 rounded-full px-3 text-[10px]" aria-expanded={fleetOpen} aria-label={t("Session list")}><Users size={13} />{agents.length} {t("AGENTS")}</button>
+        </div>
+        {fleetOpen ? <div className="ship-fleet mt-2 max-h-[60vh] overflow-auto rounded-xl border border-white/15 bg-[#0d2431]/98 p-2 shadow-xl">
+          {agents.map(agent => <button key={agent.id} className="flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-white/10" onClick={() => open(agent.id)}>
+            <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: agent.color }} /><span className="min-w-0 flex-1 truncate text-xs">{agent.name}</span><span className="text-[10px]" style={{ color: getAgentActivity(agent).color }}>{getAgentActivity(agent).marker} {t(getAgentActivity(agent).label)}</span>
+          </button>)}
+        </div> : null}
+      </div>
+    </div>
     <div className="ship-summary pointer-events-none absolute bottom-4 left-4 z-10 max-w-[min(70vw,460px)] rounded-xl border border-white/10 bg-[#102531]/90 px-4 py-3">
       <div className="text-xs text-[#e1cb9f]">{selected ? (selected.kind === "work" && selected.projectId !== SHARED_PROJECT_ID ? selected.name : t(selected.name)) : shipView ? t("Three-ring ship · Whole ship") : `L${visibleDeck + 1} · ${t(DECK_NAMES[visibleDeck])}`}</div>
       <div className="mt-1 text-[11px] text-[#9fb9c2]">{selected ? t(PUBLIC_DESCRIPTIONS[selected.kind]) : t("{0} projects · {1} sessions · {2} reserve cabins", { "0": roster.projects.length, "1": agents.length, "2": reserveCount })}</div>
