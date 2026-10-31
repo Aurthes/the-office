@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { cabinDeck } from "./shell-shapes";
 import { addCabinDetails } from "./interior-details";
 import { addRainforest, addMachineRoom } from "./ship-biomes";
+import { addMonitorRoom } from "./monitor-room-geometry";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
 import workstationModels from "@/features/retro-office/core/workstation-models.json";
@@ -207,7 +208,9 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
 function addAmenity(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
   const ring = layout.rings[cabin.ring], width = ring.radius * TAU / layout.allocation.sectors;
   const local = (u: number, v: number) => shipPoint(ring.radius + v, cabinAngle(layout, cabin.slot) + u / ring.radius);
-  if (cabin.kind === "return") {
+  if (cabin.kind === "monitor") {
+    addMonitorRoom(b, layout, cabin);
+  } else if (cabin.kind === "return") {
     // The launch collar is hollow; no solid pad may cover the boarding hole.
     for(const u of [-1.5,1.5]) {
       b.localBox(layout,cabin,u,1.8,.95,[.18,1.8,.25],METAL);

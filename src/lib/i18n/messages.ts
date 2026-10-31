@@ -1,5 +1,12 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Monitor room": "监控室",
+  "Ship monitoring consoles. Click the main screen to open strategy performance in Grafana.": "飞船监控台。点击主屏幕，在 Grafana 中查看策略表现。",
+  "STRATEGY PERFORMANCE": "策略表现",
+  "Open dashboard": "打开仪表盘",
+  "Open Grafana strategy dashboard": "打开 Grafana 策略仪表盘",
+  "The Grafana dashboard is not configured.": "尚未配置 Grafana 仪表盘。",
+  "Allow pop-ups for this site, then try again.": "请允许此网站打开弹出窗口，然后重试。",
   "Loading character…": "正在加载人物…",
   "Character": "人物",
   "Back to chat": "返回聊天",

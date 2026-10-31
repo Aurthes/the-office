@@ -89,6 +89,13 @@ this project does not claim complete native UI parity.
 Character movement is a visualization, not an additional agent or evidence that a
 model is running a task.
 
+The spaceship uses one available reserve cabin as a monitor room. To connect its
+main screen, set `NEXT_PUBLIC_CLAW3D_GRAFANA_URL` to a dashboard URL before building.
+The screen opens Grafana in a browser tab using its normal login. Repeat clicks
+reuse that page without reloading for five minutes after the last click. After a
+longer gap, the next click reloads the dashboard URL in the same tab. Studio never
+closes the tab or copies Grafana data. No Grafana embedding settings are needed.
+
 ## Remote access
 
 Keep Studio and the Codex gateway on loopback. Put the authenticated web-access
