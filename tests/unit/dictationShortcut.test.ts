@@ -1,9 +1,10 @@
 import { act, cleanup, fireEvent, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDictationShortcut } from "@/features/office/components/useDictationShortcut";
+import { DICTATION_SHORTCUT_KEY, setDictationShortcut } from "@/features/office/components/dictationShortcutSettings";
 
-beforeEach(() => { vi.useFakeTimers(); vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel"); });
-afterEach(() => { cleanup(); document.body.innerHTML = ""; vi.useRealTimers(); vi.restoreAllMocks(); });
+beforeEach(() => { vi.useFakeTimers(); localStorage.setItem(DICTATION_SHORTCUT_KEY, "option"); vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel"); });
+afterEach(() => { cleanup(); localStorage.removeItem(DICTATION_SHORTCUT_KEY); document.body.innerHTML = ""; vi.useRealTimers(); vi.restoreAllMocks(); });
 function setup(phase = "idle") {
   const field = document.createElement("textarea"); document.body.append(field);
   vi.spyOn(field, "getClientRects").mockReturnValue([{}] as unknown as DOMRectList);
@@ -63,5 +64,44 @@ describe("Mac Option dictation", () => {
   it("does not leave a timer or keyup handler behind after unmount", () => {
     const h = setup(); h.down(); h.view.unmount();
     act(() => vi.advanceTimersByTime(1000)); h.up(); expect(h.start).not.toHaveBeenCalled();
+  });
+});
+
+describe("Office shortcut settings", () => {
+  const down = () => fireEvent.keyDown(window, { key: " ", code: "Space", ctrlKey: true, shiftKey: true });
+  const up = () => fireEvent.keyUp(window, { key: " ", code: "Space" });
+  it("defaults to Ctrl+Shift+Space and leaves plain Option alone", () => {
+    localStorage.removeItem(DICTATION_SHORTCUT_KEY);
+    const h = setup(); h.down(); h.up();
+    expect(h.start).not.toHaveBeenCalled();
+    down(); act(() => vi.advanceTimersByTime(100)); up();
+    expect(h.start).toHaveBeenCalledOnce();
+    h.view.rerender({ ...h.props, phase: "recording" });
+    down(); up(); expect(h.stop).toHaveBeenCalledExactlyOnceWith(false);
+  });
+  it("holds the configured chord to record and stops on release", () => {
+    localStorage.removeItem(DICTATION_SHORTCUT_KEY);
+    const h = setup(); down(); act(() => vi.advanceTimersByTime(250));
+    expect(h.start).toHaveBeenCalledOnce();
+    const repeated = new KeyboardEvent("keydown", { key: " ", code: "Space", ctrlKey: true, shiftKey: true, repeat: true, bubbles: true, cancelable: true });
+    window.dispatchEvent(repeated); expect(repeated.defaultPrevented).toBe(true);
+    expect(h.start).toHaveBeenCalledOnce();
+    h.view.rerender({ ...h.props, phase: "recording" });
+    up(); expect(h.stop).toHaveBeenCalledExactlyOnceWith(false);
+  });
+  it("updates immediately, can be disabled, and clears a pending hold when changed", () => {
+    const h = setup(); h.down();
+    act(() => setDictationShortcut("ctrl-shift-space"));
+    act(() => vi.advanceTimersByTime(1000)); h.up(); expect(h.start).not.toHaveBeenCalled();
+    down(); up(); expect(h.start).toHaveBeenCalledOnce();
+    act(() => setDictationShortcut("off"));
+    down(); up(); h.down(); h.up(); expect(h.start).toHaveBeenCalledOnce();
+  });
+  it("ignores extra modifiers and other text fields", () => {
+    localStorage.removeItem(DICTATION_SHORTCUT_KEY); const h = setup();
+    fireEvent.keyDown(window, { key: " ", code: "Space", ctrlKey: true, shiftKey: true, altKey: true }); up();
+    const other = document.createElement("textarea"); document.body.append(other);
+    fireEvent.keyDown(other, { key: " ", code: "Space", ctrlKey: true, shiftKey: true }); up();
+    expect(h.start).not.toHaveBeenCalled();
   });
 });

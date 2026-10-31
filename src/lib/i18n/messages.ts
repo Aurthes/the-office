@@ -1,5 +1,13 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Keyboard shortcuts": "快捷键",
+  "Dictation shortcut": "听写快捷键",
+  "Ctrl + Shift + Space (recommended)": "Ctrl + Shift + Space（推荐）",
+  "Saved in this browser. Active only while an Office chat is visible in the foreground.": "保存在当前浏览器，仅在前台可见的 Office 聊天中生效。",
+  "Tap to start or stop. Hold to dictate, release to insert text. Enter sends; Shift+Enter adds a line; Esc cancels recording.": "短按开始或停止；长按说话，松开填入文字。Enter 发送，Shift+Enter 换行，Esc 取消录音。",
+  "System-wide shortcuts take priority over webpages. Choose a different shortcut if Codex or another app uses the same keys.": "网页无法覆盖系统级快捷键。如果与 Codex 或其他应用冲突，请选择不同的按键。",
+  "Click to record. {shortcut}: tap to toggle, hold to dictate. Enter: transcribe and send. Esc: cancel.": "点击录音。{shortcut}：短按开始或结束，长按说话。Enter：转文字并发送。Esc：取消。",
+  "Click to record. Enter: transcribe and send. Esc: cancel.": "点击录音。Enter：转文字并发送。Esc：取消。",
   "Listening bar": "音乐吧台",
   "Listening bar · Design preview": "音乐吧台 · 设计预览",
   "Choose your player": "选择音乐播放器",

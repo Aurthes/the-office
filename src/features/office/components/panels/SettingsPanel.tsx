@@ -5,6 +5,7 @@ import { CURATED_ELEVENLABS_VOICES } from "@/lib/voiceReply/catalog";
 import type { StudioGatewayAdapterType } from "@/lib/studio/settings";
 import { useUiLanguage } from "@/lib/i18n/ui-language";
 import { useUiText } from "@/lib/i18n/ui-language";
+import { setDictationShortcut, useDictationShortcutSetting, type DictationShortcut } from "../dictationShortcutSettings";
 
 type SettingsPanelProps = {
   gatewayStatus?: string;
@@ -81,6 +82,7 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const t = useUiText();
   const { language, setLanguage } = useUiLanguage();
+  const dictationShortcut = useDictationShortcutSetting();
   const normalizedGatewayUrl = gatewayUrl?.trim() ?? "";
   const normalizedGatewayToken = gatewayToken ?? "";
   const gatewayStateLabel = gatewayStatus
@@ -108,6 +110,19 @@ export function SettingsPanel({
           <option value="zh-CN" lang="zh-CN">简体中文</option>
         </select>
       </div>
+      <section aria-label={t("Keyboard shortcuts")} className="mb-3 rounded-lg border border-cyan-500/10 bg-black/20 px-4 py-3">
+        <h3 className="text-[11px] font-medium text-white">{t("Keyboard shortcuts")}</h3>
+        <p className="mt-1 text-[10px] text-white/75">{t("Saved in this browser. Active only while an Office chat is visible in the foreground.")}</p>
+        <label htmlFor="dictation-shortcut" className="mt-3 block text-[11px] text-white">{t("Dictation shortcut")}</label>
+        <select id="dictation-shortcut" value={dictationShortcut} onChange={event => setDictationShortcut(event.target.value as DictationShortcut)}
+          className="mt-2 min-h-10 w-full rounded-md border border-cyan-500/20 bg-[#152b35] px-3 py-2 text-sm text-white">
+          <option value="ctrl-shift-space">{t("Ctrl + Shift + Space (recommended)")}</option>
+          <option value="option">Option / Alt</option>
+          <option value="off">{t("Off")}</option>
+        </select>
+        <p className="mt-2 text-[10px] text-white/65">{t("Tap to start or stop. Hold to dictate, release to insert text. Enter sends; Shift+Enter adds a line; Esc cancels recording.")}</p>
+        <p className="mt-2 text-[10px] text-amber-100/80">{t("System-wide shortcuts take priority over webpages. Choose a different shortcut if Codex or another app uses the same keys.")}</p>
+      </section>
       <div className="rounded-lg border border-cyan-500/10 bg-black/20 px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div>

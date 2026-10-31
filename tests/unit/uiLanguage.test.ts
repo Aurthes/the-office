@@ -28,6 +28,7 @@ describe("interface language", () => {
     render(React.createElement(SettingsPanel, settingsProps));
     expect(screen.getByLabelText("Language")).toHaveValue("en");
     expect(screen.getByText("Studio title")).toBeVisible();
+    expect(screen.getByLabelText("Dictation shortcut")).toHaveValue("ctrl-shift-space");
     function Label() { const t = useUiText(); return React.createElement("span", null, t("Settings")); }
     localStorage.setItem(UI_LANGUAGE_KEY, "zh-CN");
     expect(renderToString(React.createElement(Label))).toContain("Settings");
@@ -43,6 +44,7 @@ describe("interface language", () => {
     fireEvent.change(screen.getByLabelText("Language"), { target: { value: "zh-CN" } });
     expect(screen.getByLabelText("语言")).toHaveValue("zh-CN");
     expect(screen.getByText("工作室标题")).toBeVisible();
+    expect(screen.getByLabelText("听写快捷键")).toHaveValue("ctrl-shift-space");
     expect(screen.getByRole("combobox", { name: "前往工区" })).toBeVisible();
     expect(screen.getByRole("option", { name: "Settings · 0" })).toBeInTheDocument();
     expect(screen.getByDisplayValue("我的工作室")).toBeInTheDocument();
