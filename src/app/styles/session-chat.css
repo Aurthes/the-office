@@ -172,3 +172,30 @@
   .session-message-toggle { min-height: 38px; }
 }
 @media (prefers-reduced-motion: reduce) { .session-message-toggle { transition: none; } }
+
+.session-workspace-layout { display: flex; }
+.session-workspace-layout--open .session-conversation { flex: 0 1 46%; }
+.session-workspace { border-left: 1px solid #ffffff16; background: #10161d; }
+.session-workspace-tabs { display: flex; flex-shrink: 0; align-items: center; gap: 3px; padding: 6px; border-bottom: 1px solid #ffffff12; }
+.session-workspace-tabs button, .session-workspace-toolbar button, .session-workspace-link {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 5px 9px;
+  border: 1px solid #ffffff14; border-radius: 5px; background: #ffffff04; color: #aebac4; font-size: 11px; cursor: pointer;
+}
+.session-workspace-tabs button[aria-selected=true] { background: #d3be8d12; border-color: #d3be8d40; color: #d7c7a8; }
+.session-workspace button:hover:not(:disabled), .session-workspace-link:hover { background: #ffffff0c; color: #eef0ef; }
+.session-workspace button:focus-visible, .session-workspace-link:focus-visible { outline: 2px solid #c5b58c; outline-offset: 2px; }
+.session-workspace button:disabled { opacity: .35; cursor: default; }
+.session-workspace-toolbar { display: flex; flex-shrink: 0; align-items: center; gap: 5px; padding: 6px 8px; border-bottom: 1px solid #ffffff0e; }
+.session-workspace-files button { display: flex; width: 100%; min-height: 34px; align-items: center; gap: 9px; padding: 6px 9px; border: 0; border-radius: 4px; background: transparent; color: #ccd3d9; font-size: 12px; text-align: left; cursor: pointer; }
+.session-workspace-files button svg { flex-shrink: 0; }
+.session-workspace .xterm { height: 100%; }
+@media (max-width: 1023px) {
+  .session-workspace-layout--open .session-conversation { display: none; }
+  .session-workspace { border-left: 0; }
+  .session-workspace-tabs button, .session-workspace-toolbar button { min-height: 40px; }
+  .session-workspace-files button { min-height: 42px; }
+}
+
+.session-workspace-tabs button[role=tab] { min-width: 0; flex: 1; padding-inline: 6px; }
+.session-workspace-tabs button[role=tab] span { overflow: hidden; text-overflow: ellipsis; }
+.session-workspace-tabs button svg { flex-shrink: 0; }
