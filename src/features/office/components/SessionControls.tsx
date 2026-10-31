@@ -30,6 +30,8 @@ export function SessionControls({ client, threadId, onItems }: {
 }) {
   const t = useUiText();
   const [state, setState] = useState<Snapshot | null>(null);
+  const [prediction, setPrediction] = useState<{ threadId: string; text: string } | null>(null);
+  const previousPredictionState = useRef({ threadId, working: false });
   const [text, setTextState] = useState(() => sessionDrafts.get(threadId) || "");
   const setText = useCallback((value: string) => {
     if (value) sessionDrafts.set(threadId, value); else sessionDrafts.delete(threadId);
@@ -47,20 +49,40 @@ export function SessionControls({ client, threadId, onItems }: {
   const uploadRequests = useRef(new Map<string, AbortController>());
   const picker = useRef<HTMLInputElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const suggestedText = prediction?.threadId === threadId && state?.connected && !state.activeTurnId && state.turnStatus === "completed" && !text && !uploads.length ? prediction.text : "";
+  useEffect(() => {
+    let stopped = false;
+    const generationTrigger = previousPredictionState.current.threadId === threadId && previousPredictionState.current.working ? "live" : "catch_up";
+    previousPredictionState.current = { threadId, working: Boolean(state?.activeTurnId) };
+    setPrediction(null);
+    if (!state?.connected || state.activeTurnId || state.turnStatus !== "completed") return () => { stopped = true; };
+    const requestId = crypto.randomUUID();
+    const applyPrediction = (value: unknown) => {
+      const result = value as { text?: unknown } | null;
+      if (!stopped && typeof result?.text === "string" && result.text.trim() && result.text.length <= 4000) setPrediction({ threadId, text: result.text });
+    };
+    const unsubscribe = client.onEvent?.(event => {
+      if (event.event !== "session.prediction") return;
+      const payload = event.payload as { threadId: string; requestId: string; prediction: unknown };
+      if (payload?.threadId === threadId && payload.requestId === requestId) applyPrediction(payload.prediction);
+    });
+    void client.call("session.prediction", { threadId, generationTrigger, requestId }).then(applyPrediction).catch(() => {}); // Suggestions never block the composer or its connection.
+    return () => { stopped = true; unsubscribe?.(); };
+  }, [client, threadId, state?.connected, state?.activeTurnId, state?.turnStatus]);
   const resizeInput = useCallback(() => {
     const node = input.current;
     if (!node?.clientWidth) return; // The chat stays mounted behind the character page.
     // Measure outside normal flow so a temporary shrink cannot move the transcript.
     const measure = node.cloneNode(false) as HTMLTextAreaElement;
     measure.removeAttribute("id"); measure.setAttribute("aria-hidden", "true"); measure.tabIndex = -1;
-    measure.value = node.value;
+    measure.value = node.value || suggestedText;
     Object.assign(measure.style, { position: "fixed", visibility: "hidden", pointerEvents: "none",
       width: `${node.getBoundingClientRect().width}px`, height: "auto", maxHeight: "none" });
     node.after(measure);
     const height = measure.scrollHeight + measure.offsetHeight - measure.clientHeight;
     measure.remove();
     node.style.height = `${height}px`;
-  }, []);
+  }, [suggestedText]);
   useLayoutEffect(resizeInput, [text, resizeInput]);
   useLayoutEffect(() => {
     const node = input.current;
@@ -106,8 +128,14 @@ export function SessionControls({ client, threadId, onItems }: {
     }));
   };
   const removeFile = (id: string) => { uploadRequests.current.get(id)?.abort(); updateUploads(uploadsRef.current.filter(item => item.id !== id)); };
-  const readyToSend = Boolean((text.trim() || uploads.length) && uploads.every(file => file.ref) && !dictation.busy);
-  const send = () => { if (readyToSend) void action("session.send", { message: text, attachments: uploads.map(file => file.ref), requestId: crypto.randomUUID() }); };
+  const readyToSend = Boolean((text.trim() || suggestedText || uploads.length) && uploads.every(file => file.ref) && !dictation.busy);
+  const send = () => {
+    if (!readyToSend) return;
+    const message = text || suggestedText;
+    if (!text && suggestedText) setText(suggestedText); // Retain a draft if submission fails.
+    setPrediction(null);
+    void action("session.send", { message, attachments: uploads.map(file => file.ref), requestId: crypto.randomUUID() });
+  };
   useEffect(() => {
     let stopped = false, pending = false, retry = false, connected = true, version = -1;
     let subscriptionId: string | null = null;
@@ -211,7 +239,11 @@ export function SessionControls({ client, threadId, onItems }: {
       {(state.approvalCount || 0) > state.approvals.length ? <p className="text-amber-100">{t("More requests will appear after these approvals are handled.")}</p> : null}
     </div> : null}
     {state?.questions?.map(request => <SessionQuestions key={threadId + request.requestId} client={client} threadId={threadId} request={request} />)}
-    <textarea ref={input} aria-label={t("Send to session")} placeholder={t("Continue this Codex session…")} rows={1} value={text} onChange={event => setText(event.target.value)} onKeyDown={event => {
+    <textarea ref={input} aria-label={t("Send to session")} aria-description={suggestedText ? t("Suggested next message. Tab to edit, or Send to submit.") : undefined} placeholder={suggestedText || t("Continue this Codex session…")} rows={1} value={text} onChange={event => setText(event.target.value)} onKeyDown={event => {
+      if (suggestedText && !event.nativeEvent.isComposing && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        if (event.key === "Tab") { event.preventDefault(); setText(suggestedText); setPrediction(null); return; }
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setPrediction(null); return; }
+      }
       if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); }
     }} onPaste={event => { if (event.clipboardData.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)); } }} disabled={busy || settingsBusy || !state?.connected || dictation.busy} className="session-composer-input w-full resize-none overflow-y-auto rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50" />
     <div className="mt-2 flex items-center justify-between gap-2">

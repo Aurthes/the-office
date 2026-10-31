@@ -43,3 +43,30 @@ it("detects missing native pongs and rejects uncertain requests without replay o
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+it("cancels only an expired speculative sample, leaving ordinary turns alone", async () => {
+  const root = mkdtempSync(join(tmpdir(), "office-sample-")), socket = join(root, "rpc.sock");
+  const owner = createServer(), server = new WebSocketServer({ server: owner });
+  const frames: { id: number; method: string; params?: { requestId?: number } }[] = [];
+  server.on("connection", ws => ws.on("message", raw => {
+    const frame = JSON.parse(String(raw)); frames.push(frame);
+    if (["initialize", "config/read"].includes(frame.method)) ws.send(JSON.stringify({ id: frame.id, result: {} }));
+  }));
+  owner.listen(socket); await once(owner, "listening"); chmodSync(socket, 0o600);
+  const client = new CodexSharedClient(socket);
+  try {
+    await client.initialize(); vi.useFakeTimers();
+    const failed = expect(client.sampleThread({ threadId: "original" })).rejects.toThrow("未自动重试");
+    await vi.advanceTimersByTimeAsync(45000); await failed; vi.useRealTimers();
+    await vi.waitFor(() => expect(frames.some(f => f.method === "thread/sample/cancel")).toBe(true));
+    expect(frames.find(f => f.method === "thread/sample/cancel")?.params?.requestId).toBe(frames.find(f => f.method === "thread/sample")?.id);
+    expect(frames.some(f => ["turn/start", "turn/interrupt"].includes(f.method))).toBe(false);
+    expect(owner.listening).toBe(true);
+  } finally {
+    vi.useRealTimers(); client.close();
+    for (const ws of server.clients) ws.terminate();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await new Promise<void>(resolve => owner.close(() => resolve()));
+    rmSync(root, { recursive: true, force: true });
+  }
+});

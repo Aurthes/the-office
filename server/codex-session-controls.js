@@ -30,6 +30,8 @@ class CodexSessionControls {
     const settings = sessionSettings(result);
     if (!settings) return;
     const state = this.state(id);
+    state.predictionContext = { model: result.model, modelProvider: result.modelProvider ?? state.predictionContext?.modelProvider,
+      planMode: result.collaborationMode === undefined ? Boolean(state.predictionContext?.planMode) : result.collaborationMode?.mode === "plan" };
     state.cwd = result.cwd;
     if (JSON.stringify(state.settings) !== JSON.stringify(settings)) { state.settings = settings; state.version++; }
   }

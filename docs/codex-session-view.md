@@ -350,3 +350,24 @@ The legacy main-agent Option recorder is also disabled in Codex session view.
 Option passes through to the operating system and the native desktop App. Neither
 the OpenClaw transcription endpoint nor browser speech recognition is used by the
 Codex composer.
+
+## Composer predictions
+
+Eligible ChatGPT accounts can receive the native composer's suggested next
+message. The gateway reads the account-gated prediction configuration and uses
+Codex's experimental `thread/sample` API against the latest completed turn.
+It preserves the original chat and does not start an ordinary agent turn or run
+tools. Unsupported accounts, models, plan mode, active turns and native failures
+produce no suggestion; there is no substitute model or locally authored prompt.
+
+Generation runs separately from message sending. Results arrive over the existing
+authenticated WebSocket, correlated with the chat and request. Only two samples
+can run simultaneously, results are cached per account/chat/turn/model, and a
+45-second sample timeout cancels that sample without stopping the user's turn.
+Native account tokens and the server-supplied generation prompt stay server-side.
+
+The suggestion appears as grey placeholder text. Tab accepts it as an editable
+draft; Send or Enter explicitly sends it. Typing your own message takes priority,
+Escape dismisses the suggestion, and late results from an old chat/turn are
+discarded. Native eligibility and sampling mean a suggestion is not guaranteed on
+every visit. The native experimental API may change with Codex versions.

@@ -46,11 +46,11 @@ class CodexSharedClient {
     this.ws.send(JSON.stringify({ method: "initialized" })); this.ready = true;
     return result;
   }
-  call(method, params = {}) {
+  call(method, params = {}, timeoutMs = 15000) {
     if (this.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("共享连接尚未就绪"));
     return new Promise((resolve, reject) => {
       const id = ++this.serial;
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error("请求超时；结果需核对，未自动重试")); }, 15000);
+      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error("请求超时；结果需核对，未自动重试")); }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       this.ws.send(JSON.stringify({ id, method, params }));
     });
@@ -58,6 +58,15 @@ class CodexSharedClient {
   respond(id, result) {
     if (!this.ready) throw new Error("共享连接断开");
     this.ws.send(JSON.stringify({ id, result }));
+  }
+  async sampleThread(params) {
+    const result = this.call("thread/sample", params, 45000), requestId = this.serial;
+    try { return await result; }
+    catch (error) {
+      // Stop only this speculative generation on timeout; never interrupt a turn.
+      if (this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ id: ++this.serial, method: "thread/sample/cancel", params: { requestId } }));
+      throw error;
+    }
   }
   close() { clearInterval(this.heartbeat); this.ready = false; this.ws.terminate(); }
 }

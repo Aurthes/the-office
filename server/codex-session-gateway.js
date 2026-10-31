@@ -15,6 +15,7 @@ const { CodexSessionStream } = require("./codex-session-stream");
 const { CodexRosterSync } = require("./codex-roster-sync");
 const { CodexWorkspaceActions } = require("./codex-workspace-actions");
 const { CodexSessionWorkspace } = require("./codex-session-workspace");
+const { CodexComposerPredictions } = require("./codex-composer-predictions");
 
 const index = new CodexSessionIndex(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"));
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
@@ -91,7 +92,18 @@ async function history(row, cursor) {
 const { answerQuestions } = require("./codex-session-questions");
 const { NativeDictationSessions } = require("./codex-dictation");
 const nativeDictation = new NativeDictationSessions(shared);
+const predictions = new CodexComposerPredictions(shared);
 const methods = {
+  "session.prediction": async (p, ws) => {
+    const row = get(p.threadId);
+    if (!controls) return null;
+    if (typeof p.requestId !== "string" || !p.requestId || p.requestId.length > 100) throw new Error("Invalid prediction request");
+    const publish = prediction => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "event", event: "session.prediction", payload: { threadId: row.id, requestId: p.requestId, prediction } })); };
+    // Speculation can outlive an ordinary RPC timeout. Reuse the existing push
+    // channel and keep input, streaming and steering independent of generation.
+    void controls.attach(row.id).then(() => predictions.request(row, controls.state(row.id).predictionContext, p.generationTrigger)).then(publish, () => publish(null));
+    return { pending: true };
+  },
   "session.workspace.list": async p => workspace.files(get(p.threadId), p.path),
   "session.workspace.read": async p => workspace.file(get(p.threadId), p.path),
   "session.terminal.subscribe": async (p, ws) => workspace.subscribe(ws, get(p.threadId).id),
@@ -172,7 +184,7 @@ wss.on("connection", ws => {
         if (!ready) throw new Error("Session reader is starting");
         connected = true; clients.add(ws);
         result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "codex-app-session-view-1", connId: crypto.randomUUID() },
-          features: { methods: Object.keys(methods), events: ["tick", "session.updated", "session.stream", "session.voice", "session.terminal", "roster.updated"] },
+          features: { methods: Object.keys(methods), events: ["tick", "session.updated", "session.stream", "session.voice", "session.terminal", "session.prediction", "roster.updated"] },
           snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: rows()[0]?.id }, sessionDefaults: { mainKey: "main" } },
           auth: { role: "operator", scopes: shared ? ["operator.read", "operator.write", "operator.approvals"] : ["operator.read"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
       } else {

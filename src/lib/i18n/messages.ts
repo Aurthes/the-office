@@ -376,6 +376,7 @@ export const ZH_CN: Record<string, string> = {
   "More requests will appear after these approvals are handled.": "还有待处理请求，完成以上审批后显示。",
   "Send to session": "发送到原会话",
   "Continue this Codex session…": "继续同一条 Codex 会话…",
+  "Suggested next message. Tab to edit, or Send to submit.": "建议的下一条消息：按 Tab 编辑，或点发送直接提交。",
   "Add attachments": "添加附件",
   "Add attachments, drag files, or paste images": "添加附件，也可拖入文件或粘贴图片",
   "Stop recording and transcribe": "结束录音并转写",
