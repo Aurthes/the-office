@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Headphones, Mic, Paperclip, PhoneOff, Square, X } from "lucide-react";
 import { SessionSettings, type ChatSettings } from "./SessionSettings";
 import { useSessionVoice } from "./useSessionVoice";
@@ -46,6 +46,34 @@ export function SessionControls({ client, threadId, onItems }: {
   const uploadsRef = useRef<Upload[]>(uploads);
   const uploadRequests = useRef(new Map<string, AbortController>());
   const picker = useRef<HTMLInputElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const resizeInput = useCallback(() => {
+    const node = input.current;
+    if (!node?.clientWidth) return; // The chat stays mounted behind the character page.
+    // Measure outside normal flow so a temporary shrink cannot move the transcript.
+    const measure = node.cloneNode(false) as HTMLTextAreaElement;
+    measure.removeAttribute("id"); measure.setAttribute("aria-hidden", "true"); measure.tabIndex = -1;
+    measure.value = node.value;
+    Object.assign(measure.style, { position: "fixed", visibility: "hidden", pointerEvents: "none",
+      width: `${node.getBoundingClientRect().width}px`, height: "auto", maxHeight: "none" });
+    node.after(measure);
+    const height = measure.scrollHeight + measure.offsetHeight - measure.clientHeight;
+    measure.remove();
+    node.style.height = `${height}px`;
+  }, []);
+  useLayoutEffect(resizeInput, [text, resizeInput]);
+  useLayoutEffect(() => {
+    const node = input.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    let width = 0;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width === width) return;
+      width = entry.contentRect.width;
+      resizeInput();
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [resizeInput]);
   const dictation = useNativeDictation(threadId, text, setText, client);
   const voice = useSessionVoice(client, threadId);
   const updateUploads = (next: Upload[]) => { uploadsRef.current = next; if (next.length) attachmentDrafts.set(threadId, next); else attachmentDrafts.delete(threadId); setUploads(next); };
@@ -183,9 +211,9 @@ export function SessionControls({ client, threadId, onItems }: {
       {(state.approvalCount || 0) > state.approvals.length ? <p className="text-amber-100">{t("More requests will appear after these approvals are handled.")}</p> : null}
     </div> : null}
     {state?.questions?.map(request => <SessionQuestions key={threadId + request.requestId} client={client} threadId={threadId} request={request} />)}
-    <textarea aria-label={t("Send to session")} placeholder={t("Continue this Codex session…")} rows={2} value={text} onChange={event => setText(event.target.value)} onKeyDown={event => {
+    <textarea ref={input} aria-label={t("Send to session")} placeholder={t("Continue this Codex session…")} rows={1} value={text} onChange={event => setText(event.target.value)} onKeyDown={event => {
       if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); }
-    }} onPaste={event => { if (event.clipboardData.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)); } }} disabled={busy || settingsBusy || !state?.connected || dictation.busy} className="max-h-36 min-h-14 w-full resize-none rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50" />
+    }} onPaste={event => { if (event.clipboardData.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)); } }} disabled={busy || settingsBusy || !state?.connected || dictation.busy} className="session-composer-input w-full resize-none overflow-y-auto rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50" />
     <div className="mt-2 flex items-center justify-between gap-2">
       <div className="flex shrink-0 items-center gap-1">
         <button aria-label={t("Add attachments")} title={t("Add attachments, drag files, or paste images")} disabled={busy || settingsBusy || !state?.connected} onClick={() => picker.current?.click()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Paperclip size={19} /></button>
