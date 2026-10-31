@@ -189,7 +189,7 @@ function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId }: { agent
   return <>{agents.map(agent => {
     const seat = layout.seats[agent.id]; if (!seat) return null;
     return <group key={agent.id}>
-      <DuckCrewModel agentId={agent.id}
+      <DuckCrewModel agentId={agent.id} appearance={agent.avatarProfile?.duck}
         agentsRef={agentsRef} agentLookupRef={lookupRef} initialPosition={initialPositions[agent.id]}
         onHover={setHovered} onUnhover={unhover} onClick={onOpen} />
       <CrewLabel deck={seat.deck} agent={agent} lookupRef={lookupRef} placement={nameplatePlacement} onOpen={onOpen} expanded={hovered === agent.id || focus === seat.projectId || !!agent.needsInput || !!agent.needsReview} />

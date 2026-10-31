@@ -1,3 +1,5 @@
+import { normalizeDuckAppearance, type DuckAppearance } from "./duck";
+
 export type AgentAvatarHairStyle = "short" | "parted" | "spiky" | "bun";
 export type AgentAvatarTopStyle = "tee" | "hoodie" | "jacket";
 export type AgentAvatarBottomStyle = "pants" | "shorts" | "cuffed";
@@ -5,6 +7,7 @@ export type AgentAvatarHatStyle = "none" | "cap" | "beanie";
 
 export type AgentAvatarProfile = {
   version: 1;
+  duck?: DuckAppearance;
   seed: string;
   body: {
     skinTone: string;
@@ -202,6 +205,7 @@ export const normalizeAgentAvatarProfile = (
 
   return {
     version: AGENT_AVATAR_VERSION,
+    ...(isRecord(value.duck) ? { duck: normalizeDuckAppearance(value.duck) } : {}),
     seed: normalizedSeed,
     body: {
       skinTone: resolveColor(

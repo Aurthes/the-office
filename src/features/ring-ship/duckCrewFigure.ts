@@ -1,15 +1,49 @@
 import * as THREE from "three";
+import { normalizeDuckAppearance, type DuckAppearance } from "@/lib/avatars/duck";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+
+function shapedBill() {
+  const positions: number[] = [], uv: number[] = [], indices: number[] = [];
+  const across = 24, along = 14, stride = along + 1, offset = (across + 1) * stride;
+  for (const upper of [true, false]) for (let i = 0; i <= across; i++) for (let j = 0; j <= along; j++) {
+    const u = i / across * 2 - 1, v = j / along, weight = Math.max(0, 1 - u * u);
+    const front = .204 - .048 * Math.pow(Math.abs(u), 1.2), back = .105 + .018 * Math.abs(u);
+    const seam = .448 - .004 * weight;
+    const y = upper ? seam + .034 * Math.pow(1 - Math.pow(Math.abs(u), 1.3), .9) * Math.sqrt(1 - v) + .009 * weight * Math.sin(Math.PI * v)
+      : seam - .007 * weight * (.4 + .6 * v) - .008 * weight * Math.pow(Math.sin(Math.PI * v), .75);
+    positions.push(u * .064, y, back + (front - back) * v); uv.push(i / across, v);
+    if (i < across && j < along) {
+      const k = (upper ? 0 : offset) + i * stride + j;
+      const faces = [k, k + 1, k + stride, k + 1, k + stride + 1, k + stride];
+      if (!upper) for (let t = 0; t < faces.length; t += 3) [faces[t], faces[t + 1]] = [faces[t + 1], faces[t]];
+      indices.push(...faces);
+    }
+  }
+  for (let i = 0; i < across; i++) {
+    const a = i * stride, b = a + stride;
+    indices.push(a, b, a + offset, b, b + offset, a + offset);
+    const front = a + along, next = b + along;
+    indices.push(front, front + offset, next, next, front + offset, next + offset);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geometry.setIndex(indices); geometry.computeVertexNormals();
+  return geometry;
+}
 
 // Original ship crew artwork: rounded waterfowl silhouettes and matte feathers.
 // The rig uses the same height, facing and workstation coordinates as the crew.
-export function createDuckCrewFigure() {
+export function createDuckCrewFigure(appearance?: DuckAppearance) {
+  const style = normalizeDuckAppearance(appearance);
   const root = new THREE.Group();
   root.name = "duck-crew";
   const feather = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0 });
   const bill = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.84, metalness: 0 });
   const eyes = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0 });
-  const yellow = "#ffbb3c", wingYellow = "#e6a82f", orange = "#f58b28", dark = "#302e28";
+  const uniform = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .88, metalness: .08 });
+  const yellow = style.featherColor, orange = style.billColor, dark = "#302e28";
+  const wingYellow = yellow === "#ffbb3c" ? "#e6a82f" : "#" + new THREE.Color(yellow).multiplyScalar(.87).getHexString();
+  const billShade = "#" + new THREE.Color(orange).multiplyScalar(.68).getHexString();
 
   function add(group: THREE.Group, geometry: THREE.BufferGeometry, material: THREE.Material, color: string,
     position: [number, number, number], scale: [number, number, number] = [1, 1, 1], rotation: [number, number, number] = [0, 0, 0]) {
@@ -34,12 +68,46 @@ export function createDuckCrewFigure() {
   egg(body, [0, 0.145, -0.105], [0.052, 0.03, 0.066], wingYellow, feather, [-0.3, 0, 0]);
 
   const face = pivot("face", [0, 0.022, 0], body);
-  // A broad, flattened bill with a separate lower lip and tiny nostrils.
-  egg(face, [0, 0.442, 0.145], [0.095, 0.029, 0.078], orange, bill);
-  egg(face, [0, 0.423, 0.151], [0.088, 0.014, 0.07], "#dd671e", bill);
-  for (const side of [-1, 1]) {
-    egg(face, [side * 0.035, 0.465, 0.174], [0.004, 0.0025, 0.006], "#934617", bill);
-    egg(face, [side * 0.082, 0.517, 0.113], [0.014, 0.018, 0.01], dark, eyes, [0, side * 0.4, 0]);
+  const billPivot = new THREE.Vector3(0, .448, .105);
+  const billTransform = (scale: number) => new THREE.Matrix4().makeScale(scale, scale, scale)
+    .setPosition(billPivot.clone().multiplyScalar(1 - scale));
+  if (style.billShape === "sculpted") {
+    // The reviewed size is the starting point; the editor scales around the face mount.
+    const transform = billTransform(1.17 * style.billScale);
+    add(face, shapedBill().applyMatrix4(transform), bill, orange, [0, 0, 0]);
+    const seam = Array.from({ length: 25 }, (_, i) => {
+      const u = i / 24 * 2 - 1;
+      return new THREE.Vector3(u * .064, .448 - .0075 * (1 - u * u), .205 - .048 * Math.pow(Math.abs(u), 1.2));
+    });
+    add(face, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(seam), 24, .0009, 4, false).applyMatrix4(transform), bill, billShade, [0, 0, 0]);
+  } else {
+    const classic = new THREE.Group();
+    egg(classic, [0, .442, .145], [.095, .029, .078], orange, bill);
+    egg(classic, [0, .423, .151], [.088, .014, .07], orange === "#f58b28" ? "#dd671e" : billShade, bill);
+    for (const side of [-1, 1]) egg(classic, [side * .035, .465, .174], [.004, .0025, .006], "#934617", bill);
+    for (const mesh of [...classic.children] as THREE.Mesh[]) {
+      mesh.updateMatrix(); mesh.geometry.applyMatrix4(mesh.matrix).applyMatrix4(billTransform(style.billScale));
+      mesh.position.set(0, 0, 0); mesh.scale.set(1, 1, 1);
+      face.add(mesh);
+    }
+  }
+  for (const side of [-1, 1]) egg(face, [side * .082, .517, .113], [.014, .018, .01], dark, eyes, [0, side * .4, 0]);
+
+  if (style.outfit !== "none") {
+    const height = style.outfit === "jacket" ? .25 : .19;
+    add(body, new THREE.CylinderGeometry(1, 1, height, 32).scale(.166, 1, .137), uniform, style.outfitColor, [0, .292, 0]);
+    for (const side of [-1, 1]) {
+      add(body, new THREE.BoxGeometry(.018, height, .018), uniform, "#26333a", [side * .095, .292, .12]);
+      for (const y of [.25, .33]) add(body, new THREE.BoxGeometry(.058, .045, .023), uniform, style.outfitColor, [side * .045, y, .139]);
+    }
+    add(body, new THREE.BoxGeometry(.012, height - .02, .012), uniform, "#b8b6a5", [0, .292, .145]);
+  }
+  if (style.headwear !== "none") {
+    const helmet = style.headwear === "helmet";
+    add(body, new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), uniform, style.outfitColor,
+      [0, helmet ? .566 : .565, 0], [.173, helmet ? .15 : .118, .148]);
+    add(body, new THREE.TorusGeometry(1, .025, 6, 36), uniform, "#25333a", [0, helmet ? .566 : .565, 0], [.174, .15, .149], [Math.PI / 2, 0, 0]);
+    if (!helmet) egg(body, [0, .563, .123], [.126, .012, .103], style.outfitColor, uniform);
   }
 
   const wings = [-1, 1].map(side => {
@@ -80,6 +148,6 @@ export function createDuckCrewFigure() {
 
   return { root, body, wings, feet, dispose() {
     root.traverse(object => { if (object instanceof THREE.Mesh) object.geometry.dispose(); });
-    for (const material of [feather, bill, eyes]) material.dispose();
+    for (const material of [feather, bill, eyes, uniform]) material.dispose();
   } };
 }

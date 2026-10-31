@@ -5572,6 +5572,13 @@ export function OfficeScreen({
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               {focusedChatAgent ? (
                 sessionView ? <ExistingSessionPanel key={focusedChatAgent.agentId} client={client} threadId={focusedChatAgent.agentId}
+                  avatarProfile={focusedChatAgent.avatarProfile} agentStatus={focusedChatAgent.needsInput ? "needsInput" : focusedChatAgent.status} agentModel={focusedChatAgent.model}
+                  onSaveCharacter={async profile => {
+                    const key = gatewayUrl.trim();
+                    if (!key) throw new Error(t("Connection unavailable. Please reconnect before saving."));
+                    await settingsCoordinator.applyPatchNow({ avatars: { [key]: { [focusedChatAgent.agentId]: profile } } });
+                    dispatch({ type: "updateAgent", agentId: focusedChatAgent.agentId, patch: { avatarProfile: profile, avatarSeed: profile.seed } });
+                  }}
                   returnDisabled={!!returnRequest || focusedChatAgent.status === "running" || status !== "connected"}
                   onReturnToEarth={() => {
                     if (returnRequest || focusedChatAgent.status === "running") return;
