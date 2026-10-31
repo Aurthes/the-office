@@ -3,6 +3,7 @@ import { memo, useState } from "react";
 import type { LiveSessionItem } from "./SessionControls";
 import { SessionMarkdown } from "./SessionMarkdown";
 import { useUiText } from "@/lib/i18n/ui-language";
+import { visibleUserText } from "@/lib/text/codex-visible-text";
 
 const MessageBody = memo(function MessageBody({ message, truncatedLabel }: { message: LiveSessionItem; truncatedLabel: string }) {
   return <>
@@ -29,6 +30,7 @@ export const SessionTranscript = memo(function SessionTranscript({ messages }: {
   const groups = new Map<string, { id: string; items: LiveSessionItem[] }>();
   const blocks: ({ message: LiveSessionItem } | { group: { id: string; items: LiveSessionItem[] } })[] = [];
   for (const message of messages) {
+    if (message.role === "user" && !visibleUserText(message.content).trim() && !message.assets?.some(asset => asset.inline || asset.attached)) continue;
     if (message.role === "tool" || message.phase === "commentary") {
       const id = message.turnId || message.id;
       let group = groups.get(id);

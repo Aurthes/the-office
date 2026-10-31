@@ -134,3 +134,10 @@ describe("shared App session controls", () => {
   });
 
 });
+
+it("uses the same clean spoken input for live updates", () => {
+  const { controls } = setup();
+  const raw = '<realtime_delegation><input>Confirm the voice channel.</input><transcript_delta>user: old question\nassistant: old answer</transcript_delta></realtime_delegation>';
+  controls.handle({ method: "item/completed", params: { threadId: "original-id", turnId: "t", item: { id: "voice", type: "userMessage", content: [{ type: "text", text: raw }] } } });
+  expect(controls.snapshot("original-id").items[0]).toMatchObject({ role: "user", content: "Confirm the voice channel." });
+});

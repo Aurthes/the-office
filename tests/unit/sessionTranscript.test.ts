@@ -44,3 +44,16 @@ it("keeps large folded logs out of the DOM and renders the latest items when reo
   expect(screen.queryByText("Command 499")).toBeNull();
   expect(view.container.querySelectorAll("pre")).toHaveLength(500);
 });
+
+it("shows voice questions without protocol wrappers or a duplicate call-end bubble", () => {
+  const input = "Confirm how this works in the office.";
+  render(React.createElement(SessionTranscript, { messages: [
+    { id: "voice", role: "user", content: `<realtime_delegation><input>${input}</input><transcript_delta>assistant: Still checking.</transcript_delta></realtime_delegation>` },
+    { id: "flush", role: "user", content: '<realtime_delegation><source>transcript_tail_flush</source><input>The user just ended their realtime session.</input><transcript_delta>user: Confirm how this works in the office.</transcript_delta></realtime_delegation>' },
+    { id: "image", role: "user", content: "", assets: [{ source: "attachment:1", name: "image.png", url: "/api/session-assets?ref=image", kind: "image", attached: true }] },
+  ] }));
+  expect(screen.getByText(input)).toBeTruthy();
+  expect(screen.getAllByRole("article", { name: "You" })).toHaveLength(2);
+  expect(screen.getByRole("img", { name: "image.png" })).toBeTruthy();
+  expect(screen.queryByText(/realtime_delegation|Handoff|just ended|Still checking/)).toBeNull();
+});

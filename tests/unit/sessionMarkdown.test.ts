@@ -125,3 +125,27 @@ it("does not leave hidden trailing links focusable in a collapsed message", () =
   fireEvent.click(screen.getByRole("button", { name: "Expand message" }));
   expect(screen.getByRole("link", { name: "末尾链接" })).toHaveAttribute("href", "https://example.com/details");
 });
+
+it("shows spoken input without voice transport tags or repeated context", () => {
+  const input = "Can you confirm how voice is handled in the office?";
+  const raw = `<realtime_delegation>\n  <input>${input}</input>\n  <transcript_delta>${"user: Earlier context\nassistant: Still checking.\n".repeat(120)}</transcript_delta>\n</realtime_delegation>`;
+  render(React.createElement(SessionMarkdown, { user: true, content: raw }));
+  expect(screen.getByText(input)).toBeTruthy();
+  expect(screen.queryByText(/realtime_delegation|transcript_delta|Earlier context/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Expand message" })).toBeNull();
+  expect(visibleUserText(raw.replaceAll("\n", "\r\n"))).toBe(input);
+});
+it("cleans a completed voice input even when an older gateway clipped the transcript suffix", () => {
+  const raw = '<realtime_delegation><input>Keep this complete question.</input><transcript_delta>' + 'old context '.repeat(7000);
+  expect(visibleUserText(raw.slice(0, 65536))).toBe("Keep this complete question.");
+});
+it("keeps the full spoken request available when the actual input is long", () => {
+  const input = "请保留完整提问。".repeat(80) + "最后一句要求";
+  render(React.createElement(SessionMarkdown, { user: true, content: `<realtime_delegation><input>${input}</input><transcript_delta>old context</transcript_delta></realtime_delegation>` }));
+  fireEvent.click(screen.getByRole("button", { name: "Expand message" }));
+  expect(screen.getByText(input)).toBeTruthy();
+});
+it("hides a synthetic call-end handoff and preserves literal or unknown markup", () => {
+  expect(visibleUserText('<realtime_delegation><source>transcript_tail_flush</source><input>The user just ended their realtime session.</input><transcript_delta>user: Already delegated</transcript_delta></realtime_delegation>')).toBe("");
+  for (const literal of ['Explain <realtime_delegation><input>example</input></realtime_delegation>', '```xml\n<realtime_delegation><input>example</input></realtime_delegation>\n```', '<realtime_delegation><unknown>Keep this</unknown></realtime_delegation>']) expect(visibleUserText(literal)).toBe(literal);
+});

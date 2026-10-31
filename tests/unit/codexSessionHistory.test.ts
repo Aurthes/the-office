@@ -69,3 +69,15 @@ describe("bounded original-session history", () => {
     expect(page.messages.reduce((sum: number, message: { content: string }) => sum + Buffer.byteLength(message.content), 0)).toBeLessThanOrEqual(PAGE_TEXT_BYTES);
   });
 });
+
+it("extracts voice input before budgeting and clears synthetic handoff text", async () => {
+  const raw = '<realtime_delegation><input>Confirm the voice channel.</input><transcript_delta>' + 'user: repeated old context\n'.repeat(10000) + '</transcript_delta></realtime_delegation>';
+  const flush = '<realtime_delegation><source>transcript_tail_flush</source><input>The user just ended their realtime session.</input><transcript_delta>user: Confirm the voice channel.</transcript_delta></realtime_delegation>';
+  const original = [{ id: "voice", type: "userMessage", content: [{ type: "text", text: raw }] }, { id: "flush", type: "userMessage", content: [{ type: "text", text: flush }] }];
+  const call = vi.fn().mockResolvedValue({ data: [{ id: "turn", items: original }] });
+  const page = await loadSessionHistoryPage(call, row);
+  expect(page.messages).toHaveLength(2);
+  expect(page.messages[0]).toMatchObject({ content: "Confirm the voice channel.", truncated: false });
+  expect(page.messages[1].content).toBe("");
+  expect(original[0].content[0].text).toBe(raw); expect(original[1].content[0].text).toBe(flush);
+});
