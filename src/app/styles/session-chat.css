@@ -14,6 +14,11 @@
   line-height: 1.5;
 }
 
+.session-composer-input {
+  --composer-lines: 6;
+  max-height: min(calc(var(--composer-lines) * 1lh + var(--spacing) * 4 + 2px), 35dvh);
+}
+
 .office-session-chat .agent-markdown {
   line-height: 1.55;
 }
@@ -60,6 +65,7 @@
 }
 
 @media (min-width: 768px) and (pointer: fine) {
+  .session-composer-input { --composer-lines: 10; }
   .office-session-chat {
     --spacing: 3.2px;
     --text-xs: 11px;
