@@ -366,6 +366,10 @@ Codex's experimental `thread/sample` API against the latest completed turn.
 It preserves the original chat and does not start an ordinary agent turn or run
 tools. Unsupported accounts, models, plan mode, active turns and native failures
 produce no suggestion; there is no substitute model or locally authored prompt.
+Sampling preserves the source's inherited tool definitions for prompt-cache
+reuse. This inference-only API does not execute tool calls. Native failures are
+logged as safe error metadata and are not cached as valid empty predictions;
+reopening a completed chat can explicitly retry without an automatic retry loop.
 
 Generation runs separately from message sending. Results arrive over the existing
 authenticated WebSocket, correlated with the chat and request. Only two samples

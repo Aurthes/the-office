@@ -7,11 +7,12 @@ function setup(config = {}, sample = {}) {
   const client = {
     ready: true,
     call: vi.fn(async (_method: string, _params?: unknown) => ({ data: [{ id: "done", status: "completed" }] })),
-    sampleThread: vi.fn(async () => ({ sourceTurnId: "done", text: JSON.stringify({ suggestion: "Run the tests" }), ...sample })),
+    sampleThread: vi.fn(async (_params: Record<string, unknown>) => ({ sourceTurnId: "done", text: JSON.stringify({ suggestion: "Run the tests" }), ...sample })),
   };
   const readConfig = vi.fn(async () => ({ is_enabled: true, prompt: "Native account prompt", prediction_reasoning_effort: "high", ...config }));
-  const service = new CodexComposerPredictions(client, { readConfig, account: async () => ({ accountId: "owner", token: "server-only" }), random: () => 0 });
-  return { service, client, readConfig };
+  const onError = vi.fn();
+  const service = new CodexComposerPredictions(client, { readConfig, account: async () => ({ accountId: "owner", token: "server-only" }), random: () => 0, onError });
+  return { service, client, readConfig, onError };
 }
 const context = { model: "gpt-6.1-sol", modelProvider: "openai", planMode: false };
 describe("native composer predictions", () => {
@@ -20,7 +21,9 @@ describe("native composer predictions", () => {
     const [a, b] = await Promise.all([service.request({ id: "original" }, context), service.request({ id: "original" }, context)]);
     expect(a).toEqual({ text: "Run the tests", sourceTurnId: "done" }); expect(b).toEqual(a);
     expect(client.sampleThread).toHaveBeenCalledTimes(1);
-    expect(client.sampleThread).toHaveBeenCalledWith(expect.objectContaining({ threadId: "original", expectedTurnId: "done", disableMcp: true, turnTrigger: "composer_predictions", threadSource: "composer_predictions", effort: "high" }));
+    expect(client.sampleThread).toHaveBeenCalledWith(expect.objectContaining({ threadId: "original", expectedTurnId: "done", turnTrigger: "composer_predictions", effort: "high" }));
+    expect(client.sampleThread.mock.calls[0][0]).not.toHaveProperty("disableMcp");
+    expect(client.sampleThread.mock.calls[0][0]).not.toHaveProperty("threadSource");
     expect(client.call.mock.calls.every(([method]) => method === "thread/turns/list")).toBe(true);
   });
   it("respects account opt-out, unsupported models, sampling eligibility, plan mode and active turns", async () => {
@@ -49,5 +52,22 @@ describe("native composer predictions", () => {
     expect(await service.request({ id: "c" }, context)).toBeNull();
     resolvers.forEach(resolve => resolve({ sourceTurnId: "done", text: '{"suggestion":null}' }));
     await Promise.all([a, b]);
+  });
+  it("records timeout metadata and allows an explicit retry of the same turn", async () => {
+    const { service, client, onError } = setup();
+    client.sampleThread.mockRejectedValueOnce(Object.assign(new Error("sample timed out"), { code: -32603 }));
+    expect(await service.request({ id: "original" }, context)).toBeNull();
+    expect(onError).toHaveBeenCalledWith({ threadId: "original", sourceTurnId: "done", code: -32603, reason: "native_timeout" });
+    expect(await service.request({ id: "original" }, context)).toEqual({ text: "Run the tests", sourceTurnId: "done" });
+    expect(client.sampleThread).toHaveBeenCalledTimes(2);
+  });
+  it("still caches a legitimate empty suggestion and retries failed configuration reads", async () => {
+    const empty = setup({}, { text: '{"suggestion":null}' });
+    await empty.service.request({ id: "original" }, context); await empty.service.request({ id: "original" }, context);
+    expect(empty.client.sampleThread).toHaveBeenCalledTimes(1); expect(empty.onError).not.toHaveBeenCalled();
+    const retry = setup(); retry.readConfig.mockRejectedValueOnce(new Error("network failed"));
+    expect(await retry.service.request({ id: "original" }, context)).toBeNull();
+    expect(await retry.service.request({ id: "original" }, context)).toEqual({ text: "Run the tests", sourceTurnId: "done" });
+    expect(retry.readConfig).toHaveBeenCalledTimes(2);
   });
 });

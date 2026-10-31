@@ -33,8 +33,9 @@ function readPredictionConfig(client, account) {
 }
 
 class CodexComposerPredictions {
-  constructor(client, { readConfig = readPredictionConfig, account = predictionAccount, random = Math.random } = {}) {
+  constructor(client, { readConfig = readPredictionConfig, account = predictionAccount, random = Math.random, onError = detail => console.warn("[composer-prediction]", detail) } = {}) {
     this.client = client; this.readConfig = readConfig; this.account = account; this.random = random;
+    this.onError = onError;
     this.config = null; this.results = new Map(); this.active = 0;
   }
   async request(row, context, generationTrigger = "catch_up") {
@@ -47,14 +48,26 @@ class CodexComposerPredictions {
     if (this.results.has(key)) return this.results.get(key);
     if (this.active >= 2) return null;
     this.active++;
-    const result = this.generate(row.id, latest.id, context.model, account, generationTrigger).catch(() => null).finally(() => { this.active--; });
+    const result = this.generate(row.id, latest.id, context.model, account, generationTrigger).catch(error => {
+      // A failed generation is not a valid "no suggestion" result. A later
+      // explicit request may retry the same completed turn, without polling.
+      if (this.results.get(key) === result) this.results.delete(key);
+      this.onError({ threadId: row.id, sourceTurnId: latest.id, code: error.code,
+        reason: /timed?\s*out|timeout/i.test(error.message || "") ? "native_timeout" : "native_error" });
+      return null;
+    }).finally(() => { this.active--; });
     this.results.set(key, result);
     while (this.results.size > 64) this.results.delete(this.results.keys().next().value);
     return result;
   }
   async generate(threadId, sourceTurnId, model, account, generationTrigger) {
     if (this.config?.accountId !== account.accountId || this.config.expires < Date.now()) {
-      this.config = { accountId: account.accountId, expires: Date.now() + 300000, value: this.readConfig(this.client, account).catch(() => null) };
+      const entry = { accountId: account.accountId, expires: Date.now() + 300000 };
+      entry.value = this.readConfig(this.client, account).catch(error => {
+        if (this.config === entry) this.config = null;
+        throw error;
+      });
+      this.config = entry;
     }
     const config = await this.config.value;
     if (config?.is_enabled !== true || !config.prompt || typeof config.prompt !== "string" || config.prompt.length > 16384 || config.unsupported_models?.includes(model)) return null;
@@ -64,8 +77,10 @@ class CodexComposerPredictions {
     const result = await this.client.sampleThread({
       threadId, expectedTurnId: sourceTurnId,
       prompt: config.prompt + "\n\nReturn only JSON matching this schema: " + JSON.stringify(schema) + ".",
-      effort: config.prediction_reasoning_effort || null, disableMcp: true,
-      turnTrigger: "composer_predictions", threadSource: "composer_predictions",
+      // Inference-only sampling does not execute tools. Preserve the inherited
+      // tool definitions instead of changing the source's prompt-cache prefix.
+      effort: config.prediction_reasoning_effort || null,
+      turnTrigger: "composer_predictions",
       responsesapiClientMetadata: { prediction_source_thread_id: threadId, prediction_source_turn_id: sourceTurnId, prediction_trigger: generationTrigger },
     });
     if (result.sourceTurnId !== sourceTurnId || !result.text) return null;
