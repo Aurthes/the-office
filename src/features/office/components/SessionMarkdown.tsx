@@ -1,5 +1,5 @@
 "use client";
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { createPortal } from "react-dom";
 import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import type { SessionAsset } from "./SessionControls";
 import { visibleUserText } from "@/lib/text/codex-visible-text";
 import { useUiText } from "@/lib/i18n/ui-language";
+import { SessionPreviewContext } from "./SessionPreviewContext";
 export { visibleUserText };
 
 function AssetImage({ src, name, onOpen, fullSize = false, thumbnail = false }: { src: string; name: string; onOpen: () => void; fullSize?: boolean; thumbnail?: boolean }) {
@@ -22,7 +23,7 @@ function AssetImage({ src, name, onOpen, fullSize = false, thumbnail = false }: 
   </span>;
 }
 
-function AssetPreview({ asset, onClose }: { asset: SessionAsset; onClose: () => void }) {
+export function SessionAssetPreview({ asset, onClose, embedded = false }: { asset: SessionAsset; onClose: () => void; embedded?: boolean }) {
   const t = useUiText();
   const dialog = useRef<HTMLDialogElement>(null);
   const [markdown, setMarkdown] = useState<{ content: string; assets: SessionAsset[] } | null>(null);
@@ -31,7 +32,7 @@ function AssetPreview({ asset, onClose }: { asset: SessionAsset; onClose: () => 
   const [htmlLoading, setHtmlLoading] = useState(true);
   const [htmlSlow, setHtmlSlow] = useState(false);
   const [htmlRetry, setHtmlRetry] = useState(0);
-  useEffect(() => { const node = dialog.current; node?.showModal(); return () => node?.close(); }, []);
+  useEffect(() => { if (embedded) return; const node = dialog.current; node?.showModal(); return () => node?.close(); }, [embedded]);
   useEffect(() => {
     if (asset.kind !== "html" || !htmlLoading) return;
     const timer = setTimeout(() => setHtmlSlow(true), 8000);
@@ -48,9 +49,9 @@ function AssetPreview({ asset, onClose }: { asset: SessionAsset; onClose: () => 
     }).catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Could not read file"); });
     return () => controller.abort();
   }, [asset]);
-  return createPortal(<dialog ref={dialog} aria-label={t("Preview {0}", { "0": asset.name })} onCancel={event => { event.preventDefault(); onClose(); }} className="fixed inset-0 m-0 flex h-dvh max-h-none w-full max-w-none flex-col overflow-hidden border-0 bg-[#111923] p-0 text-white backdrop:bg-black/70 md:inset-4 md:h-[calc(100dvh-2rem)] md:w-[calc(100vw-2rem)] md:rounded-xl md:border md:border-white/15">
+  const content = <>
     <header className="flex shrink-0 items-center gap-3 border-b border-white/15 px-4 py-2">
-      <button type="button" onClick={onClose} className="min-h-11 shrink-0 rounded-lg px-3 text-sm text-cyan-100 hover:bg-white/10">{t("← Back to chat")}</button>
+      <button type="button" onClick={onClose} className="min-h-11 shrink-0 rounded-lg px-3 text-sm text-cyan-100 hover:bg-white/10">{t(embedded ? "Back to files" : "← Back to chat")}</button>
       <span className="min-w-0 flex-1 truncate text-sm">{asset.name}</span>
       {asset.kind === "html" ? <a href={asset.url} target="_blank" rel="noopener noreferrer" onClick={onClose} className="shrink-0 rounded-lg px-2 py-3 text-xs text-cyan-100">{t("Open separately ↗")}</a> : null}
       <a href={asset.url} download={asset.name} className="shrink-0 rounded-lg px-3 py-3 text-xs text-white/60">{t("Download")}</a>
@@ -67,9 +68,11 @@ function AssetPreview({ asset, onClose }: { asset: SessionAsset; onClose: () => 
       </div> : null}
     </div> : <div className="min-h-0 flex-1 overflow-auto p-4 md:p-8">
       {asset.kind === "image" ? <div className={fullSize ? "min-w-max" : "flex min-h-full items-center justify-center"}><AssetImage src={asset.url} name={asset.name} fullSize={fullSize} onOpen={() => setFullSize(value => !value)} /></div>
+        : asset.kind === "file" ? <p className="text-sm text-white/60">{t("Download this file to open it.")}</p>
         : error ? <p role="alert" className="text-amber-100">{t(error)}</p> : markdown ? <div className="mx-auto max-w-4xl"><SessionMarkdown content={markdown.content} assets={markdown.assets} /></div> : <p role="status">{t("Reading file…")}</p>}
     </div>}
-  </dialog>, document.body);
+  </>;
+  return embedded ? <section aria-label={t("Preview {0}", { "0": asset.name })} className="flex min-h-0 flex-1 flex-col overflow-hidden">{content}</section> : createPortal(<dialog ref={dialog} aria-label={t("Preview {0}", { "0": asset.name })} onCancel={event => { event.preventDefault(); onClose(); }} className="fixed inset-0 m-0 flex h-dvh max-h-none w-full max-w-none flex-col overflow-hidden border-0 bg-[#111923] p-0 text-white backdrop:bg-black/70 md:inset-4 md:h-[calc(100dvh-2rem)] md:w-[calc(100vw-2rem)] md:rounded-xl md:border md:border-white/15">{content}</dialog>, document.body);
 }
 
 const NO_ASSETS: SessionAsset[] = [];
@@ -79,21 +82,25 @@ export const SessionMarkdown = memo(function SessionMarkdown({ content, assets =
   const [expanded, setExpanded] = useState(false);
   const textRef = useRef<HTMLDivElement>(null);
   const textId = useId();
+  const sidePreview = useContext(SessionPreviewContext);
+  const openPreview = useCallback((asset: SessionAsset) => {
+    if (sidePreview) sidePreview(asset); else setPreview(asset);
+  }, [sidePreview]);
   const find = useCallback((source: string) => assets.find(asset => asset.source === source || asset.url === source), [assets]);
   const transform = useCallback((url: string) => find(url)?.url || defaultUrlTransform(url), [find]);
   const components = useMemo<Components>(() => ({
         a: ({ href, children }) => {
           const asset = href ? find(href) : undefined;
           if (asset?.kind === "file") return <a href={asset.url} download={asset.name}>{children} ↓</a>;
-          return asset ? <a href={asset.url} onClick={event => { event.preventDefault(); setPreview(asset); }} title={t("Preview {0}", { "0": asset.name })}>{children} <span className="text-[10px] opacity-60">{t("↗ Preview")}</span></a>
+          return asset ? <a href={asset.url} onClick={event => { event.preventDefault(); openPreview(asset); }} title={t("Preview {0}", { "0": asset.name })}>{children} <span className="text-[10px] opacity-60">{t("↗ Preview")}</span></a>
             : <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
         },
         img: ({ src, alt }) => {
           const source = typeof src === "string" ? src : "", asset = find(source);
-          return asset ? <AssetImage key={asset.url} src={asset.url} name={alt || asset.name} onOpen={() => setPreview(asset)} />
-            : source && /^https?:\/\//.test(source) ? <AssetImage src={source} name={alt || t("Image")} onOpen={() => setPreview({ source, url: source, name: alt || "Image", kind: "image" })} /> : <span className="text-xs text-white/50">{alt || t("Image")}{t(" (preview unavailable; reload the session)")}</span>;
+          return asset ? <AssetImage key={asset.url} src={asset.url} name={alt || asset.name} onOpen={() => openPreview(asset)} />
+            : source && /^https?:\/\//.test(source) ? <AssetImage src={source} name={alt || t("Image")} onOpen={() => openPreview({ source, url: source, name: alt || "Image", kind: "image" })} /> : <span className="text-xs text-white/50">{alt || t("Image")}{t(" (preview unavailable; reload the session)")}</span>;
         },
-  }), [find, t]);
+  }), [find, t, openPreview]);
   const text = user ? visibleUserText(content) : content;
   const collapsible = user && (text.length > 400 || text.split("\n", 9).length > 8);
   const excerpt = collapsible && !expanded ? text.trimStart().slice(0, 180).split(/\r?\n/, 4).join("\n").trimEnd() + "…" : text;
@@ -101,7 +108,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({ content, assets =
     setExpanded(value => !value);
     if (expanded) requestAnimationFrame(() => textRef.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" }));
   };
-  const attachments = assets.filter(asset => asset.inline || asset.attached).map(asset => asset.kind === "image" ? <AssetImage key={asset.url} src={asset.url} name={asset.name} thumbnail={user} onOpen={() => setPreview(asset)} /> : asset.kind === "file" ? <a key={asset.url} href={asset.url} download={asset.name} className="my-2 inline-block rounded-lg border border-white/15 px-3 py-2 text-sm text-cyan-100">{asset.name}{t("↓ Download")}</a> : <button key={asset.url} type="button" onClick={() => setPreview(asset)} className="my-2 rounded-lg border border-white/15 px-3 py-2 text-sm text-cyan-100">{asset.name}{t("↗ Preview")}</button>);
+  const attachments = assets.filter(asset => asset.inline || asset.attached).map(asset => asset.kind === "image" ? <AssetImage key={asset.url} src={asset.url} name={asset.name} thumbnail={user} onOpen={() => openPreview(asset)} /> : asset.kind === "file" ? <a key={asset.url} href={asset.url} download={asset.name} className="my-2 inline-block rounded-lg border border-white/15 px-3 py-2 text-sm text-cyan-100">{asset.name}{t("↓ Download")}</a> : <button key={asset.url} type="button" onClick={() => openPreview(asset)} className="my-2 rounded-lg border border-white/15 px-3 py-2 text-sm text-cyan-100">{asset.name}{t("↗ Preview")}</button>);
   return <>
     {user && attachments.length ? <div className="session-user-attachments flex flex-wrap justify-end gap-2">{attachments}</div> : null}
     {(!user || text.trim()) ? <div ref={textRef} className={user ? `session-user-text${collapsible ? " session-user-text--collapsible" : ""}` : undefined}>
@@ -115,6 +122,6 @@ export const SessionMarkdown = memo(function SessionMarkdown({ content, assets =
     </button> : null}
     </div> : null}
     {!user ? attachments : null}
-    {preview ? <AssetPreview key={preview.url} asset={preview} onClose={() => setPreview(null)} /> : null}
+    {preview ? <SessionAssetPreview key={preview.url} asset={preview} onClose={() => setPreview(null)} /> : null}
   </>;
 });

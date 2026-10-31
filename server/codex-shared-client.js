@@ -36,7 +36,7 @@ class CodexSharedClient {
       const request = this.pending.get(frame.id);
       if (!request) return;
       clearTimeout(request.timer); this.pending.delete(frame.id);
-      if (frame.error) request.reject(new Error(frame.error.message)); else request.resolve(frame.result);
+      if (frame.error) request.reject(Object.assign(new Error(frame.error.message), { code: frame.error.code })); else request.resolve(frame.result);
     });
   }
   async initialize() {

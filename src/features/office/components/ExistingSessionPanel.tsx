@@ -1,11 +1,14 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ArrowRightLeft, ArrowLeft, ChevronRight, ExternalLink, LogOut, MoreHorizontal, SlidersHorizontal, PencilLine, UserRound } from "lucide-react";
+import { ArrowRightLeft, ArrowLeft, ChevronRight, ExternalLink, LogOut, MoreHorizontal, PanelRight, SlidersHorizontal, PencilLine, UserRound } from "lucide-react";
 import type { CharacterMode } from "@/features/ring-ship/DuckCharacterPanel";
 import type { AgentAvatarProfile } from "@/lib/avatars/profile";
 import type { CompanyProject } from "@/features/retro-office/core/companyLayout";
 import { SessionControls, type LiveSessionItem, type SessionClient } from "./SessionControls";
+import { SessionPreviewContext } from "./SessionPreviewContext";
+import { SessionWorkspace } from "./SessionWorkspace";
+import type { SessionAsset } from "./SessionControls";
 import { SessionTranscript } from "./SessionTranscript";
 import { useUiText } from "@/lib/i18n/ui-language";
 
@@ -23,8 +26,9 @@ type Message = LiveSessionItem;
 type HistoryPage = { threadId: string; messages: Message[]; nextCursor: string | null };
 type LoadMode = "latest" | "older";
 
-export function ExistingSessionPanel({ client, threadId, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, projects = [] }: {
+export function ExistingSessionPanel({ client, threadId, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, projects = [] }: {
   client: SessionClient;
+  onOpenWorkspace?: () => void;
   threadId: string;
   onReturnToEarth?: () => void;
   returnDisabled?: boolean;
@@ -37,6 +41,9 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
   projects?: CompanyProject[];
 }) {
   const t = useUiText();
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [previewAsset, setPreviewAsset] = useState<SessionAsset | null>(null);
+  const openPreview = useCallback((asset: SessionAsset) => { setPreviewAsset(asset); setWorkspaceOpen(true); onOpenWorkspace?.(); }, [onOpenWorkspace]);
   const [characterMode, setCharacterMode] = useState<CharacterMode | "chat">("chat");
   const characterOpen = characterMode !== "chat";
   const [data, setData] = useState<SessionInspection | null>(null);
@@ -168,7 +175,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
     event.currentTarget.closest("details")?.removeAttribute("open");
     setCharacterMode(mode);
   };
-  return <section className="flex min-h-0 flex-1 flex-col text-white" aria-label={t("App session")}>
+  return <SessionPreviewContext.Provider value={openPreview}><section className="flex min-h-0 flex-1 flex-col text-white" aria-label={t("App session")}>
     <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-2">
       <div className="min-w-0">
         <h2 className="truncate text-sm font-semibold" title={sessionName}>{data?.id === threadId ? sessionName : t("Loading session information…")}</h2>
@@ -176,6 +183,8 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {characterOpen ? <button type="button" onClick={() => setCharacterMode("chat")} className="session-action-back"><ArrowLeft size={14} />{t("Back to chat")}</button> : null}
+        {!characterOpen ? <button type="button" aria-label={t(workspaceOpen ? "Close workspace" : "Open workspace")} aria-expanded={workspaceOpen} title={t("Workspace")}
+          disabled={!data?.controlsAvailable} className="session-action-back" onClick={() => { setWorkspaceOpen(value => !value); if (!workspaceOpen) onOpenWorkspace?.(); }}><PanelRight size={15} /><span>{t("Workspace")}</span></button> : null}
         <details className="session-actions relative" aria-label={t("Session information")}>
           <summary aria-label={t("Session information")} className="session-actions-trigger"><MoreHorizontal size={18} aria-hidden="true" /></summary>
           <div className="session-actions-popover">
@@ -201,7 +210,8 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
       </div>
     </header>
     {characterOpen && data && onSaveCharacter ? <DuckCharacterPanel key={`${threadId}:${characterMode}`} mode={characterMode} onModeChange={setCharacterMode} onRename={data.controlsAvailable ? rename : undefined} onReassign={data.controlsAvailable ? reassign : undefined} projects={projects} info={{ ...data, name: sessionName }} profile={avatarProfile} status={agentStatus || data.status} model={agentModel} onSave={onSaveCharacter} /> : null}
-    <div className={characterOpen ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
+    <div className={characterOpen ? "hidden" : `session-workspace-layout min-h-0 flex-1${workspaceOpen ? " session-workspace-layout--open" : ""}`}>
+    <div className="session-conversation flex min-h-0 min-w-0 flex-1 flex-col">
     {metadataError ? <p role="alert" className="p-3 text-xs text-amber-200">{t(metadataError)}</p> : null}
     {error ? <p role="alert" className="p-3 text-xs text-amber-200">{t(error)} <button onClick={() => void load.current?.(failedMode.current)} className="underline">{t("Retry")}</button></p> : null}
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -234,5 +244,9 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
     </div>
     {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} client={client} threadId={threadId} onItems={onLiveItems} /> : null}
     </div>
-  </section>;
+    {workspaceOpen ? <SessionWorkspace client={client} threadId={threadId} asset={previewAsset}
+      assets={[...new Map(messages.flatMap(message => message.assets || []).map(asset => [asset.url, asset])).values()].slice(-40)}
+      onSelectAsset={setPreviewAsset} onClose={() => setWorkspaceOpen(false)} /> : null}
+    </div>
+  </section></SessionPreviewContext.Provider>;
 }

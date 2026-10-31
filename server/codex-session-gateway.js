@@ -14,12 +14,13 @@ const { CodexSessionVoice } = require("./codex-session-voice");
 const { CodexSessionStream } = require("./codex-session-stream");
 const { CodexRosterSync } = require("./codex-roster-sync");
 const { CodexWorkspaceActions } = require("./codex-workspace-actions");
+const { CodexSessionWorkspace } = require("./codex-session-workspace");
 
 const index = new CodexSessionIndex(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"));
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
 const port = Number(process.env.CODEX_ADAPTER_PORT || 18790);
-let controls, voice, stream, rosterSync;
+let controls, voice, stream, rosterSync, workspace;
 const liveNotifications = new Map();
 function notifyLive(threadId) {
   stream?.changed(threadId);
@@ -36,11 +37,13 @@ const shared = process.env.CLAW3D_CODEX_CONTROL_SOCKET ? new CodexSharedClient(p
   const threadId = frame.params?.threadId, previous = threadId ? controls?.state(threadId).version : null;
   controls?.handle(frame);
   voice?.handle(frame);
+  workspace?.handle(frame);
   rosterSync?.native(frame);
   if (threadId && previous !== controls?.state(threadId).version) notifyLive(threadId);
   if (frame.method === "connection/closed" && !stopping) process.exit(1);
 }) : null;
 controls = shared ? new CodexSessionControls(shared, id => index.pendingQuestions(id)) : null;
+workspace = new CodexSessionWorkspace(shared);
 stream = controls ? new CodexSessionStream(controls) : null;
 voice = shared ? new CodexSessionVoice(shared, controls, (ws, payload) => {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "event", event: "session.voice", payload }));
@@ -89,6 +92,14 @@ const { answerQuestions } = require("./codex-session-questions");
 const { NativeDictationSessions } = require("./codex-dictation");
 const nativeDictation = new NativeDictationSessions(shared);
 const methods = {
+  "session.workspace.list": async p => workspace.files(get(p.threadId), p.path),
+  "session.workspace.read": async p => workspace.file(get(p.threadId), p.path),
+  "session.terminal.subscribe": async (p, ws) => workspace.subscribe(ws, get(p.threadId).id),
+  "session.terminal.unsubscribe": async (_p, ws) => { workspace.disconnected(ws); return {}; },
+  "session.terminal.start": async p => workspace.start(get(p.threadId)),
+  "session.terminal.write": async p => workspace.write(get(p.threadId).id, p.handle, p.dataBase64),
+  "session.terminal.resize": async p => workspace.resize(get(p.threadId).id, p.handle, p.cols, p.rows),
+  "session.terminal.stop": async p => workspace.stop(get(p.threadId).id, p.handle),
   "office.snapshot": async () => {
     const listed = agents();
     return { defaultId: listed[0]?.id, mainKey: "main", agents: listed,
@@ -161,7 +172,7 @@ wss.on("connection", ws => {
         if (!ready) throw new Error("Session reader is starting");
         connected = true; clients.add(ws);
         result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "codex-app-session-view-1", connId: crypto.randomUUID() },
-          features: { methods: Object.keys(methods), events: ["tick", "session.updated", "session.stream", "session.voice", "roster.updated"] },
+          features: { methods: Object.keys(methods), events: ["tick", "session.updated", "session.stream", "session.voice", "session.terminal", "roster.updated"] },
           snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: rows()[0]?.id }, sessionDefaults: { mainKey: "main" } },
           auth: { role: "operator", scopes: shared ? ["operator.read", "operator.write", "operator.approvals"] : ["operator.read"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
       } else {
@@ -172,13 +183,13 @@ wss.on("connection", ws => {
       send({ type: "res", id: frame.id, ok: true, payload: result });
     } catch (error) { send({ type: "res", id: frame.id, ok: false, error: { code: "UNAVAILABLE", message: error.message } }); }
   });
-  ws.on("close", () => { clients.delete(ws); nativeDictation.disconnected(ws); voice?.disconnected(ws); stream?.disconnected(ws); }); ws.on("error", () => { clients.delete(ws); stream?.disconnected(ws); });
+  ws.on("close", () => { clients.delete(ws); nativeDictation.disconnected(ws); voice?.disconnected(ws); stream?.disconnected(ws); workspace.disconnected(ws); }); ws.on("error", () => { clients.delete(ws); stream?.disconnected(ws); workspace.disconnected(ws); });
 });
 setInterval(() => {
   const frame = JSON.stringify({ type: "event", event: "tick", seq: seq++, payload: { ts: Date.now() } });
   for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame);
 }, 30000).unref();
-for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => { stopping = true; nativeDictation.close(); dictate.close(); rosterSync.close(); server.close(); for (const ws of clients) ws.close(1001, "Server stopping"); reader?.stdin.end(); shared?.close(); index.close(); });
+for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, async () => { if (stopping) return; stopping = true; nativeDictation.close(); dictate.close(); rosterSync.close(); server.close(); for (const ws of clients) ws.close(1001, "Server stopping"); await workspace.close(); reader?.stdin.end(); shared?.close(); index.close(); });
 (shared ? shared.initialize() : call("initialize", { clientInfo: { name: "claw3d_session_reader", title: "Claw3D existing sessions", version: "1" } })).then(() => {
   reader?.stdin.write(JSON.stringify({ method: "initialized" }) + "\n"); rosterSync.start(); ready = true;
   server.listen(port, "127.0.0.1", () => console.log(`[session-view] ${shared ? "Shared App owner connected" : "Read-only reader; controls disabled"}`));
