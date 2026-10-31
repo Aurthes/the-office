@@ -18,7 +18,7 @@ it("renders referenced images through the protected route and opens HTML in an i
   fireEvent.click(screen.getByRole("button", { name: /Back to chat/ }));
   fireEvent.click(screen.getByRole("link", { name: /Report/ }));
   expect(screen.getByRole("dialog")).toBeTruthy();
-  const iframe = screen.getByTitle("report.html"); expect(iframe.getAttribute("src")).toBe(html.url); expect(iframe.getAttribute("sandbox")).toBe("allow-scripts");
+  const iframe = screen.getByTitle("report.html"); expect(iframe.getAttribute("src")).toBe(html.url + "&preview=1"); expect(iframe.getAttribute("sandbox")).toBe("allow-scripts");
   fireEvent.click(screen.getByRole("button", { name: /Back to chat/ })); expect(screen.queryByRole("dialog")).toBeNull();
 });
 it("renders native image attachments and Markdown files, including file-relative images", async () => {
@@ -29,6 +29,23 @@ it("renders native image attachments and Markdown files, including file-relative
   fireEvent.click(screen.getByRole("link", { name: /Read/ }));
   await screen.findByRole("heading", { name: "File title" });
   await waitFor(() => expect(screen.getByRole("img", { name: "relative" }).getAttribute("src")).toBe("/api/session-assets?ref=relative"));
+});
+it("reloads only the current isolated HTML frame on its self-refresh request", () => {
+  const html = { source: "/report.html", name: "report.html", kind: "html" as const, url: "/api/session-assets?ref=html" };
+  render(React.createElement(SessionMarkdown, { content: "[Report](/report.html)", assets: [html] }));
+  fireEvent.click(screen.getByRole("link", { name: /Report/ }));
+  const original = screen.getByTitle("report.html") as HTMLIFrameElement;
+  const message = "claw3d:session-asset-refresh";
+  fireEvent(window, new MessageEvent("message", { data: message, source: window }));
+  fireEvent(window, new MessageEvent("message", { data: "unrelated", source: original.contentWindow }));
+  expect(screen.getByTitle("report.html")).toBe(original);
+  fireEvent(window, new MessageEvent("message", { data: message, source: original.contentWindow }));
+  const refreshed = screen.getByTitle("report.html");
+  expect(refreshed).not.toBe(original);
+  expect(refreshed).toHaveAttribute("src", html.url + "&preview=1");
+  expect(refreshed).toHaveAttribute("sandbox", "allow-scripts");
+  fireEvent(window, new MessageEvent("message", { data: message, source: original.contentWindow }));
+  expect(screen.getByTitle("report.html")).toBe(refreshed);
 });
 it("displays the actual user request instead of native ambient transport metadata", () => {
   expect(visibleUserText('# Applications mentioned by the user:\n<appshot>large context</appshot>\n## My request:\nThis is crowded')).toBe("This is crowded");

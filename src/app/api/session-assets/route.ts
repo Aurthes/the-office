@@ -2,6 +2,7 @@ import path from "node:path";
 import { gzip } from "node:zlib";
 import { promisify } from "node:util";
 import { describeSessionAssets, readSessionAsset, HTML_POLICY } from "../../../../server/codex-session-assets";
+import { prepareHtmlPreview } from "@/lib/security/prepareHtmlPreview";
 
 export const runtime = "nodejs";
 const compress = promisify(gzip);
@@ -18,9 +19,11 @@ export async function GET(request: Request) {
       const content = asset.bytes.toString("utf8");
       return Response.json({ content, assets: describeSessionAssets(content, [], { baseDir: path.dirname(asset.path) }) }, { headers });
     }
+    const body = asset.mime === "text/html" && query.get("preview") === "1"
+      ? Buffer.from(prepareHtmlPreview(asset.bytes.toString("utf8"))) : asset.bytes;
     const preference = request.headers.get("accept-encoding")?.split(",").find(value => /^gzip(?:\s*;|$)/i.test(value.trim()));
-    const useGzip = asset.mime === "text/html" && asset.bytes.length >= 1024 && preference !== undefined && !/;\s*q=0(?:\.0*)?(?:\s*;|\s*$)/i.test(preference);
-    const bytes = useGzip ? await compress(asset.bytes) : asset.bytes;
+    const useGzip = asset.mime === "text/html" && body.length >= 1024 && preference !== undefined && !/;\s*q=0(?:\.0*)?(?:\s*;|\s*$)/i.test(preference);
+    const bytes = useGzip ? await compress(body) : body;
     return new Response(new Uint8Array(bytes), { headers: {
       ...headers, "Content-Type": asset.mime + (asset.mime.startsWith("text/") ? "; charset=utf-8" : ""),
       ...(asset.mime === "application/octet-stream" ? { "Content-Disposition": "attachment; filename*=UTF-8''" + encodeURIComponent(path.basename(asset.path)) } : {}),
