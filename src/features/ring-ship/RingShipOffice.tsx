@@ -5,7 +5,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Environment, Lightformer, OrbitControls } from "@react-three/drei";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import * as THREE from "three";
-import { ExternalLink, Home, Layers3, Settings2, Users, X } from "lucide-react";
+import { Monitor, Home, Layers3, Settings2, Users, X } from "lucide-react";
 import type { RetroOffice3D } from "@/features/retro-office/RetroOffice3D";
 import type { OfficeAgent, RenderAgent } from "@/features/retro-office/core/types";
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
@@ -28,11 +28,11 @@ import { returnRoute, RETURN_LABELS, type ArchiveResult, type ReturnStage, type 
 import { advanceCrew, canvasPoint, worldPoint, hash, type MovingAgent } from "./crewMotion";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { MonitorRoomScreen } from "./MonitorRoom";
-import { openStrategyMonitor, strategyMonitorUrl } from "./strategyMonitor";
 import { GalaxyBackdrop } from "./GalaxyBackdrop";
 import { STAR_SYSTEMS, starSystem } from "./galaxy";
 import { NavigationConsole, NavigationOverlay, navigationConsolePose, useStarNavigation } from "./StarNavigation";
 import { WarpJourney } from "./WarpJourney";
+import { MonitorDashboard } from "./MonitorDashboard";
 
 type Props = ComponentProps<typeof RetroOffice3D> & { navigationPreview?: boolean };
 type Controls = ComponentRef<typeof OrbitControls>;
@@ -295,11 +295,8 @@ export function RingShipOffice(props: Props) {
   const completeWarp = useCallback(() => navigate({ type: "complete" }), [navigate]);
   const [deck, setDeck] = useState<DeckIndex>(0), [whole, setWhole] = useState(false), [liftOpen, setLiftOpen] = useState(false);
   const [trip, setTrip] = useState<LiftTrip | null>(null);
-  const [monitorNotice, setMonitorNotice] = useState("");
-  const openMonitor = () => {
-    const url = strategyMonitorUrl();
-    setMonitorNotice(!url ? "The Grafana dashboard is not configured." : openStrategyMonitor(url) ? "" : "Allow pop-ups for this site, then try again.");
-  };
+  const [monitorOpen, setMonitorOpen] = useState(false);
+  const openMonitor = () => setMonitorOpen(true);
   const overlayRef = useRef<HTMLDivElement>(null);
   const pendingFocus = useRef("");
   const busy = !!trip;
@@ -384,6 +381,7 @@ export function RingShipOffice(props: Props) {
     if (busy) return;
     const cabin = layout.cabins.find(c => c.id === id || c.projectId === id);
     if (cabin && cabin.deck !== visibleDeck) { travel(cabin.deck, id); return; }
+    if (cabin?.kind === "monitor") setMonitorOpen(true);
     setWhole(false); setLiftOpen(false); setFocus(previous => ({ id, request: previous.request + 1 }));
   }, [busy, layout, visibleDeck, travel]);
   const arrive = useCallback((destination: DeckIndex) => { setDeck(destination); setWhole(false); }, []);
@@ -457,7 +455,7 @@ export function RingShipOffice(props: Props) {
     <div className="ship-summary pointer-events-none absolute bottom-4 left-4 z-10 max-w-[min(70vw,460px)] rounded-xl border border-white/10 bg-[#102531]/90 px-4 py-3">
       <div className="text-xs text-[#e1cb9f]">{selected ? (selected.kind === "work" && selected.projectId !== SHARED_PROJECT_ID ? selected.name : t(selected.name)) : shipView ? t("Three-ring ship · Whole ship") : `L${visibleDeck + 1} · ${t(DECK_NAMES[visibleDeck])}`}</div>
       <div className="mt-1 text-[11px] text-[#9fb9c2]">{selected ? t(PUBLIC_DESCRIPTIONS[selected.kind]) : t("{0} projects · {1} sessions · {2} reserve cabins", { "0": roster.projects.length, "1": agents.length, "2": reserveCount })}</div>
-      {selected?.kind === "monitor" ? <button type="button" onClick={openMonitor} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#71d3c8]/40 px-3 text-xs text-[#b7eee0] hover:bg-white/10">{t("Open Grafana strategy dashboard")} <ExternalLink size={13} /></button> : null}
+      {selected?.kind === "monitor" ? <button type="button" onClick={openMonitor} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#71d3c8]/40 px-3 text-xs text-[#b7eee0] hover:bg-white/10">{t("Open monitoring dashboard")} <Monitor size={13} /></button> : null}
       {navigationPreview && selected?.kind === "monitor" ? <button type="button" onClick={() => navigate({ type: "open" })} className="pointer-events-auto mt-2 min-h-10 rounded-lg border border-[#9dc7d3]/40 px-3 text-xs text-[#c6e0e9]">{t("Open star chart")}</button> : null}
       <div className="mt-1 text-[9px] text-[#829da9]">{t("{working} working · {idle} idle · Drag to rotate · Scroll to zoom · Use the central lift to change decks", { working: agents.filter(a => a.status === "working").length, idle: agents.filter(a => a.status === "idle").length })}</div>
     </div>
@@ -465,7 +463,7 @@ export function RingShipOffice(props: Props) {
     {navigationPreview && !navigationOpen ? <div className="star-location"><span style={{ color: system.color }}>{t(system.name)}</span><small>{t(system.description)}</small></div> : null}
     {navigationOpen && navigation.phase !== "warp" ? <NavigationOverlay state={navigation} onAction={navigate} /> : null}
     {navigationPreview && navigation.phase === "warp" && navigation.destination ? <WarpJourney destination={starSystem(navigation.destination)} onArrive={arriveSystem} onComplete={completeWarp} /> : null}
-    {monitorNotice ? <div role="status" className="absolute bottom-36 left-1/2 z-30 flex max-w-[90vw] -translate-x-1/2 items-center gap-3 rounded-xl border border-amber-200/30 bg-[#102531] px-4 py-3 text-xs text-amber-100">{t(monitorNotice)}<button type="button" aria-label={t("Close")} onClick={() => setMonitorNotice("")} className="p-2"><X size={14} /></button></div> : null}
+    <MonitorDashboard open={monitorOpen} onClose={() => setMonitorOpen(false)} />
     <LiftOverlay trip={trip} overlayRef={overlayRef} />
     {returnFlight ? <div role="status" aria-live="polite" className="absolute bottom-20 sm:bottom-4 left-1/2 z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-amber-200/25 bg-[#101e29]/95 px-4 py-3 text-center shadow-xl">
       <div className="truncate text-xs text-amber-100">{returnFlight.name}</div>

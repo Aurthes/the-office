@@ -89,12 +89,27 @@ this project does not claim complete native UI parity.
 Character movement is a visualization, not an additional agent or evidence that a
 model is running a task.
 
-The spaceship uses one available reserve cabin as a monitor room. To connect its
-main screen, set `NEXT_PUBLIC_CLAW3D_GRAFANA_URL` to a dashboard URL before building.
-The screen opens Grafana in a browser tab using its normal login. Repeat clicks
-reuse that page without reloading for five minutes after the last click. After a
-longer gap, the next click reloads the dashboard URL in the same tab. Studio never
-closes the tab or copies Grafana data. No Grafana embedding settings are needed.
+The spaceship uses one available reserve cabin as a monitor room. Its main screen
+opens a console of illustrated dashboard shortcuts. Configure their names, URLs,
+and illustrations in the console; settings are saved with the local Studio state
+and shared across devices. `CLAW3D_GRAFANA_URL` supplies the initial Grafana link
+at runtime; the existing build-time `NEXT_PUBLIC_CLAW3D_GRAFANA_URL` also works.
+Each shortcut opens its own reusable browser tab with the dashboard's normal
+login. Repeat clicks preserve its page for five minutes after the last click;
+after a longer gap, the next click reloads its configured URL. Studio never closes
+those tabs, copies Grafana charts, or requires Grafana embedding changes.
+
+The built-in fleet dashboard is opt-in: set `CLAW3D_SERVER_POOL_FILE` to a local
+registry containing `alias|class|params|notes` rows. Classes `online` (production)
+and `offline` (research/compute) describe purpose, separately from reachability.
+`active=no` entries remain visible without being probed. Aliases must already
+exist in SSH config with trusted host keys and noninteractive authentication.
+Studio takes read-only, one-second Linux samples over reused SSH transports,
+with at most four simultaneous probes and a shared 30-second cache. It installs
+nothing remotely. Probes run on demand while a visible fleet dashboard is open;
+failures retain clearly marked stale samples. Disks show local mounted filesystems
+only, led by the fullest partition. Credentials, registry notes, IP addresses,
+and SSH configuration are never returned by the monitoring APIs.
 
 ## Remote access
 
