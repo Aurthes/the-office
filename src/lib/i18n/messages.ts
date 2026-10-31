@@ -381,6 +381,8 @@ export const ZH_CN: Record<string, string> = {
   "Add attachments, drag files, or paste images": "添加附件，也可拖入文件或粘贴图片",
   "Stop recording and transcribe": "结束录音并转写",
   "Native dictation": "原生听写",
+  "Click to record. Option: tap to toggle, hold to dictate. Enter: transcribe and send. Esc: cancel.": "点击录音。Option：短按开始或结束，长按说话。Enter：转文字并发送。Esc：取消。",
+  "Recording · {time} · Option or microphone: stop · Enter: send · Esc: cancel": "正在录音 · {time} · Option 或麦克风：结束 · Enter：转文字并发送 · Esc：取消",
   "Record here and transcribe with Codex. Click again to stop; review the draft before sending.": "网页录音，Codex 原生转文字；再次点击结束，文字填入草稿后再发送",
   "Voice chat": "语音对话",
   "Start a live voice chat in this session": "与此会话实时语音对话",

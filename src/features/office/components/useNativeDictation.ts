@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { SessionClient } from "./SessionControls";
 type Bridge = { id: string; client: SessionClient; ready: Promise<void>; connected: boolean; sent: number; pending: Set<Promise<void>>; error?: Error; cancelled?: boolean };
 type Clip = { blob: Blob; seconds: number; base: string };
-type Capture = { context: AudioContext; node?: AudioWorkletNode; source?: MediaStreamAudioSourceNode; stream?: MediaStream; frames: Int16Array[]; samples: number; stopped: boolean; flush?: () => void; limit?: ReturnType<typeof setTimeout>; bridge?: Bridge };
+type Capture = { context: AudioContext; node?: AudioWorkletNode; source?: MediaStreamAudioSourceNode; stream?: MediaStream; frames: Int16Array[]; samples: number; stopped: boolean; discarded?: boolean; flush?: () => void; limit?: ReturnType<typeof setTimeout>; bridge?: Bridge };
 // Keep an interrupted recording when switching between chats within this page.
 const recordings = new Map<string, Clip>();
 export function pcmWav(frames: Int16Array[], samples: number) {
@@ -32,9 +32,13 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
       const result = await fetch("/api/session-dictation?" + new URLSearchParams({ threadId }), { method: "POST", body: audio.blob, headers: { "Content-Type": "audio/wav" }, signal: controller.signal });
       const data = await result.json();
       if (!result.ok || typeof data.text !== "string" || !data.text.trim()) throw new Error(data.error || "Native dictation returned no text. Recording kept.");
-      if (mounted.current) { latest.current.onText(audio.base + (audio.base.trim() ? " " : "") + data.text); setTranscriptionTime({ seconds: (performance.now() - startedAt) / 1000, retry }); setPhase("idle"); }
+      if (mounted.current && request.current === controller && !controller.signal.aborted) {
+        const text = audio.base + (audio.base.trim() ? " " : "") + data.text;
+        latest.current.onText(text); setTranscriptionTime({ seconds: (performance.now() - startedAt) / 1000, retry }); setPhase("idle");
+        return text;
+      }
     } catch (cause) {
-      if (mounted.current) { setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Transcription cancelled. Recording kept."); setPhase("error"); }
+      if (mounted.current && request.current === controller) { setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Transcription cancelled. Recording kept."); setPhase("error"); }
     } finally { if (request.current === controller) request.current = null; }
   }, [threadId]);
   const cancelBridge = useCallback((bridge: Bridge) => {
@@ -68,6 +72,7 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
     });
     current.stream.getTracks().forEach(track => track.stop()); current.source?.disconnect(); current.node?.disconnect();
     await current.context.close().catch(() => {});
+    if (current.discarded) return;
     if (capture.current === current) capture.current = null;
     if (!current.samples) { if (current.bridge) cancelBridge(current.bridge); if (mounted.current) { setError("No audio recorded. Check the microphone and retry."); setPhase("error"); } return; }
     const audio = { blob: pcmWav(current.frames, current.samples), seconds: current.samples / 16000, base: latest.current.draft };
@@ -78,10 +83,12 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
       return;
     }
     setClip(audio); setSeconds(audio.seconds);
-    if (!current.bridge) { void transcribe(audio, stoppedAt, false); return; }
+    if (!current.bridge) return transcribe(audio, stoppedAt, false);
     const bridge = current.bridge; finishingBridge.current = bridge; setPhase("transcribing"); setError("");
     try {
-      await bridge.ready; sendFrames(current);
+      await bridge.ready;
+      if (bridge.cancelled) throw new Error("Transcription cancelled. Recording kept.");
+      sendFrames(current);
       if (bridge.error) throw bridge.error;
       // The gateway processes ordered WebSocket frames. Flush immediately after
       // the final audio frame instead of paying another round trip for its ACK.
@@ -92,19 +99,24 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
       if (bridge.error) throw bridge.error;
       if (!result.text?.trim()) throw new Error("Native dictation returned incomplete text. Recording kept.");
       if (bridge.cancelled) throw new Error("Transcription cancelled. Recording kept.");
-      if (mounted.current) { latest.current.onText(audio.base + (audio.base.trim() ? " " : "") + result.text); setTranscriptionTime({ seconds: (performance.now() - stoppedAt) / 1000, retry: false }); setPhase("idle"); }
+      if (mounted.current && finishingBridge.current === bridge) {
+        const text = audio.base + (audio.base.trim() ? " " : "") + result.text;
+        latest.current.onText(text); setTranscriptionTime({ seconds: (performance.now() - stoppedAt) / 1000, retry: false }); setPhase("idle");
+        return text;
+      }
     } catch (cause) {
       cancelBridge(bridge);
-      if (mounted.current) { setError(cause instanceof Error ? cause.message : "Native dictation interrupted. Recording kept."); setPhase("error"); }
+      if (mounted.current && finishingBridge.current === bridge) { setError(cause instanceof Error ? cause.message : "Native dictation interrupted. Recording kept."); setPhase("error"); }
     } finally { if (finishingBridge.current === bridge) finishingBridge.current = null; }
   }, [threadId, transcribe, sendFrames, cancelBridge]);
   const start = useCallback(async () => {
-    if (capture.current || request.current) return;
+    if (capture.current || request.current || finishingBridge.current) return;
     stopRequested.current = false; setError(""); setPhase("starting"); setSeconds(0); setTranscriptionTime(null);
+    let attempted: Capture | undefined;
     try {
       // Resume from the button gesture, before awaiting a mobile permission prompt.
       const context = new AudioContext();
-      const current: Capture = { context, frames: [], samples: 0, stopped: false }; capture.current = current;
+      const current: Capture = { context, frames: [], samples: 0, stopped: false }; attempted = current; capture.current = current;
       const resume = context.resume();
       // Native preparation overlaps microphone permission and worklet setup.
       if (latest.current.client) {
@@ -116,13 +128,14 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }); current.stream = stream;
       await resume;
-      if (!mounted.current || stopRequested.current || capture.current !== current) { current.stopped = true; if (current.bridge) cancelBridge(current.bridge); stream.getTracks().forEach(track => track.stop()); await context.close().catch(() => {}); if (capture.current === current) capture.current = null; if (mounted.current) setPhase("idle"); return; }
+      if (!mounted.current || stopRequested.current || capture.current !== current) { current.stopped = true; if (current.bridge) cancelBridge(current.bridge); stream.getTracks().forEach(track => track.stop()); await context.close().catch(() => {}); if (capture.current === current) { capture.current = null; if (mounted.current) setPhase("idle"); } return; }
       await context.audioWorklet.addModule("/audio/native-dictation-recorder.js");
-      if (!mounted.current || stopRequested.current || capture.current !== current) { if (current.bridge) cancelBridge(current.bridge); stream.getTracks().forEach(track => track.stop()); await context.close().catch(() => {}); if (capture.current === current) capture.current = null; return; }
+      if (!mounted.current || stopRequested.current || capture.current !== current) { current.stopped = true; if (current.bridge) cancelBridge(current.bridge); stream.getTracks().forEach(track => track.stop()); await context.close().catch(() => {}); if (capture.current === current) { capture.current = null; if (mounted.current) setPhase("idle"); } return; }
       const node = new AudioWorkletNode(context, "native-dictation-recorder"); current.node = node;
       node.onprocessorerror = () => { if (!current.stopped) void finishCapture(false); };
       context.onstatechange = () => { if (!current.stopped && context.state !== "running") void finishCapture(false); };
       node.port.onmessage = event => {
+        if (current.discarded) return;
         if (event.data.stopped) { current.flush?.(); return; }
         if (!(event.data.pcm instanceof Int16Array)) return;
         const pcm = event.data.pcm as Int16Array;
@@ -136,13 +149,27 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
       if (stopRequested.current) { void finishCapture(); return; }
       if (mounted.current) setPhase("recording");
     } catch {
-      const current = capture.current; capture.current = null;
+      const current = attempted, owned = current && capture.current === current;
+      if (owned) capture.current = null;
       if (current?.bridge) cancelBridge(current.bridge);
       current?.stream?.getTracks().forEach(track => track.stop()); void current?.context.close().catch(() => {});
-      if (mounted.current) { setError("Could not start recording. Allow microphone access and use HTTPS."); setPhase("error"); }
+      if (mounted.current && (owned || !current)) { setError("Could not start recording. Allow microphone access and use HTTPS."); setPhase("error"); }
     }
   }, [finishCapture, sendFrames, threadId, cancelBridge]);
   const clear = useCallback(() => { recordings.delete(threadId); setClip(null); setError(""); setPhase("idle"); setTranscriptionTime(null); }, [threadId]);
+  const discard = useCallback(() => {
+    stopRequested.current = true;
+    const current = capture.current; capture.current = null;
+    if (current) {
+      current.discarded = true; current.stopped = true; clearTimeout(current.limit); current.flush?.();
+      if (current.bridge) cancelBridge(current.bridge);
+      current.stream?.getTracks().forEach(track => track.stop()); current.source?.disconnect(); current.node?.disconnect();
+      void current.context.close().catch(() => {});
+    }
+    request.current?.abort(); request.current = null;
+    if (finishingBridge.current) cancelBridge(finishingBridge.current);
+    finishingBridge.current = null; clear(); setSeconds(0);
+  }, [cancelBridge, clear]);
   const download = useCallback(() => {
     if (!clip) return;
     const url = URL.createObjectURL(clip.blob), link = document.createElement("a"); link.href = url; link.download = "codex-dictation.wav"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -154,5 +181,5 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
     window.addEventListener("beforeunload", leave); document.addEventListener("visibilitychange", hidden);
     return () => { mounted.current = false; request.current?.abort(); if (finishingBridge.current) cancelBridge(finishingBridge.current); void finishCapture(false); window.removeEventListener("beforeunload", leave); document.removeEventListener("visibilitychange", hidden); };
   }, [threadId, finishCapture, cancelBridge]);
-  return { phase, clip, error, seconds, transcriptionTime, start, stop: () => finishCapture(), retry: () => clip && transcribe({ ...clip, base: latest.current.draft }), cancel: () => { request.current?.abort(); if (finishingBridge.current) cancelBridge(finishingBridge.current); }, clear, download, busy: ["starting", "recording", "transcribing"].includes(phase) };
+  return { phase, clip, error, seconds, transcriptionTime, start, stop: () => finishCapture(), retry: () => clip && transcribe({ ...clip, base: latest.current.draft }), cancel: () => { request.current?.abort(); if (finishingBridge.current) cancelBridge(finishingBridge.current); }, discard, clear, download, busy: ["starting", "recording", "transcribing"].includes(phase) };
 }

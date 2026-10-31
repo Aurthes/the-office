@@ -346,10 +346,17 @@ buffer. Question snapshots are bounded and pushed on the existing session stream
 Forms require an explicit selection or custom answer and preserve the message
 composer draft. Duplicate submissions and replies to another thread are rejected.
 
-The legacy main-agent Option recorder is also disabled in Codex session view.
-Option passes through to the operating system and the native desktop App. Neither
-the OpenClaw transcription endpoint nor browser speech recognition is used by the
-Codex composer.
+The legacy main-agent Option recorder is disabled in Codex session view. On a Mac,
+when a session composer is visible in the active webpage, tap Option to start
+recording and tap again to stop and insert the native transcript into the draft.
+Holding Option for at least 250 ms starts push-to-talk; releasing it transcribes
+without sending. While toggle recording is active, Enter stops, transcribes, and
+sends the completed draft to that same session. Escape cancels the attempt without
+changing the existing draft. Transcription failures keep the audio for retry and
+never send a message. Option combinations used by the editor/browser are ignored;
+shortcuts are inactive in other form fields and when the composer is hidden.
+The microphone button remains available on desktop and mobile. Neither the
+OpenClaw transcription endpoint nor browser speech recognition is used.
 
 ## Composer predictions
 

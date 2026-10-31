@@ -1,5 +1,7 @@
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import React from "react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SessionControls } from "../../src/features/office/components/SessionControls";
 import { useNativeDictation } from "../../src/features/office/components/useNativeDictation";
 let port: { onmessage: ((event: { data: unknown }) => void) | null; postMessage: (value: unknown) => void };
 const stopTrack = vi.fn();
@@ -17,7 +19,7 @@ function microphone() {
   }
   const stream = { getTracks: () => [{ stop: stopTrack, addEventListener: vi.fn() }] };
   vi.stubGlobal("AudioContext", Context); vi.stubGlobal("AudioWorkletNode", Worklet);
-  vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn(async () => stream) } });
+  vi.stubGlobal("navigator", { get platform() { return "MacIntel"; }, mediaDevices: { getUserMedia: vi.fn(async () => stream) } });
   return stream;
 }
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.restoreAllMocks(); });
@@ -32,7 +34,7 @@ describe("browser recording to native dictation", () => {
     });
     const { result } = renderHook(() => useNativeDictation("capture-ack", "", inserted, { call }));
     await act(async () => result.current.start()); act(() => port.onmessage?.({ data: { pcm: new Int16Array(3200) } }));
-    let stopping!: Promise<void>; act(() => { stopping = result.current.stop(); });
+    let stopping!: Promise<string | undefined>; act(() => { stopping = result.current.stop(); });
     await waitFor(() => expect(complete).toBeTypeOf("function"));
     await act(async () => complete({ text: "native final" })); expect(inserted).not.toHaveBeenCalled();
     clock.mockReturnValue(1800);
@@ -74,7 +76,7 @@ describe("browser recording to native dictation", () => {
     act(() => port.onmessage?.({ data: { pcm: new Int16Array(3200) } }));
     expect(call).toHaveBeenCalledWith("session.dictation.append", expect.objectContaining({ sequence: 0, threadId: "capture-stream" }));
     expect(inserted).not.toHaveBeenCalled(); expect(fetcher).not.toHaveBeenCalled();
-    let stopping!: Promise<void>; act(() => { stopping = result.current.stop(); });
+    let stopping!: Promise<string | undefined>; act(() => { stopping = result.current.stop(); });
     await waitFor(() => expect(call).toHaveBeenCalledWith("session.dictation.finish", expect.objectContaining({ sequence: 1 })));
     expect(inserted).not.toHaveBeenCalled();
     await act(async () => { complete({ text: "native final" }); await stopping; });
@@ -88,11 +90,11 @@ describe("browser recording to native dictation", () => {
     await act(async () => result.current.start());
     act(() => port.onmessage?.({ data: { pcm: new Int16Array(3200) } }));
     expect(result.current.phase).toBe("recording"); expect(fetcher).not.toHaveBeenCalled(); expect(inserted).not.toHaveBeenCalled();
-    await act(async () => result.current.stop());
-    expect(result.current.phase).toBe("transcribing"); expect(inserted).not.toHaveBeenCalled();
+    let stopping!: Promise<string | undefined>; act(() => { stopping = result.current.stop(); });
+    await waitFor(() => expect(result.current.phase).toBe("transcribing")); expect(inserted).not.toHaveBeenCalled();
     const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toContain("threadId=capture-one"); expect((init.body as Blob).type).toBe("audio/wav"); expect((init.body as Blob).size).toBe(6444);
-    await act(async () => finish({ ok: true, json: async () => ({ text: "native transcript" }) }));
+    await act(async () => { finish({ ok: true, json: async () => ({ text: "native transcript" }) }); await stopping; });
     expect(inserted).toHaveBeenCalledWith("prefix native transcript"); expect(stopTrack).toHaveBeenCalledOnce();
     act(() => result.current.clear());
   });
@@ -117,5 +119,109 @@ describe("browser recording to native dictation", () => {
     let starting!: Promise<void>; act(() => { starting = view.result.current.start(); }); view.unmount();
     await act(async () => { granted(stream); await starting; });
     expect(stopTrack).toHaveBeenCalledOnce(); expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("can discard while permission is pending without a late permission failure breaking the next recording", async () => {
+    const stream = microphone();
+    let denied!: (error: Error) => void;
+    const getUserMedia = vi.fn().mockImplementationOnce(() => new Promise((_resolve, reject) => { denied = reject; })).mockResolvedValue(stream);
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
+    const call = vi.fn(async () => ({ accepted: true }));
+    const { result } = renderHook(() => useNativeDictation("discard-permission", "draft", vi.fn(), { call }));
+    let first!: Promise<void>; act(() => { first = result.current.start(); });
+    act(() => result.current.discard()); expect(result.current.phase).toBe("idle");
+    await act(async () => result.current.start()); expect(result.current.phase).toBe("recording");
+    await act(async () => { denied(new Error("old permission failed")); await first; });
+    expect(result.current.phase).toBe("recording");
+    act(() => result.current.discard()); expect(result.current.phase).toBe("idle");
+  });
+  it("discards during the last worklet flush without restoring a clip or transcribing", async () => {
+    microphone(); const inserted = vi.fn(), call = vi.fn(async () => ({ accepted: true }));
+    const { result } = renderHook(() => useNativeDictation("discard-flush", "draft", inserted, { call }));
+    await act(async () => result.current.start());
+    act(() => port.onmessage?.({ data: { pcm: new Int16Array(3200) } }));
+    port.postMessage = vi.fn();
+    let stopping!: Promise<string | undefined>; act(() => { stopping = result.current.stop(); });
+    await act(async () => { result.current.discard(); await stopping; });
+    expect(result.current.phase).toBe("idle"); expect(result.current.clip).toBeNull();
+    expect(inserted).not.toHaveBeenCalled(); expect(call).not.toHaveBeenCalledWith("session.dictation.finish", expect.anything());
+  });
+  it("discard aborts fallback recognition and ignores even a late successful response", async () => {
+    microphone(); const inserted = vi.fn(); let complete!: (value: unknown) => void;
+    const fetcher = vi.fn(() => new Promise(resolve => { complete = resolve; })); vi.stubGlobal("fetch", fetcher);
+    const { result } = renderHook(() => useNativeDictation("discard-upload", "draft", inserted));
+    await act(async () => result.current.start());
+    act(() => port.onmessage?.({ data: { pcm: new Int16Array(3200) } }));
+    let stopping!: Promise<string | undefined>; act(() => { stopping = result.current.stop(); });
+    await waitFor(() => expect(complete).toBeTypeOf("function"));
+    act(() => result.current.discard());
+    await act(async () => { complete({ ok: true, json: async () => ({ text: "late" }) }); await stopping; });
+    expect(result.current.phase).toBe("idle"); expect(result.current.clip).toBeNull(); expect(inserted).not.toHaveBeenCalled();
+  });
+
+});
+
+describe("dictation composer shortcuts", () => {
+  async function composer(id: string, finish: () => Promise<unknown>) {
+    microphone();
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
+    vi.spyOn(HTMLTextAreaElement.prototype, "getClientRects").mockReturnValue([{}] as unknown as DOMRectList);
+    const call = vi.fn(async (method: string) => method === "session.dictation.finish" ? finish() :
+      method === "session.attach" ? { connected: true, version: 1, activeTurnId: null, items: [], approvals: [] } : { accepted: true });
+    render(React.createElement(SessionControls, { client: { call }, threadId: id, onItems: vi.fn() }));
+    const input = screen.getByLabelText("Send to session") as HTMLTextAreaElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+    fireEvent.change(input, { target: { value: "existing draft" } });
+    fireEvent.keyDown(input, { key: "Alt", code: "AltLeft", altKey: true });
+    fireEvent.keyUp(input, { key: "Alt", code: "AltLeft" });
+    await screen.findByRole("button", { name: "Stop recording and transcribe" });
+    await act(async () => {});
+    act(() => port.onmessage?.({ data: { pcm: new Int16Array(3200) } }));
+    return { call, input };
+  }
+  it("Enter waits for the transcript, then sends the combined draft to the same session once", async () => {
+    let finish!: (value: unknown) => void;
+    const h = await composer("enter-send", () => new Promise(resolve => { finish = resolve; }));
+    fireEvent.keyDown(window, { key: "Enter" }); fireEvent.keyDown(window, { key: "Enter", repeat: true });
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(0);
+    await act(async () => finish({ text: "spoken words" }));
+    await waitFor(() => expect(h.call).toHaveBeenCalledWith("session.send", expect.objectContaining({ threadId: "enter-send", message: "existing draft spoken words", requestId: expect.any(String) })));
+    expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(1);
+    expect(h.input.value).toBe("");
+  });
+  it("a second Option tap inserts text without sending", async () => {
+    const h = await composer("tap-stop", async () => ({ text: "spoken words" }));
+    fireEvent.keyDown(window, { key: "Alt", code: "AltLeft", altKey: true }); fireEvent.keyUp(window, { key: "Alt", code: "AltLeft" });
+    await waitFor(() => expect(h.input.value).toBe("existing draft spoken words"));
+    expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Clear recording" }));
+  });
+  it("Esc releases the microphone, cancels the attempt and preserves the existing draft", async () => {
+    const h = await composer("escape-recording", async () => ({ text: "must not appear" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    await screen.findByRole("button", { name: "Native dictation" });
+    expect(stopTrack).toHaveBeenCalledOnce();
+    expect(h.call).toHaveBeenCalledWith("session.dictation.cancel", expect.anything());
+    expect(h.call.mock.calls.filter(([method]) => ["session.dictation.finish", "session.send"].includes(method))).toHaveLength(0);
+    expect(h.input.value).toBe("existing draft"); expect(screen.queryByText(/Recording:.*Kept/)).toBeNull();
+  });
+  it("Esc during Enter transcription rejects the late result and prevents sending", async () => {
+    let finish!: (value: unknown) => void;
+    const h = await composer("escape-transcribing", () => new Promise(resolve => { finish = resolve; }));
+    fireEvent.keyDown(window, { key: "Enter" });
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    fireEvent.keyDown(window, { key: "Escape" });
+    await act(async () => finish({ text: "must not appear" }));
+    expect(h.input.value).toBe("existing draft");
+    expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(0);
+    expect(screen.queryByText(/Recording:.*Kept/)).toBeNull();
+  });
+  it("a failed Enter transcription keeps audio for retry without sending", async () => {
+    const h = await composer("enter-failed", async () => { throw new Error("recognition failed"); });
+    fireEvent.keyDown(window, { key: "Enter" });
+    await screen.findByText("recognition failed");
+    expect(h.input.value).toBe("existing draft"); expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Retry transcription" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear recording" }));
   });
 });

@@ -5,6 +5,7 @@ import { SessionSettings, type ChatSettings } from "./SessionSettings";
 import { useSessionVoice } from "./useSessionVoice";
 import { SessionQuestions, type SessionQuestionRequest } from "./SessionQuestions";
 import { useNativeDictation } from "./useNativeDictation";
+import { useDictationShortcut } from "./useDictationShortcut";
 import { useUiText } from "@/lib/i18n/ui-language";
 
 export type SessionAsset = { source: string; name: string; kind: "image" | "markdown" | "html" | "file"; url: string; inline?: boolean; attached?: boolean };
@@ -98,6 +99,13 @@ export function SessionControls({ client, threadId, onItems }: {
   }, [resizeInput]);
   const dictation = useNativeDictation(threadId, text, setText, client);
   const voice = useSessionVoice(client, threadId);
+  const dictatedSend = useRef<((message: string) => void) | null>(null);
+  const stopDictation = async (send = false) => {
+    const message = await dictation.stop();
+    if (send && message?.trim()) dictatedSend.current?.(message);
+  };
+  useDictationShortcut({ input, phase: dictation.phase, enabled: !busy && !settingsBusy && Boolean(state?.connected) && voice.status === "off",
+    start: dictation.start, stop: stopDictation, discard: dictation.discard });
   const updateUploads = (next: Upload[]) => { uploadsRef.current = next; if (next.length) attachmentDrafts.set(threadId, next); else attachmentDrafts.delete(threadId); setUploads(next); };
   useEffect(() => {
     const requests = uploadRequests.current;
@@ -214,6 +222,14 @@ export function SessionControls({ client, threadId, onItems }: {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Action failed. Check the session before retrying."); }
     finally { actionBusy.current = false; setBusy(false); }
   };
+  useEffect(() => {
+    dictatedSend.current = message => {
+      if (!uploadsRef.current.every(file => file.ref)) return;
+      setPrediction(null);
+      void action("session.send", { message, attachments: uploadsRef.current.map(file => file.ref), requestId: crypto.randomUUID() });
+    };
+    return () => { dictatedSend.current = null; };
+  });
   return <div onDragOver={event => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={event => { if (event.dataTransfer.files.length) { event.preventDefault(); void addFiles(Array.from(event.dataTransfer.files)); } }} className="max-h-[60dvh] shrink-0 overflow-y-auto border-t border-white/10 bg-[#111b27] p-3 text-xs [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))] md:px-4">
     <div className="mx-auto max-w-3xl">
     {state?.settings ? <SessionSettings key={threadId} client={client} threadId={threadId} current={state.settings} disabled={busy || !state.connected} active={Boolean(state.activeTurnId)} onBusyChange={setSettingsBusy} /> : null}
@@ -249,7 +265,7 @@ export function SessionControls({ client, threadId, onItems }: {
     <div className="mt-2 flex items-center justify-between gap-2">
       <div className="flex shrink-0 items-center gap-1">
         <button aria-label={t("Add attachments")} title={t("Add attachments, drag files, or paste images")} disabled={busy || settingsBusy || !state?.connected} onClick={() => picker.current?.click()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Paperclip size={19} /></button>
-        <button aria-label={dictation.phase === "recording" || dictation.phase === "starting" ? t("Stop recording and transcribe") : t("Native dictation")} title={t("Record here and transcribe with Codex. Click again to stop; review the draft before sending.")} disabled={dictation.phase === "transcribing" || (!(dictation.phase === "recording" || dictation.phase === "starting") && (busy || settingsBusy || !state?.connected || voice.status !== "off"))} onClick={() => { if (dictation.phase === "recording" || dictation.phase === "starting") void dictation.stop(); else void dictation.start(); }} className={"grid h-10 w-10 place-items-center rounded-lg disabled:opacity-40 " + (dictation.phase === "recording" ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65 hover:bg-white/5")}><Mic size={19} /></button>
+        <button aria-label={dictation.phase === "recording" || dictation.phase === "starting" ? t("Stop recording and transcribe") : t("Native dictation")} title={t("Click to record. Option: tap to toggle, hold to dictate. Enter: transcribe and send. Esc: cancel.")} disabled={dictation.phase === "transcribing" || (!(dictation.phase === "recording" || dictation.phase === "starting") && (busy || settingsBusy || !state?.connected || voice.status !== "off"))} onClick={() => { if (dictation.phase === "recording" || dictation.phase === "starting") void dictation.stop(); else void dictation.start(); }} className={"grid h-10 w-10 place-items-center rounded-lg disabled:opacity-40 " + (dictation.phase === "recording" ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65 hover:bg-white/5")}><Mic size={19} /></button>
         <button aria-label={t("Voice chat")} title={t("Start a live voice chat in this session")} disabled={busy || settingsBusy || !state?.connected || dictation.busy || voice.status !== "off"} onClick={() => void voice.start()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button>
       </div>
       <span className="hidden min-w-0 flex-1 truncate text-xs text-white/45 sm:block">{state?.connected ? state.activeTurnId ? t("Codex is working…") : state.turnStatus === "interrupted" ? t("Stopped") : t("Codex · Connected") : connectionError ? t("Codex unavailable") : t("Connecting to Codex…")}</span>
@@ -258,7 +274,7 @@ export function SessionControls({ client, threadId, onItems }: {
         <button disabled={busy || settingsBusy || !state?.connected || !readyToSend} onClick={send} className="min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40">{busy ? t("Submitting…") : state?.activeTurnId ? t("Steer") : t("Send")}</button>
       </div>
     </div>
-    {dictation.phase === "starting" ? <p role="status" className="mt-1 text-xs text-cyan-100">{t("Preparing microphone…")}</p> : dictation.phase === "recording" ? <p role="status" className="mt-1 text-xs text-rose-200">{t("Recording · {time} · Click the microphone to stop · Up to 10 minutes", { time: `${Math.floor(dictation.seconds / 60)}:${String(Math.floor(dictation.seconds % 60)).padStart(2, "0")}` })}</p> : dictation.phase === "transcribing" ? <p role="status" className="mt-1 text-xs text-cyan-100">{t("Transcribing with Codex…")}<button onClick={dictation.cancel} className="underline">{t("Cancel and keep recording")}</button></p> : null}
+    {dictation.phase === "starting" ? <p role="status" className="mt-1 text-xs text-cyan-100">{t("Preparing microphone…")}</p> : dictation.phase === "recording" ? <p role="status" className="mt-1 text-xs text-rose-200">{t("Recording · {time} · Option or microphone: stop · Enter: send · Esc: cancel", { time: `${Math.floor(dictation.seconds / 60)}:${String(Math.floor(dictation.seconds % 60)).padStart(2, "0")}` })}</p> : dictation.phase === "transcribing" ? <p role="status" className="mt-1 text-xs text-cyan-100">{t("Transcribing with Codex…")}<button onClick={dictation.cancel} className="underline">{t("Cancel and keep recording")}</button></p> : null}
     {dictation.clip && !dictation.busy ? <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] text-white/55"><span>{t("Recording: {seconds} seconds · Kept", { seconds: Math.ceil(dictation.clip.seconds) })}</span>{dictation.transcriptionTime ? <span>{t(dictation.transcriptionTime.retry ? "Retry took {seconds} seconds" : "Transcription took {seconds} seconds", { seconds: dictation.transcriptionTime.seconds.toFixed(1) })}</span> : null}{dictation.phase === "error" ? <button className="text-cyan-200 underline" onClick={() => void dictation.retry()}>{t("Retry transcription")}</button> : null}<button className="underline" onClick={dictation.download}>{t("Download recording")}</button><button className="underline" onClick={dictation.clear}>{t("Clear recording")}</button></div> : null}
     {dictation.error ? <p role="alert" className="mt-1 text-xs text-amber-100">{t(dictation.error)}</p> : null}
     {notice ? <p role="status" className="mt-2 text-[10px] text-cyan-100">{t(notice)}</p> : null}
