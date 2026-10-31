@@ -98,6 +98,7 @@ const methods = {
   "project.create": async p => { const result = await workspaceActions.createProject(p); rosterSync.changed(); return result; },
   "session.create": async p => { const result = await workspaceActions.createSession(p); rosterSync.changed(); return result; },
   "session.rename": async p => { get(p.threadId); const result = await workspaceActions.renameSession(p); rosterSync.changed(); return result; },
+  "session.reassign": async p => { get(p.threadId); const result = await workspaceActions.reassignSession(p); rosterSync.changed(); return result; },
   "session.archive": async p => {
     if (controls?.states.get(p.threadId)?.activeTurnId) throw new Error("这位员工还在工作，请先停止当前任务再返航");
     const result = await workspaceActions.archiveSession(p); rosterSync.changed(); return result;

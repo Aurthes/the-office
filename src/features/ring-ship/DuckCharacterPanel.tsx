@@ -1,17 +1,42 @@
 "use client";
 import { useRef, useState } from "react";
-import { ArrowLeft, Check, RotateCcw } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, Check, RotateCcw } from "lucide-react";
 import { createDefaultAgentAvatarProfile, type AgentAvatarProfile } from "@/lib/avatars/profile";
 import { DEFAULT_DUCK_APPEARANCE, normalizeDuckAppearance, type DuckAppearance } from "@/lib/avatars/duck";
 import { useUiText } from "@/lib/i18n/ui-language";
 import type { SessionInspection } from "@/features/office/components/ExistingSessionPanel";
 import { DuckCharacterPreview } from "./DuckCharacterPreview";
+import type { CompanyProject } from "@/features/retro-office/core/companyLayout";
 import "./duck-character.css";
 
 const feathers = ["#ffbb3c", "#ece9d8", "#829a99", "#b1c8b0", "#d39c91", "#aab8d4"];
 const uniforms = ["#394b54", "#435842", "#97704e", "#63768e", "#773f42", "#ded9c7"];
 
-export type CharacterMode = "view" | "edit" | "rename";
+export type CharacterMode = "view" | "edit" | "rename" | "reassign";
+
+function ReassignCharacter({ info, projects, onReassign, onDone }: {
+  info: SessionInspection; projects: CompanyProject[]; onReassign: (projectId: string) => Promise<void>; onDone: () => void;
+}) {
+  const t = useUiText();
+  const [projectId, setProjectId] = useState(info.projectId || ""), [saving, setSaving] = useState(false), [error, setError] = useState("");
+  const pending = useRef(false);
+  const valid = projectId !== info.projectId && projects.some(project => project.id === projectId);
+  return <form className="duck-character-rename" aria-label={t("Reassign")} onSubmit={event => {
+    event.preventDefault();
+    if (pending.current || !valid) return;
+    pending.current = true; setSaving(true); setError("");
+    void onReassign(projectId).then(onDone).catch(cause => setError(cause instanceof Error ? cause.message : t("Could not reassign. Please retry.")))
+      .finally(() => { pending.current = false; setSaving(false); });
+  }}>
+    <label>{t("Project")}<select aria-label={t("Reassign to project")} value={projectId} disabled={saving} onChange={event => setProjectId(event.target.value)}>
+      {!projects.some(project => project.id === projectId) ? <option value="" disabled>{t("Choose a project")}</option> : null}
+      {projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
+    </select></label>
+    <p className="duck-character-hint">{t("Changes the project. Keeps this chat, history and working folder.")}</p>
+    {error ? <p role="alert" className="duck-character-error">{t(error)}</p> : null}
+    <div className="duck-character-actions"><button type="button" disabled={saving} onClick={onDone}>{t("Cancel")}</button><button type="submit" className="duck-character-primary" disabled={saving || !valid}>{t(saving ? "Reassigning…" : "Confirm reassignment")}</button></div>
+  </form>;
+}
 
 function RenameCharacter({ name, onRename, onDone }: { name: string; onRename: (name: string) => Promise<void>; onDone: () => void }) {
   const t = useUiText();
@@ -31,11 +56,13 @@ function RenameCharacter({ name, onRename, onDone }: { name: string; onRename: (
   </form>;
 }
 
-export function DuckCharacterPanel({ info, profile, status, model, onSave, mode, onModeChange, onRename }: {
+export function DuckCharacterPanel({ info, profile, status, model, onSave, mode, onModeChange, onRename, onReassign, projects = [] }: {
   info: SessionInspection; profile?: AgentAvatarProfile | null; status: string; model?: string | null;
   onSave: (profile: AgentAvatarProfile) => Promise<void>;
   mode: CharacterMode; onModeChange: (mode: CharacterMode) => void;
   onRename?: (name: string) => Promise<void>;
+  onReassign?: (projectId: string) => Promise<void>;
+  projects?: CompanyProject[];
 }) {
   const t = useUiText();
   const editing = mode === "edit";
@@ -91,13 +118,15 @@ export function DuckCharacterPanel({ info, profile, status, model, onSave, mode,
         <div className="duck-character-actions"><button disabled={saving} onClick={() => { onModeChange("view"); setError(""); }}><ArrowLeft size={14} />{t("Cancel")}</button>
           <button className="duck-character-primary" disabled={saving} onClick={() => void save()}><Check size={14} />{t(saving ? "Saving…" : "Save character")}</button></div>
         <button className="duck-character-reset" disabled={saving} onClick={() => setDraft({ ...DEFAULT_DUCK_APPEARANCE })}><RotateCcw size={12} />{t("Reset appearance")}</button>
-      </> : mode === "rename" && onRename ? <RenameCharacter name={info.name} onRename={onRename} onDone={() => onModeChange("view")} /> : <>
+      </> : mode === "rename" && onRename ? <RenameCharacter name={info.name} onRename={onRename} onDone={() => onModeChange("view")} /> : mode === "reassign" && onReassign ? <ReassignCharacter info={info} projects={projects} onReassign={onReassign} onDone={() => onModeChange("view")} /> : <>
         <dl className="duck-character-info">
           <div><dt>{t("Project")}</dt><dd>{info.project || "—"}</dd></div>
           <div><dt>{t("Model")}</dt><dd>{model || info.model || "—"}</dd></div>
           <div><dt>{t("Workspace")}</dt><dd>{info.workspace || "—"}</dd></div>
           <div><dt>{t("Session ID")}</dt><dd className="duck-character-id">{info.id}</dd></div>
         </dl>
+        <div className="duck-character-actions"><button onClick={() => onModeChange("edit")}>{t("Edit character")}</button>
+          {onReassign ? <button disabled={!projects.length} onClick={() => onModeChange("reassign")}><ArrowRightLeft size={14} />{t("Reassign")}</button> : null}</div>
       </>}
     </div>
   </div>;

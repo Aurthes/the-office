@@ -42,6 +42,18 @@ class CodexWorkspaceActions {
       return { threadId, name };
     });
   }
+  reassignSession(input) {
+    const { threadId, projectId, requestId } = input;
+    if (typeof threadId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(threadId)) throw new Error("Invalid session ID");
+    if (typeof projectId !== "string" || !projectId || projectId.length > 128) throw new Error("Choose a project");
+    return this.once(requestId, { type: "reassign", threadId, projectId }, async () => {
+      const { project } = await this.client.call("project/read", { projectId });
+      if (project?.id !== projectId) throw new Error("Project not found. Please choose another project.");
+      const { thread } = await this.client.call("thread/metadata/update", { threadId, projectId });
+      if (thread?.id !== threadId || thread.projectId !== projectId) throw new Error("Reassignment was not confirmed. Check the current project before retrying.");
+      return { threadId, projectId, project: project.name };
+    });
+  }
   archiveSession(input) {
     const { threadId, requestId } = input;
     if (typeof threadId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(threadId)) throw new Error("无效的原会话 ID");
