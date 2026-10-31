@@ -21,9 +21,11 @@ export function useStarNavigation(key: string) {
   return { state, dispatch };
 }
 
+export const NAVIGATION_TABLE_RADIUS = 2.65;
+
 export function navigationConsolePose(layout: ShipLayout, cabin: ShipCabin) {
-  const ring = layout.rings[cabin.ring], angle = cabinAngle(layout, cabin.slot);
-  return { point: shipPoint(ring.radius + .3, angle + 4.7 / ring.radius), angle };
+  const ring = layout.rings[cabin.ring], angle = cabinAngle(layout, cabin.slot) + 6.7 / ring.radius;
+  return { point: shipPoint(ring.radius + .3, angle), angle };
 }
 
 export function NavigationConsole({ layout, cabin, state, onAction, disabled }: { layout: ShipLayout; cabin: ShipCabin; state: NavigationState; onAction: (action: NavigationAction) => void; disabled: boolean }) {
@@ -33,7 +35,7 @@ export function NavigationConsole({ layout, cabin, state, onAction, disabled }: 
   return <group position={[pose.point.x, 0, pose.point.z]} rotation={[0, pose.angle, 0]}>
     <group onClick={event => { event.stopPropagation(); if (!disabled && !open) onAction({ type: "open" }); }}>
       <mesh position={[0, .45, 0]}><cylinderGeometry args={[1.7, 1.2, .8, 48]} /><meshStandardMaterial color="#263f50" metalness={.55} roughness={.4} /></mesh>
-      <mesh position={[0, .88, 0]}><cylinderGeometry args={[2.65, 2.5, .12, 64]} /><meshStandardMaterial color="#102c3a" metalness={.6} roughness={.26} /></mesh>
+      <mesh position={[0, .88, 0]}><cylinderGeometry args={[NAVIGATION_TABLE_RADIUS, 2.5, .12, 64]} /><meshStandardMaterial color="#102c3a" metalness={.6} roughness={.26} /></mesh>
       {[1.1, 1.8, 2.5].map(radius => <mesh key={radius} position={[0, .96, 0]} rotation={[-Math.PI/2, 0, 0]}>
         <ringGeometry args={[radius-.014, radius+.014, 80]} /><meshBasicMaterial color="#79cbd7" transparent opacity={.38} depthWrite={false} />
       </mesh>)}

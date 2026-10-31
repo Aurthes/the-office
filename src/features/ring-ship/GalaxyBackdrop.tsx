@@ -3,34 +3,52 @@
 import { useMemo } from "react";
 import { useThree } from "@react-three/fiber";
 import { Stars } from "@react-three/drei";
-import { Color, Vector2 } from "three";
+import { Color, Matrix3 } from "three";
 import type { StarSystem } from "./galaxy";
 
-const vertexShader = `varying vec2 vUv;
-void main() { vUv = uv; gl_Position = vec4(position.xy, 1.0, 1.0); }`;
+// The ship has an orthographic camera. Give its distant sky a fixed angular
+// field of view, sharing the camera's world rotation but not its pan or zoom.
+const vertexShader = `
+uniform mat3 uCameraRotation;
+uniform float uAspect;
+varying vec3 vDirection;
+void main() {
+  vDirection = uCameraRotation * vec3(position.x*uAspect*.55, position.y*.55, -1.0);
+  gl_Position = vec4(position.xy, 1.0, 1.0);
+}`;
 const fragmentShader = `
-varying vec2 vUv;
-uniform vec2 uSize;
+varying vec3 vDirection;
 uniform vec3 uCloud, uGlow;
 uniform float uSeed;
-float random(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float noise(vec2 p) {
-  vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
-  return mix(mix(random(i), random(i+vec2(1,0)), f.x), mix(random(i+vec2(0,1)), random(i+1.0), f.x), f.y);
+float random(vec3 p) {
+  p = fract(p*.1031); p += dot(p,p.yzx+33.33);
+  return fract((p.x+p.y)*p.z);
 }
-float fbm(vec2 p) {
+float noise(vec3 p) {
+  vec3 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+  float a = mix(mix(random(i),random(i+vec3(1,0,0)),f.x), mix(random(i+vec3(0,1,0)),random(i+vec3(1,1,0)),f.x),f.y);
+  float b = mix(mix(random(i+vec3(0,0,1)),random(i+vec3(1,0,1)),f.x), mix(random(i+vec3(0,1,1)),random(i+vec3(1,1,1)),f.x),f.y);
+  return mix(a,b,f.z);
+}
+float fbm(vec3 p) {
   float n = 0.0, a = .52;
-  for (int i=0; i<5; i++) { n += a*noise(p); p = mat2(.8,-.6,.6,.8)*p*2.04+17.3; a *= .49; }
+  for (int i=0; i<5; i++) { n += a*noise(p); p = p*2.04+vec3(17.3,31.7,11.2); a *= .49; }
   return n;
 }
 void main() {
-  vec2 p = (vUv-.5)*vec2(uSize.x/uSize.y,1.0);
+  vec3 direction = normalize(vDirection);
+  // A fixed reference keeps the cloud band and planet near the original
+  // overview composition. Every sample remains anchored in world space.
+  vec3 forward = normalize(vec3(-70,-73,-94));
+  vec3 right = normalize(cross(forward,vec3(0,1,0)));
+  vec3 up = cross(right,forward);
+  vec3 sky = vec3(dot(direction,right),dot(direction,up),dot(direction,forward));
   float s = uSeed*7.19;
-  vec2 q = p*3.0+vec2(s,s*.63);
-  float warp = fbm(q+vec2(3.1,7.6));
-  float cloud = fbm(q+vec2(warp*2.7,-warp*1.9));
+  vec3 q = direction*3.0+vec3(s,s*.63,s*.27);
+  float warp = fbm(q+vec3(3.1,7.6,1.7));
+  float cloud = fbm(q+vec3(warp*2.7,-warp*1.9,warp*.9));
   float ridge = pow(max(0.0,1.0-abs(cloud-.54)*5.0),2.0);
-  float sweep = exp(-pow((p.y+p.x*(.35+.12*sin(s))-.13+sin(p.x*2.0+s)*.12)*2.5,2.0));
+  float sweep = exp(-pow((sky.y+sky.x*(.35+.12*sin(s))-.13+sin(sky.x*2.0+s)*.12)*2.5,2.0));
   float dust = fbm(q*2.6+warp*3.0);
   float cavity = smoothstep(.28,.65,cloud);
   vec3 color = vec3(.0018,.003,.007);
@@ -40,41 +58,44 @@ void main() {
   // Widely separated stellar layers, without scintillation or camera shake.
   for (int i=0; i<2; i++) {
     float scale = 165.0+float(i)*127.0;
-    vec2 cell = floor(p*scale), f = fract(p*scale)-.5;
-    float r = random(cell+vec2(s,float(i)*31.0));
+    vec3 cell = floor(direction*scale), f = fract(direction*scale)-.5;
+    float r = random(cell+vec3(s,float(i)*31.0,s*.3));
     float star = pow(max(0.0,1.0-length(f)*2.0),14.0)*step(.987,r);
     color += mix(vec3(.57,.69,.95),vec3(1.0,.88,.65),random(cell+3.0))*star*(.7+float(i)*.25);
   }
   // A distant world is drawn after the star field, so stars cannot shine through it.
-  vec2 center = vec2((.28+.07*sin(s))*uSize.x/uSize.y,.12+.13*cos(s));
+  vec3 planetDirection = normalize(forward+right*(.55+.12*sin(s))+up*(.16+.12*cos(s)));
+  vec3 planetRight = normalize(cross(planetDirection,vec3(0,1,0)));
+  vec3 planetUp = cross(planetRight,planetDirection);
   float radius = .155+.035*sin(s*.8);
-  vec2 planet = (p-center)/radius;
+  vec2 planet = vec2(dot(direction,planetRight),dot(direction,planetUp))/sin(radius);
   float d = length(planet);
-  float atmosphere = exp(-abs(d-1.0)*65.0)*.2;
+  float facing = step(0.0,dot(direction,planetDirection));
+  float atmosphere = exp(-abs(d-1.0)*65.0)*.2*facing;
   color += uGlow*atmosphere;
-  if (d<1.0) {
+  if (d<1.0 && facing>0.0) {
     vec3 normal = vec3(planet,sqrt(1.0-d*d));
     float light = max(0.0,dot(normal,normalize(vec3(-.8,.35,-.2))));
-    float bands = fbm(planet*6.0+vec2(s,planet.y*7.0));
+    float bands = fbm(vec3(planet*6.0,s+planet.y*7.0));
     vec3 surface = mix(uCloud*.28,uGlow*.32,bands);
     color = surface*(.015+light*.75)+uGlow*pow(max(0.0,1.0-normal.z),4.0)*light*.12;
   }
-  float edge = 1.0-smoothstep(.3,1.15,length(vUv-.5));
-  gl_FragColor = vec4(color*(.6+edge*.4),1.0);
+  gl_FragColor = vec4(color,1.0);
   #include <colorspace_fragment>
 }`;
 
 export function GalaxyBackdrop({ system }: { system: StarSystem }) {
   const size = useThree(state => state.size);
   const uniforms = useMemo(() => ({
-    uSize: { value: new Vector2(size.width, size.height) },
+    uCameraRotation: { value: new Matrix3() }, uAspect: { value: size.width / Math.max(1, size.height) },
     uCloud: { value: new Color(system.cloud) }, uGlow: { value: new Color(system.glow) }, uSeed: { value: system.seed },
   }), [system, size.width, size.height]);
   if (system.id === "deep-space") return <>
     <color attach="background" args={["#081421"]} />
     <Stars radius={100} depth={50} count={1800} factor={15} saturation={0} fade speed={0} />
   </>;
-  return <mesh frustumCulled={false} renderOrder={-1000} raycast={() => {}}>
+  return <mesh frustumCulled={false} renderOrder={-1000} raycast={() => {}}
+    onBeforeRender={(_renderer, _scene, camera) => { uniforms.uCameraRotation.value.setFromMatrix4(camera.matrixWorld); }}>
     <planeGeometry args={[2, 2]} />
     <shaderMaterial vertexShader={vertexShader} fragmentShader={fragmentShader} uniforms={uniforms} depthWrite={false} depthTest={false} toneMapped={false} />
   </mesh>;
