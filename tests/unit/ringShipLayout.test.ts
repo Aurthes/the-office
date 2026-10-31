@@ -60,7 +60,7 @@ describe("three-ring ship allocation", () => {
       const cabin = layout.cabins.find(c => c.id === p.id);
       expect(cabin?.kind).toBe(p.kind); expect(cabin?.projectId).toBeUndefined();
     }
-    expect(layout.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length * DECKS.length - (DECKS.length-1));
+    expect(layout.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length * DECKS.length - (DECKS.length-1) + 1);
     checkSeats(layout, 100);
   });
   it("uses contiguous outer cabins for teams larger than one bay without shrinking furniture", () => {
@@ -128,7 +128,7 @@ it("fills ready decks before expanding and assigns every worker to exactly one d
     expect(floor.cabins).toHaveLength(24);
     expect(floor.cabins.every(c => c.deck === deck)).toBe(true);
     expect(floor.rings).toBe(layout.rings);
-    expect(floor.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length - (deck===0?0:1));
+    expect(floor.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length - (deck===0?0:1) + (layout.allocation.monitorRoom?.deck === deck ? 1 : 0));
     for (const seat of Object.values(floor.seats)) expect(floor.cabins.find(c => c.id === seat.cabinId)?.deck).toBe(deck);
   }
   checkSeats(layout, 64);
@@ -142,4 +142,21 @@ it("upgrades an existing single-deck allocation without moving its projects", ()
     expect(after.allocation.projects[id]).toEqual({ ...assignment, deck: 0 });
   }
   expect(parseShipAllocation(JSON.stringify({ ...after.allocation, projects: { p: { deck: 3, ring: 0, slot: 1, span: 1 } } }))).toBeUndefined();
+});
+
+it("adopts one existing reserve cabin and keeps its location without moving saved projects", () => {
+  const data = roster([2, 5, 8]), original = buildShipLayout(data);
+  const legacy = { ...original.allocation, monitorRoom: undefined };
+  const upgraded = buildShipLayout(data, legacy);
+  expect(upgraded.allocation.projects).toEqual(legacy.projects);
+  expect(upgraded.allocation.sectors).toBe(legacy.sectors);
+  expect(upgraded.cabins).toHaveLength(original.cabins.length);
+  const room = upgraded.cabins.find(c => c.kind === "monitor")!;
+  expect(room).toMatchObject({ id: "public:monitor", agentIds: [] });
+  expect(PUBLIC_CABINS.some(c => c.ring === room.ring && c.slot === room.slot)).toBe(false);
+  const grown = buildShipLayout(roster([2, 5, 8, 5]), parseShipAllocation(JSON.stringify(upgraded.allocation)));
+  expect(grown.allocation.monitorRoom).toEqual(upgraded.allocation.monitorRoom);
+  expect(grown.cabins.find(c => c.id === room.id)).toEqual(room);
+  for (const [id, assignment] of Object.entries(upgraded.allocation.projects)) expect(grown.allocation.projects[id]).toEqual(assignment);
+  expect(parseShipAllocation(JSON.stringify({ ...upgraded.allocation, monitorRoom: { deck: 3, ring: 1, slot: 0 } }))).toBeUndefined();
 });
