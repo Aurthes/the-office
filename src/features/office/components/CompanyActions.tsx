@@ -2,6 +2,7 @@
 import { useRef, useState } from "react";
 import type { SessionClient } from "./SessionControls";
 import { useUiText } from "@/lib/i18n/ui-language";
+import { OfficeCodexAccount } from "./OfficeCodexAccount";
 
 export function CompanyActions({ client, projects, disabled, onCreated }: {
   client: SessionClient; projects: { id: string; name: string; rootPaths?: string[] }[];
@@ -27,7 +28,7 @@ export function CompanyActions({ client, projects, disabled, onCreated }: {
         name, ...(mode === "project" ? { workspace } : { projectId }), requestId: crypto.randomUUID(),
       }) as { threadId?: string; warning?: string };
       created = true; setMode(null);
-      setNotice(result.warning || (mode === "project" ? "Project created. The Codex desktop sidebar may not have updated yet." : "Session created. Send a message to start working."));
+      setNotice(result.warning || (mode === "project" ? "Office project created." : "Session created. Send a message to start working."));
       await onCreated(result.threadId);
     } catch (cause) {
       setError(created ? "Created, but the roster could not refresh. Check existing projects and sessions first." :
@@ -36,6 +37,7 @@ export function CompanyActions({ client, projects, disabled, onCreated }: {
   };
   const field = "mt-1 min-h-10 w-full min-w-0 rounded border border-white/20 bg-[#152b35] px-2 text-sm text-white";
   return <div className={`office-company-actions mt-2 max-w-full text-white ${mode ? "w-72" : ""}`}>
+    <OfficeCodexAccount client={client} />
     <div className="flex gap-2">
       <button disabled={disabled || busy} onClick={() => open("project")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("+ Project")}</button>
       <button disabled={disabled || busy || !projects.length} onClick={() => open("session")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("+ Recruit agent")}</button>

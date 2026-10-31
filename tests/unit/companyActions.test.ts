@@ -18,25 +18,25 @@ describe("company creation controls", () => {
   });
   it("recruits once, then opens the original newly created session", async () => {
     let finish!: (result: unknown) => void;
-    const call = vi.fn(() => new Promise(resolve => { finish = resolve; })), onCreated = vi.fn(async () => {});
+    const call = vi.fn<(...args: unknown[]) => Promise<unknown>>(() => new Promise(resolve => { finish = resolve; })), onCreated = vi.fn(async () => {});
     render(React.createElement(CompanyActions, { client: { call }, projects, disabled: false, onCreated }));
     fireEvent.click(screen.getByRole("button", { name: "+ Recruit agent" }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Research" } });
     fireEvent.click(screen.getByRole("button", { name: "Recruit and create session" }));
     fireEvent.submit(screen.getByRole("dialog"));
-    expect(call).toHaveBeenCalledTimes(1);
+    expect(call.mock.calls.filter(([method]) => method === "session.create")).toHaveLength(1);
     expect(call).toHaveBeenCalledWith("session.create", { name: "Research", projectId: "p", requestId: expect.any(String) });
     await act(async () => finish({ threadId: "native-id" }));
     expect(onCreated).toHaveBeenCalledWith("native-id");
   });
   it("keeps input and shows uncertain creation errors without automatic retry", async () => {
-    const call = vi.fn(async () => { throw new Error("请求超时"); });
+    const call = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => { throw new Error("请求超时"); });
     render(React.createElement(CompanyActions, { client: { call }, projects, disabled: false, onCreated: async () => {} }));
     fireEvent.click(screen.getByRole("button", { name: "+ Recruit agent" }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Keep me" } });
     fireEvent.click(screen.getByRole("button", { name: "Recruit and create session" })); await act(async () => {});
     expect(screen.getByRole("alert").textContent).toContain("check the result");
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Keep me");
-    expect(call).toHaveBeenCalledTimes(1);
+    expect(call.mock.calls.filter(([method]) => method === "session.create")).toHaveLength(1);
   });
 });

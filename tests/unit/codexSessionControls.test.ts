@@ -34,7 +34,7 @@ describe("shared App session controls", () => {
     await expect(controls.send("id", "hello", "request")).rejects.toThrow("未重复发送");
     expect(client.call.mock.calls.filter(([method]) => method === "turn/start")).toHaveLength(1);
     client.ready = false;
-    await expect(controls.stop("id")).rejects.toThrow("只读");
+    await expect(controls.stop("id")).rejects.toThrow("disconnected");
   });
   it("matches approvals to their thread, submits once and clears only after native confirmation", () => {
     const { client, controls } = setup();
@@ -47,13 +47,13 @@ describe("shared App session controls", () => {
     controls.handle({ method: "serverRequest/resolved", params: { threadId: "id", requestId: 17 } });
     expect(controls.snapshot("id").approvals).toEqual([]);
   });
-  it("keeps unsupported requests for the App and requires complete file changes for web approval", () => {
+  it("leaves unsupported requests unanswered and requires complete file changes for web approval", () => {
     const { client, controls } = setup();
     controls.handle({ id: 1, method: "item/tool/call", params: { threadId: "id" } });
     expect(controls.snapshot("id").approvals[0].supported).toBe(false);
-    expect(() => controls.reply("id", "1", "accept")).toThrow("原 App");
+    expect(() => controls.reply("id", "1", "accept")).toThrow("unsupported here");
     controls.handle({ id: 2, method: "item/fileChange/requestApproval", params: { threadId: "id", turnId: "t", itemId: "file" } });
-    expect(() => controls.reply("id", "2", "accept")).toThrow("完整文件");
+    expect(() => controls.reply("id", "2", "accept")).toThrow("fully displayed");
     expect(client.respond).not.toHaveBeenCalled();
   });
   it("preserves long replies and native phases through start, delta and authoritative completion", () => {

@@ -4,15 +4,15 @@ const { sessionItem, clipText } = require("./codex-session-items");
 const { answerQuestions } = require("./codex-session-questions");
 const { messageInput } = require("./codex-session-uploads");
 const { sessionSettings, sessionChoices, settingsPatch } = require("./codex-session-settings");
-const supportedApprovals = new Set(["item/commandExecution/requestApproval", "item/fileChange/requestApproval"]);
+const supportedApprovals = new Set(["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval"]);
 
 class CodexSessionControls {
-  constructor(client, asyncQuestions = () => []) { this.client = client; this.asyncQuestions = asyncQuestions; this.states = new Map(); this.requests = new Map(); this.sends = new Map(); this.attaching = new Map(); }
+  constructor(client, asyncQuestions = () => [], options = {}) { this.client = client; this.asyncQuestions = asyncQuestions; this.options = options; this.states = new Map(); this.requests = new Map(); this.sends = new Map(); this.attaching = new Map(); }
   state(id) {
     if (!this.states.has(id)) this.states.set(id, { version: 0, activeTurnId: null, items: new Map(), turnStatus: null, error: null });
     return this.states.get(id);
   }
-  requireReady() { if (!this.client?.ready) throw new Error("原 App 共享控制通道未连接，当前仍为只读"); }
+  requireReady() { if (!this.client?.ready) throw new Error("Codex is disconnected"); }
   async attach(id) {
     this.requireReady();
     if (!this.attaching.has(id)) {
@@ -27,7 +27,7 @@ class CodexSessionControls {
     await this.attaching.get(id);
   }
   saveSettings(id, result) {
-    const settings = sessionSettings(result);
+    const settings = this.options.settings ? this.options.settings.current(id, result) : sessionSettings(result);
     if (!settings) return;
     const state = this.state(id);
     state.predictionContext = { model: result.model, modelProvider: result.modelProvider ?? state.predictionContext?.modelProvider,
@@ -37,9 +37,11 @@ class CodexSessionControls {
   }
   async choices(id) {
     await this.attach(id);
+    if (this.options.settings) { const result = await this.options.settings.choices(id); this.saveSettings(id, {}); return result; }
     return sessionChoices(this.client, this.state(id).cwd);
   }
   async updateSettings(id, input) {
+    if (this.options.settings) { const result = await this.options.settings.update(id, input); this.saveSettings(id, {}); return result; }
     const choices = await this.choices(id);
     if (!this.state(id).settings) throw new Error("原会话设置尚未就绪");
     const patch = settingsPatch(input, this.state(id).settings, choices);
@@ -60,6 +62,7 @@ class CodexSessionControls {
     if (!id) return;
     if (frame.method === "thread/closed" || (frame.method === "thread/status/changed" && p.status?.type === "notLoaded")) this.attaching.delete(id);
     const state = this.state(id);
+    if (frame.method === "thread/tokenUsage/updated") { state.tokenUsage = p.tokenUsage; state.version++; return; }
     if (frame.method === "thread/settings/updated") { this.saveSettings(id, p.threadSettings); return; }
     if (frame.id !== undefined) {
       this.requests.set(String(frame.id), { requestId: String(frame.id), wireId: frame.id, method: frame.method, params: p, supported: supportedApprovals.has(frame.method) });
@@ -119,13 +122,13 @@ class CodexSessionControls {
       items.push(visible); bytes += size;
     }
     const hasMore = items.length < changed.length;
-    return { connected: true, version: hasMore ? items.at(-1).version : state.version, hasMore, activeTurnId: state.activeTurnId, turnStatus: state.turnStatus, error: state.error, settings: state.settings, items,
+    return { connected: true, version: hasMore ? items.at(-1).version : state.version, hasMore, activeTurnId: state.activeTurnId, turnStatus: state.turnStatus, error: state.error, settings: state.settings, tokenUsage: state.tokenUsage, ...(this.options.features ? { features: this.options.features } : {}), items,
       questions,
       approvalCount: [...this.requests.values()].filter(r => r.params.threadId === id && r.method !== "item/tool/requestUserInput").length,
       approvals: [...this.requests.values()].filter(r => r.params.threadId === id && r.method !== "item/tool/requestUserInput").slice(0, 2).map(request => {
         const item = state.items.get(`${request.params.turnId}:${request.params.itemId}`);
         const oversized = Buffer.byteLength(JSON.stringify(request.params)) > 8000;
-        return { requestId: request.requestId, method: request.method, submitted: request.submitted, params: oversized ? { threadId: id, reason: "请求过长，请在原 App 查看" } : request.params,
+        return { requestId: request.requestId, method: request.method, submitted: request.submitted, params: oversized ? { threadId: id, reason: "Approval request is too large to display here" } : request.params,
           decisions: request.params.availableDecisions?.filter(value => typeof value === "string") || ["accept", "decline"],
           details: item?.details, supported: request.supported && !oversized && (request.method !== "item/fileChange/requestApproval" || Boolean(item?.details && !item.incompleteDetails)) };
       }) };
@@ -147,7 +150,7 @@ class CodexSessionControls {
     const active = this.state(id).activeTurnId;
     // The desktop uses this identity to display external steering as a user
     // message. Reuse the send ID so duplicate requests keep the same identity.
-    const result = await this.client.call(active ? "turn/steer" : "turn/start", { threadId: id, input, clientUserMessageId: requestId, ...(active ? { expectedTurnId: active } : {}) });
+    const result = await this.client.call(active ? "turn/steer" : "turn/start", { threadId: id, input, clientUserMessageId: requestId, ...(active ? { expectedTurnId: active } : this.options.settings?.overrides(id) || {}) });
     const turnId = result.turn?.id || result.turnId;
     this.state(id).activeTurnId = turnId;
     this.state(id).turnStatus = "inProgress";
@@ -165,15 +168,15 @@ class CodexSessionControls {
     this.requireReady();
     const request = this.requests.get(String(requestId));
     if (!request || request.params.threadId !== id) throw new Error("审批已结束或不属于此会话");
-    if (!request.supported || !["accept", "decline", "cancel"].includes(decision)) throw new Error("请在原 App 处理此类请求");
-    if (Buffer.byteLength(JSON.stringify(request.params)) > 8000) throw new Error("请在原 App 查看完整请求后审批");
+    if (!request.supported || !["accept", "decline", "cancel"].includes(decision)) throw new Error("This approval is unsupported here; stop the task to cancel");
+    if (Buffer.byteLength(JSON.stringify(request.params)) > 8000) throw new Error("Approval request is too large; stop the task to cancel");
     if (request.method === "item/fileChange/requestApproval") {
       const item = this.state(id).items.get(`${request.params.turnId}:${request.params.itemId}`);
-      if (!item?.details || item.incompleteDetails) throw new Error("请在原 App 查看完整文件修改后审批");
+      if (!item?.details || item.incompleteDetails) throw new Error("File changes cannot be fully displayed; stop the task to cancel");
     }
     if (request.params.availableDecisions && !request.params.availableDecisions.includes(decision)) throw new Error("后台未提供这个审批选项");
     if (request.submitted) throw new Error("审批答复已提交，等待原后台确认");
-    this.client.respond(request.wireId, { decision }); request.submitted = true;
+    this.client.respond(request.wireId, request.method === "item/permissions/requestApproval" ? { permissions: decision === "accept" ? request.params.permissions : {}, scope: "turn" } : { decision }); request.submitted = true;
     this.state(id).version++;
     return { status: "submitted" };
   }

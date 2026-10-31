@@ -444,7 +444,7 @@ export function RingShipOffice(props: Props) {
       <div className="mt-1 text-[9px] tracking-[0.3em] text-[#9bb8bf]">{shipView ? t("Whole ship · 3 decks") : t("L{0} · {1} · {2} sessions", { "0": visibleDeck + 1, "1": t(DECK_NAMES[visibleDeck]), "2": visibleAgents.length })}</div>
     </div>
     <div className="ship-toolbar absolute right-3 top-3 z-20 flex items-center gap-2">
-      <div title={`Runtime: Codex App (${gatewayStatus})`} className={`rounded-lg border px-2 py-2 text-[10px] uppercase tracking-wider ${gatewayStatus === "connected" ? "border-emerald-300/25 bg-emerald-400/10 text-emerald-200" : "border-amber-300/25 bg-amber-400/10 text-amber-100"}`}><span className="max-md:hidden">CODEX APP · </span>{t(gatewayStatus)}</div>
+      <div title={`Runtime: Codex (${gatewayStatus})`} className={`rounded-lg border px-2 py-2 text-[10px] uppercase tracking-wider ${gatewayStatus === "connected" ? "border-emerald-300/25 bg-emerald-400/10 text-emerald-200" : "border-amber-300/25 bg-amber-400/10 text-amber-100"}`}><span className="max-md:hidden">CODEX · </span>{t(gatewayStatus)}</div>
       <button className={button} title={t("Deck overview")} aria-label={t("Deck overview")} onClick={() => select("")}><Home size={15} /></button>
       <button className={button} title={t("Whole ship")} aria-label={t("Whole ship")} aria-pressed={shipView} onClick={() => { setWhole(value => !value); setLiftOpen(false); setFocus(previous => ({ id: "", request: previous.request + 1 })); }}><Layers3 size={15} /></button>
       <button className={button} title={t("Voice reply settings")} aria-label={t("Settings")} onClick={() => setSettingsOpen(true)}><Settings2 size={15} /></button>
@@ -483,7 +483,7 @@ export function RingShipOffice(props: Props) {
     {returnFlight ? <div role="status" aria-live="polite" className="absolute bottom-20 sm:bottom-4 left-1/2 z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-amber-200/25 bg-[#101e29]/95 px-4 py-3 text-center shadow-xl">
       <div className="truncate text-xs text-amber-100">{returnFlight.name}</div>
       <p className="mt-1 text-xs text-amber-100">{t(RETURN_LABELS[returnStage])}</p>
-      {returnError ? <><p className="mt-2 text-xs text-rose-200">{t(returnError)}</p><button className="mt-2 text-xs underline" onClick={returnComplete}>{t("Return to office · Check the result in Codex")}</button></>:<p className="mt-1 text-[10px] text-white/45">{t("History is preserved. You can unarchive this chat in Codex.")}</p>}
+      {returnError ? <><p className="mt-2 text-xs text-rose-200">{t(returnError)}</p><button className="mt-2 text-xs underline" onClick={returnComplete}>{t("Return to office · Check the session")}</button></>:<p className="mt-1 text-[10px] text-white/45">{t("History is preserved.")}</p>}
     </div>:null}
     {settingsOpen ? <div className="absolute inset-0 z-40 flex justify-end bg-black/40 p-3 backdrop-blur-sm" onKeyDown={event => { if (event.key === "Escape") setSettingsOpen(false); }}>
       <div className="w-full max-w-sm overflow-auto rounded-xl border border-white/15 bg-[#071522] shadow-2xl">

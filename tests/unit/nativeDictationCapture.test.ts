@@ -317,7 +317,7 @@ describe("dictation composer shortcuts", () => {
   it("Esc releases the microphone, cancels the attempt and preserves the existing draft", async () => {
     const h = await composer("escape-recording", async () => ({ text: "must not appear" }));
     fireEvent.keyDown(window, { key: "Escape" });
-    await screen.findByRole("button", { name: "Native dictation" });
+    await screen.findByRole("button", { name: "Dictation" });
     expect(stopTrack).toHaveBeenCalledOnce();
     expect(h.call).toHaveBeenCalledWith("session.dictation.cancel", expect.anything());
     expect(h.call.mock.calls.filter(([method]) => ["session.dictation.finish", "session.send"].includes(method))).toHaveLength(0);

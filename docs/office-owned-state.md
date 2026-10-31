@@ -1,84 +1,121 @@
-# Office-owned projects, sessions, and chat capabilities
+# Office-owned Codex runtime
 
-Decision recorded on 2026-10-31: Office projects and sessions are independent of
-the native Codex/ChatGPT App. Reuse the documented Codex agent engine, not the
-App's project catalog, session store, running conversations, or private services.
+Office runs an independently installed Codex CLI as its own `app-server` child,
+using the public stdio protocol. Office owns its project/session records and
+Codex data directory. It does not attach to the native Codex/ChatGPT App.
 
-This supersedes the limited shared-session direction considered in the
-[interoperability audit](codex-interop-audit.md). That audit remains evidence of
-what was tested, not a requirement to ship every operation that happened to work.
+This implements the ownership decision of 2026-10-31 and supersedes the shared
+session direction evaluated in the [historical audit](codex-interop-audit.md).
 
 ## Ownership boundary
 
-- Office owns its project records, session records, and runtime state. Its Codex
-  process needs a separate Office-owned Codex home; sharing the native App's home
-  is not the new architecture.
-- Do not list, import, mirror, rename, archive, resume, queue messages into, or
-  otherwise manage native App sessions/projects as an Office feature. This
-  includes read-only private-database adapters.
-- Do not modify App startup, global environment, configuration, authentication
-  storage, private databases/caches, or backend ownership. Never impersonate the
-  App's client or tool identities.
-- Authentication must use a documented flow for Office's own runtime. The same
-  account can be used where supported; App tokens and private services are not
-  integration shortcuts. Access and billing for separate APIs need verification.
-- A filesystem directory can be independently selected in both products. That
-  shares files, not project identity, conversation history, or execution ownership.
+- No native App project/session discovery, import, synchronization or management.
+- No changes to App startup, global environment, configuration, authentication,
+  private databases/caches or process ownership. No App client/tool impersonation.
+- The same OpenAI account may authorize Office through an official login flow.
+  Office never copies credentials from the App.
+- Selecting the same filesystem folder in both products shares files, not
+  project identity, conversation history or task ownership.
+- Skills, MCP servers and other extensions must be configured for Office.
+  App-specific connectors and document/browser bridges are not inherited.
 
-The official [Codex platform overview](https://developers.openai.com/blog/codex-as-a-platform)
-describes applications owning their interface and business context while using
-the open agent harness. This is the intended layer of reuse.
+The [Codex platform overview](https://developers.openai.com/blog/codex-as-a-platform)
+describes this integration layer. The public
+[App Server reference](https://learn.chatgpt.com/docs/app-server) supplies the
+protocol. The [CLI reference](https://learn.chatgpt.com/docs/developer-commands)
+still labels app-server Experimental: a documented interface is not a guarantee
+of permanent compatibility. Pin the CLI and validate before upgrading it.
+
+## Setup
+
+Use Node.js 24 and a separately installed, pinned Codex CLI (validated with
+`@openai/codex@0.166.0`). Do not point Office
+at the native App's executable or data directory. Install dependencies with
+`npm ci`, then configure both Office services:
+
+| Setting | Gateway | Studio |
+| --- | --- | --- |
+| `CLAW3D_GATEWAY_TOKEN` | Required private token | Same token |
+| `CLAW3D_CODEX_BIN` | Absolute path to independent CLI | Unneeded |
+| `CLAW3D_GATEWAY_URL` | Unneeded | `ws://127.0.0.1:18790` |
+| `CLAW3D_CODEX_GATEWAY` | Unneeded | `1` |
+| `NEXT_PUBLIC_CLAW3D_SESSION_VIEW` | Unneeded | `1` at build time |
+| `CLAW3D_UPLOAD_DIR` | Optional upload directory | Same directory |
+
+Start `npm run codex-gateway`, then Studio with `npm run dev` (or build with
+`npm run build -- --webpack` and start with `npm start`). Keep services on
+loopback; use the existing authenticated web-access gateway for remote access.
+
+The gateway defaults to port 18790 (`CODEX_ADAPTER_PORT` overrides it).
+Its default records directory is `$HOME/.local/share/claw3d/office-runtime`;
+`CLAW3D_OFFICE_DATA_DIR` overrides it. Its Codex home defaults to the `codex`
+subdirectory; `CLAW3D_OFFICE_CODEX_HOME` overrides it. The runtime rejects the
+native App home and overlapping/symlinked directories. It strips inherited
+App connection/tool-bridge settings and uses its own file credential store and SQLite
+directory. No global environment settings are changed.
+
+If not signed in, Office shows **Sign in with ChatGPT**. Complete the official
+device-code flow. If OpenAI requests it, enable device-code login in ChatGPT's
+web account Security settings yourself, then request a fresh code. Native App
+sign-in remains separate. API keys for optional features below are not passed
+to the Codex child and do not replace its account login.
+
+Create a project using an existing folder on the Office host, then recruit a
+session. Office saves grouping, titles, settings and Codex thread IDs in its own
+`office.json`. Codex owns conversation persistence through RPC. Empty chats are
+saved without an invisible seed prompt; the first message creates their Codex
+thread. Neither product reads or writes the other's session database.
 
 ## Chat feature map
 
-“Available interface” below is not “already migrated and accepted in Office.”
-The [App Server reference](https://learn.chatgpt.com/docs/app-server) is the
-published integration surface. Installed `0.166.0-alpha.5.1` default and
-experimental schemas were inspected separately. The app-server command as a whole
-is still labeled Experimental in the [CLI reference](https://learn.chatgpt.com/docs/developer-commands).
-Default-schema membership is not a Stable product-maturity label.
-
-| Feature | Documented capability / current evidence | Office work and limits |
-| --- | --- | --- |
-| Text chat, streamed answers, tool progress, stop, steer | Published thread/turn/event APIs for a server Office owns | Wire Office's own session lifecycle and UI. The minimal standalone adapter already has text/stream/stop, not the full feature set |
-| Model and reasoning-effort selectors | `model/list`; `turn/start` can set model/effort for that and subsequent turns | Use the returned account/client catalog. Apply changes to the next turn; do not promise every App model or arbitrary mid-turn changes |
-| Access controls and approvals | Public approval-policy and sandbox-policy fields; documented command/file approval requests | Keep settings within Office sessions. Provide the Office UI and approval responses; native App settings are not modified |
-| Context-use indicator | `thread/tokenUsage/updated`; installed schema includes per-turn/cumulative usage and nullable model context window | Display reported usage; unknown window remains unknown. Cumulative billing tokens are not remaining context capacity, and this is not a complete hidden-prompt inspector |
-| Image attachments | Published `image` / `localImage` turn inputs | Office manages uploads, accessible host paths, thumbnails and model modality checks |
-| Text/code and other file attachments | Codex can use its allowed workspace tools; the existing uploader references non-image files by path | Upload is not document understanding. PDF/Word/Excel parsing, preview and editing depend on available tools/converters; no blanket native-format parity |
-| Dictation: speech to draft text | Public speech-to-text API exists | Office owns recording, transcription, cancellation/retry and keyboard/mobile interaction. The private native dictation stream is retired as an integration path |
-| Live voice conversation | Public Realtime API exists; native Codex thread-realtime methods are experimental in the installed schema | A separate voice integration needs explicit task/tool/approval/transcript routing to Office's Codex session. A Realtime connection alone does not provide that integration |
-| Grey suggested prompts / predictions | Existing path uses a private config endpoint plus experimental `thread/sample`; no stable native-equivalent interface was established | An Office suggestion feature can be designed using documented model calls. It is a separate feature, not automatic native prediction reuse |
-| Skills, MCP tools and App-specific capabilities | Codex has documented extension mechanisms | Configure tools explicitly for Office. App-only connectors, document panels, browser bridges and private tool registrations are not inherited |
-
-The public [speech-to-text guide](https://developers.openai.com/api/docs/guides/speech-to-text)
-and [Realtime guide](https://developers.openai.com/api/docs/guides/realtime)
-provide supported routes for separately built voice features. This review did not
-validate their account access, billing, Office implementation, or end-to-end UX.
-It did not fix the earlier mobile dictation failure.
-
-## Existing implementation that must not be carried over unchanged
-
-| Component | Migration implication |
+| Feature | Independent runtime behavior and validation |
 | --- | --- |
-| `server/codex-session-index.js`, native project mapping and App-store watchers | Retire from the independent-state path; no private native catalog scanning or synchronization |
-| Existing-App session gateway and shared-owner launch/setup paths | Legacy implementation, not the new runtime or an installation recommendation |
-| `server/codex-gateway-adapter.js` | Existing own-thread prototype; it does not yet enforce the complete ownership boundary and currently rejects attachments |
-| `server/codex-session-settings.js` and controls | Model/permission UI concepts are reusable, but the current `thread/settings/update` call is experimental; public next-turn overrides provide the core feature |
-| `server/codex-session-uploads.js` | Generic Office upload handling can be reused with Office-owned thread IDs/storage and permission checks; non-images are paths, not a universal document API |
-| `server/codex-dictation.js` | Replace private ChatGPT dictation/token access if dictation is implemented |
-| `server/codex-session-voice.js` | Native realtime methods are experimental; do not advertise production parity from their existence |
-| `server/codex-composer-predictions.js` | Do not retain the private prediction-config request or App tool identity assumptions |
+| Projects and sessions | Office-only create, rename, reassign and archive. Empty chats survive restart. Restore/unarchive UI is not connected yet. No native App import or two-way management |
+| Text and task progress | Public thread/turn APIs; streaming, saved history, continuation after process restart and interrupt tested through the gateway. Separate real-account two-turn continuation also passed |
+| Models and reasoning | Account's public model catalog; validated choices persist in Office and apply to the next turn. Additional messages during a task use its current settings |
+| Access and approvals | Public sandbox/approval fields; Read only, Default permissions and confirmed Full access. Command/file/question handlers reused; permission grants are limited to the requested permissions for that turn. Fixtures verify response routing; not every real approval variant has been induced |
+| Context usage | Displays reported last-input tokens and nullable model context window. Real usage events received. This is not a hidden-prompt inspector or cumulative billing-token percentage |
+| Images | Signed browser upload, saved image history and public image input passed with the real account and a loopback fixture. Vision answer quality was not measured |
+| Other files and previews | Uploaded host paths, workspace browsing/text reads and existing supported previews. Upload is not universal PDF/Word/Excel understanding; converters/tools must be available separately |
+| Workspace terminal | Public `command/exec` PTY, output, input, resize and terminate tested using the real engine; uses the session's sandbox policy |
+| Dictation | Optional public file-transcription API, recording/cancel/retry/Option/Enter UI. Disabled without a server API key. Mocked tests cover request/error handling and existing recording controls; real transcription, device/browser behavior and account access remain unvalidated |
+| Suggested prompts | Optional public Responses API, using recent visible messages, no tools and `store:false`. Disabled without a key. Request shape tested; quality, account access and latency not measured. Not native App prediction reuse |
+| Live voice | Unavailable. Public Realtime exists, but voice-to-Codex task/tool/approval/transcript integration needs a separate design |
 
-## Current status and next implementation boundary
+## Optional speech and suggestions
 
-This change records the product decision and capability assessment. It does not
-switch a running deployment, migrate old data, implement new speech services, or
-claim that every existing composer button works with an independent backend.
-The existing native-session deployment remains legacy until deliberately replaced.
+Configure `OPENAI_API_KEY` on the **gateway only**, then restart it. This enables
+dictation and suggested prompts. Defaults are `gpt-transcribe` for
+`/v1/audio/transcriptions` and `gpt-6.1-sol` for `/v1/responses`.
+`CLAW3D_TRANSCRIPTION_MODEL` and `CLAW3D_SUGGESTION_MODEL` override those models.
+API access, usage and billing are separate from the Codex account sign-in; no
+assumption is made that a ChatGPT subscription covers these requests.
 
-The next implementation must first establish Office-owned state/authentication
-and demonstrate a new Office session, send/stream/stop, restart/resume, and absence
-of native-App state access. Then validate each additional chat feature on that
-runtime. Missing features stay unavailable rather than enabling private or
-experimental native-App paths to fill the gap.
+The [file-transcription guide](https://developers.openai.com/api/docs/guides/speech-to-text)
+documents the speech route. The
+[Responses API](https://developers.openai.com/api/docs/guides/text) supplies
+suggestions. No private dictation token, prediction-config endpoint,
+`thread/sample` or experimental Codex realtime method is used by this runtime.
+Transcription errors keep the recording; an HTML response becomes a readable
+service error rather than a JSON parse error. There is no automatic resend.
+
+## Reproduce validation
+
+Run the focused unit tests and TypeScript check, then the opt-in integration:
+
+```sh
+npm run test -- --run tests/unit/codexOfficeRuntime.test.ts tests/unit/officeModelServices.test.ts
+npm run typecheck
+node scripts/check-office-codex.mjs --codex /absolute/path/to/pinned/codex
+```
+
+The integration uses a real Codex engine, disposable Office directories, a
+loopback synthetic model and a separate foreign-state sentinel. It tests 12
+behaviors, including restart/continuation, images, terminal controls and stop.
+It does not use the native App home or a paid model endpoint. Its own processes
+and temporary state are removed on completion. Browser validation additionally
+checks Office project/chat creation, settings and unavailable feature controls.
+
+Legacy native-session gateway/index, shared-owner, private dictation and private
+prediction files remain historical implementations; they are not imported by
+the independent gateway or recommended installation paths.

@@ -18,7 +18,7 @@ export type SessionClient = {
   onGap?: (handler: (gap: { expected: number; received: number }) => void) => () => void;
 };
 type Approval = { requestId: string; method: string; params: Record<string, unknown>; details?: string; decisions: string[]; supported: boolean; submitted?: boolean };
-type Snapshot = { connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; turnStatus?: string; error?: string | null; settings?: ChatSettings; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number; questions?: SessionQuestionRequest[] };
+type Snapshot = { connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; turnStatus?: string; error?: string | null; settings?: ChatSettings; features?: { dictation: boolean; dictationHTTP?: boolean; voice: boolean; prediction: boolean; accountVersion?: number }; tokenUsage?: { last: { inputTokens: number; outputTokens: number }; modelContextWindow?: number | null }; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number; questions?: SessionQuestionRequest[] };
 type StreamSnapshot = Omit<Snapshot, "items"> & { threadId: string; subscriptionId: string;
   items: (LiveSessionItem | (Omit<LiveSessionItem, "content"> & { append: string; baseVersion: number }))[] };
 type Upload = { id: string; name: string; size: number; ref?: string; error?: string };
@@ -57,7 +57,7 @@ export function SessionControls({ client, threadId, onItems }: {
     const generationTrigger = previousPredictionState.current.threadId === threadId && previousPredictionState.current.working ? "live" : "catch_up";
     previousPredictionState.current = { threadId, working: Boolean(state?.activeTurnId) };
     setPrediction(null);
-    if (!state?.connected || state.activeTurnId || state.turnStatus !== "completed") return () => { stopped = true; };
+    if (!state?.connected || state.features?.prediction === false || state.activeTurnId || state.turnStatus !== "completed") return () => { stopped = true; };
     const requestId = crypto.randomUUID();
     const applyPrediction = (value: unknown) => {
       const result = value as { text?: unknown } | null;
@@ -70,7 +70,7 @@ export function SessionControls({ client, threadId, onItems }: {
     });
     void client.call("session.prediction", { threadId, generationTrigger, requestId }).then(applyPrediction).catch(() => {}); // Suggestions never block the composer or its connection.
     return () => { stopped = true; unsubscribe?.(); };
-  }, [client, threadId, state?.connected, state?.activeTurnId, state?.turnStatus]);
+  }, [client, threadId, state?.connected, state?.activeTurnId, state?.turnStatus, state?.features?.prediction]);
   const resizeInput = useCallback(() => {
     const node = input.current;
     if (!node?.clientWidth) return; // The chat stays mounted behind the character page.
@@ -98,7 +98,7 @@ export function SessionControls({ client, threadId, onItems }: {
     observer.observe(node);
     return () => observer.disconnect();
   }, [resizeInput]);
-  const dictation = useNativeDictation(threadId, text, setText, client);
+  const dictation = useNativeDictation(threadId, text, setText, state?.features?.dictationHTTP ? undefined : client);
   useLayoutEffect(() => {
     if (!dictation.transcriptionTime || dictation.busy) return;
     const node = input.current;
@@ -152,7 +152,7 @@ export function SessionControls({ client, threadId, onItems }: {
     setPrediction(null);
     void action("session.send", { message, attachments: uploads.map(file => file.ref), requestId: crypto.randomUUID() });
   };
-  const dictationShortcut = useDictationShortcut({ input, phase: dictation.phase, enabled: !busy && !settingsBusy && Boolean(state?.connected) && voice.status === "off",
+  const dictationShortcut = useDictationShortcut({ input, phase: dictation.phase, enabled: !busy && !settingsBusy && Boolean(state?.connected) && state?.features?.dictation !== false && voice.status === "off",
     start: dictation.start, stop: submit => submit ? send() : stopDictation(), discard: dictation.discard });
   useEffect(() => {
     let stopped = false, pending = false, retry = false, connected = true, version = -1;
@@ -242,7 +242,8 @@ export function SessionControls({ client, threadId, onItems }: {
   });
   return <div onDragOver={event => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={event => { if (event.dataTransfer.files.length) { event.preventDefault(); void addFiles(Array.from(event.dataTransfer.files)); } }} className="max-h-[60dvh] shrink-0 overflow-y-auto border-t border-white/10 bg-[#111b27] p-3 text-xs [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))] md:px-4">
     <div className="mx-auto max-w-3xl">
-    {state?.settings ? <SessionSettings key={threadId} client={client} threadId={threadId} current={state.settings} disabled={busy || !state.connected} active={Boolean(state.activeTurnId)} onBusyChange={setSettingsBusy} /> : null}
+    {state?.tokenUsage ? <p className="mb-2 text-[11px] text-white/45" aria-label={t("Context usage")}>{t("Context")}: {state.tokenUsage.last.inputTokens.toLocaleString()} {t("input tokens")}{state.tokenUsage.modelContextWindow ? ` / ${state.tokenUsage.modelContextWindow.toLocaleString()}` : ""}</p> : null}
+    {state?.settings ? <SessionSettings key={`${threadId}:${state.features?.accountVersion || 0}`} client={client} threadId={threadId} current={state.settings} disabled={busy || !state.connected} active={Boolean(state.activeTurnId)} onBusyChange={setSettingsBusy} /> : null}
     <input ref={picker} type="file" multiple className="hidden" aria-label={t("Choose attachments")} onChange={event => { void addFiles(Array.from(event.target.files || [])); event.target.value = ""; }} />
     {uploads.length ? <div className="mb-2 flex max-h-24 flex-wrap gap-2 overflow-y-auto" aria-label={t("Pending attachments")}>{uploads.map(file => <div key={file.id} className="flex max-w-full items-center gap-2 rounded-lg border border-white/15 bg-white/5 py-1 pl-2">
       <span className="min-w-0 truncate" title={file.name}>{file.name}</span><span className={file.error ? "text-rose-200" : "shrink-0 text-white/40"}>{file.error ? t(file.error) : (!file.ref ? t("Uploading…") : Math.max(1, Math.ceil(file.size / 1024)) + " KB")}</span>
@@ -256,11 +257,11 @@ export function SessionControls({ client, threadId, onItems }: {
     {state?.approvals.length ? <div className="mb-3 max-h-[32vh] space-y-3 overflow-y-auto" aria-label={t("Pending approvals")}>
       {state.approvals.map(request => <div key={request.requestId} className="rounded border border-amber-300/40 bg-amber-900/15 p-2">
         <p className="font-semibold text-amber-100">{request.method === "item/fileChange/requestApproval" ? t("File change approval") : request.method === "item/commandExecution/requestApproval" ? t("Command execution approval") : t("This session needs your input")}</p>
-        <pre className="my-2 max-h-40 overflow-auto whitespace-pre-wrap break-all text-[10px] text-white/80">{JSON.stringify({ command: request.params.command, cwd: request.params.cwd, reason: request.params.reason, message: request.params.message, network: request.params.networkApprovalContext, permissions: request.params.additionalPermissions, grantRoot: request.params.grantRoot }, null, 2)}{request.details ? `\n${request.details}` : ""}</pre>
+        <pre className="my-2 max-h-40 overflow-auto whitespace-pre-wrap break-all text-[10px] text-white/80">{JSON.stringify({ command: request.params.command, cwd: request.params.cwd, reason: request.params.reason, message: request.params.message, network: request.params.networkApprovalContext, permissions: request.params.permissions || request.params.additionalPermissions, grantRoot: request.params.grantRoot }, null, 2)}{request.details ? `\n${request.details}` : ""}</pre>
         {request.supported ? <div className="flex gap-2">
           <button disabled={busy || request.submitted || !request.decisions.includes("accept")} onClick={() => void action("session.approval.reply", { requestId: request.requestId, decision: "accept" })} className="rounded border border-emerald-300/50 px-3 py-1 text-emerald-100 disabled:opacity-40">{t("Allow once")}</button>
           <button disabled={busy || request.submitted} onClick={() => void action("session.approval.reply", { requestId: request.requestId, decision: request.decisions.includes("decline") ? "decline" : "cancel" })} className="rounded border border-rose-300/50 px-3 py-1 text-rose-100 disabled:opacity-40">{request.decisions.includes("decline") ? t("Decline") : t("Cancel turn")}</button>
-        </div> : <p className="text-amber-100">{t("Handle this request in the desktop app.")}</p>}
+        </div> : <p className="text-amber-100">{t("This request is not supported in Office. Stop the task to cancel it.")}</p>}
       </div>)}
       {(state.approvalCount || 0) > state.approvals.length ? <p className="text-amber-100">{t("More requests will appear after these approvals are handled.")}</p> : null}
     </div> : null}
@@ -276,11 +277,11 @@ export function SessionControls({ client, threadId, onItems }: {
       <div className="flex shrink-0 items-center gap-1">
         {dictation.busy ? <button aria-label={t("Cancel recording")} title={t("Cancel recording (Esc)")} onClick={dictation.discard} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5"><X size={19} /></button> :
           <button aria-label={t("Add attachments")} title={t("Add attachments, drag files, or paste images")} disabled={busy || settingsBusy || !state?.connected} onClick={() => picker.current?.click()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Paperclip size={19} /></button>}
-        <button aria-label={recording ? t("Stop recording and transcribe") : t("Native dictation")} title={dictationShortcut === "off" ? t("Click to record. Enter: transcribe and send. Esc: cancel.") : t("Click to record. {shortcut}: tap to toggle, hold to dictate. Enter: transcribe and send. Esc: cancel.", { shortcut: dictationShortcutLabel(dictationShortcut) })} disabled={dictation.phase === "transcribing" || (!recording && (busy || settingsBusy || !state?.connected || voice.status !== "off"))} onClick={() => { if (recording) void stopDictation(); else void dictation.start(); }} className={"grid h-10 w-10 place-items-center rounded-lg disabled:opacity-40 " + (dictation.phase === "recording" ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65 hover:bg-white/5")}><Mic size={19} /></button>
-        {!dictation.busy ? <button aria-label={t("Voice chat")} title={t("Start a live voice chat in this session")} disabled={busy || settingsBusy || !state?.connected || dictation.busy || voice.status !== "off"} onClick={() => void voice.start()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button> : null}
+        <button aria-label={recording ? t("Stop recording and transcribe") : t("Dictation")} title={state?.features?.dictation === false ? t("Dictation needs an OpenAI API key on the Office server") : dictationShortcut === "off" ? t("Click to record. Enter: transcribe and send. Esc: cancel.") : t("Click to record. {shortcut}: tap to toggle, hold to dictate. Enter: transcribe and send. Esc: cancel.", { shortcut: dictationShortcutLabel(dictationShortcut) })} disabled={state?.features?.dictation === false || dictation.phase === "transcribing" || (!recording && (busy || settingsBusy || !state?.connected || voice.status !== "off"))} onClick={() => { if (recording) void stopDictation(); else void dictation.start(); }} className={"grid h-10 w-10 place-items-center rounded-lg disabled:opacity-40 " + (dictation.phase === "recording" ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65 hover:bg-white/5")}><Mic size={19} /></button>
+        {!dictation.busy ? <button aria-label={t("Voice chat")} title={state?.features?.voice === false ? t("Live voice is not connected to the Office runtime yet") : t("Start a live voice chat in this session")} disabled={state?.features?.voice === false || busy || settingsBusy || !state?.connected || dictation.busy || voice.status !== "off"} onClick={() => void voice.start()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button> : null}
       </div>
       {dictation.busy ? <span role="status" className="min-w-0 flex-1 truncate text-xs text-rose-200">
-        {dictation.phase === "starting" ? t("Preparing microphone…") : dictation.phase === "transcribing" ? t("Transcribing with Codex…") : t("Recording · {time}", { time: `${Math.floor(dictation.seconds / 60)}:${String(Math.floor(dictation.seconds % 60)).padStart(2, "0")}` })}
+        {dictation.phase === "starting" ? t("Preparing microphone…") : dictation.phase === "transcribing" ? t("Transcribing…") : t("Recording · {time}", { time: `${Math.floor(dictation.seconds / 60)}:${String(Math.floor(dictation.seconds % 60)).padStart(2, "0")}` })}
       </span> : <span className="hidden min-w-0 flex-1 truncate text-xs text-white/45 sm:block">{state?.connected ? state.activeTurnId ? t("Codex is working…") : state.turnStatus === "interrupted" ? t("Stopped") : t("Codex · Connected") : connectionError ? t("Codex unavailable") : t("Connecting to Codex…")}</span>}
       <div className="flex shrink-0 items-center gap-2">
         {state?.activeTurnId && !dictation.busy ? <button aria-label={t("Stop")} title={t("Stop")} disabled={busy || settingsBusy} onClick={() => void action("session.stop", {})} className="grid h-10 w-10 place-items-center rounded-lg text-rose-200 hover:bg-white/5 disabled:opacity-40"><Square size={15} fill="currentColor" aria-hidden="true" /></button> : null}

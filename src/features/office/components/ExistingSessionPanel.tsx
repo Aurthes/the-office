@@ -11,11 +11,12 @@ import { SessionWorkspace } from "./SessionWorkspace";
 import type { SessionAsset } from "./SessionControls";
 import { SessionTranscript } from "./SessionTranscript";
 import { useUiText } from "@/lib/i18n/ui-language";
+import { OfficeCodexAccount } from "./OfficeCodexAccount";
 
 export type SessionInspection = {
   id: string; name: string; workspace: string; project: string; projectId?: string | null;
   status: "running" | "idle" | "unknown";
-  controlsAvailable?: boolean; model?: string | null;
+  controlsAvailable?: boolean; model?: string | null; runtime?: string; terminalAvailable?: boolean;
 };
 function CharacterLoading() {
   const t = useUiText();
@@ -175,7 +176,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
     event.currentTarget.closest("details")?.removeAttribute("open");
     setCharacterMode(mode);
   };
-  return <SessionPreviewContext.Provider value={openPreview}><section className="flex min-h-0 flex-1 flex-col text-white" aria-label={t("App session")}>
+  return <SessionPreviewContext.Provider value={openPreview}><section className="flex min-h-0 flex-1 flex-col text-white" aria-label={t("Codex session")}>
     <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-2">
       <div className="min-w-0">
         <h2 className="truncate text-sm font-semibold" title={sessionName}>{data?.id === threadId ? sessionName : t("Loading session information…")}</h2>
@@ -199,11 +200,11 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
               title={returnDisabled ? t("Stop the current task or wait for the previous return journey") : t("Archive this original session and keep its history")}
               className="session-action session-action--return"><span className="session-action-icon"><LogOut size={16} aria-hidden="true" /></span><span className="session-action-label">{t("Return to Earth (archive)")}</span><ChevronRight className="session-action-chevron" size={14} aria-hidden="true" /></button> : null}
             </div>
-            <a href={`codex://threads/${encodeURIComponent(threadId)}`} className="session-actions-desktop"><ExternalLink size={14} aria-hidden="true" /><span>{t("Open session in desktop app ↗")}</span></a>
+            {data?.runtime !== "office" ? <a href={`codex://threads/${encodeURIComponent(threadId)}`} className="session-actions-desktop"><ExternalLink size={14} aria-hidden="true" /><span>{t("Open session in desktop app ↗")}</span></a> : null}
             <div className="session-actions-meta">
             <p className="break-all">{t("Session ID")}: {threadId}</p>
             {data?.id === threadId ? <p className="break-all">{t("Directory:")} {data.workspace}</p> : null}
-            <p>{data?.controlsAvailable ? t("Session synced with the desktop app") : t("Read-only preview. Continue in the desktop app.")}</p>
+            <p>{data?.runtime === "office" ? t("Office-owned session") : data?.controlsAvailable ? t("Session synced with the desktop app") : t("Read-only preview. Continue in the desktop app.")}</p>
             </div>
           </div>
         </details>
@@ -242,9 +243,10 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
       lastTop.current = node.scrollTop; setShowLatest(false);
     }} className="absolute bottom-3 left-1/2 z-10 min-h-10 -translate-x-1/2 rounded-full border border-white/20 bg-[#243346] px-4 text-xs text-white shadow-xl hover:bg-[#30445c]">{t("↓ Latest messages")}</button> : null}
     </div>
+    {data?.runtime === "office" ? <OfficeCodexAccount client={client} /> : null}
     {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} client={client} threadId={threadId} onItems={onLiveItems} /> : null}
     </div>
-    {workspaceOpen ? <SessionWorkspace client={client} threadId={threadId} asset={previewAsset}
+    {workspaceOpen ? <SessionWorkspace client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
       assets={[...new Map(messages.flatMap(message => message.assets || []).map(asset => [asset.url, asset])).values()].slice(-40)}
       onSelectAsset={setPreviewAsset} onClose={() => setWorkspaceOpen(false)} /> : null}
     </div>

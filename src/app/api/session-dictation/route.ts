@@ -10,8 +10,9 @@ export async function POST(request: Request) {
     const response = await fetch(target, { method: "POST", body: request.body, duplex: "half", headers: {
       Authorization: "Bearer " + process.env.CLAW3D_GATEWAY_TOKEN, "Content-Type": "audio/wav",
     }, signal: AbortSignal.any([request.signal, AbortSignal.timeout(660000)]) } as RequestInit & { duplex: "half" });
+    if (!response.headers.get("content-type")?.includes("application/json")) return Response.json({ error: "The transcription service returned an unexpected response. Recording kept." }, { status: 502, headers: { "Cache-Control": "no-store" } });
     return new Response(response.body, { status: response.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
   } catch {
-    return Response.json({ error: "Could not connect to native dictation. Recording kept; please retry." }, { status: 502, headers: { "Cache-Control": "no-store" } });
+    return Response.json({ error: "Could not connect to Office transcription. Recording kept; please retry." }, { status: 502, headers: { "Cache-Control": "no-store" } });
   }
 }

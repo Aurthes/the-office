@@ -22,13 +22,13 @@ preserved in [LICENSE](LICENSE).
   idle characters can roam the shared office.
 - **Conversation-first chat.** Paginated history, direct push-streamed replies, Markdown, distinct
   message roles and collapsed work/tool activity keep long chats readable.
-- **Codex execution.** A standalone prototype supports Office-created threads.
-  The former shared execution owner is retired.
+- **Codex execution.** Office runs its own Codex process and data directory,
+  with its own projects, sessions, login, model choices and access controls.
 - **Attachments and previews.** Upload files, paste images and view supported
   images, Markdown and sandboxed HTML reports in the conversation.
-- **Voice UI prototypes.** Recording and voice controls exist, but the legacy
-  private/experimental native paths are not part of the independent backend.
-  Public-API replacements require separate implementation and validation.
+- **Optional dictation and suggestions.** Public OpenAI API adapters are wired;
+  they require a server API key and separate account/quality validation. Live
+  voice is unavailable in the independent runtime.
 - **Authenticated web access.** A separate login gateway supports password setup,
   TOTP authenticators, recovery codes and persistent login sessions.
 - **Shared scene collisions.** Rendered solids and people use common collision
@@ -65,19 +65,17 @@ Open `http://localhost:3000`, select the **Demo** backend and connect to
 
 ## Connect Codex
 
-The independent backend is being assessed against the selected ownership boundary:
+Use the independent backend for new Office work:
 
 | Mode | Purpose | Setup |
 | --- | --- | --- |
-| Office-owned Codex runtime | Selected direction; separate projects, sessions and runtime state | [Ownership and features](docs/office-owned-state.md) |
+| Office-owned Codex runtime | Separate process, login, projects and sessions; `npm run codex-gateway` | [Setup and tested features](docs/office-owned-state.md) |
 | Standalone gateway prototype | Limited own-thread implementation; not feature-complete or install-ready under the new boundary | [Minimal Codex gateway](docs/codex-gateway.md) |
 | Existing App sessions | Legacy implementation record; do not deploy or extend this mode | [Historical session view](docs/codex-session-view.md), [audit](docs/codex-interop-audit.md) |
 
-Office's runtime must use Office-owned state and documented authentication before
-being presented as install-ready. Composer capabilities need individual validation;
-the presence of an attachment, access, model or voice control is not proof of full
-native App parity. The [feature map](docs/office-owned-state.md#chat-feature-map)
-separates engine capabilities from UI and service work still required.
+Office does not import native App projects, sessions or credentials. The
+[feature map](docs/office-owned-state.md#chat-feature-map) distinguishes tested
+engine behavior from optional services and features that remain unavailable.
 
 ### Use the office
 
@@ -85,7 +83,7 @@ separates engine capabilities from UI and service work still required.
 2. Click a person to open their conversation.
 3. Scroll upward to load older history a page at a time.
 4. Use the composer features supported by the selected backend. The demo uses
-   simulated people; the limited standalone prototype does not enable every control.
+   simulated people; optional services stay disabled until configured.
 
 Character movement is a visualization, not an additional agent or evidence that a
 model is running a task.

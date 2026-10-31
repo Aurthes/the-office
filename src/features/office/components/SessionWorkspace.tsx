@@ -11,9 +11,9 @@ type Listing = { path: string; entries: { name: string; directory: boolean }[]; 
 type FileRead = { path: string; content?: string; asset?: SessionAsset };
 type Tab = "files" | "preview" | "terminal" | "browser";
 
-export function SessionWorkspace({ client, threadId, asset, assets, onSelectAsset, onClose }: {
+export function SessionWorkspace({ client, threadId, asset, assets, onSelectAsset, onClose, terminalAvailable = true }: {
   client: SessionClient; threadId: string; asset: SessionAsset | null; assets: SessionAsset[];
-  onSelectAsset: (asset: SessionAsset | null) => void; onClose: () => void;
+  onSelectAsset: (asset: SessionAsset | null) => void; onClose: () => void; terminalAvailable?: boolean;
 }) {
   const t = useUiText();
   const [tab, setTab] = useState<Tab>(asset ? "preview" : "files");
@@ -40,7 +40,7 @@ export function SessionWorkspace({ client, threadId, asset, assets, onSelectAsse
     } catch (cause) { if (id === request.current) setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { if (id === request.current) setBusy(false); }
   };
-  const tabs = [["files", Files, "Files"], ["preview", Image, "Preview"], ["terminal", Terminal, "Terminal"], ["browser", Globe, "Browser"]] as const;
+  const tabs = ([["files", Files, "Files"], ["preview", Image, "Preview"], ["terminal", Terminal, "Terminal"], ["browser", Globe, "Browser"]] as const).filter(([key]) => terminalAvailable || key !== "terminal");
   return <aside className="session-workspace flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" aria-label={t("Session workspace")}>
     <div className="session-workspace-tabs" role="tablist" aria-label={t("Workspace views")} onKeyDown={event => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;

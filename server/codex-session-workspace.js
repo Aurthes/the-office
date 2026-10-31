@@ -10,8 +10,9 @@ const FILE_BYTES = 256 * 1024;
 
 // Files and PTYs belong to the existing Codex owner. No second agent/runtime.
 class CodexSessionWorkspace {
-  constructor(client) {
+  constructor(client, options = {}) {
     this.client = client;
+    this.options = options;
     this.terminals = new Map();
     this.starts = new Map();
     this.listeners = new Map();
@@ -68,6 +69,15 @@ class CodexSessionWorkspace {
     const { root } = await this.target(row);
     const terminal = { threadId: row.id, handle: crypto.randomUUID(), output: Buffer.alloc(0), pending: Buffer.alloc(0), offset: 0, running: true, exitCode: null, timer: null, reset: false };
     this.terminals.set(row.id, terminal);
+    if (this.options.commandExec) {
+      // Public command/exec stays pending until exit; output arrives as events.
+      void this.client.call("command/exec", { processId: terminal.handle, command: [os.userInfo().shell || process.env.SHELL || "/bin/sh", "-l"], cwd: root,
+        tty: true, streamStdin: true, streamStdoutStderr: true, disableTimeout: true, disableOutputCap: true, size: { rows: 24, cols: 80 }, sandboxPolicy: this.options.policy(row.id) }, 0)
+        .then(result => { terminal.running = false; terminal.exitCode = result.exitCode; this.flush(terminal); }, error => {
+          terminal.running = false; terminal.exitCode = -1; terminal.pending = Buffer.from(error.message + "\r\n"); terminal.output = terminal.pending; this.flush(terminal);
+        });
+      return this.snapshot(row.id);
+    }
     try {
       await this.client.call("process/spawn", { processHandle: terminal.handle, command: [os.userInfo().shell || process.env.SHELL || "/bin/sh", "-l"], cwd: root,
         tty: true, streamStdin: true, streamStdoutStderr: true, outputBytesCap: null, timeoutMs: null, size: { rows: 24, cols: 80 } });
@@ -92,20 +102,21 @@ class CodexSessionWorkspace {
     terminal.inputBytes = (terminal.inputBytes || 0) + bytes;
     // Preserve keystroke order only within this PTY. A failed write stops the
     // queued suffix; resubscribe to inspect the screen before typing again.
-    const result = (terminal.inputTail || Promise.resolve()).then(() => this.client.call("process/writeStdin", { processHandle: terminal.handle, deltaBase64: dataBase64 }));
+    const result = (terminal.inputTail || Promise.resolve()).then(() => this.client.call(this.options.commandExec ? "command/exec/write" : "process/writeStdin", { [this.options.commandExec ? "processId" : "processHandle"]: terminal.handle, deltaBase64: dataBase64 }));
     terminal.inputTail = result;
     try { return await result; } finally { terminal.inputBytes -= bytes; }
   }
   async resize(threadId, handle, cols, rows) {
     const terminal = this.active(threadId, handle);
     if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || cols > 500 || rows < 1 || rows > 200) throw new Error("Invalid terminal size");
-    return this.client.call("process/resizePty", { processHandle: terminal.handle, size: { cols, rows } });
+    return this.client.call(this.options.commandExec ? "command/exec/resize" : "process/resizePty", { [this.options.commandExec ? "processId" : "processHandle"]: terminal.handle, size: { cols, rows } });
   }
   async stop(threadId, handle) {
     const terminal = this.active(threadId, handle);
-    return this.client.call("process/kill", { processHandle: terminal.handle });
+    return this.client.call(this.options.commandExec ? "command/exec/terminate" : "process/kill", { [this.options.commandExec ? "processId" : "processHandle"]: terminal.handle });
   }
   handle(frame) {
+    if (frame.method === "command/exec/outputDelta") frame = { method: "process/outputDelta", params: { ...frame.params, processHandle: frame.params.processId } };
     if (!["process/outputDelta", "process/exited"].includes(frame.method)) return;
     const params = frame.params || {}, terminal = [...this.terminals.values()].find(entry => entry.handle === params.processHandle);
     if (!terminal) return;
@@ -137,7 +148,7 @@ class CodexSessionWorkspace {
   async close() {
     this.listeners.clear();
     for (const terminal of this.terminals.values()) if (terminal.timer) clearTimeout(terminal.timer);
-    await Promise.allSettled([...this.terminals.values()].filter(entry => entry.running).map(entry => this.client.call("process/kill", { processHandle: entry.handle })));
+    await Promise.allSettled([...this.terminals.values()].filter(entry => entry.running).map(entry => this.stop(entry.threadId, entry.handle)));
   }
 }
 module.exports = { CodexSessionWorkspace, OUTPUT_BYTES };
