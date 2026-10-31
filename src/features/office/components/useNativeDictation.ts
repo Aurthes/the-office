@@ -1,7 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SessionClient } from "./SessionControls";
-type Bridge = { id: string; client: SessionClient; ready: Promise<void>; connected: boolean; sent: number; pending: Set<Promise<void>>; error?: Error; cancelled?: boolean };
+import { nativeDictationRequest } from "./nativeDictationRequest";
+type Bridge = { abort: AbortController; id: string; client: SessionClient; ready: Promise<void>; connected: boolean; sent: number; pending: Set<Promise<void>>; error?: Error; cancelled?: boolean };
 type Clip = { blob: Blob; seconds: number; base: string };
 type Capture = { context: AudioContext; node?: AudioWorkletNode; source?: MediaStreamAudioSourceNode; stream?: MediaStream; frames: Int16Array[]; samples: number; stopped: boolean; discarded?: boolean; flush?: () => void; limit?: ReturnType<typeof setTimeout>; bridge?: Bridge };
 // Keep an interrupted recording when switching between chats within this page.
@@ -30,7 +31,15 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
     const controller = new AbortController(); request.current = controller; setPhase("transcribing"); setError(""); setTranscriptionTime(null);
     try {
       const result = await fetch("/api/session-dictation?" + new URLSearchParams({ threadId }), { method: "POST", body: audio.blob, headers: { "Content-Type": "audio/wav" }, signal: controller.signal });
-      const data = await result.json();
+      if (result.status === 401 || result.status === 403) throw new Error("Sign in again before retrying transcription. Recording kept.");
+      let data: { text?: unknown; error?: string };
+      try {
+        if (result.headers && !/json/i.test(result.headers.get("Content-Type") || "")) throw new Error("Unexpected response type");
+        data = await result.json();
+      } catch {
+        console.warn("[native-dictation] invalid HTTP response", { status: result.status, redirected: result.redirected, contentType: result.headers?.get("Content-Type") });
+        throw new Error("Transcription service returned an invalid response. Recording kept; please retry.");
+      }
       if (!result.ok || typeof data.text !== "string" || !data.text.trim()) throw new Error(data.error || "Native dictation returned no text. Recording kept.");
       if (mounted.current && request.current === controller && !controller.signal.aborted) {
         const text = audio.base + (audio.base.trim() ? " " : "") + data.text;
@@ -42,10 +51,12 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
     } finally { if (request.current === controller) request.current = null; }
   }, [threadId]);
   const cancelBridge = useCallback((bridge: Bridge) => {
-    bridge.cancelled = true;
-    void bridge.ready.then(() => bridge.client.call("session.dictation.cancel", { threadId, id: bridge.id })).catch(() => {});
+    if (bridge.cancelled) return;
+    bridge.cancelled = true; bridge.abort.abort();
+    // Ordered start/cancel frames bind to the same owner and recording ID.
+    void bridge.client.call("session.dictation.cancel", { threadId, id: bridge.id }).catch(() => {});
   }, [threadId]);
-  const sendFrames = useCallback((current: Capture) => {
+  const sendFrames = useCallback((current: Pick<Capture, "frames" | "bridge">) => {
     const bridge = current.bridge;
     if (!bridge?.connected || bridge.error || bridge.cancelled) return;
     while (bridge.sent < current.frames.length) {
@@ -59,6 +70,45 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
       bridge.pending.add(pending); void pending.then(() => bridge.pending.delete(pending));
     }
   }, [threadId]);
+  const retryTranscription = useCallback(async (audio: Clip) => {
+    const client = latest.current.client;
+    if (!client) return transcribe(audio);
+    if (capture.current || request.current || finishingBridge.current) return;
+    const startedAt = performance.now();
+    const bridge: Bridge = { abort: new AbortController(), id: crypto.randomUUID(), client, connected: false, sent: 0, pending: new Set(), ready: Promise.resolve() };
+    finishingBridge.current = bridge; setPhase("transcribing"); setError(""); setTranscriptionTime(null);
+    try {
+      bridge.ready = nativeDictationRequest(client, "start", { threadId, id: bridge.id }, bridge.abort.signal).then(() => { bridge.connected = true; });
+      await bridge.ready;
+      const buffer = await audio.blob.arrayBuffer();
+      // Retained clips are our own PCM WAVs. Reuse the authenticated live channel
+      // and replay at audio speed, overlapping acknowledgements with each chunk.
+      const replay = { frames: [] as Int16Array[], bridge };
+      for (let offset = 44; offset < buffer.byteLength; offset += 16000) {
+        if (bridge.cancelled) throw new Error("Transcription cancelled. Recording kept.");
+        const bytes = Math.min(16000, buffer.byteLength - offset);
+        replay.frames.push(new Int16Array(buffer, offset, bytes / 2)); sendFrames(replay);
+        if (bridge.error) throw bridge.error;
+        await new Promise(resolve => setTimeout(resolve, bytes / 32));
+      }
+      if (bridge.cancelled) throw new Error("Transcription cancelled. Recording kept.");
+      const [result] = await Promise.all([
+        nativeDictationRequest<{ text?: string }>(client, "finish", { threadId, id: bridge.id, sequence: bridge.sent }, bridge.abort.signal),
+        Promise.all([...bridge.pending]),
+      ]);
+      if (bridge.error) throw bridge.error;
+      if (!result.text?.trim()) throw new Error("Native dictation returned incomplete text. Recording kept.");
+      if (!bridge.cancelled && mounted.current && finishingBridge.current === bridge) {
+        latest.current.onText(audio.base + (audio.base.trim() ? " " : "") + result.text);
+        setTranscriptionTime({ seconds: (performance.now() - startedAt) / 1000, retry: true }); setPhase("idle");
+      }
+    } catch (cause) {
+      cancelBridge(bridge);
+      if (mounted.current && finishingBridge.current === bridge) {
+        setError(cause instanceof Error ? cause.message : "Native dictation interrupted. Recording kept."); setPhase("error");
+      }
+    } finally { if (finishingBridge.current === bridge) finishingBridge.current = null; }
+  }, [cancelBridge, sendFrames, threadId, transcribe]);
   const finishCapture = useCallback(async (run = true) => {
     const stoppedAt = performance.now();
     stopRequested.current = true;
@@ -93,7 +143,7 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
       // The gateway processes ordered WebSocket frames. Flush immediately after
       // the final audio frame instead of paying another round trip for its ACK.
       const [result] = await Promise.all([
-        bridge.client.call("session.dictation.finish", { threadId, id: bridge.id, sequence: bridge.sent }) as Promise<{ text?: string }>,
+        nativeDictationRequest<{ text?: string }>(bridge.client, "finish", { threadId, id: bridge.id, sequence: bridge.sent }, bridge.abort.signal),
         Promise.all([...bridge.pending]),
       ]);
       if (bridge.error) throw bridge.error;
@@ -120,11 +170,11 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
       const resume = context.resume();
       // Native preparation overlaps microphone permission and worklet setup.
       if (latest.current.client) {
-        const bridge: Bridge = { id: crypto.randomUUID(), client: latest.current.client, connected: false, sent: 0, pending: new Set(), ready: Promise.resolve() };
+        const bridge: Bridge = { abort: new AbortController(), id: crypto.randomUUID(), client: latest.current.client, connected: false, sent: 0, pending: new Set(), ready: Promise.resolve() };
         current.bridge = bridge;
-        bridge.ready = bridge.client.call("session.dictation.start", { threadId, id: bridge.id }).then(() => {
+        bridge.ready = nativeDictationRequest(bridge.client, "start", { threadId, id: bridge.id }, bridge.abort.signal).then(() => {
           bridge.connected = true; sendFrames(current);
-        }).catch(cause => { bridge.error = cause instanceof Error ? cause : new Error("Native dictation connection failed"); if (mounted.current && capture.current === current) setError("Native connection unavailable. Recording is kept locally; retry after stopping."); });
+        }).catch(cause => { bridge.error = cause instanceof Error ? cause : new Error("Native dictation connection failed"); if (!bridge.cancelled && mounted.current && capture.current === current) setError("Native connection unavailable. Recording is kept locally; retry after stopping."); });
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }); current.stream = stream;
       await resume;
@@ -181,5 +231,5 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
     window.addEventListener("beforeunload", leave); document.addEventListener("visibilitychange", hidden);
     return () => { mounted.current = false; request.current?.abort(); if (finishingBridge.current) cancelBridge(finishingBridge.current); void finishCapture(false); window.removeEventListener("beforeunload", leave); document.removeEventListener("visibilitychange", hidden); };
   }, [threadId, finishCapture, cancelBridge]);
-  return { phase, clip, error, seconds, transcriptionTime, start, stop: () => finishCapture(), retry: () => clip && transcribe({ ...clip, base: latest.current.draft }), cancel: () => { request.current?.abort(); if (finishingBridge.current) cancelBridge(finishingBridge.current); }, discard, clear, download, busy: ["starting", "recording", "transcribing"].includes(phase) };
+  return { phase, clip, error, seconds, transcriptionTime, start, stop: () => finishCapture(), retry: () => clip && retryTranscription({ ...clip, base: latest.current.draft }), cancel: () => { request.current?.abort(); if (finishingBridge.current) cancelBridge(finishingBridge.current); }, discard, clear, download, busy: ["starting", "recording", "transcribing"].includes(phase) };
 }

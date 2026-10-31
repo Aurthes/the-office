@@ -7,15 +7,28 @@ it("changes only actual self-refresh tags, preserving scripts, comments and iner
   expect(prepareHtmlPreview(untouched)).toBe(untouched);
   const refresh = '<META CONTENT="3" HTTP-EQUIV=Refresh>';
   const html = untouched.replace("</head>", refresh + "</head>");
-  expect(prepareHtmlPreview(html)).toBe(untouched + '<script>setTimeout(function(){parent.postMessage("claw3d:session-asset-refresh","*")},3000)</script>');
+  const prepared = prepareHtmlPreview(html);
+  expect(prepared.startsWith(untouched + '<script data-claw3d-preview-refresh>')).toBe(true);
+  expect(prepared).toContain("claw3d:session-asset-refresh");
+  expect(prepared.endsWith(",3000)</script>")).toBe(true);
 });
 
 it("uses the first active self-refresh deadline and bounds zero and huge delays", () => {
   const transformed = prepareHtmlPreview('<meta http-equiv="refresh" content="8"><meta http-equiv="refresh" content="2;">');
-  expect(transformed).toContain("},2000)");
+  expect(transformed.endsWith(",2000)</script>")).toBe(true);
   expect(transformed).not.toContain("<meta");
-  expect(prepareHtmlPreview('<meta http-equiv="refresh" content="0">')).toContain("},1000)");
-  expect(prepareHtmlPreview('<meta http-equiv="refresh" content="9999999999999999999">')).toContain("},2147483647)");
+  expect(prepareHtmlPreview('<meta http-equiv="refresh" content="0">').endsWith(",1000)</script>")).toBe(true);
+  expect(prepareHtmlPreview('<meta http-equiv="refresh" content="9999999999999999999">').endsWith(",2147483647)</script>")).toBe(true);
+});
+
+it("escapes its source snapshot and avoids duplicating large script payloads", () => {
+  const payload = "large-data-".repeat(1000);
+  const html = '<meta http-equiv="refresh" content="2"><script>var data="' + payload + '"</script><p>进度</p>';
+  const prepared = prepareHtmlPreview(html);
+  expect(prepared.split(payload)).toHaveLength(2);
+  const bootstrap = prepared.slice(prepared.indexOf('<script data-claw3d-preview-refresh>'));
+  expect(bootstrap.match(/<\/script>/g)).toHaveLength(1);
+  expect(bootstrap).toContain('\\u003c');
 });
 
 it("preserves explicit redirects and malformed refresh values rather than turning them into authenticated navigations", () => {

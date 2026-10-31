@@ -90,7 +90,7 @@ async function history(row, cursor) {
   return loadSessionHistoryPage(call, row, cursor);
 }
 const { answerQuestions } = require("./codex-session-questions");
-const { NativeDictationSessions } = require("./codex-dictation");
+const { NativeDictationSessions, dictationReply } = require("./codex-dictation");
 const nativeDictation = new NativeDictationSessions(shared);
 const predictions = new CodexComposerPredictions(shared);
 const methods = {
@@ -149,9 +149,9 @@ const methods = {
   },
   "session.settings.choices": async p => { const row = get(p.threadId); if (!controls) throw new Error("原会话设置未连接"); return controls.choices(row.id); },
   "session.settings.update": async p => { const row = get(p.threadId); if (!controls) throw new Error("原会话设置未连接"); return controls.updateSettings(row.id, p.settings); },
-  "session.dictation.start": async (p, ws) => { const row = get(p.threadId); return nativeDictation.start(ws, row.id, p.id); },
+  "session.dictation.start": async (p, ws) => { const row = get(p.threadId); return dictationReply(ws, p, "start", () => nativeDictation.start(ws, row.id, p.id)); },
   "session.dictation.append": async (p, ws) => nativeDictation.append(ws, p),
-  "session.dictation.finish": async (p, ws) => nativeDictation.finish(ws, p),
+  "session.dictation.finish": async (p, ws) => dictationReply(ws, p, "finish", () => nativeDictation.finish(ws, p)),
   "session.dictation.cancel": async (p, ws) => nativeDictation.cancel(ws, p),
   "session.voice.start": async (p, ws) => { const row = get(p.threadId); if (!voice) throw new Error("原生语音未连接"); return voice.start(ws, row.id, p.sdp, p.voiceId); },
   "session.voice.stop": async (p, ws) => { const row = get(p.threadId); if (!voice) throw new Error("原生语音未连接"); return voice.stop(ws, row.id, p.voiceId); },
@@ -184,7 +184,7 @@ wss.on("connection", ws => {
         if (!ready) throw new Error("Session reader is starting");
         connected = true; clients.add(ws);
         result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "codex-app-session-view-1", connId: crypto.randomUUID() },
-          features: { methods: Object.keys(methods), events: ["tick", "session.updated", "session.stream", "session.voice", "session.terminal", "session.prediction", "roster.updated"] },
+          features: { methods: Object.keys(methods), events: ["tick", "session.updated", "session.stream", "session.voice", "session.terminal", "session.prediction", "session.dictation", "roster.updated"] },
           snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: rows()[0]?.id }, sessionDefaults: { mainKey: "main" } },
           auth: { role: "operator", scopes: shared ? ["operator.read", "operator.write", "operator.approvals"] : ["operator.read"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
       } else {

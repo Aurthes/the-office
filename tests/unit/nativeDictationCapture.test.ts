@@ -1,4 +1,5 @@
 import React from "react";
+import { Blob as NodeBlob } from "node:buffer";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionControls } from "../../src/features/office/components/SessionControls";
@@ -158,6 +159,66 @@ describe("browser recording to native dictation", () => {
     expect(result.current.phase).toBe("idle"); expect(result.current.clip).toBeNull(); expect(inserted).not.toHaveBeenCalled();
   });
 
+  it("retries retained audio on the existing authenticated channel without an HTTP upload", async () => {
+    microphone(); vi.stubGlobal("Blob", NodeBlob);
+    const inserted = vi.fn(), fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    let first = true;
+    const call = vi.fn(async (method: string) => {
+      if (method === "session.dictation.finish") { if (first) { first = false; throw new Error("temporary native failure"); } return { text: "recovered words" }; }
+      return { accepted: true };
+    });
+    const view = renderHook(() => useNativeDictation("retry-native-channel", "original draft", inserted, { call }));
+    await act(async () => view.result.current.start());
+    const pcm = new Int16Array(3200).fill(1234);
+    act(() => port.onmessage?.({ data: { pcm } }));
+    await act(async () => view.result.current.stop());
+    expect(view.result.current.phase).toBe("error"); const clip = view.result.current.clip!.blob;
+    call.mockClear();
+    await act(async () => view.result.current.retry());
+    expect(fetcher).not.toHaveBeenCalled(); expect(inserted).toHaveBeenCalledExactlyOnceWith("original draft recovered words");
+    expect(view.result.current.clip!.blob).toBe(clip);
+    expect(call).toHaveBeenCalledWith("session.dictation.append", expect.objectContaining({ threadId: "retry-native-channel", sequence: 0 }));
+    expect(call).toHaveBeenCalledWith("session.dictation.finish", expect.objectContaining({ threadId: "retry-native-channel", sequence: 1 }));
+    expect(view.result.current.transcriptionTime?.retry).toBe(true);
+    act(() => view.result.current.clear());
+  });
+  it("can discard a replay while its audio acknowledgement is still pending", async () => {
+    microphone(); vi.stubGlobal("Blob", NodeBlob); const inserted = vi.fn(); let retrying = false, acknowledge!: (value: unknown) => void;
+    const call = vi.fn(async (method: string) => {
+      if (retrying && method === "session.dictation.append") return new Promise(resolve => { acknowledge = resolve; });
+      if (method === "session.dictation.finish") throw new Error("temporary native failure");
+      return { accepted: true };
+    });
+    const view = renderHook(() => useNativeDictation("cancel-retry-channel", "draft", inserted, { call }));
+    await act(async () => view.result.current.start());
+    act(() => port.onmessage?.({ data: { pcm: new Int16Array(3200) } }));
+    await act(async () => view.result.current.stop()); retrying = true; call.mockClear();
+    let retry!: Promise<string | undefined> | null; act(() => { retry = view.result.current.retry(); });
+    await waitFor(() => expect(acknowledge).toBeTypeOf("function"));
+    act(() => view.result.current.discard());
+    await act(async () => { acknowledge({ accepted: true }); await retry; });
+    expect(view.result.current.phase).toBe("idle"); expect(view.result.current.clip).toBeNull(); expect(inserted).not.toHaveBeenCalled();
+    expect(call).not.toHaveBeenCalledWith("session.dictation.finish", expect.anything());
+  });
+  it.each([
+    [502, "text/html", "Transcription service returned an invalid response. Recording kept; please retry."],
+    [200, "text/html", "Transcription service returned an invalid response. Recording kept; please retry."],
+    [502, "application/json", "Transcription service returned an invalid response. Recording kept; please retry."],
+    [401, "text/html", "Sign in again before retrying transcription. Recording kept."],
+  ])("keeps audio and reports a useful error for HTTP %s %s", async (status, type, message) => {
+    microphone(); const inserted = vi.fn(), warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const json = vi.fn(async () => { throw new SyntaxError("Unexpected token '<'"); });
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: status === 200, status, headers: new Headers({ "Content-Type": type }), json })));
+    const view = renderHook(() => useNativeDictation("html-response-" + status, "draft", inserted));
+    await act(async () => view.result.current.start());
+    act(() => port.onmessage?.({ data: { pcm: new Int16Array(3200) } }));
+    await act(async () => view.result.current.stop());
+    expect(view.result.current.phase).toBe("error"); expect(view.result.current.error).toBe(message);
+    expect(view.result.current.clip!.seconds).toBe(0.2); expect(inserted).not.toHaveBeenCalled();
+    if (/json/i.test(type)) expect(json).toHaveBeenCalledOnce(); else expect(json).not.toHaveBeenCalled();
+    act(() => view.result.current.clear()); warn.mockRestore();
+  });
+
 });
 
 describe("dictation composer shortcuts", () => {
@@ -189,10 +250,65 @@ describe("dictation composer shortcuts", () => {
     expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(1);
     expect(h.input.value).toBe("");
   });
+  it("shows compact recording controls and enables Send with no typed draft", async () => {
+    let finish!: (value: unknown) => void;
+    const h = await composer("button-send", () => new Promise(resolve => { finish = resolve; }));
+    expect(screen.getByRole("button", { name: "Cancel recording" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Add attachments" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Voice chat" })).toBeNull();
+    expect(screen.getByText("Recording · 0:00")).toBeTruthy();
+    fireEvent.change(h.input, { target: { value: "" } });
+    const send = screen.getByRole("button", { name: "Transcribe and send" }); expect(send).toBeEnabled();
+    fireEvent.click(send); fireEvent.click(send);
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(0);
+    await act(async () => finish({ text: "spoken words" }));
+    await waitFor(() => expect(h.call).toHaveBeenCalledWith("session.send", expect.objectContaining({ threadId: "button-send", message: "spoken words" })));
+    expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(1);
+  });
+  it("X cancels recording, restores the normal buttons and leaves the draft intact", async () => {
+    const h = await composer("button-cancel", async () => ({ text: "must not appear" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel recording" }));
+    await screen.findByRole("button", { name: "Add attachments" });
+    expect(screen.getByRole("button", { name: "Voice chat" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Cancel recording" })).toBeNull();
+    expect(h.input.value).toBe("existing draft"); expect(stopTrack).toHaveBeenCalledOnce();
+    expect(h.call.mock.calls.filter(([method]) => ["session.send", "session.dictation.finish"].includes(method))).toHaveLength(0);
+  });
+  it("X stays available during transcription and prevents a late result from sending", async () => {
+    let finish!: (value: unknown) => void;
+    const h = await composer("button-cancel-transcription", () => new Promise(resolve => { finish = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Transcribe and send" }));
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel recording" }));
+    await act(async () => finish({ text: "must not appear" }));
+    expect(h.input.value).toBe("existing draft");
+    expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(0);
+  });
+  it("the microphone restores draft focus after transcription so Enter can send", async () => {
+    let finish!: (value: unknown) => void;
+    const h = await composer("button-stop-draft", () => new Promise(resolve => { finish = resolve; }));
+    const stop = screen.getByRole("button", { name: "Stop recording and transcribe" });
+    act(() => stop.focus());
+    fireEvent.click(stop);
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect(h.input).toBeDisabled(); expect(h.input).not.toHaveFocus();
+    await act(async () => finish({ text: "spoken words" }));
+    await waitFor(() => expect(h.input).toHaveFocus());
+    expect(h.input.value).toBe("existing draft spoken words");
+    expect(h.input.selectionStart).toBe(h.input.value.length);
+    expect(h.input.selectionEnd).toBe(h.input.value.length);
+    expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(0);
+    fireEvent.keyDown(document.activeElement!, { key: "Enter" });
+    await waitFor(() => expect(h.call).toHaveBeenCalledWith("session.send", expect.objectContaining({ threadId: "button-stop-draft", message: "existing draft spoken words" })));
+    expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(1);
+  });
   it("a second Option tap inserts text without sending", async () => {
     const h = await composer("tap-stop", async () => ({ text: "spoken words" }));
     fireEvent.keyDown(window, { key: "Alt", code: "AltLeft", altKey: true }); fireEvent.keyUp(window, { key: "Alt", code: "AltLeft" });
     await waitFor(() => expect(h.input.value).toBe("existing draft spoken words"));
+    expect(h.input).toHaveFocus();
     expect(h.call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Clear recording" }));
   });

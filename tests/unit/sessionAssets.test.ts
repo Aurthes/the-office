@@ -86,7 +86,8 @@ describe("conversation file references", () => {
     const response = await GET(new Request(url + "&preview=1"));
     const embedded = await response.text();
     expect(embedded).not.toContain('<meta http-equiv="refresh"');
-    expect(embedded).toContain('parent.postMessage("claw3d:session-asset-refresh","*")');
+    expect(embedded).toContain('claw3d:session-asset-refresh');
+    expect(embedded).toContain('data-claw3d-preview-refresh');
     expect(embedded).toContain("2000");
     expect(response.headers.get("content-security-policy")).toContain("sandbox allow-scripts");
     expect(response.headers.get("content-security-policy")).not.toContain("allow-same-origin");

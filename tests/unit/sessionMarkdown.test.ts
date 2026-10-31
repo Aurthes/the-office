@@ -30,22 +30,43 @@ it("renders native image attachments and Markdown files, including file-relative
   await screen.findByRole("heading", { name: "File title" });
   await waitFor(() => expect(screen.getByRole("img", { name: "relative" }).getAttribute("src")).toBe("/api/session-assets?ref=relative"));
 });
-it("reloads only the current isolated HTML frame on its self-refresh request", () => {
+it("fetches updates for only the current isolated frame without navigating or replacing it", async () => {
+  const fetcher = vi.fn(async () => ({ ok: true, text: async () => '<p>Updated progress</p>' }));
+  vi.stubGlobal("fetch", fetcher);
   const html = { source: "/report.html", name: "report.html", kind: "html" as const, url: "/api/session-assets?ref=html" };
   render(React.createElement(SessionMarkdown, { content: "[Report](/report.html)", assets: [html] }));
   fireEvent.click(screen.getByRole("link", { name: /Report/ }));
   const original = screen.getByTitle("report.html") as HTMLIFrameElement;
+  const post = vi.spyOn(original.contentWindow!, "postMessage");
   const message = "claw3d:session-asset-refresh";
   fireEvent(window, new MessageEvent("message", { data: message, source: window }));
   fireEvent(window, new MessageEvent("message", { data: "unrelated", source: original.contentWindow }));
   expect(screen.getByTitle("report.html")).toBe(original);
+  expect(fetcher).not.toHaveBeenCalled();
   fireEvent(window, new MessageEvent("message", { data: message, source: original.contentWindow }));
-  const refreshed = screen.getByTitle("report.html");
-  expect(refreshed).not.toBe(original);
-  expect(refreshed).toHaveAttribute("src", html.url + "&preview=1");
-  expect(refreshed).toHaveAttribute("sandbox", "allow-scripts");
+  await waitFor(() => expect(post).toHaveBeenCalledWith({ type: "claw3d:session-asset-update", html: '<p>Updated progress</p>' }, "*"));
+  expect(fetcher).toHaveBeenCalledWith(html.url, expect.objectContaining({ credentials: "same-origin", cache: "no-store", signal: expect.any(AbortSignal) }));
+  expect(screen.getByTitle("report.html")).toBe(original);
+  expect(original).toHaveAttribute("src", html.url + "&preview=1");
+  expect(original).toHaveAttribute("sandbox", "allow-scripts");
   fireEvent(window, new MessageEvent("message", { data: message, source: original.contentWindow }));
-  expect(screen.getByTitle("report.html")).toBe(refreshed);
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+  expect(post).toHaveBeenLastCalledWith({ type: "claw3d:session-asset-update", html: undefined }, "*");
+  expect(screen.getByTitle("report.html")).toBe(original);
+});
+
+it("keeps the existing page on a failed refresh and recovers on the next request", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ ok: true, text: async () => '<p>Recovered</p>' }));
+  const html = { source: "/report.html", name: "report.html", kind: "html" as const, url: "/api/session-assets?ref=html" };
+  render(React.createElement(SessionMarkdown, { content: "[Report](/report.html)", assets: [html] }));
+  fireEvent.click(screen.getByRole("link", { name: /Report/ }));
+  const frame = screen.getByTitle("report.html") as HTMLIFrameElement;
+  fireEvent(window, new MessageEvent("message", { data: "claw3d:session-asset-refresh", source: frame.contentWindow }));
+  await screen.findByRole("alert");
+  expect(screen.getByTitle("report.html")).toBe(frame);
+  fireEvent(window, new MessageEvent("message", { data: "claw3d:session-asset-refresh", source: frame.contentWindow }));
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  expect(screen.getByTitle("report.html")).toBe(frame);
 });
 it("displays the actual user request instead of native ambient transport metadata", () => {
   expect(visibleUserText('# Applications mentioned by the user:\n<appshot>large context</appshot>\n## My request:\nThis is crowded')).toBe("This is crowded");
