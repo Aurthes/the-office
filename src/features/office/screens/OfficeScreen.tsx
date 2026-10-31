@@ -12,6 +12,8 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { MessageSquare, ChevronDown, ChevronLeft, ChevronRight, Mic, Maximize2, Minimize2, X } from "lucide-react";
 import type { OfficeAgent } from "@/features/retro-office/core/types";
+import { getAgentActivity, type AgentActivity } from "@/features/retro-office/core/agentActivity";
+import { AgentActivityIndicator } from "@/features/office/components/AgentActivityIndicator";
 import { RunningAvatarLoader } from "@/features/agents/components/RunningAvatarLoader";
 import { ExistingSessionPanel } from "@/features/office/components/ExistingSessionPanel";
 import { CompanyActions } from "@/features/office/components/CompanyActions";
@@ -713,7 +715,7 @@ type ChatRosterEntry = {
   id: string;
   name: string;
   kind: "local" | "remote";
-  isRunning: boolean;
+  activity: AgentActivity;
 };
 
 const EMPTY_REMOTE_CHAT_SESSION: RemoteChatSessionState = {
@@ -4438,23 +4440,6 @@ export function OfficeScreen({
       ),
     [remoteOfficeSnapshot]
   );
-  const chatRosterEntries = useMemo<ChatRosterEntry[]>(
-    () => [
-      ...state.agents.map((agent) => ({
-        id: agent.agentId,
-        name: agent.name || agent.agentId,
-        kind: "local" as const,
-        isRunning: agent.status === "running",
-      })),
-      ...remoteOfficeAgents.map((agent) => ({
-        id: agent.id,
-        name: agent.name || agent.id,
-        kind: "remote" as const,
-        isRunning: agent.status === "working",
-      })),
-    ],
-    [remoteOfficeAgents, state.agents],
-  );
   const focusedRemoteChatTarget = selectedChatAgentId
     ? (remoteOfficeAgents.find((agent) => agent.id === selectedChatAgentId) ?? null)
     : null;
@@ -4473,6 +4458,14 @@ export function OfficeScreen({
     },
     [officeAgents, remoteOfficeAgents, sessionView, state.agents, readById],
   );
+  const chatRosterEntries = useMemo<ChatRosterEntry[]>(() => {
+    const remoteIds = new Set(remoteOfficeAgents.map(agent => agent.id));
+    return allVisibleAgents.map(agent => ({
+      id: agent.id, name: agent.name || agent.id,
+      kind: remoteIds.has(agent.id) ? "remote" : "local",
+      activity: getAgentActivity(agent),
+    }));
+  }, [allVisibleAgents, remoteOfficeAgents]);
   const remoteOfficeVisible =
     remoteOfficeEnabled &&
     (remoteOfficeSourceKind === "presence_endpoint"
@@ -5522,7 +5515,7 @@ export function OfficeScreen({
                           key={agent.id}
                           type="button"
                           onClick={() => handleOpenAgentChat(agent.id)}
-                          className={`inline-flex h-8 w-8 items-center justify-center rounded border font-mono text-[10px] transition ${
+                          className={`relative inline-flex h-8 w-8 items-center justify-center rounded border font-mono text-[10px] transition ${
                             isSelected
                               ? "border-cyan-400/45 bg-cyan-950/50 text-cyan-100"
                               : "border-white/10 bg-white/5 text-white/55 hover:border-white/20 hover:bg-white/10 hover:text-white/80"
@@ -5530,6 +5523,7 @@ export function OfficeScreen({
                           title={agent.name}
                         >
                           {agent.name.slice(0, 1).toUpperCase()}
+                          <span className="absolute -right-1 -top-1 rounded-full bg-[#11161e]"><AgentActivityIndicator activity={agent.activity} /></span>
                         </button>
                       );
                     })}
@@ -5539,7 +5533,6 @@ export function OfficeScreen({
                 ) : (
                   chatRosterEntries.filter(agent => !sessionView || [agent.name, agent.id, state.agents.find(item => item.agentId === agent.id)?.role || ""].some(value => value.toLowerCase().includes(sessionSearch.toLowerCase()))).map((agent) => {
                     const isSelected = agent.id === selectedChatAgentId;
-                    const isRunning = agent.isRunning;
                     return (
                       <button
                         key={agent.id}
@@ -5551,9 +5544,7 @@ export function OfficeScreen({
                             : "text-white/50 hover:bg-white/5 hover:text-white/80"
                         }`}
                       >
-                        <span
-                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${isRunning ? "bg-emerald-400" : "bg-white/20"}`}
-                        />
+                        <AgentActivityIndicator activity={agent.activity} />
                         <span className="min-w-0 flex-1 truncate text-sm">
                           {agent.name}
                         </span>
