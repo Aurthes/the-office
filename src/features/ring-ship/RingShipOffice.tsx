@@ -299,7 +299,7 @@ export function RingShipOffice(props: Props) {
     const rendered = crewLookupRef.current.get(agent.id);
     const route = returnRoute(layout, seat, rendered ? worldPoint(rendered) : seat);
     setDeck(seat.deck);setWhole(false);setFleetOpen(false);setLiftOpen(false);
-    setReturnFlight({...route,agentId:agent.id,requestId:request.requestId,name:agent.name});
+    setReturnFlight({...route,agentId:agent.id,requestId:request.requestId,name:agent.name,appearance:agent.avatarProfile?.duck});
     setReturnStage("walking");setReturnError("");archiveResultRef.current={status:"pending"};
     returnTransferRef.current={};returnRideRef.current=null;
     // The real operation starts independently of visual frame rate. A removed

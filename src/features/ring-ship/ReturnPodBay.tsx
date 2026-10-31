@@ -1,14 +1,15 @@
 "use client";
-import { useEffect, useMemo, useRef, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { AGENT_SCALE } from "@/features/retro-office/core/constants";
+import type { DuckAppearance } from "@/lib/avatars/duck";
 import { createDuckCrewFigure } from "./duckCrewFigure";
 import { cabinAngle, DECK_STEP, shipPoint, type DeckIndex, type ShipLayout } from "./layout";
 import { returnPodNose } from "./returnPodGeometry";
 import { routePoint, returnStage, type ArchiveResult, type ReturnStage, type ReturnTransfer, type returnRoute } from "./returnPodMotion";
 
-export type ReturnFlight = ReturnType<typeof returnRoute> & { requestId: string; agentId: string; name: string };
+export type ReturnFlight = ReturnType<typeof returnRoute> & { requestId: string; agentId: string; name: string; appearance?: DuckAppearance };
 const ease = (p: number) => { const t = Math.max(0,Math.min(1,p)); return t*t*(3-2*t); };
 
 // Original lightweight geometry; Metekohy's Sketchfab model is a visual
@@ -61,8 +62,9 @@ export function ReturnPodJourney({ flight, resultRef, transferRef, displayDeck, 
 }) {
   const podRef=useRef<THREE.Group>(null), doorRef=useRef<THREE.Group>(null), walkerRef=useRef<THREE.Group>(null);
   const startRef=useRef<number|null>(null), stageRef=useRef<ReturnStage|null>(null), doneAt=useRef<number|null>(null), finished=useRef(false);
-  const figure=useMemo(()=>createDuckCrewFigure(),[]);
+  const figure=useMemo(()=>createDuckCrewFigure(flight.appearance),[flight.appearance]);
   const figureRef=useRef(figure);
+  useLayoutEffect(()=>{figureRef.current=figure;},[figure]);
   useEffect(()=>()=>figure.dispose(),[figure]);
   useFrame(()=>{
     const now=performance.now(); if(startRef.current===null) startRef.current=now;
