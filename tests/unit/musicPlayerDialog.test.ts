@@ -19,6 +19,7 @@ it("opens the full official player inside the office only after selection", () =
   expect(document.querySelector("iframe")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /网易云音乐.*NetEase Cloud Music/ }));
   expect(screen.getByTitle("网易云音乐")).toHaveAttribute("src", NETEASE_PLAYER_URL);
+  expect(screen.getByTitle("网易云音乐")).toHaveAttribute("sandbox", "allow-scripts allow-same-origin allow-forms");
   expect(screen.getByRole("dialog", { name: "网易云音乐" })).toBeInTheDocument();
   expect(openWindow).not.toHaveBeenCalled();
   expect(screen.queryByRole("link")).toBeNull();

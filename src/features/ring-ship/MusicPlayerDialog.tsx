@@ -36,7 +36,7 @@ export function MusicPlayerDialog({ open = true, onClose }: { open?: boolean; on
           <span>{t("Minimize to keep listening. Click the turntable to return.")}</span>
           <button type="button" onClick={() => setReload(value => value + 1)} aria-label={t("Reload music player")}><RotateCw size={15} />{t("Reload")}</button>
         </div>
-        <iframe key={reload} className="music-embedded-player" title="网易云音乐" src={NETEASE_PLAYER_URL} allow="autoplay; encrypted-media; fullscreen" referrerPolicy="strict-origin-when-cross-origin" />
+        <iframe key={reload} className="music-embedded-player" title="网易云音乐" src={NETEASE_PLAYER_URL} sandbox="allow-scripts allow-same-origin allow-forms" allow="autoplay; encrypted-media; fullscreen" referrerPolicy="strict-origin-when-cross-origin" />
       </> : <div className="music-chooser">
         <div className="music-record-art" aria-hidden="true"><div className="music-vinyl"><span>33⅓</span></div><div className="music-arm" /></div>
         <p className="music-intro">{t("Pick a player. Set the mood.")}</p>
