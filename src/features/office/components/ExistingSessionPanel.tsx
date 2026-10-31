@@ -79,6 +79,18 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
     setShowLatest(node.scrollHeight - node.clientHeight - node.scrollTop > 60);
   }, [messages, loaded]);
 
+  useLayoutEffect(() => {
+    const node = scroll.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (!follow.current || !node.clientHeight || !node.clientWidth) return;
+      node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
+      lastTop.current = node.scrollTop;
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     let stopped = false, busy = false, metadataBusy = false, reloadLatest = false;
     let cursor: string | null = null;
