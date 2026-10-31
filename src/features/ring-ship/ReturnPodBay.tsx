@@ -7,6 +7,7 @@ import type { DuckAppearance } from "@/lib/avatars/duck";
 import { createDuckCrewFigure } from "./duckCrewFigure";
 import { cabinAngle, DECK_STEP, shipPoint, type DeckIndex, type ShipLayout } from "./layout";
 import { returnPodNose } from "./returnPodGeometry";
+import { createReturnPodEffects } from "./returnPodEffects";
 import { routePoint, returnStage, type ArchiveResult, type ReturnStage, type ReturnTransfer, type returnRoute } from "./returnPodMotion";
 
 export type ReturnFlight = ReturnType<typeof returnRoute> & { requestId: string; agentId: string; name: string; appearance?: DuckAppearance };
@@ -65,8 +66,10 @@ export function ReturnPodJourney({ flight, resultRef, transferRef, displayDeck, 
   const figure=useMemo(()=>createDuckCrewFigure(flight.appearance),[flight.appearance]);
   const figureRef=useRef(figure);
   useLayoutEffect(()=>{figureRef.current=figure;},[figure]);
+  const effects=useMemo(()=>createReturnPodEffects(),[]);
   useEffect(()=>()=>figure.dispose(),[figure]);
-  useFrame(()=>{
+  useEffect(()=>()=>effects.dispose(),[effects]);
+  useFrame(({camera})=>{
     const now=performance.now(); if(startRef.current===null) startRef.current=now;
     const reduced=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const elapsed=(now-startRef.current)/1000, transfer=transferRef.current;
@@ -101,7 +104,8 @@ export function ReturnPodJourney({ flight, resultRef, transferRef, displayDeck, 
       door.rotation.z=Math.PI/2*(1-ease((clock-flight.duration-1.2)/.8));
     }
     if(phase.stage==="failed" && Math.round(walker.position.y/DECK_STEP)!==displayDeck) walker.visible=false;
-    if(phase.stage==="launching"||phase.stage==="done") pod.position.y=-(5*phase.launch+11*phase.launch*phase.launch);
+    if(phase.stage==="launching"||phase.stage==="done") pod.position.y=-(12*phase.launch+4*phase.launch*phase.launch);
+    effects.update(!reduced && phase.stage==="launching" ? phase.launch : null,pod.position.y,camera);
     if(phase.stage==="done") {
       if(doneAt.current===null) doneAt.current=now;
       if(!finished.current && (reduced||now-doneAt.current>=850)){finished.current=true;onComplete();}
@@ -110,6 +114,6 @@ export function ReturnPodJourney({ flight, resultRef, transferRef, displayDeck, 
   const first=flight.legs[0];
   return <>
     <group ref={walkerRef} position={[first.points[0].x,first.deck*DECK_STEP+.08,first.points[0].z]} scale={AGENT_SCALE}><primitive object={figure.root} dispose={null}/></group>
-    <group position={[flight.pod.x,.08,flight.pod.z]} rotation={[0,flight.angle,0]} visible={displayDeck===0}><Pod bodyRef={podRef} doorRef={doorRef} open/></group>
+    <group position={[flight.pod.x,.08,flight.pod.z]} rotation={[0,flight.angle,0]} visible={displayDeck===0}><Pod bodyRef={podRef} doorRef={doorRef} open/><primitive object={effects.root} dispose={null}/></group>
   </>;
 }
