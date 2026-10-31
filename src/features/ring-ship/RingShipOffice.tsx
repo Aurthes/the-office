@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ComponentRef, type RefObject } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Environment, Lightformer, OrbitControls, Stars } from "@react-three/drei";
+import { Environment, Lightformer, OrbitControls } from "@react-three/drei";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import * as THREE from "three";
 import { ExternalLink, Home, Layers3, Settings2, Users, X } from "lucide-react";
@@ -29,8 +29,12 @@ import { advanceCrew, canvasPoint, worldPoint, hash, type MovingAgent } from "./
 import { useUiText } from "@/lib/i18n/ui-language";
 import { MonitorRoomScreen } from "./MonitorRoom";
 import { openStrategyMonitor, strategyMonitorUrl } from "./strategyMonitor";
+import { GalaxyBackdrop } from "./GalaxyBackdrop";
+import { STAR_SYSTEMS, starSystem } from "./galaxy";
+import { NavigationConsole, NavigationOverlay, navigationConsolePose, useStarNavigation } from "./StarNavigation";
+import { WarpJourney } from "./WarpJourney";
 
-type Props = ComponentProps<typeof RetroOffice3D>;
+type Props = ComponentProps<typeof RetroOffice3D> & { navigationPreview?: boolean };
 type Controls = ComponentRef<typeof OrbitControls>;
 const EMPTY_ROSTER: CompanyRoster = { projects: [], members: [] };
 let modelCache: ModelTemplates | undefined;
@@ -72,26 +76,37 @@ function StaticShip({ layout }: { layout: ShipLayout }) {
   useEffect(() => () => disposeShipGeometry(group), [group]);
   return <primitive object={group} />;
 }
-function Lighting({ radius }: { radius: number }) {
+function Lighting({ radius, dimmed = false }: { radius: number; dimmed?: boolean }) {
+  const intensity = dimmed ? .12 : 1;
   return <>
-    <Environment resolution={64} frames={1} environmentIntensity={0.6}>
+    <Environment resolution={64} frames={1} environmentIntensity={0.6 * intensity}>
       <Lightformer intensity={2} position={[0, 8, 0]} rotation={[Math.PI / 2, 0, 0]} scale={[12, 12, 1]} />
       <Lightformer intensity={1.3} position={[-8, 3, 0]} rotation={[0, Math.PI / 2, 0]} scale={[8, 6, 1]} />
     </Environment>
-    <hemisphereLight args={["#c9e4f1", "#667078", 0.85]} />
-    <directionalLight position={[-45, 80, 55]} intensity={2.6} color="#ffe7c7" castShadow shadow-mapSize={[2048, 2048]}
+    <hemisphereLight args={["#c9e4f1", "#667078", 0.85 * intensity]} />
+    <directionalLight position={[-45, 80, 55]} intensity={2.6 * intensity} color="#ffe7c7" castShadow shadow-mapSize={[2048, 2048]}
       shadow-camera-left={-radius - 3} shadow-camera-right={radius + 3} shadow-camera-top={radius + 3} shadow-camera-bottom={-radius - 3} shadow-camera-far={250} shadow-normalBias={0.035} />
-    <directionalLight position={[25, 12, -25]} intensity={0.65} color="#a0d7ed" />
+    <directionalLight position={[25, 12, -25]} intensity={0.65 * intensity} color="#a0d7ed" />
   </>;
 }
-export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy, podFocus }: { podFocus?: { point: ShipPoint; launch: boolean } | null; deck: DeckIndex; whole: boolean; busy: boolean; layout: ShipLayout; focus: { id: string; request: number }; controlsRef: RefObject<Controls | null>; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null; chatExpanded?: boolean }) {
+export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy, podFocus, navigationFocus }: { navigationFocus?: { point: ShipPoint; deck: DeckIndex } | null; podFocus?: { point: ShipPoint; launch: boolean } | null; deck: DeckIndex; whole: boolean; busy: boolean; layout: ShipLayout; focus: { id: string; request: number }; controlsRef: RefObject<Controls | null>; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null; chatExpanded?: boolean }) {
   const { size, camera, gl } = useThree();
   const previousView = useRef<{ target: THREE.Vector3; position: THREE.Vector3; zoom: number } | null>(null);
+  const previousNavigationView = useRef<{ target: THREE.Vector3; position: THREE.Vector3; zoom: number } | null>(null);
   const followed = useRef<{ id: string; x: number; z: number } | null>(null);
   const move = useRef<{ target: THREE.Vector3; position: THREE.Vector3; zoom: number } | null>(null);
   useEffect(() => {
     if (busy) { move.current = null; return; }
     const controls = controlsRef.current;
+    if (navigationFocus && controls) {
+      if (!previousNavigationView.current) previousNavigationView.current = { target: controls.target.clone(), position: camera.position.clone(), zoom: camera.zoom };
+      const { point, deck: navigationDeck } = navigationFocus;
+      const target = new THREE.Vector3(point.x, navigationDeck * DECK_STEP + 2.6, point.z);
+      const offset = new THREE.Vector3(0, 9, 6).applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(point.x, point.z));
+      move.current = { target, position: target.clone().add(offset), zoom: Math.min(size.width / 7.8, size.height / 6.5, 110) };
+      return;
+    }
+    if (previousNavigationView.current) { move.current = previousNavigationView.current; previousNavigationView.current = null; return; }
     const person = chatAgentId ? lookupRef.current.get(chatAgentId) : null;
     const point = person ? worldPoint(person) : chatAgentId ? layout.seats[chatAgentId] : null;
     if (chatAgentId && point && controls) {
@@ -110,7 +125,7 @@ export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, 
       move.current={target,position:target.clone().add(offset),zoom:Math.max(.2,Math.min(size.width/(launch?15:16),size.height/(launch?17:11),100))};return;
     }
     move.current = shipCameraPose(layout, size.width, size.height, deck, whole, focus.id);
-  }, [layout, focus, size.width, size.height, camera, gl, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy, podFocus]);
+  }, [layout, focus, size.width, size.height, camera, gl, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy, podFocus, navigationFocus]);
   useEffect(() => {
     const controls = controlsRef.current;
     const stop = () => { move.current = null; };
@@ -269,9 +284,15 @@ function ActivityBadge({ agent }: { agent: OfficeAgent }) {
 
 export function RingShipOffice(props: Props) {
   const t = useUiText();
-  const { agents, companyRoster, companyActions, gatewayStatus = "disconnected", officeTitle = "Orbital Headquarters", storageNamespace = "default", gatewayUrl = "", officeCenterSignal = 0 } = props;
+  const { agents, companyRoster, companyActions, gatewayStatus = "disconnected", officeTitle = "Orbital Headquarters", storageNamespace = "default", gatewayUrl = "", officeCenterSignal = 0, navigationPreview = false } = props;
   const roster = companyRoster || EMPTY_ROSTER;
   const layout = useShipLayout(companyRoster || null, `claw3d:ship:v1:${storageNamespace}:${gatewayUrl}`);
+  const { state: navigation, dispatch: navigate } = useStarNavigation(`claw3d:star-system:${storageNamespace}`);
+  const system = navigationPreview ? starSystem(navigation.current) : STAR_SYSTEMS[0];
+  const navigationOpen = navigationPreview && navigation.phase !== "idle";
+  const commandCabin = layout.cabins.find(cabin => cabin.kind === "monitor");
+  const navigationFocus = useMemo(() => navigationOpen && navigation.phase !== "warp" && commandCabin ? { point: navigationConsolePose(layout, commandCabin).point, deck: commandCabin.deck } : null, [navigationOpen, navigation.phase, commandCabin, layout]);
+  const completeWarp = useCallback(() => navigate({ type: "complete" }), [navigate]);
   const [deck, setDeck] = useState<DeckIndex>(0), [whole, setWhole] = useState(false), [liftOpen, setLiftOpen] = useState(false);
   const [trip, setTrip] = useState<LiftTrip | null>(null);
   const [monitorNotice, setMonitorNotice] = useState("");
@@ -289,7 +310,12 @@ export function RingShipOffice(props: Props) {
   const currentLayout = decks[visibleDeck];
   const visibleAgents = useMemo(() => agents.filter(a => currentLayout.seats[a.id]), [agents, currentLayout]);
   const counts = decks.map(d => agents.filter(a => d.seats[a.id]).length);
-  const [focus, setFocus] = useState({ id: "", request: 0 });
+  const [focus, setFocus] = useState({ id: navigationPreview ? commandCabin?.id ?? "" : "", request: 0 });
+  const arriveSystem = useCallback(() => {
+    setWhole(false);
+    setFocus(previous => ({ id: "", request: previous.request + 1 }));
+    navigate({ type: "arrive" });
+  }, [navigate]);
   const [menuOpen, setMenuOpen] = useState(false), [settingsOpen, setSettingsOpen] = useState(false), [fleetOpen, setFleetOpen] = useState(false);
   const controlsRef = useRef<Controls>(null);
   const crewLookupRef = useRef(new Map<string, RenderAgent>());
@@ -380,26 +406,28 @@ export function RingShipOffice(props: Props) {
     }),
   ];
   const button = "flex h-9 min-w-9 items-center justify-center rounded-lg border border-white/15 bg-[#122735]/90 px-2 text-xs text-[#b8cccf] hover:border-[#d7af77]/70";
-  return <div className="ship-office relative h-full w-full overflow-hidden bg-[#081421] text-[#deebea]" data-ship-deck={visibleDeck} data-ship-mode={shipView ? "ship" : "deck"} data-ship-travelling={busy} data-ship-visible-crew={visibleAgents.length} data-ship-sectors={layout.allocation.sectors} data-ship-reserves={reserveCount} data-ship-projects={roster.projects.length} data-ship-placed={agents.filter(agent => layout.seats[agent.id]).length}>
+  return <div className={`ship-office relative h-full w-full overflow-hidden bg-[#081421] text-[#deebea]${navigationOpen ? " star-navigation-active" : ""}`} data-star-system={system.id} data-navigation-phase={navigationPreview ? navigation.phase : undefined} data-ship-deck={visibleDeck} data-ship-mode={shipView ? "ship" : "deck"} data-ship-travelling={busy} data-ship-visible-crew={visibleAgents.length} data-ship-sectors={layout.allocation.sectors} data-ship-reserves={reserveCount} data-ship-projects={roster.projects.length} data-ship-placed={agents.filter(agent => layout.seats[agent.id]).length}>
     <Canvas orthographic dpr={[0.85, 1.5]} camera={{ position: [25, 40, 36], zoom: 12, near: 0.1, far: 5000 }} shadows
       gl={{ antialias: true, powerPreference: "high-performance" }} onPointerMissed={() => setLiftOpen(false)} onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.95; gl.domElement.dataset.shipReady = "true"; }}>
-      <color attach="background" args={["#081421"]} />
-      <Lighting radius={layout.radius} />
-      <Stars radius={100} depth={50} count={1800} factor={15} saturation={0} fade speed={0} />
+      <GalaxyBackdrop system={system} />
+      <Lighting radius={layout.radius} dimmed={navigationOpen && navigation.phase !== "warp"} />
       <ShipHull layout={layout} deck={visibleDeck} whole={shipView} busy={busy} />
       {decks.map((value, index) => <group key={index} position={[0, index * DECK_STEP, 0]} visible={shipView || busy || index === visibleDeck}><StaticShip layout={value} /><ReturnPodBay layout={value} active={!!returnFlight}/></group>)}
       {!shipView && !busy ? <group position={[0, visibleDeck * DECK_STEP, 0]}>
         <CabinTargets layout={currentLayout} focus={validFocus} onSelect={select} />
-        {currentLayout.cabins.filter(c => c.kind === "monitor").map(cabin => <MonitorRoomScreen key={cabin.id} layout={currentLayout} cabin={cabin} onOpen={openMonitor} />)}
+        {currentLayout.cabins.filter(c => c.kind === "monitor").map(cabin => <group key={cabin.id}>
+          {!navigationOpen ? <MonitorRoomScreen layout={currentLayout} cabin={cabin} onOpen={openMonitor} /> : null}
+          {navigationPreview ? <NavigationConsole layout={currentLayout} cabin={cabin} state={navigation} onAction={navigate} disabled={busy || !!returnFlight || !!props.activeChatAgentId || navigation.phase === "warp"} /> : null}
+        </group>)}
         <Crew agents={visibleAgents.filter(a=>a.id!==returnFlight?.agentId)} layout={currentLayout} focus={validFocus} onOpen={open} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} />
       </group> : null}
       {returnFlight ? <group visible={!shipView}>
         <ReturnPodJourney key={returnFlight.requestId} flight={returnFlight} resultRef={archiveResultRef} transferRef={returnTransferRef} displayDeck={visibleDeck} onStage={returnPhaseChanged} onComplete={returnComplete}/>
       </group>:null}
-      <OrbitControls ref={controlsRef} makeDefault enabled={!busy} enableDamping={!busy} dampingFactor={0.15} minZoom={0.15} maxZoom={110} minPolarAngle={0.12} maxPolarAngle={Math.PI * 0.72} />
+      <OrbitControls ref={controlsRef} makeDefault enabled={!busy && !(navigationPreview && (navigation.phase === "confirm" || navigation.phase === "warp"))} enableDamping={!busy} dampingFactor={0.15} minZoom={0.15} maxZoom={110} minPolarAngle={0.12} maxPolarAngle={Math.PI * 0.72} />
       <CameraRig layout={currentLayout} focus={cameraFocus} controlsRef={controlsRef} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} chatExpanded={props.chatExpanded} deck={visibleDeck} whole={shipView} busy={busy}
-        podFocus={returnCamera}/>
-      <LiftEntry deck={visibleDeck} whole={shipView} open={liftOpen} disabled={busy || !!props.activeChatAgentId} counts={counts} onOpen={() => setLiftOpen(true)} onClose={() => setLiftOpen(false)} onTravel={travel} />
+        podFocus={returnCamera} navigationFocus={navigationFocus}/>
+      <LiftEntry deck={visibleDeck} whole={shipView} open={liftOpen} disabled={busy || !!props.activeChatAgentId || navigationOpen} counts={counts} onOpen={() => setLiftOpen(true)} onClose={() => setLiftOpen(false)} onTravel={travel} />
       <LiftJourney trip={trip} layout={layout} controlsRef={controlsRef} overlayRef={overlayRef} onArrive={arrive} onComplete={complete} />
     </Canvas>
     <fieldset className="contents" disabled={busy}>
@@ -430,9 +458,13 @@ export function RingShipOffice(props: Props) {
       <div className="text-xs text-[#e1cb9f]">{selected ? (selected.kind === "work" && selected.projectId !== SHARED_PROJECT_ID ? selected.name : t(selected.name)) : shipView ? t("Three-ring ship · Whole ship") : `L${visibleDeck + 1} · ${t(DECK_NAMES[visibleDeck])}`}</div>
       <div className="mt-1 text-[11px] text-[#9fb9c2]">{selected ? t(PUBLIC_DESCRIPTIONS[selected.kind]) : t("{0} projects · {1} sessions · {2} reserve cabins", { "0": roster.projects.length, "1": agents.length, "2": reserveCount })}</div>
       {selected?.kind === "monitor" ? <button type="button" onClick={openMonitor} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#71d3c8]/40 px-3 text-xs text-[#b7eee0] hover:bg-white/10">{t("Open Grafana strategy dashboard")} <ExternalLink size={13} /></button> : null}
+      {navigationPreview && selected?.kind === "monitor" ? <button type="button" onClick={() => navigate({ type: "open" })} className="pointer-events-auto mt-2 min-h-10 rounded-lg border border-[#9dc7d3]/40 px-3 text-xs text-[#c6e0e9]">{t("Open star chart")}</button> : null}
       <div className="mt-1 text-[9px] text-[#829da9]">{t("{working} working · {idle} idle · Drag to rotate · Scroll to zoom · Use the central lift to change decks", { working: agents.filter(a => a.status === "working").length, idle: agents.filter(a => a.status === "idle").length })}</div>
     </div>
     </fieldset>
+    {navigationPreview && !navigationOpen ? <div className="star-location"><span style={{ color: system.color }}>{t(system.name)}</span><small>{t(system.description)}</small></div> : null}
+    {navigationOpen && navigation.phase !== "warp" ? <NavigationOverlay state={navigation} onAction={navigate} /> : null}
+    {navigationPreview && navigation.phase === "warp" && navigation.destination ? <WarpJourney destination={starSystem(navigation.destination)} onArrive={arriveSystem} onComplete={completeWarp} /> : null}
     {monitorNotice ? <div role="status" className="absolute bottom-36 left-1/2 z-30 flex max-w-[90vw] -translate-x-1/2 items-center gap-3 rounded-xl border border-amber-200/30 bg-[#102531] px-4 py-3 text-xs text-amber-100">{t(monitorNotice)}<button type="button" aria-label={t("Close")} onClick={() => setMonitorNotice("")} className="p-2"><X size={14} /></button></div> : null}
     <LiftOverlay trip={trip} overlayRef={overlayRef} />
     {returnFlight ? <div role="status" aria-live="polite" className="absolute bottom-20 sm:bottom-4 left-1/2 z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-amber-200/25 bg-[#101e29]/95 px-4 py-3 text-center shadow-xl">

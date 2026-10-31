@@ -1,0 +1,41 @@
+.star-console-label { display:flex; align-items:center; gap:10px; min-height:44px; padding:10px 14px; border:1px solid #85b5bf99; border-radius:3px; background:#152c38f5; color:#c8e6e9; font:500 12px/1.3 system-ui; white-space:nowrap; cursor:pointer; box-shadow:0 5px 18px #0006; }
+.star-console-label small { display:block; margin-top:3px; color:#89a7b1; font:9px/1.3 system-ui; letter-spacing:.09em; }
+.star-console-label:hover { border-color:#c6ebed; background:#203d4b; }
+.star-map-label { display:block; min-height:44px; min-width:80px; padding:6px 9px; border:1px solid #90b4c333; border-radius:3px; background:#06111ce8; color:#d5e6ed; font:500 11px/1.3 system-ui; white-space:nowrap; cursor:pointer; }
+.star-map-label:hover, .star-map-label[aria-pressed="true"] { border-color:#b9dbe2; background:#1a3246; }
+.star-map-label small { display:block; margin-top:4px; color:#dae6df; font:9px/1.2 system-ui; }
+.star-map-label:disabled { cursor:default; }
+.star-navigation-active > fieldset, .star-navigation-active > .ship-settings { visibility:hidden; }
+.star-navigation-overlay { position:absolute; inset:0; z-index:30; pointer-events:none; color:#d7e5e9; background:linear-gradient(#03101bb8,transparent 24%,transparent 78%,#03101b9c); }
+.star-navigation-overlay header { display:flex; justify-content:space-between; align-items:flex-start; padding:30px 34px; }
+.star-eyebrow { display:block; color:#90b8c8; font:10px/1.5 var(--font-mono),monospace; letter-spacing:.2em; text-transform:uppercase; }
+.star-navigation-overlay h1 { margin-top:5px; font-size:25px; font-weight:500; letter-spacing:.025em; }
+.star-navigation-overlay header p { margin-top:8px; font-size:11px; color:#91aab8; }
+.star-close { display:flex; align-items:center; justify-content:center; width:44px; height:44px; border:1px solid #97b2c750; border-radius:3px; background:#102330; pointer-events:auto; cursor:pointer; }
+.star-map-help { position:absolute; bottom:28px; left:34px; font:10px/1.6 var(--font-mono),monospace; color:#8da8b8; }
+.star-course { position:absolute; bottom:28px; right:28px; width:min(340px,calc(100% - 40px)); padding:24px; border:1px solid #9bb5c14f; border-radius:4px; background:#0a1825f5; box-shadow:0 15px 60px #0006; pointer-events:auto; }
+.star-course h2 { margin-top:8px; font-size:20px; font-weight:500; }
+.star-course p { margin-top:12px; font-size:12px; line-height:1.8; color:#9bb0bb; }
+.star-course-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:24px; }
+.star-course-actions button { display:flex; align-items:center; justify-content:center; gap:12px; min-height:44px; padding:10px 14px; border:1px solid #819baa55; border-radius:3px; font-size:11px; cursor:pointer; }
+.star-course-actions .star-engage { background:#b6d4d9; color:#132a35; border-color:#bddde4; }
+.star-navigation-overlay button:focus-visible, .star-console-label:focus-visible, .star-map-label:focus-visible { outline:2px solid #f0d29a; outline-offset:4px; }
+.star-location { position:absolute; bottom:18px; right:20px; z-index:12; max-width:250px; padding:10px 14px; border:1px solid #8cb0c12b; border-radius:3px; background:#071522e6; text-align:right; pointer-events:none; }
+.galaxy-preview .ship-toolbar > div:first-child { display:none; }
+.star-location span { display:block; font-size:11px; letter-spacing:.08em; }
+.star-location small { display:block; margin-top:4px; color:#8aa3b2; font:9px/1.5 var(--font-mono),monospace; }
+.star-warp { position:absolute; inset:0; z-index:60; background:#020610; opacity:0; color:#d9eef5; }
+.star-warp canvas { width:100%; height:100%; }
+.star-warp-copy { position:absolute; left:0; bottom:12%; width:100%; text-align:center; }
+.star-warp-copy h2 { margin:12px 0; font-weight:400; font-size:32px; letter-spacing:.12em; }
+.star-warp-copy > span:last-child { color:#9db9cc; font:10px/1.8 var(--font-mono),monospace; letter-spacing:.15em; text-transform:uppercase; }
+@media(max-width:767px) {
+  .star-navigation-overlay header { padding:18px; }
+  .star-navigation-overlay h1 { font-size:21px; }
+  .star-map-help { bottom:18px; left:18px; max-width:calc(100% - 36px); font-size:9px; }
+  .star-navigation-overlay[data-navigation-phase="confirm"] .star-map-help { display:none; }
+  .star-course { bottom:18px; right:18px; padding:18px; }
+  .star-location { right:12px; bottom:12px; }
+  .star-location small { max-width:160px; font-size:8px; }
+  .star-map-label { font-size:10px; padding:5px 7px; }
+}

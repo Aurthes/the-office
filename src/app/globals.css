@@ -5,6 +5,7 @@
 @import "./styles/session-chat.css";
 @import "./styles/office-responsive.css";
 @import "./styles/ring-ship.css";
+@import "./styles/star-navigation.css";
 
 @custom-variant dark (&:is(.dark *));
 
