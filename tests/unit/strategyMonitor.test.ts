@@ -49,3 +49,18 @@ it("accepts ordinary dashboard URLs and rejects invalid or credential-bearing se
   vi.stubEnv("NEXT_PUBLIC_CLAW3D_GRAFANA_URL", url);
   expect(strategyMonitorUrl()).toBe(url);
 });
+
+it("keeps different monitor links in independent warm tabs", async () => {
+  const { openStrategyMonitor } = await import("@/features/ring-ship/strategyMonitor");
+  const chart = { closed: false, focus: vi.fn(), location: { href: "" } };
+  const other = { closed: false, focus: vi.fn(), location: { href: "" } };
+  const open = vi.spyOn(window, "open").mockReturnValueOnce(chart as unknown as Window).mockReturnValueOnce(other as unknown as Window);
+  openStrategyMonitor("https://grafana.example.com", 0, "grafana");
+  openStrategyMonitor("https://status.example.com", 1, "status");
+  openStrategyMonitor("https://grafana.example.com", 2, "grafana");
+  expect(open).toHaveBeenCalledTimes(2);
+  expect(chart.focus).toHaveBeenCalledTimes(2);
+  expect(other.focus).toHaveBeenCalledTimes(1);
+  expect(chart.location.href).toBe("https://grafana.example.com");
+  expect(other.location.href).toBe("https://status.example.com");
+});

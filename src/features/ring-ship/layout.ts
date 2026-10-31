@@ -194,7 +194,7 @@ export function routeBetweenCabins(layout: ShipLayout, from: ShipSeat, destinati
 }
 
 export const PUBLIC_DESCRIPTIONS: Record<CabinKind, string> = {
-  monitor: "Ship monitoring consoles. Click the main screen to open strategy performance in Grafana.",
+  monitor: "Open the main screen for strategy dashboards and server fleet status.",
   return: "Return to Earth in a drop pod and archive the same Codex session.",
   work: "Workspace assigned by project. Select a crew member to continue their session.", reserve: "Cabin and connections are ready for future projects.",
   garden: "A rainforest habitat with layered tree canopies, broad leaves, ferns, and vines around water and paths.", hydroponics: "Hydroponic beds, grow lights, and circulating water for growing food.",
