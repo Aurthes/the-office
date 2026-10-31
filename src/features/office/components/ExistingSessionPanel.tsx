@@ -1,7 +1,8 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ArrowLeft, UserRound } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
+import type { CharacterMode } from "@/features/ring-ship/DuckCharacterPanel";
 import type { AgentAvatarProfile } from "@/lib/avatars/profile";
 import { SessionControls, type LiveSessionItem, type SessionClient } from "./SessionControls";
 import { SessionTranscript } from "./SessionTranscript";
@@ -21,7 +22,7 @@ type Message = LiveSessionItem;
 type HistoryPage = { threadId: string; messages: Message[]; nextCursor: string | null };
 type LoadMode = "latest" | "older";
 
-export function ExistingSessionPanel({ client, threadId, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter }: {
+export function ExistingSessionPanel({ client, threadId, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed }: {
   client: SessionClient;
   threadId: string;
   onReturnToEarth?: () => void;
@@ -29,10 +30,13 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
   avatarProfile?: AgentAvatarProfile | null;
   agentStatus?: string;
   agentModel?: string | null;
+  agentName?: string;
+  onSessionRenamed?: (name: string) => void;
   onSaveCharacter?: (profile: AgentAvatarProfile) => Promise<void>;
 }) {
   const t = useUiText();
-  const [characterOpen, setCharacterOpen] = useState(false);
+  const [characterMode, setCharacterMode] = useState<CharacterMode | "chat">("chat");
+  const characterOpen = characterMode !== "chat";
   const [data, setData] = useState<SessionInspection | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [olderCursor, setOlderCursor] = useState<string | null>(null);
@@ -133,32 +137,48 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
     return () => { stopped = true; load.current = null; unsubscribeStatus?.(); };
   }, [client, threadId]);
 
+  const sessionName = agentName || data?.name || "";
+  const rename = async (name: string) => {
+    const result = await client.call("session.rename", { threadId, name, requestId: crypto.randomUUID() }) as { threadId: string; name: string };
+    if (result.threadId !== threadId || result.name !== name) throw new Error(t("Session rename was not confirmed. Please retry."));
+    setData(previous => previous?.id === threadId ? { ...previous, name: result.name } : previous);
+    onSessionRenamed?.(result.name);
+  };
+  const openCharacter = (event: React.MouseEvent, mode: CharacterMode) => {
+    event.currentTarget.closest("details")?.removeAttribute("open");
+    setCharacterMode(mode);
+  };
   return <section className="flex min-h-0 flex-1 flex-col text-white" aria-label={t("App session")}>
     <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-2">
       <div className="min-w-0">
-        <h2 className="truncate text-sm font-semibold" title={data?.name}>{data?.id === threadId ? data.name : t("Loading session information…")}</h2>
+        <h2 className="truncate text-sm font-semibold" title={sessionName}>{data?.id === threadId ? sessionName : t("Loading session information…")}</h2>
         {data?.id === threadId ? <p className="mt-1 truncate text-xs text-white/45">{data.project}</p> : null}
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        {onSaveCharacter ? <button type="button" disabled={!data} aria-pressed={characterOpen} onClick={() => setCharacterOpen(value => !value)}
-          className="flex min-h-10 items-center gap-2 rounded-md border border-white/10 px-3 text-xs text-[#d2bb88] hover:bg-white/5 disabled:opacity-40">
-          {characterOpen ? <ArrowLeft size={14} /> : <UserRound size={14} />}{t(characterOpen ? "Back to chat" : "Character")}
-        </button> : null}
+        {characterOpen ? <button type="button" onClick={() => setCharacterMode("chat")} className="flex min-h-10 items-center gap-2 rounded-md px-3 text-xs text-[#d2bb88] hover:bg-white/5"><ArrowLeft size={14} />{t("Back to chat")}</button> : null}
         <details className="relative" aria-label={t("Session information")}>
           <summary aria-label={t("Session information")} className="flex min-h-10 min-w-10 cursor-pointer list-none items-center justify-center rounded-md text-lg text-white/55 hover:bg-white/10">⋯</summary>
           <div className="absolute right-0 top-full z-30 mt-1 max-h-[50dvh] w-[min(320px,calc(100vw-3rem))] space-y-3 overflow-auto rounded-xl border border-white/15 bg-[#1b2532] p-4 text-xs text-white/60 shadow-xl">
+            <div className="space-y-1 border-b border-white/10 pb-3">
+            {onSaveCharacter ? <>
+              <button type="button" disabled={!data} onClick={event => openCharacter(event, "view")} className="block min-h-10 w-full rounded px-2 text-left text-white/80 hover:bg-white/5">{t("Character")}</button>
+              <button type="button" disabled={!data} onClick={event => openCharacter(event, "edit")} className="block min-h-10 w-full rounded px-2 text-left text-white/80 hover:bg-white/5">{t("Edit character")}</button>
+              <button type="button" disabled={!data?.controlsAvailable} onClick={event => openCharacter(event, "rename")} className="block min-h-10 w-full rounded px-2 text-left text-white/80 hover:bg-white/5 disabled:opacity-40">{t("Rename session")}</button>
+            </> : null}
+            {onReturnToEarth ? <button type="button" disabled={returnDisabled || !data?.controlsAvailable} onClick={onReturnToEarth}
+              title={returnDisabled ? t("Stop the current task or wait for the previous return journey") : t("Archive this original session and keep its history")}
+              className="block w-full rounded-md border border-amber-300/25 px-3 py-2 text-left text-amber-200 hover:bg-amber-200/10 disabled:opacity-40">↓ {t("Return to Earth (archive)")}</button> : null}
+            </div>
             <a href={`codex://threads/${encodeURIComponent(threadId)}`} className="block text-cyan-100">{t("Open session in desktop app ↗")}</a>
             <p className="break-all">{t("Session ID")}: {threadId}</p>
             {data?.id === threadId ? <p className="break-all">{t("Directory:")} {data.workspace}</p> : null}
             <p>{data?.controlsAvailable ? t("Session synced with the desktop app") : t("Read-only preview. Continue in the desktop app.")}</p>
-            {onReturnToEarth ? <button type="button" disabled={returnDisabled || !data?.controlsAvailable} onClick={onReturnToEarth}
-              title={returnDisabled ? t("Stop the current task or wait for the previous return journey") : t("Archive this original session and keep its history")}
-              className="block w-full rounded-md border border-amber-300/25 px-3 py-2 text-left text-amber-200 hover:bg-amber-200/10 disabled:opacity-40">↓ {t("Return to Earth (archive)")}</button> : null}
+
           </div>
         </details>
       </div>
     </header>
-    {characterOpen && data && onSaveCharacter ? <DuckCharacterPanel key={threadId} info={data} profile={avatarProfile} status={agentStatus || data.status} model={agentModel} onSave={onSaveCharacter} /> : null}
+    {characterOpen && data && onSaveCharacter ? <DuckCharacterPanel key={`${threadId}:${characterMode}`} mode={characterMode} onModeChange={setCharacterMode} onRename={data.controlsAvailable ? rename : undefined} info={{ ...data, name: sessionName }} profile={avatarProfile} status={agentStatus || data.status} model={agentModel} onSave={onSaveCharacter} /> : null}
     <div className={characterOpen ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
     {metadataError ? <p role="alert" className="p-3 text-xs text-amber-200">{t(metadataError)}</p> : null}
     {error ? <p role="alert" className="p-3 text-xs text-amber-200">{t(error)} <button onClick={() => void load.current?.(failedMode.current)} className="underline">{t("Retry")}</button></p> : null}

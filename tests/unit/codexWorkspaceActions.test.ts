@@ -62,3 +62,22 @@ describe("native workspace creation", () => {
     expect(await actions.createSession({ ...input, requestId: "next" })).toMatchObject({ threadId: "created", warning: expect.stringContaining("已创建") });
   });
 });
+
+it("renames the same original thread once without a prompt, creation, resume or local state writes", async () => {
+  const { client, actions } = setup();
+  const input = { threadId: "original", name: " Captain ", requestId: "rename-1" };
+  await Promise.all([actions.renameSession(input), actions.renameSession(input)]);
+  expect(client.call.mock.calls).toEqual([["thread/name/set", { threadId: "original", name: "Captain" }]]);
+  expect(await actions.renameSession(input)).toEqual({ threadId: "original", name: "Captain" });
+  expect(fs.readdirSync(root)).toEqual([]);
+  expect(() => actions.renameSession({ ...input, name: "Different" })).toThrow("冲突");
+  expect(() => actions.renameSession({ ...input, name: " " })).toThrow("名称");
+  expect(() => actions.renameSession({ ...input, threadId: "../wrong" })).toThrow("会话 ID");
+});
+it("does not repeat an uncertain rename with the same request id", async () => {
+  const { client, actions } = setup(); client.call.mockRejectedValue(new Error("connection lost"));
+  const input = { threadId: "original", name: "Captain", requestId: "lost-rename" };
+  await expect(actions.renameSession(input)).rejects.toThrow("connection lost");
+  await expect(actions.renameSession(input)).rejects.toThrow("connection lost");
+  expect(client.call).toHaveBeenCalledTimes(1);
+});

@@ -41,6 +41,9 @@ describe.skipIf(!process.env.CLAW3D_NATIVE_CODEX_BIN)("pinned native workspace c
       expect(nativeEvents).toContain("project/changed");
       expect(nativeEvents).toContain("thread/started");
       expect(index.list()).toEqual([expect.objectContaining({ id: created.threadId, name: "Empty recruited session", projectId: project.id })]);
+      await actions.renameSession({ threadId: created.threadId, name: "Renamed fixture captain", requestId: "native-rename" });
+      await until(() => index.list().some((row: { name: string }) => row.name === "Renamed fixture captain"));
+      expect(nativeEvents).toContain("thread/name/updated");
       const stored = await observer.call("thread/read", { threadId: created.threadId });
       expect(stored.thread.projectId).toBe(project.id);
       expect((await observer.call("thread/turns/list", { threadId: created.threadId })).data).toEqual([]);
@@ -50,6 +53,8 @@ describe.skipIf(!process.env.CLAW3D_NATIVE_CODEX_BIN)("pinned native workspace c
       await writer.call("thread/unarchive", {threadId:created.threadId});
       await until(()=>index.list().some((thread:{id:string})=>thread.id===created.threadId));
       expect((await observer.call("thread/read",{threadId:created.threadId})).thread.projectId).toBe(project.id);
+      await actions.renameSession({threadId:created.threadId,name:"Restored captain",requestId:"restored-rename"});
+      await until(()=>index.list().some((row:{id:string;name:string})=>row.id===created.threadId && row.name==="Restored captain"));
     } catch (error) { throw new Error(`${(error as Error).message}\n${stderr.slice(-1500)}`, { cause: error }); }
     finally {
       sync?.close(); index?.close(); writer?.close(); observer?.close(); child.kill("SIGTERM");
