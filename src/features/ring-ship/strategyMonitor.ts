@@ -12,11 +12,10 @@ export function openStrategyMonitor(url: string, now = Date.now()): boolean {
     cached.usedAt = now;
     return true;
   }
-  // Remove opener access before navigating away, while retaining our handle
-  // so repeat clicks can focus the page without navigating or reloading it.
+  // Keep the browser's opener relationship: Chrome requires it to activate
+  // this cross-origin tab on later clicks without navigating or reloading it.
   const tab = window.open("", "claw3d-strategy-monitor");
   if (!tab) return false;
-  try { tab.opener = null; } catch { /* A named tab from an earlier app load already has no opener. */ }
   tab.location.href = url;
   tab.focus();
   cached = { tab, url, usedAt: now };

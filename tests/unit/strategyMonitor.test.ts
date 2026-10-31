@@ -9,7 +9,7 @@ it("focuses the warm tab without navigation, refreshes after inactivity, and reo
   const open = vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);
   const url = "https://grafana.example.com/d/strategy?var-strategyIdx=1&var-strategyIdx=3&refresh=5s";
   expect(openStrategyMonitor(url, 0)).toBe(true);
-  expect(tab.opener).toBeNull();
+  expect(tab.opener).toBe(window);
   expect(navigate).toHaveBeenCalledExactlyOnceWith(url);
   openStrategyMonitor(url, MONITOR_REUSE_MS - 1);
   openStrategyMonitor(url, MONITOR_REUSE_MS + 1);
