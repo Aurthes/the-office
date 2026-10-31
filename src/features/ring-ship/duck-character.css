@@ -19,7 +19,7 @@
 .duck-character-info dd{font-size:12px;line-height:1.6;white-space:pre-wrap}
 .duck-character-id{font-family:monospace;font-size:10px!important;color:#93a3aa}
 .duck-character-panel button{transition:background-color .15s,border-color .15s;cursor:pointer}
-.duck-character-panel button:focus-visible,.duck-character-panel input:focus-visible{outline:2px solid var(--crew-accent);outline-offset:3px}
+.duck-character-panel button:focus-visible,.duck-character-panel input:focus-visible,.duck-character-panel select:focus-visible{outline:2px solid var(--crew-accent);outline-offset:3px}
 .duck-character-panel button:disabled{cursor:wait;opacity:.45}
 .duck-character-panel .duck-character-primary{background:var(--crew-accent);color:#1c2429;border:1px solid var(--crew-accent)}
 .duck-character-edit{width:100%;min-height:43px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;border-radius:3px}
@@ -42,4 +42,4 @@
 .duck-character-error{font-size:12px;color:#e9a7a1}
 @media(max-width:620px){.duck-character-panel{grid-template-columns:minmax(0,1fr);overflow:auto}.duck-character-details{overflow:visible}.duck-character-options button{min-height:44px}.duck-character-swatches button{width:34px;height:34px}.duck-character-stage{min-height:350px;height:43dvh;border-right:0;border-bottom:1px solid #ffffff12}.duck-character-stage>.duck-character-eyebrow{padding:16px 20px 0}.duck-character-preview{min-height:220px}.duck-character-hint{padding-bottom:12px}.duck-character-details{padding:24px 20px}.duck-character-details h3{font-size:22px}}
 
-.duck-character-rename{margin-top:28px}.duck-character-rename label{display:block;font-size:11px;color:#bec8ca}.duck-character-rename input{display:block;width:100%;margin-top:10px;padding:12px;border:1px solid #ffffff25;border-radius:3px;background:#10171d;font-size:14px;color:#e3e6e5}.duck-character-rename .duck-character-hint{text-align:left;padding:10px 0}.duck-character-rename .duck-character-actions{position:static}
+.duck-character-rename{margin-top:28px}.duck-character-rename label{display:block;font-size:11px;color:#bec8ca}.duck-character-rename :is(input,select){display:block;width:100%;margin-top:10px;padding:12px;border:1px solid #ffffff25;border-radius:3px;background:#10171d;font-size:14px;color:#e3e6e5}.duck-character-rename .duck-character-hint{text-align:left;padding:10px 0}.duck-character-rename .duck-character-actions{position:static}

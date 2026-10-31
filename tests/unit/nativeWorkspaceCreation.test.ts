@@ -47,12 +47,19 @@ describe.skipIf(!process.env.CLAW3D_NATIVE_CODEX_BIN)("pinned native workspace c
       const stored = await observer.call("thread/read", { threadId: created.threadId });
       expect(stored.thread.projectId).toBe(project.id);
       expect((await observer.call("thread/turns/list", { threadId: created.threadId })).data).toEqual([]);
+      const { project: destination } = await actions.createProject({ name: "Reassignment target", workspace: root, requestId: "native-target" });
+      await actions.reassignSession({ threadId: created.threadId, projectId: destination.id, requestId: "native-reassign" });
+      await until(() => index.list().some((row: { id: string; projectId: string }) => row.id === created.threadId && row.projectId === destination.id));
+      const reassigned = await observer.call("thread/read", { threadId: created.threadId });
+      expect(reassigned.thread).toMatchObject({ id: created.threadId, projectId: destination.id, cwd: stored.thread.cwd, name: stored.thread.name });
+      expect(nativeEvents).toContain("thread/project/updated");
+      expect((await observer.call("thread/turns/list", { threadId: created.threadId })).data).toEqual([]);
       expect(await actions.archiveSession({threadId:created.threadId,requestId:"native-archive"})).toEqual({threadId:created.threadId,archived:true});
       await until(() => index.list().length === 0 && nativeEvents.includes("thread/archived"));
       // Archive is recoverable and preserves native identity/project history.
       await writer.call("thread/unarchive", {threadId:created.threadId});
       await until(()=>index.list().some((thread:{id:string})=>thread.id===created.threadId));
-      expect((await observer.call("thread/read",{threadId:created.threadId})).thread.projectId).toBe(project.id);
+      expect((await observer.call("thread/read",{threadId:created.threadId})).thread.projectId).toBe(destination.id);
       await actions.renameSession({threadId:created.threadId,name:"Restored captain",requestId:"restored-rename"});
       await until(()=>index.list().some((row:{id:string;name:string})=>row.id===created.threadId && row.name==="Restored captain"));
     } catch (error) { throw new Error(`${(error as Error).message}\n${stderr.slice(-1500)}`, { cause: error }); }

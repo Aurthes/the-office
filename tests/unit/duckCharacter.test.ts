@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { DEFAULT_DUCK_APPEARANCE, normalizeDuckAppearance } from "@/lib/avatars/duck";
 import { createDefaultAgentAvatarProfile, normalizeAgentAvatarProfile } from "@/lib/avatars/profile";
@@ -108,6 +108,44 @@ it("keeps character and archive actions inside one menu and renames the original
   fireEvent.click(screen.getByRole("button", { name: "Save name" }));
   await waitFor(() => expect(onSessionRenamed).toHaveBeenCalledExactlyOnceWith("Captain"));
   expect(call).toHaveBeenCalledWith("session.rename", expect.objectContaining({ threadId: "original", name: "Captain", requestId: expect.any(String) }));
+  expect(onSaveCharacter).not.toHaveBeenCalled();
+});
+
+it("reassigns from the character page, keeps a failed selection and preserves the chat and draft", async () => {
+  let attempt = 0;
+  const onSaveCharacter = vi.fn();
+  const call = vi.fn(async (method: string, params: unknown) => {
+    if (method === "session.inspect") return { ...info, projectId: "ship", controlsAvailable: true };
+    if (method === "session.history") return { threadId: info.id, messages: [{ id: "message", role: "assistant", content: "Keep this history" }], nextCursor: null };
+    if (method === "session.reassign") {
+      if (!attempt++) throw new Error("offline");
+      return { threadId: info.id, projectId: (params as { projectId: string }).projectId, project: "Research" };
+    }
+    return { connected: true, activeTurnId: null, approvals: [], items: [] };
+  });
+  const view = render(React.createElement(ExistingSessionPanel, { client: { call }, threadId: info.id, onSaveCharacter,
+    projects: [{ id: "ship", name: "Ship" }, { id: "research", name: "Research" }] }));
+  await screen.findByText("Keep this history");
+  const scroller = screen.getByLabelText("Session history"), input = screen.getByLabelText("Send to session");
+  fireEvent.change(input, { target: { value: "Keep this draft" } });
+  fireEvent.click(view.container.querySelector("summary")!);
+  fireEvent.click(screen.getByRole("button", { name: "Character" }));
+  await screen.findByText("CREW MEMBER");
+  fireEvent.click(within(view.container.querySelector('[data-character-mode="view"]') as HTMLElement).getByRole("button", { name: "Reassign" }));
+  const select = screen.getByLabelText("Reassign to project");
+  expect(screen.getByRole("button", { name: "Confirm reassignment" })).toBeDisabled();
+  fireEvent.change(select, { target: { value: "research" } });
+  fireEvent.click(screen.getByRole("button", { name: "Confirm reassignment" }));
+  await screen.findByText("offline");
+  expect(select).toHaveValue("research");
+  fireEvent.click(screen.getByRole("button", { name: "Confirm reassignment" }));
+  await waitFor(() => expect(view.container.querySelector('[data-character-mode="view"]')).not.toBeNull());
+  expect(call).toHaveBeenCalledWith("session.reassign", expect.objectContaining({ threadId: info.id, projectId: "research", requestId: expect.any(String) }));
+  fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+  expect(screen.getByLabelText("Session history")).toBe(scroller);
+  expect(screen.getByLabelText("Send to session")).toBe(input);
+  expect(input).toHaveValue("Keep this draft");
+  expect(call.mock.calls.filter(([method]) => method === "session.history")).toHaveLength(1);
   expect(onSaveCharacter).not.toHaveBeenCalled();
 });
 
