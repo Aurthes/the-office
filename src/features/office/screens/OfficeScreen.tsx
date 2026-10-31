@@ -5572,6 +5572,7 @@ export function OfficeScreen({
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               {focusedChatAgent ? (
                 sessionView ? <ExistingSessionPanel key={focusedChatAgent.agentId} client={client} threadId={focusedChatAgent.agentId}
+                  projects={companyRoster?.projects}
                   agentName={focusedChatAgent.name} onSessionRenamed={name => dispatch({ type: "updateAgent", agentId: focusedChatAgent.agentId, patch: { name, sessionDisplayName: name } })}
                   avatarProfile={focusedChatAgent.avatarProfile} agentStatus={focusedChatAgent.needsInput ? "needsInput" : focusedChatAgent.status} agentModel={focusedChatAgent.model}
                   onSaveCharacter={async profile => {

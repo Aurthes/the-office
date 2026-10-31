@@ -89,7 +89,7 @@ describe("shared-session composer", () => {
     const input = screen.getByLabelText("Send to session");
     await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false));
     fireEvent.change(input, { target: { value: "hello" } });
-    const button = screen.getByRole("button", { name: "Add message" });
+    const button = screen.getByRole("button", { name: "Steer" });
     fireEvent.click(button); fireEvent.click(button);
     expect(call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(1);
     expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ threadId: "original", message: "hello", requestId: expect.any(String) }));
@@ -105,12 +105,15 @@ describe("shared-session composer", () => {
   it("stops the original thread and leaves uncertain send text available for reconciliation", async () => {
     const call = vi.fn(async (method: string) => { if (method === "session.send") throw new Error("结果未确认"); return snapshot; });
     render(React.createElement(SessionControls, { client: { call }, threadId: "original", onItems: vi.fn() }));
-    fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
+    const stop = await screen.findByRole("button", { name: "Stop" });
+    expect(stop.textContent).toBe("");
+    expect(stop.querySelector("svg")).not.toBeNull();
+    fireEvent.click(stop);
     await waitFor(() => expect(call).toHaveBeenCalledWith("session.stop", { threadId: "original" }));
     const input = screen.getByLabelText("Send to session");
     await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false));
     fireEvent.change(input, { target: { value: "keep draft" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add message" }));
+    fireEvent.click(screen.getByRole("button", { name: "Steer" }));
     await screen.findByRole("alert");
     expect((input as HTMLTextAreaElement).value).toBe("keep draft");
   });

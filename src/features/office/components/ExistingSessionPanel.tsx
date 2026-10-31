@@ -1,15 +1,16 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ArrowLeft, ChevronRight, ExternalLink, LogOut, MoreHorizontal, SlidersHorizontal, PencilLine, UserRound } from "lucide-react";
+import { ArrowRightLeft, ArrowLeft, ChevronRight, ExternalLink, LogOut, MoreHorizontal, SlidersHorizontal, PencilLine, UserRound } from "lucide-react";
 import type { CharacterMode } from "@/features/ring-ship/DuckCharacterPanel";
 import type { AgentAvatarProfile } from "@/lib/avatars/profile";
+import type { CompanyProject } from "@/features/retro-office/core/companyLayout";
 import { SessionControls, type LiveSessionItem, type SessionClient } from "./SessionControls";
 import { SessionTranscript } from "./SessionTranscript";
 import { useUiText } from "@/lib/i18n/ui-language";
 
 export type SessionInspection = {
-  id: string; name: string; workspace: string; project: string;
+  id: string; name: string; workspace: string; project: string; projectId?: string | null;
   status: "running" | "idle" | "unknown";
   controlsAvailable?: boolean; model?: string | null;
 };
@@ -22,7 +23,7 @@ type Message = LiveSessionItem;
 type HistoryPage = { threadId: string; messages: Message[]; nextCursor: string | null };
 type LoadMode = "latest" | "older";
 
-export function ExistingSessionPanel({ client, threadId, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed }: {
+export function ExistingSessionPanel({ client, threadId, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, projects = [] }: {
   client: SessionClient;
   threadId: string;
   onReturnToEarth?: () => void;
@@ -33,6 +34,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
   agentName?: string;
   onSessionRenamed?: (name: string) => void;
   onSaveCharacter?: (profile: AgentAvatarProfile) => Promise<void>;
+  projects?: CompanyProject[];
 }) {
   const t = useUiText();
   const [characterMode, setCharacterMode] = useState<CharacterMode | "chat">("chat");
@@ -129,12 +131,13 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
     };
     load.current = readPage;
     void readMetadata(); void readPage("latest");
+    const unsubscribeRoster = client.onEvent?.(event => { if (event.event === "roster.updated") void readMetadata(); });
     let connected = true;
     const unsubscribeStatus = client.onStatus?.(status => {
       if (status === "connected" && !connected) { void readMetadata(); void readPage("latest"); }
       connected = status === "connected";
     });
-    return () => { stopped = true; load.current = null; unsubscribeStatus?.(); };
+    return () => { stopped = true; load.current = null; unsubscribeStatus?.(); unsubscribeRoster?.(); };
   }, [client, threadId]);
 
   const sessionName = agentName || data?.name || "";
@@ -143,6 +146,11 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
     if (result.threadId !== threadId || result.name !== name) throw new Error(t("Session rename was not confirmed. Please retry."));
     setData(previous => previous?.id === threadId ? { ...previous, name: result.name } : previous);
     onSessionRenamed?.(result.name);
+  };
+  const reassign = async (projectId: string) => {
+    const result = await client.call("session.reassign", { threadId, projectId, requestId: crypto.randomUUID() }) as { threadId: string; projectId: string; project: string };
+    if (result.threadId !== threadId || result.projectId !== projectId) throw new Error(t("Reassignment was not confirmed. Check the current project before retrying."));
+    setData(previous => previous?.id === threadId ? { ...previous, projectId, project: result.project } : previous);
   };
   const openCharacter = (event: React.MouseEvent, mode: CharacterMode) => {
     event.currentTarget.closest("details")?.removeAttribute("open");
@@ -164,6 +172,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
               <button type="button" disabled={!data} onClick={event => openCharacter(event, "view")} className="session-action session-action--view"><span className="session-action-icon"><UserRound size={16} aria-hidden="true" /></span><span className="session-action-label">{t("Character")}</span><ChevronRight className="session-action-chevron" size={14} aria-hidden="true" /></button>
               <button type="button" disabled={!data} onClick={event => openCharacter(event, "edit")} className="session-action session-action--edit"><span className="session-action-icon"><SlidersHorizontal size={16} aria-hidden="true" /></span><span className="session-action-label">{t("Edit character")}</span><ChevronRight className="session-action-chevron" size={14} aria-hidden="true" /></button>
               <button type="button" disabled={!data?.controlsAvailable} onClick={event => openCharacter(event, "rename")} className="session-action session-action--rename"><span className="session-action-icon"><PencilLine size={16} aria-hidden="true" /></span><span className="session-action-label">{t("Rename session")}</span><ChevronRight className="session-action-chevron" size={14} aria-hidden="true" /></button>
+              <button type="button" disabled={!data?.controlsAvailable || !projects.length} onClick={event => openCharacter(event, "reassign")} className="session-action session-action--reassign"><span className="session-action-icon"><ArrowRightLeft size={16} aria-hidden="true" /></span><span className="session-action-label">{t("Reassign")}</span><ChevronRight className="session-action-chevron" size={14} aria-hidden="true" /></button>
             </> : null}
             {onReturnToEarth ? <button type="button" disabled={returnDisabled || !data?.controlsAvailable} onClick={onReturnToEarth}
               title={returnDisabled ? t("Stop the current task or wait for the previous return journey") : t("Archive this original session and keep its history")}
@@ -179,7 +188,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
         </details>
       </div>
     </header>
-    {characterOpen && data && onSaveCharacter ? <DuckCharacterPanel key={`${threadId}:${characterMode}`} mode={characterMode} onModeChange={setCharacterMode} onRename={data.controlsAvailable ? rename : undefined} info={{ ...data, name: sessionName }} profile={avatarProfile} status={agentStatus || data.status} model={agentModel} onSave={onSaveCharacter} /> : null}
+    {characterOpen && data && onSaveCharacter ? <DuckCharacterPanel key={`${threadId}:${characterMode}`} mode={characterMode} onModeChange={setCharacterMode} onRename={data.controlsAvailable ? rename : undefined} onReassign={data.controlsAvailable ? reassign : undefined} projects={projects} info={{ ...data, name: sessionName }} profile={avatarProfile} status={agentStatus || data.status} model={agentModel} onSave={onSaveCharacter} /> : null}
     <div className={characterOpen ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
     {metadataError ? <p role="alert" className="p-3 text-xs text-amber-200">{t(metadataError)}</p> : null}
     {error ? <p role="alert" className="p-3 text-xs text-amber-200">{t(error)} <button onClick={() => void load.current?.(failedMode.current)} className="underline">{t("Retry")}</button></p> : null}

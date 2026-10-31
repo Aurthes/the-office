@@ -9,7 +9,7 @@ let root: string;
 beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), "claw-create-")); });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 function setup() {
-  const client = { ready: true, call: vi.fn(async (method: string) => {
+  const client = { ready: true, call: vi.fn(async (method: string): Promise<unknown> => {
     if (method === "project/create" || method === "project/read") return { project: { id: "p", roots: [{ path: root }] } };
     if (method === "thread/start") return { thread: { id: "native-id" } };
     return {};
@@ -80,4 +80,24 @@ it("does not repeat an uncertain rename with the same request id", async () => {
   await expect(actions.renameSession(input)).rejects.toThrow("connection lost");
   await expect(actions.renameSession(input)).rejects.toThrow("connection lost");
   expect(client.call).toHaveBeenCalledTimes(1);
+});
+
+it("reassigns the same thread using only native metadata and coalesces duplicate submissions", async () => {
+  const { client, actions } = setup();
+  client.call.mockImplementation(async (method: string) => method === "project/read" ? { project: { id: "next", name: "Research" } } : { thread: { id: "original", projectId: "next" } });
+  const input = { threadId: "original", projectId: "next", requestId: "move-1" };
+  const results = await Promise.all([actions.reassignSession(input), actions.reassignSession(input)]);
+  expect(results).toEqual(Array(2).fill({ threadId: "original", projectId: "next", project: "Research" }));
+  expect(client.call.mock.calls).toEqual([["project/read", { projectId: "next" }], ["thread/metadata/update", { threadId: "original", projectId: "next" }]]);
+  expect(fs.readdirSync(root)).toEqual([]);
+  expect(() => actions.reassignSession({ ...input, projectId: "another" })).toThrow("冲突");
+  expect(() => actions.reassignSession({ ...input, projectId: "" })).toThrow("Choose a project");
+});
+it("does not report success for a missing project or a mismatched native reassignment", async () => {
+  const { client, actions } = setup();
+  client.call.mockResolvedValue({});
+  await expect(actions.reassignSession({ threadId: "original", projectId: "missing", requestId: "missing" })).rejects.toThrow("Project not found");
+  expect(client.call).toHaveBeenCalledTimes(1);
+  client.call.mockImplementation(async (method: string) => method === "project/read" ? { project: { id: "next" } } : { thread: { id: "another", projectId: "next" } });
+  await expect(actions.reassignSession({ threadId: "original", projectId: "next", requestId: "mismatch" })).rejects.toThrow("not confirmed");
 });

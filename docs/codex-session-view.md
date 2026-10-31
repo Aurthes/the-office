@@ -152,6 +152,11 @@ them through the native settings controls. The socket must belong to the current
 group/other permissions. A lost shared connection stops the gateway; launchd may
 reconnect it, but uncertain write operations are never automatically retried.
 
+The character page's **Reassign** action changes the existing chat's native
+project assignment through `thread/metadata/update`. It keeps the thread ID,
+history, working directory and execution settings. Select an existing project
+and confirm; native `thread/project/updated` events refresh all connected rosters.
+
 The web client attaches with native `thread/resume`, passing only the original
 thread ID and `excludeTurns: true`. Codex rejoins a loaded thread or restores the
 stored thread and its persisted configuration/tools; no desktop visit is required.

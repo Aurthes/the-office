@@ -80,6 +80,7 @@
 .office-session-chat .session-user-message { width: fit-content; max-width: 90%; margin-left: auto; }
 .office-session-chat .session-user-text { margin-top: 10px; border-radius: 20px; background: #2a3038; padding: 12px 16px; color: #eef1f0; }
 .office-session-chat .session-user-text:first-child { margin-top: 0; }
+.session-setting-trigger:focus-within { outline: 2px solid #d2bb88; outline-offset: 2px; }
 .session-image-thumbnail { width: 120px; height: 120px; max-width: 100%; overflow: hidden; border: 1px solid #ffffff1a; border-radius: 12px; background: #18212a; }
 .session-image-thumbnail img { width: 100%; height: 100%; max-height: none; object-fit: cover; border-radius: inherit; }
 
@@ -125,6 +126,7 @@
 .session-action-chevron { flex-shrink: 0; color: #8596a1; opacity: .65; }
 .session-action--edit { --action-accent: #d2bc96; }
 .session-action--rename { --action-accent: #b5c3d9; }
+.session-action--reassign { --action-accent: #b4cbbc; }
 .session-action--return { --action-accent: #d0ad79; margin-top: 4px; border-color: #b294622e; background: linear-gradient(180deg, #302e27, #282821); }
 .session-action:not(:disabled):hover { background: #303e49; border-color: #a8bdc65c; box-shadow: inset 0 1px 0 #ffffff0a; }
 .session-action--return:not(:disabled):hover { background: #3b3529; border-color: #c5a16d80; }
