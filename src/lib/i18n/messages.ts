@@ -1,5 +1,9 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Expand message": "展开消息",
+  "Collapse message": "收起消息",
+  "Show more": "展开",
+  "Show less": "收起",
   "Star systems · Design preview": "星系 · 设计预览",
   "Quiet Anchorage": "静默锚地",
   "Frost Veil": "冰蓝星云",
