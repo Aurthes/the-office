@@ -41,6 +41,21 @@ documented local-plugin link below after replacing the absolute path:
 
     codex://plugins/the-office-light?marketplacePath=<URL-encoded-absolute-path-to-marketplace.json>
 
+The official CLI can also install it on the desktop computer, including when
+that computer is being operated remotely. After building, run from the repo:
+
+    codex plugin marketplace add .
+    codex plugin add the-office-light@the-office-local
+    codex plugin list --marketplace the-office-local --json
+
+These commands register the local marketplace and install/enable the package
+through normal plugin management. They do not require clicking the App UI.
+Do not treat an unavailable UI-automation or mobile install link as proof that
+installation requires the user to be physically at the computer. Confirm the
+installed/enabled state using the final list command. Installation does not
+establish mobile panel support or prove that an already-running chat has
+refreshed its tool set; verify those separately without replacing the backend.
+
 Mention the installed plugin and ask “Open The Office”, or open its global
 sidebar entry. It can also be opened beside a conversation.
 
@@ -110,6 +125,7 @@ its own native-App acceptance; preview success does not establish it.
 - [Plugin packaging and local marketplaces](https://developers.openai.com/plugins/build/plugins)
 - [Global and conversation UI entrypoints](https://developers.openai.com/plugins/build/extensions)
 - [Native local-chat links](https://learn.chatgpt.com/docs/app/commands)
+- [Official CLI plugin commands](https://learn.chatgpt.com/docs/developer-commands)
 
 Live global chat-state subscription and a replacement for the native chat UI
 are outside this version. Do not add private database reads or App-backend
