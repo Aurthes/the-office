@@ -54,7 +54,7 @@ function Turntable({ wood, onOpen }: { wood: THREE.MeshStandardMaterial; onOpen:
   const [hovered, setHovered] = useState(false);
   return <group position={[.68, 1.34, -.04]}
     onClick={event => { event.stopPropagation(); if (event.delta < 6) onOpen(); }}
-    onPointerOver={event => { event.stopPropagation(); setHovered(true); }}
+    onPointerOver={event => { if (event.pointerType === "mouse") { event.stopPropagation(); setHovered(true); } }}
     onPointerOut={() => setHovered(false)}>
     <RoundedBox args={[1.15, .115, .68]} radius={.025} smoothness={3} position={[0, .08, 0]} material={wood} castShadow />
     <mesh position={[0, .145, 0]}><boxGeometry args={[1.08, .025, .615]} /><meshStandardMaterial color={hovered ? "#323d37" : "#202824"} metalness={.4} roughness={.34} /></mesh>
@@ -75,8 +75,10 @@ function Turntable({ wood, onOpen }: { wood: THREE.MeshStandardMaterial; onOpen:
       <mesh position={[0, 0, .062]} rotation={[Math.PI / 2, 0, 0]}><cylinderGeometry args={[.034, .034, .085, 20]} /><meshStandardMaterial color="#77837e" metalness={.8} roughness={.3} /></mesh>
     </group>
     <mesh position={[.4, .173, -.24]}><cylinderGeometry args={[.025, .025, .025, 20]} /><meshStandardMaterial color={BRASS} metalness={.8} roughness={.2} /></mesh>
-    <Html center position={[0, .65, 0]} zIndexRange={[16, 15]}>
-      <button type="button" className="listening-bar-label" data-hovered={hovered} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onOpen(); }} aria-label={t("Choose a music player")}><Disc3 size={14} />{t("Music")}</button>
+    <Html center position={[0, .65, 0]} zIndexRange={[16, 15]} style={{ pointerEvents: "none" }}>
+      <div className="listening-bar-anchor" data-hovered={hovered}>
+        <button type="button" className="listening-bar-label" onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onOpen(); }} aria-label={t("Choose a music player")}><Disc3 size={14} />{t("Music")}</button>
+      </div>
     </Html>
   </group>;
 }
