@@ -24,7 +24,7 @@ describe("push-based original-session stream", () => {
     emit("item/completed", { threadId: "a", turnId: "t", item: { id: "m", type: "agentMessage", phase: "final_answer", text: "short final" } });
     await vi.runAllTimersAsync(); expect(frames().at(-1).items[0]).toMatchObject({ content: "short final", status: "completed" });
     expect(frames().at(-1).items[0].append).toBeUndefined();
-    expect(client.call).toHaveBeenCalledTimes(3); // attach only; streaming does no native history reads
+    expect(client.call.mock.calls.map(([method]) => method)).toEqual(["thread/resume", "thread/turns/list"]); // attach only; streaming does no native history reads
   });
   it("drains bounded bootstrap chunks on the server, retaining every version", async () => {
     vi.useFakeTimers(); const { stream, ws, frames, emit } = setup();

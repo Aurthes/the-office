@@ -104,6 +104,7 @@ export function SessionControls({ client, threadId, onItems }: {
       if (stopped || !connected) return;
       if (pending) { retry = true; return; }
       pending = true; retry = false; version = -1; items.clear();
+      setConnectionError("");
       const id = crypto.randomUUID(); subscriptionId = id;
       try {
         if (client.onEvent) await client.call("session.subscribe", { threadId, subscriptionId: id });
@@ -191,7 +192,7 @@ export function SessionControls({ client, threadId, onItems }: {
         <button aria-label={dictation.phase === "recording" || dictation.phase === "starting" ? t("Stop recording and transcribe") : t("Native dictation")} title={t("Record here and transcribe with Codex. Click again to stop; review the draft before sending.")} disabled={dictation.phase === "transcribing" || (!(dictation.phase === "recording" || dictation.phase === "starting") && (busy || settingsBusy || !state?.connected || voice.status !== "off"))} onClick={() => { if (dictation.phase === "recording" || dictation.phase === "starting") void dictation.stop(); else void dictation.start(); }} className={"grid h-10 w-10 place-items-center rounded-lg disabled:opacity-40 " + (dictation.phase === "recording" ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65 hover:bg-white/5")}><Mic size={19} /></button>
         <button aria-label={t("Voice chat")} title={t("Start a live voice chat in this session")} disabled={busy || settingsBusy || !state?.connected || dictation.busy || voice.status !== "off"} onClick={() => void voice.start()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button>
       </div>
-      <span className="hidden min-w-0 flex-1 truncate text-xs text-white/45 sm:block">{state?.connected ? state.activeTurnId ? t("Codex is working…") : state.turnStatus === "interrupted" ? t("Stopped") : t("Codex · Connected") : t("Connecting to Codex…")}</span>
+      <span className="hidden min-w-0 flex-1 truncate text-xs text-white/45 sm:block">{state?.connected ? state.activeTurnId ? t("Codex is working…") : state.turnStatus === "interrupted" ? t("Stopped") : t("Codex · Connected") : connectionError ? t("Codex unavailable") : t("Connecting to Codex…")}</span>
       <div className="flex shrink-0 items-center gap-2">
         {state?.activeTurnId ? <button disabled={busy || settingsBusy} onClick={() => void action("session.stop", {})} className="min-h-10 rounded-lg px-3 text-sm text-rose-200 hover:bg-white/5 disabled:opacity-40">{t("Stop")}</button> : null}
         <button disabled={busy || settingsBusy || !state?.connected || !readyToSend} onClick={send} className="min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40">{busy ? t("Submitting…") : state?.activeTurnId ? t("Add message") : t("Send")}</button>

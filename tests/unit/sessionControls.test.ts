@@ -5,6 +5,17 @@ import { SessionControls } from "../../src/features/office/components/SessionCon
 const snapshot = { connected: true, version: 1, activeTurnId: "turn", items: [], approvals: [] };
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 describe("shared-session composer", () => {
+  it("shows a failed connection honestly and enables the same composer after reconnecting", async () => {
+    const call = vi.fn().mockRejectedValueOnce(new Error("Required MCP unavailable")).mockResolvedValue(snapshot);
+    render(React.createElement(SessionControls, { client: { call }, threadId: "cold-original", onItems: vi.fn() }));
+    await screen.findByText("Codex unavailable");
+    expect(screen.queryByText("Connecting to Codex…")).toBeNull();
+    expect((screen.getByLabelText("Send to session") as HTMLTextAreaElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+    await waitFor(() => expect((screen.getByLabelText("Send to session") as HTMLTextAreaElement).disabled).toBe(false));
+    expect(screen.queryByText("Required MCP unavailable")).toBeNull();
+    expect(call.mock.calls.map(([method]) => method)).toEqual(["session.attach", "session.attach"]);
+  });
   it("receives token appends directly over its subscription without live reads or polling", async () => {
     let listener!: (event: { event: string; payload?: unknown }) => void;
     const onItems = vi.fn();
