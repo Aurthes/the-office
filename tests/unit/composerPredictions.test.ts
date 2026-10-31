@@ -53,13 +53,37 @@ describe("native composer predictions", () => {
     resolvers.forEach(resolve => resolve({ sourceTurnId: "done", text: '{"suggestion":null}' }));
     await Promise.all([a, b]);
   });
-  it("records timeout metadata and allows an explicit retry of the same turn", async () => {
+  it("retries one native timeout with identical context and effort", async () => {
     const { service, client, onError } = setup();
     client.sampleThread.mockRejectedValueOnce(Object.assign(new Error("sample timed out"), { code: -32603 }));
-    expect(await service.request({ id: "original" }, context)).toBeNull();
-    expect(onError).toHaveBeenCalledWith({ threadId: "original", sourceTurnId: "done", code: -32603, reason: "native_timeout" });
     expect(await service.request({ id: "original" }, context)).toEqual({ text: "Run the tests", sourceTurnId: "done" });
+    expect(onError).toHaveBeenCalledWith({ threadId: "original", sourceTurnId: "done", code: -32603, stage: "sample", reason: "native_timeout", retrying: true });
     expect(client.sampleThread).toHaveBeenCalledTimes(2);
+    expect(client.sampleThread.mock.calls[1][0]).toEqual(client.sampleThread.mock.calls[0][0]);
+  });
+  it("bounds automatic retry and leaves failed predictions eligible for a later request", async () => {
+    const { service, client, onError } = setup();
+    client.sampleThread.mockRejectedValue(Object.assign(new Error("sample timed out"), { code: -32603 }));
+    expect(await service.request({ id: "original" }, context)).toBeNull();
+    expect(client.sampleThread).toHaveBeenCalledTimes(2);
+    expect(onError).toHaveBeenLastCalledWith({ threadId: "original", sourceTurnId: "done", code: -32603, stage: "sample", reason: "native_timeout" });
+    client.sampleThread.mockResolvedValue({ sourceTurnId: "done", text: '{"suggestion":"Continue"}' });
+    expect(await service.request({ id: "original" }, context)).toEqual({ text: "Continue", sourceTurnId: "done" });
+  });
+  it("does not retry after the source advances or starts working", async () => {
+    const { service, client } = setup();
+    client.call.mockResolvedValueOnce({ data: [{ id: "done", status: "completed" }] });
+    client.call.mockResolvedValue({ data: [{ id: "new", status: "inProgress" }] });
+    client.sampleThread.mockRejectedValue(Object.assign(new Error("sample timed out"), { code: -32603 }));
+    expect(await service.request({ id: "original" }, context)).toBeNull();
+    expect(client.sampleThread).toHaveBeenCalledTimes(1);
+  });
+  it("allows a live request after catch-up sampling skipped the same turn", async () => {
+    const { service, client } = setup({ catch_up_sample_rate: 0, live_sample_rate: 1 });
+    expect(await service.request({ id: "original" }, context, "catch_up")).toBeNull();
+    expect(client.sampleThread).not.toHaveBeenCalled();
+    expect(await service.request({ id: "original" }, context, "live")).toEqual({ text: "Run the tests", sourceTurnId: "done" });
+    expect(client.sampleThread).toHaveBeenCalledTimes(1);
   });
   it("still caches a legitimate empty suggestion and retries failed configuration reads", async () => {
     const empty = setup({}, { text: '{"suggestion":null}' });
@@ -67,6 +91,7 @@ describe("native composer predictions", () => {
     expect(empty.client.sampleThread).toHaveBeenCalledTimes(1); expect(empty.onError).not.toHaveBeenCalled();
     const retry = setup(); retry.readConfig.mockRejectedValueOnce(new Error("network failed"));
     expect(await retry.service.request({ id: "original" }, context)).toBeNull();
+    expect(retry.onError).toHaveBeenCalledWith(expect.objectContaining({ stage: "configuration" }));
     expect(await retry.service.request({ id: "original" }, context)).toEqual({ text: "Run the tests", sourceTurnId: "done" });
     expect(retry.readConfig).toHaveBeenCalledTimes(2);
   });

@@ -369,7 +369,14 @@ produce no suggestion; there is no substitute model or locally authored prompt.
 Sampling preserves the source's inherited tool definitions for prompt-cache
 reuse. This inference-only API does not execute tool calls. Native failures are
 logged as safe error metadata and are not cached as valid empty predictions;
-reopening a completed chat can explicitly retry without an automatic retry loop.
+reopening a completed chat can explicitly retry without unbounded retries.
+One native `sample timed out` error receives one bounded retry with the same
+model, prompt and native reasoning effort, only while its source turn is still
+the latest completed turn. It keeps the native reasoning settings and never
+replays a user message. Configuration and sampling failures are logged as
+separate stages.
+An eligibility skip is not cached as a completed empty prediction, so catch-up
+sampling cannot prevent a later live request for the same turn.
 
 Generation runs separately from message sending. Results arrive over the existing
 authenticated WebSocket, correlated with the chat and request. Only two samples
@@ -382,3 +389,7 @@ draft; Send or Enter explicitly sends it. Typing your own message takes priority
 Escape dismisses the suggestion, and late results from an old chat/turn are
 discarded. Native eligibility and sampling mean a suggestion is not guaranteed on
 every visit. The native experimental API may change with Codex versions.
+The desktop App's private composer cache is separate from Office's cache;
+independent native generations need not produce identical suggestions. A method
+appearing in the generated experimental schema is not proof of implementation:
+probe runtime support before adopting a different prediction endpoint.
