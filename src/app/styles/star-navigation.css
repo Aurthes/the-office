@@ -1,4 +1,10 @@
-.star-console-label { display:flex; align-items:center; gap:10px; min-height:44px; padding:10px 14px; border:1px solid #85b5bf99; border-radius:3px; background:#152c38f5; color:#c8e6e9; font:500 12px/1.3 system-ui; white-space:nowrap; cursor:pointer; box-shadow:0 5px 18px #0006; }
+.star-console-anchor { pointer-events:none; }
+.star-console-label { display:flex; align-items:center; gap:10px; min-height:44px; padding:10px 14px; border:1px solid #85b5bf99; border-radius:3px; background:#152c38f5; color:#c8e6e9; font:500 12px/1.3 system-ui; white-space:nowrap; cursor:pointer; box-shadow:0 5px 18px #0006; opacity:0; pointer-events:none; transition:opacity .12s; }
+.star-console-anchor[data-hovered="true"] .star-console-label,
+.star-console-label:focus-visible { opacity:1; pointer-events:auto; }
+@media(any-hover:hover) {
+  .star-console-anchor:hover .star-console-label { opacity:1; pointer-events:auto; }
+}
 .star-console-label small { display:block; margin-top:3px; color:#89a7b1; font:9px/1.3 system-ui; letter-spacing:.09em; }
 .star-console-label:hover { border-color:#c6ebed; background:#203d4b; }
 .star-map-label { display:block; min-height:44px; min-width:80px; padding:6px 9px; border:1px solid #90b4c333; border-radius:3px; background:#06111ce8; color:#d5e6ed; font:500 11px/1.3 system-ui; white-space:nowrap; cursor:pointer; }

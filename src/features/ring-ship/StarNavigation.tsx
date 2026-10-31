@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useReducer, useRef } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Html, Line } from "@react-three/drei";
 import { X, Navigation2, ArrowRight } from "lucide-react";
 import { useUiText } from "@/lib/i18n/ui-language";
@@ -30,10 +30,19 @@ export function navigationConsolePose(layout: ShipLayout, cabin: ShipCabin) {
 
 export function NavigationConsole({ layout, cabin, state, onAction, disabled }: { layout: ShipLayout; cabin: ShipCabin; state: NavigationState; onAction: (action: NavigationAction) => void; disabled: boolean }) {
   const t = useUiText(), pose = navigationConsolePose(layout, cabin), open = state.phase !== "idle";
+  const [hovered, setHovered] = useState(false);
   const route = useMemo(() => STAR_SYSTEMS.map(system => [...system.position] as [number, number, number]), []);
-  const choose = (id: StarSystemId) => { if (!disabled) onAction(open ? { type: "select", id } : { type: "open" }); };
+  const showChart = () => { if (!disabled) { setHovered(false); onAction({ type: "open" }); } };
+  const choose = (id: StarSystemId) => { if (!disabled) { if (open) onAction({ type: "select", id }); else showChart(); } };
   return <group position={[pose.point.x, 0, pose.point.z]} rotation={[0, pose.angle, 0]}>
-    <group onClick={event => { event.stopPropagation(); if (!disabled && !open) onAction({ type: "open" }); }}>
+    {!open && !disabled ? <mesh position={[0, 1.8, 0]}
+      onPointerOver={event => { if (event.pointerType === "mouse") { event.stopPropagation(); setHovered(true); } }}
+      onPointerOut={() => setHovered(false)}
+      onClick={event => { if (event.delta < 6) { event.stopPropagation(); showChart(); } }}>
+      <cylinderGeometry args={[NAVIGATION_TABLE_RADIUS + .2, NAVIGATION_TABLE_RADIUS + .2, 4.4, 24]} />
+      <meshBasicMaterial visible={false} />
+    </mesh> : null}
+    <group onClick={event => { event.stopPropagation(); if (!open) showChart(); }}>
       <mesh position={[0, .45, 0]}><cylinderGeometry args={[1.7, 1.2, .8, 48]} /><meshStandardMaterial color="#263f50" metalness={.55} roughness={.4} /></mesh>
       <mesh position={[0, .88, 0]}><cylinderGeometry args={[NAVIGATION_TABLE_RADIUS, 2.5, .12, 64]} /><meshStandardMaterial color="#102c3a" metalness={.6} roughness={.26} /></mesh>
       {[1.1, 1.8, 2.5].map(radius => <mesh key={radius} position={[0, .96, 0]} rotation={[-Math.PI/2, 0, 0]}>
@@ -57,10 +66,12 @@ export function NavigationConsole({ layout, cabin, state, onAction, disabled }: 
         </Html> : null}
       </group>)}
     </group>
-    {!open ? <Html center position={[0, 3.8, 0]} zIndexRange={[15, 14]}>
-      <button type="button" disabled={disabled} className="star-console-label" onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onAction({ type: "open" }); }}>
+    {!open ? <Html center position={[0, 3.8, 0]} zIndexRange={[15, 14]} style={{ pointerEvents: "none" }}>
+      <div className="star-console-anchor" data-hovered={!disabled && hovered}>
+      <button type="button" disabled={disabled} className="star-console-label" onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); showChart(); }}>
         <Navigation2 size={14} /><span>{t("Star chart")}<small>{t("Command navigation")}</small></span><ArrowRight size={13} />
       </button>
+      </div>
     </Html> : null}
   </group>;
 }
