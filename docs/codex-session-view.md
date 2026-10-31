@@ -152,10 +152,13 @@ them through the native settings controls. The socket must belong to the current
 group/other permissions. A lost shared connection stops the gateway; launchd may
 reconnect it, but uncertain write operations are never automatically retried.
 
-The App must have loaded a thread before the web client can attach to it. Open
-the original conversation in the App once if requested. This preserves its
-registered tools and active configuration. The web client attaches before reading
-the latest history page so live events cannot fall into a subscription gap.
+The web client attaches with native `thread/resume`, passing only the original
+thread ID and `excludeTurns: true`. Codex rejoins a loaded thread or restores the
+stored thread and its persisted configuration/tools; no desktop visit is required.
+Native unload notifications invalidate the attachment cache so the next attachment
+resumes the thread again. Native resume failures remain visible with a reconnect
+action. The web client attaches before reading the latest history page so live
+events cannot fall into a subscription gap.
 
 The inspector then supports plain-text continuation, steering the active turn,
 interrupting that same turn, live assistant messages and compact tool activity.

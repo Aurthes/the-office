@@ -167,6 +167,7 @@ export const ZH_CN: Record<string, string> = {
   "Stopped": "已停止",
   "Codex · Connected": "Codex · 已连接",
   "Connecting to Codex…": "连接 Codex…",
+  "Codex unavailable": "Codex 连接失败",
   "Stop": "停止",
   "Submitting…": "提交中…",
   "Add message": "追加消息",

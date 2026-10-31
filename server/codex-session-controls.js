@@ -16,10 +16,9 @@ class CodexSessionControls {
   async attach(id) {
     this.requireReady();
     if (!this.attaching.has(id)) {
-      const pending = this.client.call("thread/loaded/list", {}).then(async result => {
-        if (!result.data.includes(id)) throw Object.assign(new Error("请先在原 App 打开此会话一次，以沿用它当前的工具与权限配置"), { code: "APP_THREAD_NOT_LOADED" });
-        return this.client.call("thread/resume", { threadId: id, excludeTurns: true });
-      }).then(async result => {
+      // Native resume rejoins a loaded thread or restores the same stored
+      // thread. Omit overrides so Codex restores its tools and configuration.
+      const pending = this.client.call("thread/resume", { threadId: id, excludeTurns: true }).then(async result => {
         if (!this.state(id).settings) this.saveSettings(id, result);
         await this.refreshTurn(id); return true;
       }).catch(error => { this.attaching.delete(id); throw error; });
@@ -57,6 +56,7 @@ class CodexSessionControls {
     const p = frame.params || {}, id = p.threadId;
     if (frame.method === "connection/closed") { this.attaching.clear(); return; }
     if (!id) return;
+    if (frame.method === "thread/closed" || (frame.method === "thread/status/changed" && p.status?.type === "notLoaded")) this.attaching.delete(id);
     const state = this.state(id);
     if (frame.method === "thread/settings/updated") { this.saveSettings(id, p.threadSettings); return; }
     if (frame.id !== undefined) {

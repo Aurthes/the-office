@@ -79,10 +79,28 @@ describe("shared App session controls", () => {
     expect(ids).toEqual(Array.from({ length: 30 }, (_, i) => `t:${i}`));
     expect(controls.snapshot("id", since).items).toEqual([]);
   });
-  it("does not create a substitute runtime for a thread the App has not loaded", async () => {
+  it("restores an unloaded original thread without requiring desktop navigation or overriding native settings", async () => {
     const { client, controls } = setup();
-    await expect(controls.attach("unloaded-id")).rejects.toThrow("原 App 打开");
-    expect(client.call.mock.calls.some(([method]) => method === "thread/resume")).toBe(false);
+    await Promise.all([controls.attach("unloaded-id"), controls.attach("unloaded-id")]);
+    expect(client.call.mock.calls).toEqual([
+      ["thread/resume", { threadId: "unloaded-id", excludeTurns: true }],
+      ["thread/turns/list", { threadId: "unloaded-id", limit: 1, itemsView: "notLoaded", sortDirection: "desc" }],
+    ]);
+  });
+  it.each([
+    { method: "thread/closed", params: { threadId: "id" } },
+    { method: "thread/status/changed", params: { threadId: "id", status: { type: "notLoaded" } } },
+  ])("reattaches after native unload ($method)", async frame => {
+    const { client, controls } = setup();
+    await controls.attach("id"); controls.handle(frame); await controls.attach("id");
+    expect(client.call.mock.calls.filter(([method]) => method === "thread/resume")).toHaveLength(2);
+  });
+  it("surfaces a native resume error and allows a fresh attachment without starting a turn", async () => {
+    const { client, controls } = setup();
+    client.call.mockRejectedValueOnce(new Error("Required MCP unavailable"));
+    await expect(controls.attach("id")).rejects.toThrow("Required MCP unavailable");
+    await controls.attach("id");
+    expect(client.call.mock.calls.map(([method]) => method)).toEqual(["thread/resume", "thread/resume", "thread/turns/list"]);
   });
   it("clears interrupted tool requests when their turn ends without a separate resolved event", () => {
     const { controls } = setup();
