@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import type { SessionClient } from "./SessionControls";
 import { useUiText } from "@/lib/i18n/ui-language";
 
@@ -39,16 +40,20 @@ export function SessionSettings({ client, threadId, current, disabled, active, o
   const access = choices?.accessModes.find(mode => mode.id === current.accessMode);
   const blocked = disabled || busy || !choices;
   const selectClass = "min-h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#172330] px-2 text-sm text-white disabled:opacity-45";
+  const triggerClass = "session-setting-trigger relative inline-flex min-h-10 min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2 text-xs text-white/70 hover:bg-white/5";
   return <div className="mb-2">
     <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-      <button aria-label={t("Model settings")} aria-expanded={modelOpen} onClick={() => setModelOpen(!modelOpen)} className="flex min-h-10 min-w-0 max-w-full items-center gap-2 rounded-lg px-2 text-xs text-white/70 hover:bg-white/5"><span className="truncate">{model?.name || current.model}</span><span className="shrink-0 text-white/40">{current.effort ? t(current.effort) : t("Default")} ▾</span></button>
+      <button aria-label={t("Model settings")} aria-expanded={modelOpen} onClick={() => setModelOpen(!modelOpen)} className={triggerClass}><span className="truncate">{model?.name || current.model}</span><span className="shrink-0 text-white/40">{current.effort ? t(current.effort) : t("Default")}</span><ChevronDown size={12} className="shrink-0" aria-hidden="true" /></button>
+      <label className={triggerClass + (blocked ? " opacity-45" : "")}>
+      <span className="truncate" aria-hidden="true">{access ? t(access.name) : current.accessMode === "custom" ? t("Custom permissions") : current.accessMode}</span><ChevronDown size={12} className="shrink-0" aria-hidden="true" />
       <select aria-label={t("Select access mode")} title={t("Select session access mode")} value={current.accessMode} disabled={blocked} onChange={event => {
         if (event.target.value === ":danger-full-access" && current.accessMode !== event.target.value) setConfirmFullAccess(true);
         else void update({ accessMode: event.target.value });
-      }} className="min-h-10 min-w-0 max-w-full rounded-lg bg-transparent px-2 text-xs text-white/65 disabled:opacity-45">
+      }} className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-default">
         {!access ? <option value={current.accessMode}>{current.accessMode === "custom" ? t("Custom permissions") : current.accessMode}</option> : null}
         {choices?.accessModes.map(mode => <option key={mode.id} value={mode.id} disabled={!mode.allowed} title={mode.description ? t(mode.description) : undefined}>{t(mode.name)}</option>)}
       </select>
+      </label>
       {busy ? <span role="status" className="text-xs text-white/45">{t("Saving…")}</span> : null}
     </div>
     {modelOpen ? <div className="mb-2 grid grid-cols-2 gap-3 rounded-xl border border-white/15 bg-[#172330] p-3">

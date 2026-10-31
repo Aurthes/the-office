@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Headphones, Mic, Paperclip, PhoneOff, X } from "lucide-react";
+import { Headphones, Mic, Paperclip, PhoneOff, Square, X } from "lucide-react";
 import { SessionSettings, type ChatSettings } from "./SessionSettings";
 import { useSessionVoice } from "./useSessionVoice";
 import { SessionQuestions, type SessionQuestionRequest } from "./SessionQuestions";
@@ -194,8 +194,8 @@ export function SessionControls({ client, threadId, onItems }: {
       </div>
       <span className="hidden min-w-0 flex-1 truncate text-xs text-white/45 sm:block">{state?.connected ? state.activeTurnId ? t("Codex is working…") : state.turnStatus === "interrupted" ? t("Stopped") : t("Codex · Connected") : connectionError ? t("Codex unavailable") : t("Connecting to Codex…")}</span>
       <div className="flex shrink-0 items-center gap-2">
-        {state?.activeTurnId ? <button disabled={busy || settingsBusy} onClick={() => void action("session.stop", {})} className="min-h-10 rounded-lg px-3 text-sm text-rose-200 hover:bg-white/5 disabled:opacity-40">{t("Stop")}</button> : null}
-        <button disabled={busy || settingsBusy || !state?.connected || !readyToSend} onClick={send} className="min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40">{busy ? t("Submitting…") : state?.activeTurnId ? t("Add message") : t("Send")}</button>
+        {state?.activeTurnId ? <button aria-label={t("Stop")} title={t("Stop")} disabled={busy || settingsBusy} onClick={() => void action("session.stop", {})} className="grid h-10 w-10 place-items-center rounded-lg text-rose-200 hover:bg-white/5 disabled:opacity-40"><Square size={15} fill="currentColor" aria-hidden="true" /></button> : null}
+        <button disabled={busy || settingsBusy || !state?.connected || !readyToSend} onClick={send} className="min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40">{busy ? t("Submitting…") : state?.activeTurnId ? t("Steer") : t("Send")}</button>
       </div>
     </div>
     {dictation.phase === "starting" ? <p role="status" className="mt-1 text-xs text-cyan-100">{t("Preparing microphone…")}</p> : dictation.phase === "recording" ? <p role="status" className="mt-1 text-xs text-rose-200">{t("Recording · {time} · Click the microphone to stop · Up to 10 minutes", { time: `${Math.floor(dictation.seconds / 60)}:${String(Math.floor(dictation.seconds % 60)).padStart(2, "0")}` })}</p> : dictation.phase === "transcribing" ? <p role="status" className="mt-1 text-xs text-cyan-100">{t("Transcribing with Codex…")}<button onClick={dictation.cancel} className="underline">{t("Cancel and keep recording")}</button></p> : null}

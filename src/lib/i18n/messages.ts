@@ -1,5 +1,16 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Reassign": "调岗",
+  "Reassign to project": "调到项目",
+  "Choose a project": "选择项目",
+  "Confirm reassignment": "确认调岗",
+  "Reassigning…": "正在调岗…",
+  "Changes the project. Keeps this chat, history and working folder.": "更换项目归属，保留原会话、记录和工作目录。",
+  "Could not reassign. Please retry.": "调岗失败，请重试。",
+  "Reassignment was not confirmed. Check the current project before retrying.": "调岗未确认，重试前请先核对当前项目。",
+  "Invalid session ID": "无效的会话 ID",
+  "Project not found. Please choose another project.": "项目不存在，请重新选择。",
+  "Steer": "引导",
   "Body proportions": "体型比例",
   "Body length (front–back)": "身体长度（前后）",
   "Body width (left–right)": "身体宽度（左右）",
