@@ -37,6 +37,9 @@ export function createDuckCrewFigure(appearance?: DuckAppearance) {
   const style = normalizeDuckAppearance(appearance);
   const root = new THREE.Group();
   root.name = "duck-crew";
+  // Cancel the original flattened barrel proportions. At 100%, the body has a
+  // circular horizontal section; equipment and face scale with the same rig.
+  root.scale.set(style.bodyWidth / 1.14, style.bodyHeight, style.bodyDepth / .93);
   const feather = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0 });
   const bill = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.84, metalness: 0 });
   const eyes = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0 });
@@ -91,7 +94,12 @@ export function createDuckCrewFigure(appearance?: DuckAppearance) {
       face.add(mesh);
     }
   }
-  for (const side of [-1, 1]) egg(face, [side * .082, .517, .113], [.014, .018, .01], dark, eyes, [0, side * .4, 0]);
+  const eyeY = .517 + (style.eyeHeight - 1) * .3;
+  const capY = Math.max(0, Math.abs(eyeY + .022 - .345) - .16);
+  const eyeX = .082 * style.eyeSpacing;
+  const eyeZ = .93 * Math.sqrt(Math.max(0, .14 ** 2 - capY ** 2 - (eyeX / 1.14) ** 2)) + .006;
+  for (const side of [-1, 1]) egg(face, [side * eyeX, eyeY, eyeZ], [.014, .018, .01], dark, eyes,
+    [0, side * Math.atan2(eyeX / 1.14 ** 2, eyeZ / .93 ** 2), 0]);
 
   if (style.outfit !== "none") {
     const height = style.outfit === "jacket" ? .25 : .19;
@@ -104,10 +112,11 @@ export function createDuckCrewFigure(appearance?: DuckAppearance) {
   }
   if (style.headwear !== "none") {
     const helmet = style.headwear === "helmet";
+    const eyeLift = Math.max(0, style.eyeHeight - 1) * .3;
     add(body, new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), uniform, style.outfitColor,
-      [0, helmet ? .566 : .565, 0], [.173, helmet ? .15 : .118, .148]);
-    add(body, new THREE.TorusGeometry(1, .025, 6, 36), uniform, "#25333a", [0, helmet ? .566 : .565, 0], [.174, .15, .149], [Math.PI / 2, 0, 0]);
-    if (!helmet) egg(body, [0, .563, .123], [.126, .012, .103], style.outfitColor, uniform);
+      [0, (helmet ? .566 : .565) + eyeLift, 0], [.173, helmet ? .15 : .118, .148]);
+    add(body, new THREE.TorusGeometry(1, .025, 6, 36), uniform, "#25333a", [0, (helmet ? .566 : .565) + eyeLift, 0], [.174, .15, .149], [Math.PI / 2, 0, 0]);
+    if (!helmet) egg(body, [0, .563 + eyeLift, .123], [.126, .012, .103], style.outfitColor, uniform);
   }
 
   const wings = [-1, 1].map(side => {

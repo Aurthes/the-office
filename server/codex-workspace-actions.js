@@ -34,6 +34,14 @@ class CodexWorkspaceActions {
       return { project: result.project };
     });
   }
+  renameSession(input) {
+    const { threadId, requestId } = input, name = this.name(input.name);
+    if (typeof threadId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(threadId)) throw new Error("无效的原会话 ID");
+    return this.once(requestId, { type: "rename", threadId, name }, async () => {
+      await this.client.call("thread/name/set", { threadId, name });
+      return { threadId, name };
+    });
+  }
   archiveSession(input) {
     const { threadId, requestId } = input;
     if (typeof threadId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(threadId)) throw new Error("无效的原会话 ID");
