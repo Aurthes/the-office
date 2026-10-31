@@ -331,7 +331,8 @@ export function RingShipOffice(props: Props) {
     }
   }, [props.activeChatAgentId,returnFlight,busy]);
   const returnCamera=useMemo(()=>returnFlight && ["boarding","sealing","waiting","launching","done"].includes(returnStage) && visibleDeck===0 && !shipView
-    ? {point:returnFlight.pod,launch:returnStage==="launching"||returnStage==="done"}:null,[returnFlight,returnStage,visibleDeck,shipView]);
+    // Frame the exit while the hatch seals, before the short muzzle flash.
+    ? {point:returnFlight.pod,launch:["sealing","waiting","launching","done"].includes(returnStage)}:null,[returnFlight,returnStage,visibleDeck,shipView]);
   const validFocus = currentLayout.cabins.some(c => c.id === focus.id || c.projectId === focus.id) ? focus.id : "";
   const cameraFocus = useMemo(() => ({ id: validFocus, request: focus.request + officeCenterSignal }), [validFocus, focus.request, officeCenterSignal]);
   const selected = currentLayout.cabins.find(c => c.id === validFocus || c.projectId === validFocus);
