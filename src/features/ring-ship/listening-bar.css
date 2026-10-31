@@ -1,7 +1,20 @@
-.listening-bar-label { display:flex; align-items:center; gap:7px; white-space:nowrap; border:1px solid #c6a46a80; border-radius:20px; background:#182b25ed; padding:8px 13px; color:#efd9b5; font:500 11px var(--font-sans),sans-serif; cursor:pointer; box-shadow:0 3px 14px #0004; }
-.listening-bar-label:hover,.listening-bar-label[data-hovered="true"] { background:#355146; border-color:#e5c992; }
+/* Scene labels reveal on hover or keyboard focus; touch opens the model directly. */
+.listening-bar-anchor { pointer-events:none; }
+.listening-bar-label { display:flex; align-items:center; gap:7px; white-space:nowrap; border:1px solid #c6a46a80; border-radius:20px; background:#182b25ed; padding:8px 13px; color:#efd9b5; font:500 11px var(--font-sans),sans-serif; cursor:pointer; box-shadow:0 3px 14px #0004; opacity:0; pointer-events:none; transition:opacity .12s; }
+.listening-bar-anchor[data-hovered="true"] .listening-bar-label,
+.listening-bar-label:focus-visible { opacity:1; pointer-events:auto; }
+@media (hover:hover) { .listening-bar-anchor:hover .listening-bar-label { opacity:1; pointer-events:auto; } }
+.listening-bar-label:hover { background:#355146; border-color:#e5c992; }
 .music-dialog { width:min(580px,calc(100vw - 28px)); max-width:none; max-height:calc(100dvh - 28px); margin:auto; padding:0; border:1px solid #c6a46a55; border-radius:22px; background:#15231e; color:#f0e9dc; box-shadow:0 28px 100px #0008; font-family:var(--font-sans),sans-serif; overflow:auto; }
 .music-dialog::backdrop { background:#030b10b8; backdrop-filter:blur(9px); }
+.music-dialog:not([open]) { display:none; }
+.music-dialog-player { width:min(1280px,calc(100vw - 28px)); height:calc(100dvh - 28px); }
+.music-dialog-player .music-surface { display:flex; flex-direction:column; height:100%; }
+.music-header-actions { display:flex; gap:8px; }
+.music-player-tools { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; padding:10px 24px; border-bottom:1px solid #ffffff14; }
+.music-player-tools button { display:flex; align-items:center; gap:7px; min-height:36px; color:#d9c294; font-size:12px; cursor:pointer; }
+.music-player-tools span { color:#a7b5a8; font-size:11px; }
+.music-embedded-player { display:block; width:100%; flex:1; min-height:0; border:0; background:#fff; }
 .music-surface { background:radial-gradient(ellipse at 5% 0%,#4e4b2b40,transparent 70%),#15231e; }
 .music-header { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:24px 28px; border-bottom:1px solid #e5d8bc16; }
 .music-heading { display:flex; align-items:center; gap:14px; color:#d1b57d; }
