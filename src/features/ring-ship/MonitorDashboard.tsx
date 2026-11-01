@@ -83,7 +83,7 @@ export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: ()
           <div className="monitor-config-system"><Monitor size={18} /><div><b>{t("Server fleet")}</b><p>{t("Built-in · Uses the registered server pool")}</p></div></div>
           {draft.map((link, index) => <fieldset className="monitor-config-link" key={link.id} disabled={saving}>
             <label>{t("Monitor name")}<input required maxLength={60} value={link.label} onChange={event => edit(index, { label: event.target.value })} /></label>
-            <label className="monitor-config-url">{t("Dashboard URL")}<input required type="url" maxLength={4096} value={link.url} placeholder="https://…" onChange={event => edit(index, { url: event.target.value })} /></label>
+            <label className="monitor-config-url">{t("Dashboard URL")}<input required type="text" inputMode="url" maxLength={4096} value={link.url} placeholder="https://… or /dashboard/" onChange={event => edit(index, { url: event.target.value })} /></label>
             <label>{t("Illustration")}<select value={link.visual} onChange={event => edit(index, { visual: event.target.value as MonitorLink["visual"] })}><option value="chart">{t("Time series")}</option><option value="servers">{t("Server racks")}</option><option value="globe">{t("Network globe")}</option></select></label>
             <button type="button" className="monitor-icon-button" aria-label={t("Remove monitor: {name}", { name: link.label })} onClick={() => setDraft(current => current.filter(item => item.id !== link.id))}><Trash2 size={16} /></button>
           </fieldset>)}

@@ -12,10 +12,12 @@ export function parseMonitorLinks(value: unknown): MonitorLink[] {
     ids.add(link.id);
     if (typeof link.label !== "string" || !link.label.trim() || link.label.trim().length > 60) throw new Error("Give each monitor a name of up to 60 characters.");
     let url: URL;
-    try { url = new URL(link.url); } catch { throw new Error("Use a valid HTTP or HTTPS dashboard URL."); }
+    const local = typeof link.url === "string" && link.url.startsWith("/");
+    try { url = new URL(link.url, local ? "http://office.local" : undefined); } catch { throw new Error("Use a valid HTTP or HTTPS dashboard URL."); }
+    if (local && (link.url.startsWith("//") || link.url.includes("\\") || url.origin !== "http://office.local")) throw new Error("Use a same-origin dashboard path.");
     if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.href.length > 4096) throw new Error("Use a valid HTTP or HTTPS dashboard URL.");
     if (!["chart", "servers", "globe"].includes(link.visual)) throw new Error("Invalid monitor illustration.");
-    return { id: link.id, label: link.label.trim(), url: url.href, visual: link.visual };
+    return { id: link.id, label: link.label.trim(), url: local ? url.pathname + url.search + url.hash : url.href, visual: link.visual };
   });
 }
 

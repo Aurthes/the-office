@@ -1,3 +1,4 @@
+// @vitest-environment node
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -34,4 +35,11 @@ it("rejects credential-bearing and executable URLs, duplicate IDs, and oversized
 
 it("does not accept cross-site form content as a settings update", async () => {
   expect((await PUT(new Request("http://localhost/api/monitoring", { method: "PUT", body: "links=bad" }))).status).toBe(415);
+});
+
+it("keeps a local dashboard path portable across Office hosts", () => {
+  expect(parseMonitorLinks([{ ...link, url: "/account-history/?window=1h#plot" }])[0].url).toBe("/account-history/?window=1h#plot");
+  for (const url of ["//other.invalid/", "/\\other.invalid/", "/\n/other.invalid/"]) {
+    expect(() => parseMonitorLinks([{ ...link, url }])).toThrow();
+  }
 });

@@ -3,6 +3,7 @@ export const MONITOR_REUSE_MS = 5 * 60 * 1000;
 const tabs = new Map<string, { tab: Window; url: string; usedAt: number }>();
 
 export function openStrategyMonitor(url: string, now = Date.now(), id = "grafana"): boolean {
+  if (url.startsWith("/")) url = new URL(url, window.location.origin).href;
   const cached = tabs.get(id);
   if (cached && !cached.tab.closed) {
     if (cached.url !== url || now - cached.usedAt >= MONITOR_REUSE_MS) {

@@ -64,6 +64,17 @@ login. Repeat clicks preserve its page for five minutes after the last click;
 after a longer gap, the next click reloads its configured URL. Studio never closes
 those tabs, copies Grafana charts, or requires Grafana embedding changes.
 
+Local dashboards can use a same-origin shortcut such as `/account-history/`,
+so the link follows the Office host on every device. To connect a separately
+running read-only account-history viewer, set
+`CLAW3D_ACCOUNT_MONITOR_URL=http://127.0.0.1:8766` and restart Studio. Add
+`/account-history/` as a monitor URL in the console. Studio forwards only the
+viewer's page, script, latest snapshot and curve reads, behind the existing
+Office access controls. It sends no login cookies or authorization headers to
+the viewer. Collection, local JSONL retention and public-query scheduling remain
+the responsibility of the collector; opening or refreshing the page only reads
+its files. No database or charting service is needed.
+
 The built-in fleet dashboard is opt-in: set `CLAW3D_SERVER_POOL_FILE` to a local
 registry containing `alias|class|params|notes` rows. Classes `online` (production)
 and `offline` (research/compute) describe purpose, separately from reachability.

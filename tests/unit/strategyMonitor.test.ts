@@ -64,3 +64,11 @@ it("keeps different monitor links in independent warm tabs", async () => {
   expect(chart.location.href).toBe("https://grafana.example.com");
   expect(other.location.href).toBe("https://status.example.com");
 });
+
+it("opens a local dashboard through the current Office origin", async () => {
+  const { openStrategyMonitor } = await import("@/features/ring-ship/strategyMonitor");
+  const tab = { closed: false, focus: vi.fn(), location: { href: "" } };
+  vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);
+  expect(openStrategyMonitor("/account-history/", 0, "account-history")).toBe(true);
+  expect(tab.location.href).toBe(window.location.origin + "/account-history/");
+});

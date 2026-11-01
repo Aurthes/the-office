@@ -3,6 +3,7 @@ const https = require("node:https");
 const next = require("next");
 
 const { createAccessGate } = require("./access-gate");
+const { createAccountMonitorProxy } = require("./account-monitor-proxy");
 const { createGatewayProxy } = require("./gateway-proxy");
 const { assertPublicHostAllowed, resolveHosts } = require("./network-policy");
 const { loadUpstreamGatewaySettings } = require("./studio-settings");
@@ -97,6 +98,7 @@ async function main() {
   const accessGate = createAccessGate({
     token: process.env.STUDIO_ACCESS_TOKEN,
   });
+  const accountMonitor = createAccountMonitorProxy(process.env.CLAW3D_ACCOUNT_MONITOR_URL);
 
   const proxy = createGatewayProxy({
     hostTokenOnly: process.env.CLAW3D_CODEX_GATEWAY === "1",
@@ -134,11 +136,13 @@ async function main() {
       ? https.createServer(httpsCert, (req, res) => {
           if (!sameOrigin(req)) { res.writeHead(403); res.end("Origin rejected"); return; }
           if (accessGate.handleHttp(req, res)) return;
+          if (accountMonitor(req, res)) return;
           handle(req, res);
         })
       : http.createServer((req, res) => {
           if (!sameOrigin(req)) { res.writeHead(403); res.end("Origin rejected"); return; }
           if (accessGate.handleHttp(req, res)) return;
+          if (accountMonitor(req, res)) return;
           handle(req, res);
         });
 
