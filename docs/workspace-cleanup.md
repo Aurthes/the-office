@@ -3,6 +3,22 @@
 Task worktrees and production builds need an end of life. Git ignore rules do
 not reclaim disk space. Keep live services and shared dependencies intact.
 
+After every generation, build, or validation batch, check only that batch's output
+and temporary processes. Delete your own intermediate files and superseded
+copies as soon as their last use is complete. Keep the intended deliverable and
+anything still needed for review, validation, deployment, or rollback. Reuse
+valid build caches while dependent checks remain; clear unused caches and build
+copies when those checks finish. Stop only temporary processes owned by the task.
+Do not perform a whole-disk or whole-workspace sweep after every generated file.
+
+After merging and validating a completed task, retire its clean worktree once no
+service, process, shared dependency, local data, or rollback needs it. Leave the
+worktree first and run `git worktree remove <task-path>` from a retained checkout,
+without `--force`. Check external references as described below before removal;
+Git's clean check alone cannot detect them. Report the reason for any retained
+worktree or large artifact. The 24-hour periodic policy below is a fallback for
+abandoned leftovers, not a reason to keep your own completed temporary work.
+
 Run from a retained checkout (Node.js, Git, `find`, `ps`, and `lsof` required;
 macOS also uses `plutil`):
 

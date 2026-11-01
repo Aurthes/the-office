@@ -35,12 +35,22 @@ Do not commit personal, environment-specific, or secret instructions to this rep
 
 ## Task cleanup
 
-After merging a task, report any worktree retained for a live service, shared
-dependency, rollback, or local files. Run `npm run cleanup:workspace` to identify
-merged, idle worktrees; follow `docs/workspace-cleanup.md` before applying cleanup.
-Use the existing cleanup command instead of copying complete releases or leaving
-build caches in finished task directories. Preserve conversations, uploads,
-credentials, active work, and externally referenced paths.
+After each generation, build, or validation batch, inspect the files and temporary
+processes created by that batch. Immediately remove your own intermediate files,
+superseded outputs, and temporary processes once their last use is complete. Do
+not wait for task completion or daily maintenance. Keep intended deliverables and
+artifacts still needed for review, the next validation step, deployment, or rollback.
+
+Keep this check local to the current task; do not scan the whole disk or clean
+another task after every generated file. Reuse valid build results until the last
+dependent check is done, then reclaim unused caches and temporary build copies.
+
+After merging and completing validation, retire your own clean, unreferenced task
+worktree from a retained checkout. Report any worktree or large artifact retained
+for a live service, shared dependency, rollback, or local files. Follow
+`docs/workspace-cleanup.md`; daily workspace cleanup is a fallback for leftovers,
+not the primary cleanup step. Preserve conversations, uploads, credentials,
+active work, and externally referenced paths.
 
 ## Cursor Cloud specific instructions
 
