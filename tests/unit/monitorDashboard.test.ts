@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MonitorDashboard } from "@/features/ring-ship/MonitorDashboard";
 import { formatBytes, ServerDashboard } from "@/features/ring-ship/ServerDashboard";
@@ -45,6 +45,19 @@ it("keeps unknown resource values distinct from genuine zero usage", () => {
   expect(formatBytes(0)).toBe("0 B");
   expect(formatBytes(1024 ** 3)).toBe("1.0 GiB");
   expect(formatBytes(1024 ** 4)).toBe("1.0 TiB");
+});
+
+it("shows Local Mac and newly registered compute hosts in separate groups with shared totals", async () => {
+  const metrics = { cores: 8, cpuPercent: 25, memoryTotal: 16 * 1024 ** 3, memoryUsed: 8 * 1024 ** 3, disks: [], rxBytesPerSecond: 0, txBytesPerSecond: 0 };
+  vi.mocked(fetch).mockResolvedValue(Response.json({ configured: true, refreshing: false, updatedAt: 1, servers: [
+    { alias: "Local Mac", group: "local", active: true, status: "ready", metrics, sampledAt: 1 },
+    { alias: "compute-new", group: "offline", active: true, status: "ready", metrics, sampledAt: 1 },
+  ] }));
+  render(createElement(ServerDashboard, { active: true }));
+  expect(within(await screen.findByRole("region", { name: "Local machine" })).getByText("Local Mac")).toBeInTheDocument();
+  expect(within(screen.getByRole("region", { name: "Research and compute servers" })).getByText("compute-new")).toBeInTheDocument();
+  expect(screen.getByText("2 / 2")).toBeInTheDocument();
+  expect(screen.getByText("4.0 / 16")).toBeInTheDocument();
 });
 
 it("stops fleet requests when closed or hidden and resumes when visible", async () => {

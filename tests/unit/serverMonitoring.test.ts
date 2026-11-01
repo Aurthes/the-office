@@ -1,5 +1,6 @@
+// @vitest-environment node
 import { expect, it, vi } from "vitest";
-import { createServerStatusStore, parseServerPool, SERVER_REFRESH_MS } from "@/lib/monitoring/servers";
+import { createServerStatusStore, monitoringHosts, parseServerPool, SERVER_REFRESH_MS } from "@/lib/monitoring/servers";
 import type { PoolHost, ServerMetrics } from "@/lib/monitoring/types";
 
 const metrics: ServerMetrics = { cores: 16, cpuPercent: 25, load1: 4, memoryTotal: 1024, memoryUsed: 0, disks: [{ mount: "/", total: 100, used: 50, percent: 50 }], rxBytesPerSecond: 0, txBytesPerSecond: 0, uptimeSeconds: 100 };
@@ -9,7 +10,15 @@ it("keeps server purpose separate from active state and never includes registry 
   expect(parseServerPool("# header\nprod|online|release_root=/private|secret note\ncompute|offline||note\nold|offline|active=no|out of service")).toEqual([
     { alias: "prod", group: "online", active: true }, { alias: "compute", group: "offline", active: true }, { alias: "old", group: "offline", active: false },
   ]);
-  for (const text of ["-oProxyCommand=x|online||", "user@host|online||", "host;touch|online||", "a|unknown||", "a|online||\na|offline||"]) expect(() => parseServerPool(text)).toThrow();
+  for (const text of ["-oProxyCommand=x|online||", "user@host|online||", "host;touch|online||", "a|unknown||", "a|local||", "a|online||\na|offline||"]) expect(() => parseServerPool(text)).toThrow();
+});
+
+it("includes Local Mac independently of the remote registry and leaves Linux host lists unchanged", () => {
+  expect(monitoringHosts("", "darwin")).toEqual([{ alias: "Local Mac", group: "local", active: true }]);
+  const remote = "compute|offline||\nretired|online|active=no|";
+  expect(monitoringHosts(remote, "darwin")).toEqual([{ alias: "Local Mac", group: "local", active: true }, ...parseServerPool(remote)]);
+  expect(monitoringHosts(remote, "linux")).toEqual(parseServerPool(remote));
+  expect(monitoringHosts("", "linux")).toEqual([]);
 });
 
 it("shares one refresh across clients, streams completed rows, bounds concurrency, and never probes disabled hosts", async () => {

@@ -5,6 +5,8 @@ import { ArrowDown, ArrowUp, Cpu, HardDrive, MemoryStick, RefreshCw } from "luci
 import { useUiText } from "@/lib/i18n/ui-language";
 import type { ServerRow, ServerSnapshot } from "@/lib/monitoring/types";
 
+const groups = { local: "Local machine", online: "Production servers", offline: "Research and compute servers" };
+
 export function formatBytes(value: number | null) {
   if (value === null) return "—";
   const power = value > 0 ? Math.min(4, Math.max(0, Math.floor(Math.log(value) / Math.log(1024)))) : 0;
@@ -74,8 +76,8 @@ export function ServerDashboard({ active }: { active: boolean }) {
       </div>
       {!snapshot ? <p role="status" className="monitor-empty">{t("Loading registered servers…")}</p> : <>
         <div className="monitor-host-columns" aria-hidden="true"><span>{t("Server")}</span><span>CPU</span><span>{t("Memory")}</span><span><HardDrive size={12} />{t("Most-used local disk")}</span><span>{t("Network")}</span><span>{t("Sampled")}</span></div>
-        {(["online", "offline"] as const).map(group => <section key={group} className="monitor-host-group" aria-label={t(group === "online" ? "Production servers" : "Research and compute servers")}>
-          <h3><span>{t(group === "online" ? "Production servers" : "Research and compute servers")}</span><small>{rows.filter(row => row.group === group && row.active).length} {t("registered")}</small></h3>
+        {Object.entries(groups).filter(([group]) => group !== "local" || rows.some(row => row.group === "local")).map(([group, label]) => <section key={group} className="monitor-host-group" aria-label={t(label)}>
+          <h3><span>{t(label)}</span><small>{rows.filter(row => row.group === group && row.active).length} {t("registered")}</small></h3>
           {rows.filter(row => row.group === group && row.active).sort((a, b) => a.alias.localeCompare(b.alias, undefined, { numeric: true })).map(row => <HostRow key={row.alias} row={row} />)}
         </section>)}
         {rows.some(row => !row.active) ? <details className="monitor-disabled"><summary>{t("Disabled registrations")} · {rows.filter(row => !row.active).length}</summary>{rows.filter(row => !row.active).map(row => <HostRow key={row.alias} row={row} />)}</details> : null}

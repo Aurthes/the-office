@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { probeLocalMac } from "./local-mac";
 import type { PoolHost, ServerMetrics, ServerRow, ServerSnapshot } from "./types";
 
 const exec = promisify(execFile);
@@ -22,6 +23,11 @@ export function parseServerPool(text: string): PoolHost[] {
   return hosts;
 }
 
+export function monitoringHosts(text: string, platform: NodeJS.Platform = os.platform()): PoolHost[] {
+  const hosts = parseServerPool(text);
+  return platform === "darwin" ? [{ alias: "Local Mac", group: "local", active: true }, ...hosts] : hosts;
+}
+
 function metricsFromJson(stdout: string): ServerMetrics {
   const value = JSON.parse(stdout);
   if (!value || typeof value !== "object" || !Number.isInteger(value.cores) || value.cores < 1 || !Array.isArray(value.disks)) throw new Error("Invalid host metrics.");
@@ -35,6 +41,7 @@ function metricsFromJson(stdout: string): ServerMetrics {
 }
 
 export async function probeServer(host: PoolHost): Promise<ServerMetrics> {
+  if (host.group === "local") return probeLocalMac();
   const { stdout: effective } = await exec("ssh", ["-G", host.alias], { timeout: 1500, maxBuffer: 128_000 });
   const configuredPath = /^controlpath (.+)$/m.exec(effective)?.[1];
   const options = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=4", "-o", "ServerAliveInterval=2", "-o", "ServerAliveCountMax=1", "-o", "ControlMaster=auto", "-o", "ControlPersist=600"];
@@ -99,8 +106,12 @@ export function createServerStatusStore(probe: (host: PoolHost) => Promise<Serve
 const snapshot = createServerStatusStore();
 export async function getServerSnapshot(): Promise<ServerSnapshot> {
   const file = process.env.CLAW3D_SERVER_POOL_FILE?.trim();
-  if (!file) return { configured: false, refreshing: false, updatedAt: null, servers: [] };
-  const stat = await fs.stat(file);
-  if (stat.size > 80_000) throw new Error("Server registry is too large.");
-  return snapshot(parseServerPool(await fs.readFile(file, "utf8")));
+  let text = "";
+  if (file) {
+    const stat = await fs.stat(file);
+    if (stat.size > 80_000) throw new Error("Server registry is too large.");
+    text = await fs.readFile(file, "utf8");
+  }
+  const hosts = monitoringHosts(text);
+  return file || hosts.length ? snapshot(hosts) : { configured: false, refreshing: false, updatedAt: null, servers: [] };
 }

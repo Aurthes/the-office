@@ -1,5 +1,5 @@
 export type MonitorLink = { id: string; label: string; url: string; visual: "chart" | "servers" | "globe" };
-export type PoolHost = { alias: string; group: "online" | "offline"; active: boolean };
+export type PoolHost = { alias: string; group: "online" | "offline" | "local"; active: boolean };
 export type DiskMetric = { mount: string; total: number; used: number; percent: number };
 export type ServerMetrics = {
   cores: number; cpuPercent: number | null; load1: number | null;

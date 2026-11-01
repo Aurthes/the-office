@@ -71,7 +71,7 @@ export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: ()
             </button>)}
             <button type="button" className="monitor-tile monitor-server-tile" onClick={() => { setError(""); setView("servers"); }} aria-label={t("Open server fleet status")}>
               <div className="monitor-tile-graphic" data-visual="servers"><div className="monitor-window-bar"><i /><i /><i /><span>{t("INFRASTRUCTURE")}</span><small>{t("Illustration")}</small></div><MonitorIllustration visual="servers" /></div>
-              <div className="monitor-tile-caption"><div><h3>{t("Server fleet")}</h3><p>{t("CPU · Memory · Disks · Production & research")}</p></div><ArrowUpRight size={21} /></div>
+              <div className="monitor-tile-caption"><div><h3>{t("Server fleet")}</h3><p>{t("CPU · Memory · Disks · Local & remote hosts")}</p></div><ArrowUpRight size={21} /></div>
             </button>
             <button className="monitor-add-tile" type="button" onClick={configure} disabled={loading}><Plus size={22} /><span>{t("Add a monitor")}</span><small>{t("Connect another dashboard")}</small></button>
           </div>
@@ -80,7 +80,7 @@ export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: ()
         <div hidden={view !== "servers"}><ServerDashboard active={open && view === "servers"} /></div>
         {view === "configure" ? <form className="monitor-config" onSubmit={event => { event.preventDefault(); void save(); }}>
           <div className="monitor-intro"><div><h2>{t("Your dashboard shortcuts")}</h2><p>{t("Names, links, and illustrations are shared across your devices.")}</p></div></div>
-          <div className="monitor-config-system"><Monitor size={18} /><div><b>{t("Server fleet")}</b><p>{t("Built-in · Uses the registered server pool")}</p></div></div>
+          <div className="monitor-config-system"><Monitor size={18} /><div><b>{t("Server fleet")}</b><p>{t("Built-in · Local machine and registered servers")}</p></div></div>
           {draft.map((link, index) => <fieldset className="monitor-config-link" key={link.id} disabled={saving}>
             <label>{t("Monitor name")}<input required maxLength={60} value={link.label} onChange={event => edit(index, { label: event.target.value })} /></label>
             <label className="monitor-config-url">{t("Dashboard URL")}<input required type="text" inputMode="url" maxLength={4096} value={link.url} placeholder="https://… or /dashboard/" onChange={event => edit(index, { url: event.target.value })} /></label>

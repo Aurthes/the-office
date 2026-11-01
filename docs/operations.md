@@ -87,6 +87,15 @@ failures retain clearly marked stale samples. Disks show local mounted filesyste
 only, led by the fullest partition. Credentials, registry notes, IP addresses,
 and SSH configuration are never returned by the monitoring APIs.
 
+On macOS, the fleet also includes **Local Mac** in its own local-machine group,
+even without a remote registry. It reads host CPU counters and bounded native
+`vm_stat`, `netstat`, and local-only `df` output directly, with the same shared
+30-second refresh. No SSH service or extra pool registration is needed locally.
+Memory usage excludes free, inactive, and speculative pages. Network rates use
+physical `en*` link-layer counters, excluding duplicate IP, loopback, bridge, and
+VPN rows. Missing measurements stay unknown. The local entry does not change
+the machine's eligibility for remote build or deployment scheduling.
+
 ## Remote access
 
 Keep Studio and the Codex gateway on loopback. Put the authenticated web-access
