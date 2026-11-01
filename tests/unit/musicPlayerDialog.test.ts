@@ -126,6 +126,16 @@ it("skips a newly restricted track instead of breaking a mix", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Play mix" }));
   await waitFor(() => expect(document.querySelector("audio")).toHaveAttribute("src", "https://audio.music.126.net/next.mp3"));
 });
+it("requires instrumental verification for scene playback and skips a vocal track", async () => {
+  const normal = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (input: string) => {
+    if (input.includes("action=track")) expect(input).toContain("instrumental=1");
+    return input.includes("action=track&id=song-1") ? { ...reply({ error: "Not instrumental", code: "NOT_INSTRUMENTAL" }, false), status: 403 } : normal(input);
+  });
+  render(createElement(MusicPlayerDialog, { autoPlay: true, open: false, onOpen: vi.fn(), onClose: vi.fn() }));
+  await waitFor(() => expect(document.querySelector("audio")).toHaveAttribute("src", "https://audio.music.126.net/next.mp3"));
+  expect(screen.getByRole("region", { name: "Background music" })).toHaveTextContent("Track Two");
+});
 it("does not restart playback if the user pauses during a pending next-track request", async () => {
   let finish: ((value: unknown) => void) | undefined;
   const normal = fetchMock.getMockImplementation()!;

@@ -55,10 +55,10 @@ it("builds a scene mix from fitting playlists, removes unavailable tracks and ke
   f.fetchImpl.mockImplementation(async (url, init) => {
     const biz = JSON.parse(new URLSearchParams(init.body as URLSearchParams).get("bizContent")!);
     if (url.includes("/search/playlist/")) {
-      expect(biz.keyword).toBe("太空 ambient");
-      return response({ records: [{ id: "metal", name: "Space metal", tags: ["金属"] }, { id: "ambient", name: "Space ambient" }, { id: "score", name: "Space soundtrack" }] });
+      expect(biz.keyword).toBe("太空 纯音乐");
+      return response({ records: [{ id: "metal", name: "Space instrumental metal", tags: ["金属"] }, { id: "ambiguous", name: "Space soundtrack" }, { id: "ambient", name: "Space instrumental ambient" }, { id: "score", name: "No vocals space soundtrack" }] });
     }
-    expect(url).toContain("/playlist/song/list/get/v3"); expect(biz.playlistId).not.toBe("metal");
+    expect(url).toContain("/playlist/song/list/get/v3"); expect(["metal", "ambiguous"]).not.toContain(biz.playlistId);
     return response([{ id: "vip", name: "Playable VIP", visible: true, playFlag: true, vipFlag: true, freeTrailFlag: true }, { id: "blocked", name: "Blocked", visible: false, playFlag: false }]);
   });
   const result = await f.music.recommendations({ scene: "deep-space" });
@@ -77,11 +77,22 @@ it("falls back to space ambient when a scene's matching playlists have no playab
   const f = setup();
   f.fetchImpl.mockImplementation(async (url, init) => {
     const biz = JSON.parse(new URLSearchParams(init.body as URLSearchParams).get("bizContent")!);
-    if (url.includes("/search/playlist/")) return response({ records: [{ id: biz.keyword === "desert ambient" ? "empty" : "space", name: biz.keyword }] });
+    if (url.includes("/search/playlist/")) return response({ records: [{ id: biz.keyword === "desert ambient instrumental" ? "empty" : "space", name: biz.keyword }] });
     return response(biz.playlistId === "space" ? [{ id: "song", name: "Ambient", playFlag: true }] : []);
   });
   expect((await f.music.recommendations({ scene: "amber-nebula" })).songs).toMatchObject([{ name: "Ambient", playable: true }]);
   expect(f.fetchImpl).toHaveBeenCalledTimes(4);
+});
+it.each([{ pureMusic: true }, { pureMusic: false, noLyric: true }])("allows explicit instrumental metadata %j before requesting audio", async metadata => {
+  const f = setup();
+  f.fetchImpl.mockResolvedValueOnce(response(metadata)).mockResolvedValueOnce(response({ playUrl: "https://audio.music.126.net/song.mp3" }));
+  expect(await f.music.track("song", { instrumentalOnly: true })).toMatchObject({ url: "https://audio.music.126.net/song.mp3" });
+  expect(f.fetchImpl.mock.calls.map(([url]) => new URL(url).pathname)).toEqual(["/openapi/music/basic/song/lyric/get/v2", "/openapi/music/basic/song/detail/get/v2"]);
+});
+it.each([{ pureMusic: false, noLyric: false }, { lyric: "" }, {}])("skips vocals or unconfirmed instrumental metadata %j without requesting audio", async metadata => {
+  const f = setup(); f.fetchImpl.mockResolvedValueOnce(response(metadata));
+  await expect(f.music.track("song", { instrumentalOnly: true })).rejects.toMatchObject({ status: 403, code: "NOT_INSTRUMENTAL" });
+  expect(f.fetchImpl).toHaveBeenCalledOnce();
 });
 it("reports missing audio and authorization failures without exposing tokens", async () => {
   const f = setup();

@@ -6,8 +6,8 @@ const crypto = require("node:crypto");
 const QRCode = require("qrcode");
 
 const SCENE_QUERIES = {
-  "deep-space": "太空 ambient", "blue-nebula": "冰川 氛围 纯音乐", "amber-nebula": "desert ambient",
-  "jade-nebula": "海洋 氛围 纯音乐", "violet-rift": "科幻 游戏 原声",
+  "deep-space": "太空 纯音乐", "blue-nebula": "冰川 氛围 纯音乐", "amber-nebula": "desert ambient instrumental",
+  "jade-nebula": "海洋 氛围 纯音乐", "violet-rift": "科幻 游戏 纯音乐",
 };
 const songView = song => ({ id: song.id, name: song.name, artists: (song.artists?.length ? song.artists : song.fullArtists || []).map(artist => artist.name).filter(Boolean).join(" / "), album: song.album?.name || song.albumName || "", playable: song.visible !== false && song.playFlag !== false });
 
@@ -108,7 +108,11 @@ function createNeteaseMusic({ directory = path.join(os.homedir(), ".config/the-o
     }
     const keyword = Object.hasOwn(SCENE_QUERIES, scene) ? SCENE_QUERIES[scene] : SCENE_QUERIES["deep-space"];
     const found = await call("/openapi/music/basic/search/playlist/get/v2", { keyword, limit: 10, offset: 0 });
-    const playlists = (found?.records || []).filter(list => !/摇滚|金属|说唱|流行|舞曲|劲爆|\b(metal|rock|rap|dance|pop|vocal|DJ)\b|hip.?hop|k.?pop/i.test([list.name, ...(list.tags || [])].join(" ")));
+    const playlists = (found?.records || []).filter(list => {
+      const description = [list.name, ...(list.tags || [])].join(" ");
+      return /纯音|无人声|器乐|instrumental|no[-\s]+vocals?/i.test(description)
+        && !/摇滚|金属|说唱|流行|舞曲|劲爆|\b(metal|rock|rap|dance|pop|vocal|DJ)\b|hip.?hop|k.?pop/i.test(description.replace(/no[-\s]+vocals?/gi, ""));
+    });
     const start = (Math.trunc(Math.max(0, Math.min(10000, Number(batch) || 0))) * 2) % (playlists.length || 1);
     const chosen = playlists.length ? [playlists[start], playlists[(start + 1) % playlists.length]].filter((list, index, all) => all.findIndex(item => item.id === list.id) === index) : [];
     const lists = await Promise.all(chosen.map(async list => {
@@ -119,9 +123,14 @@ function createNeteaseMusic({ directory = path.join(os.homedir(), ".config/the-o
     if (!songs.length && keyword !== SCENE_QUERIES["deep-space"]) return recommendations({ scene: "deep-space", batch });
     return { songs, playlists: chosen.map(list => ({ id: list.id, name: list.name })) };
   }
-  async function track(songId) {
+  async function track(songId, { instrumentalOnly = false } = {}) {
     if (typeof songId !== "string" || !songId || songId.length > 128) throw musicError("Choose a song to play.", 400);
     const { app, auth } = await session();
+    if (instrumentalOnly) {
+      const lyric = await request(app, "/openapi/music/basic/song/lyric/get/v2", { songId }, auth.device, auth.accessToken);
+      // Missing lyrics are not proof. NetEase explicitly marks instrumentals with these booleans.
+      if (lyric?.pureMusic !== true && lyric?.noLyric !== true) throw musicError("This track is not marked as instrumental.", 403, "NOT_INSTRUMENTAL");
+    }
     // Personal apps receive audio through song detail; the standalone playurl API may be unavailable.
     const data = await request(app, "/openapi/music/basic/song/detail/get/v2", { songId, withUrl: true, bitrate: 128 }, auth.device, auth.accessToken);
     let url;

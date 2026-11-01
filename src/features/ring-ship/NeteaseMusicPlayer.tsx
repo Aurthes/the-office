@@ -121,12 +121,12 @@ export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget,
       for (let pass = 0; pass < 2; pass++) {
         for (const song of current.songs.slice(start).filter(item => item.playable && !failedSongs.current.has(item.id))) {
           try {
-            const result = await request<Track>(API + "?action=track&id=" + encodeURIComponent(song.id), controller.signal);
+            const result = await request<Track>(API + "?action=track&id=" + encodeURIComponent(song.id) + (current.source === "scene" ? "&instrumental=1" : ""), controller.signal);
             if (controller.signal.aborted || !wantsPlayback.current) return;
             switchingTrack.current = true; queue.current = current;
             setPlayHint(false); setSelected(song); setTrack(result); return;
           } catch (cause) {
-            if ((cause as { code?: string }).code !== "TRACK_UNAVAILABLE") throw cause;
+            if (!["TRACK_UNAVAILABLE", "NOT_INSTRUMENTAL"].includes((cause as { code?: string }).code || "")) throw cause;
             failedSongs.current.add(song.id);
           }
         }
@@ -189,7 +189,7 @@ export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget,
             <button type="button" className="music-action" disabled={!songs?.some(song => song.playable) || loadingTrack} onClick={() => { const first = songs?.find(song => song.playable); if (first) play(first); }}><Play size={15} />{t("Play mix")}</button>
             {source !== "search" ? <button type="button" className="music-icon-button" aria-label={t("Refresh recommendations")} onClick={() => { setSongs(null); setError(""); setBatch(value => value + 1); }}><RotateCw size={16} /></button> : null}
           </div>
-          {source === "scene" ? <><strong>{t("Soundtrack for {scene}", { scene: t(sceneName) })}</strong><p>{t("Ambient · Film and game scores · Continuous playback")}</p></> : null}
+          {source === "scene" ? <><strong>{t("Soundtrack for {scene}", { scene: t(sceneName) })}</strong><p>{t("Instrumental · Ambient soundscapes · Continuous playback")}</p></> : null}
           {playlists.length ? <p>{t("From playlists: {names}", { names: playlists.map(list => list.name).join(" · ") })}</p> : null}
         </div>
         <form className="music-search" onSubmit={search}>
