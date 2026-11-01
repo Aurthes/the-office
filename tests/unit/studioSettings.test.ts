@@ -13,6 +13,13 @@ import {
 } from "@/lib/studio/settings";
 
 describe("studio settings normalization", () => {
+  it("loads existing settings while discarding retired voice reply preferences", () => {
+    const settings = defaultStudioSettings();
+    const expected = normalizeStudioSettings(settings);
+    expect(normalizeStudioSettings({ ...settings, voiceReplies: {
+      "ws://localhost:18789": { enabled: true, provider: "elevenlabs", voiceId: "old-voice", speed: 1.2 },
+    } })).toEqual(expected);
+  });
   it("returns defaults for empty input", () => {
     const normalized = normalizeStudioSettings(null);
     expect(normalized.version).toBe(1);

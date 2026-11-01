@@ -11,7 +11,6 @@ import type {
   StudioSettingsPatch,
   StudioStandupPreferencePatch,
   StudioTaskBoardPreferencePatch,
-  StudioVoiceRepliesPreferencePatch,
 } from "@/lib/studio/settings";
 
 export type StudioSettingsResponse = {
@@ -30,7 +29,6 @@ type FocusedPatch = Record<string, Partial<StudioFocusedPreference> | null>;
 type AvatarsPatch = Record<string, Record<string, AgentAvatarProfile | null> | null>;
 type DeskAssignmentsPatch = Record<string, Record<string, string | null> | null>;
 type AnalyticsPatch = Record<string, StudioAnalyticsPreferencePatch | null>;
-type VoiceRepliesPatch = Record<string, StudioVoiceRepliesPreferencePatch | null>;
 type OfficePatch = Record<string, StudioOfficePreferencePatch | null>;
 type StandupPatch = Record<string, StudioStandupPreferencePatch | null>;
 type TaskBoardPatch = Record<string, StudioTaskBoardPreferencePatch | null>;
@@ -124,30 +122,6 @@ const mergeAnalyticsPatch = (
       ...value,
       ...(value.budgets ? { budgets: { ...value.budgets } } : {}),
     };
-  }
-  return merged;
-};
-
-const mergeVoiceRepliesPatch = (
-  current: VoiceRepliesPatch | undefined,
-  next: VoiceRepliesPatch | undefined
-): VoiceRepliesPatch | undefined => {
-  if (!current && !next) return undefined;
-  const merged: VoiceRepliesPatch = { ...(current ?? {}) };
-  for (const [gatewayKey, value] of Object.entries(next ?? {})) {
-    if (value === null) {
-      merged[gatewayKey] = null;
-      continue;
-    }
-    const existing = merged[gatewayKey];
-    if (existing && existing !== null) {
-      merged[gatewayKey] = {
-        ...existing,
-        ...value,
-      };
-      continue;
-    }
-    merged[gatewayKey] = { ...value };
   }
   return merged;
 };
@@ -350,7 +324,6 @@ const mergeStudioPatch = (
       ...(next.avatars ? { avatars: { ...next.avatars } } : {}),
       ...(next.deskAssignments ? { deskAssignments: { ...next.deskAssignments } } : {}),
       ...(next.analytics ? { analytics: { ...next.analytics } } : {}),
-      ...(next.voiceReplies ? { voiceReplies: { ...next.voiceReplies } } : {}),
       ...(next.office ? { office: { ...next.office } } : {}),
       ...(next.standup ? { standup: { ...next.standup } } : {}),
       ...(next.taskBoard ? { taskBoard: { ...next.taskBoard } } : {}),
@@ -364,7 +337,6 @@ const mergeStudioPatch = (
     next.deskAssignments
   );
   const analytics = mergeAnalyticsPatch(current.analytics, next.analytics);
-  const voiceReplies = mergeVoiceRepliesPatch(current.voiceReplies, next.voiceReplies);
   const office = mergeOfficePatch(current.office, next.office);
   const standup = mergeStandupPatch(current.standup, next.standup);
   const taskBoard = mergeTaskBoardPatch(current.taskBoard, next.taskBoard);
@@ -385,7 +357,6 @@ const mergeStudioPatch = (
     ...(avatars ? { avatars } : {}),
     ...(deskAssignments ? { deskAssignments } : {}),
     ...(analytics ? { analytics } : {}),
-    ...(voiceReplies ? { voiceReplies } : {}),
     ...(office ? { office } : {}),
     ...(standup ? { standup } : {}),
     ...(taskBoard ? { taskBoard } : {}),

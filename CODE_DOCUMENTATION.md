@@ -235,8 +235,6 @@ Current `src/app/api` routes:
 - `office/github/route.ts`: GitHub-related office flow helpers.
 - `office/browser-preview/route.ts`: browser preview helpers for office experiences.
 - `office/presence/route.ts`: office presence/state helpers.
-- `office/voice/transcribe/route.ts`: voice transcription.
-- `office/voice/reply/route.ts`: voice reply generation.
 - `office/standup/config/route.ts`: standup config persistence.
 - `office/standup/meeting/route.ts`: standup meeting state helpers.
 - `office/standup/run/route.ts`: standup run execution.

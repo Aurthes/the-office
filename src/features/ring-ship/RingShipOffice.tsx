@@ -487,16 +487,14 @@ export function RingShipOffice(props: Props) {
     </div>:null}
     {settingsOpen ? <div className="absolute inset-0 z-40 flex justify-end bg-black/40 p-3 backdrop-blur-sm" onKeyDown={event => { if (event.key === "Escape") setSettingsOpen(false); }}>
       <div className="w-full max-w-sm overflow-auto rounded-xl border border-white/15 bg-[#071522] shadow-2xl">
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-xs"><span>{t("Ship and voice settings")}</span><button className={button} aria-label={t("Close studio settings")} onClick={() => setSettingsOpen(false)}><X size={14} /></button></div>
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-xs"><span>{t("Settings")}</span><button className={button} aria-label={t("Close studio settings")} onClick={() => setSettingsOpen(false)}><X size={14} /></button></div>
         <SettingsPanel {...props} officeTitle={officeTitle} officeTitleLoaded={!!props.officeTitleLoaded} onOfficeTitleChange={value => props.onOfficeTitleChange?.(value)}
           remoteOfficeEnabled={!!props.remoteOfficeEnabled} remoteOfficeSourceKind={props.remoteOfficeSourceKind || "presence_endpoint"} remoteOfficeLabel={props.remoteOfficeLabel || "Remote Office"}
           remoteOfficePresenceUrl={props.remoteOfficePresenceUrl || ""} remoteOfficeGatewayUrl={props.remoteOfficeGatewayUrl || ""} remoteOfficeTokenConfigured={!!props.remoteOfficeTokenConfigured}
           onRemoteOfficeEnabledChange={v => props.onRemoteOfficeEnabledChange?.(v)} onRemoteOfficeSourceKindChange={v => props.onRemoteOfficeSourceKindChange?.(v)}
           onRemoteOfficeLabelChange={v => props.onRemoteOfficeLabelChange?.(v)} onRemoteOfficePresenceUrlChange={v => props.onRemoteOfficePresenceUrlChange?.(v)}
           onRemoteOfficeGatewayUrlChange={v => props.onRemoteOfficeGatewayUrlChange?.(v)} onRemoteOfficeTokenChange={v => props.onRemoteOfficeTokenChange?.(v)}
-          voiceRepliesEnabled={!!props.voiceRepliesEnabled} voiceRepliesVoiceId={props.voiceRepliesVoiceId || null} voiceRepliesSpeed={props.voiceRepliesSpeed || 1} voiceRepliesLoaded={!!props.voiceRepliesLoaded}
-          onVoiceRepliesToggle={v => props.onVoiceRepliesToggle?.(v)} onVoiceRepliesVoiceChange={v => props.onVoiceRepliesVoiceChange?.(v)}
-          onVoiceRepliesSpeedChange={v => props.onVoiceRepliesSpeedChange?.(v)} onVoiceRepliesPreview={(id, name) => props.onVoiceRepliesPreview?.(id, name)} />
+        />
       </div>
     </div> : null}
   </div>;
