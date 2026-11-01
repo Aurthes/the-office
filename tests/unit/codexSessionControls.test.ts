@@ -12,6 +12,13 @@ function setup(active = false) {
   return { client, controls: new CodexSessionControls(client) };
 }
 describe("shared App session controls", () => {
+  it("defers scheduled input rather than steering an active user turn, and can send that occurrence later", async () => {
+    const { client, controls } = setup(true);
+    expect(await controls.send("id", "scheduled report", "schedule-one", [], { onlyIfIdle: true })).toEqual({ status: "busy" });
+    expect(client.call.mock.calls.some(([method]) => method === "turn/steer" || method === "turn/start")).toBe(false);
+    client.call.mockImplementation(async (method: string) => method === "thread/turns/list" ? { data: [] } : method === "turn/start" ? { turn: { id: "scheduled-turn" } } : {});
+    expect(await controls.send("id", "scheduled report", "schedule-one", [], { onlyIfIdle: true })).toMatchObject({ status: "started", turnId: "scheduled-turn" });
+  });
   it("continues an interrupted task in the same thread and deduplicates a repeated click", async () => {
     const { client, controls } = setup();
     client.call.mockImplementation(async (method: string) => method === "thread/turns/list" ? { data: [{ id: "stopped", status: "interrupted" }] } : method === "turn/start" ? { turn: { id: "continued" } } : {});

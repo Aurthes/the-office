@@ -5,6 +5,20 @@ import { useUiText } from "@/lib/i18n/ui-language";
 import type { ShipCabin, ShipLayout } from "./layout";
 import { monitorScreenPose } from "./monitor-room-geometry";
 import { MonitorIllustration } from "./MonitorIllustration";
+import { CalendarClock } from "lucide-react";
+import { cabinAngle, shipPoint } from "./layout";
+
+export function TaskRoomScreen({ layout, cabin, onOpen }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void }) {
+  const t = useUiText(), ring = layout.rings[cabin.ring];
+  // Reuse the small display on the right-hand command desk.
+  const angle = cabinAngle(layout, cabin.slot) + 2.65 / ring.radius, point = shipPoint(ring.radius + .26, angle);
+  return <Html transform position={[point.x, 1.65, point.z]} rotation={[0, angle, 0]} distanceFactor={4} zIndexRange={[12, 11]}>
+    <button type="button" aria-label={t("Open scheduled tasks")} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onOpen(); }}
+      className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded border-2 border-[#e3bf86]/80 bg-[#172c36] text-[#f0d5a7] shadow-[0_0_20px_#d3ac6e40] hover:bg-[#293c44] focus-visible:outline-4 focus-visible:outline-amber-200" style={{ width: 85, height: 65 }}>
+      <CalendarClock size={23} strokeWidth={1.4} /><span className="text-[9px]">{t("Scheduled tasks")}</span>
+    </button>
+  </Html>;
+}
 
 export function MonitorRoomScreen({ layout, cabin, onOpen }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void }) {
   const t = useUiText(), screen = monitorScreenPose(layout, cabin);

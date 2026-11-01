@@ -14,12 +14,13 @@ const { loadSessionHistoryPage } = require("./codex-session-history");
 const { createOfficeDictation, suggestNextMessage } = require("./office-model-services");
 const { readAiCenter } = require("./ai-center");
 const { questionReplyMessage } = require("./codex-session-questions");
+const { OfficeSchedules } = require("./office-schedules");
 
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
 const directory = officeEnvironment(path.resolve(process.env.CLAW3D_OFFICE_DATA_DIR || path.join(process.env.CLAW3D_DATA_DIR || path.join(os.homedir(), ".local/share/claw3d"), "office-runtime"))).home;
-const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login;
-const features = { dictation: Boolean(process.env.OPENAI_API_KEY), dictationHTTP: true, voice: true, prediction: Boolean(process.env.OPENAI_API_KEY), terminal: true, accountVersion: 0 };
+const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules;
+const features = { dictation: Boolean(process.env.OPENAI_API_KEY), dictationHTTP: true, voice: true, prediction: Boolean(process.env.OPENAI_API_KEY), terminal: true, schedules: true, accountVersion: 0 };
 const broadcast = (event, payload) => { const frame = JSON.stringify({ type: "event", event, seq: seq++, payload }); for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame); };
 function changed() { if (!rosterTimer) rosterTimer = setTimeout(() => { rosterTimer = null; broadcast("roster.updated", { ts: Date.now() }); }, 150); }
 const native = new CodexOfficeClient({ home: process.env.CLAW3D_OFFICE_CODEX_HOME || path.join(directory, "codex"), onFrame(frame) {
@@ -29,6 +30,7 @@ const native = new CodexOfficeClient({ home: process.env.CLAW3D_OFFICE_CODEX_HOM
   const mapped = store?.handle(frame); if (!mapped) return;
   voice?.handle(mapped);
   controls?.handle(mapped); if (mapped.params?.threadId) stream?.changed(mapped.params.threadId);
+  schedules?.handle(mapped);
   if (mapped.id !== undefined || ["serverRequest/resolved", "turn/completed"].includes(mapped.method)) changed();
 } });
 store = new CodexOfficeStore(directory, native, changed, id => Boolean(voice?.active?.threadId === id || controls?.state(id).activeTurnId || workspace?.snapshot(id)?.running || workspace?.starts.has(id)));
@@ -42,9 +44,24 @@ const agents = () => store.list().map(row => ({ ...row, role: row.project, ident
 const key = id => `agent:${id}:main`;
 const history = (id, cursor) => loadSessionHistoryPage(store.call.bind(store), store.get(id), cursor);
 async function account() { const status = await native.call("account/read", { refreshToken: false }); return { loggedIn: Boolean(status.account) || status.requiresOpenaiAuth === false, email: status.account?.email || null, requiresAuth: status.requiresOpenaiAuth !== false, login }; }
+schedules = new OfficeSchedules(directory, {
+  getSession: id => store.get(id), changed: () => broadcast("schedules.updated", {}),
+  canSend: async id => {
+    if (!native.ready || store.isBusy(id) || store.starting.has(id) || store.pendingQuestions(id).length) return false;
+    await controls.attach(id); await controls.refreshTurn(id);
+    if (store.isBusy(id) || controls.snapshot(id).approvalCount || controls.questions(id).some(q => !q.submitted)) return false;
+    return (await account()).loggedIn;
+  },
+  send: (id, message, requestId) => controls.send(id, message, requestId, [], { onlyIfIdle: true }),
+});
 const methods = {
   "office.account": account,
   "office.usage": () => readAiCenter(native),
+  "schedule.list": () => ({ ...schedules.list(), sessions: store.list().map(({ id, name, project }) => ({ id, name, project })) }),
+  "schedule.create": p => store.once(p, () => ({ id: schedules.create(p).task.id })),
+  "schedule.update": p => store.once(p, () => ({ id: schedules.update(p).task.id })),
+  "schedule.delete": p => store.once(p, () => schedules.remove(p)),
+  "schedule.run": p => store.once(p, () => schedules.runNow(p)),
   "office.login": async () => { if ((await account()).loggedIn) return { loggedIn: true }; if (login?.loginId) await native.call("account/login/cancel", { loginId: login.loginId }); login = await native.call("account/login/start", { type: "chatgptDeviceCode" }, 30000); return login; },
   "office.snapshot": async () => { const listed = agents(); return { defaultId: listed[0]?.id, mainKey: "main", agents: listed, projects: store.projects(), creationAvailable: native.ready }; },
   "agents.list": async () => methods["office.snapshot"](),
@@ -127,7 +144,7 @@ wss.on("connection", ws => {
         if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) throw new Error("Invalid gateway token");
         if (!native.ready) throw new Error("Office Codex is starting");
         connected = true; clients.add(ws);
-        result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "office-codex-1", connId: crypto.randomUUID() }, features: { methods: Object.keys(methods), events: ["tick", "session.stream", "session.terminal", "session.voice", "roster.updated", "project.updated", "office.account", "session.prediction"] }, snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: store.list()[0]?.id }, sessionDefaults: { mainKey: "main" } }, auth: { role: "operator", scopes: ["operator.read", "operator.write", "operator.approvals"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
+        result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "office-codex-1", connId: crypto.randomUUID() }, features: { methods: Object.keys(methods), events: ["tick", "session.stream", "session.terminal", "session.voice", "roster.updated", "project.updated", "office.account", "session.prediction", "schedules.updated"] }, snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: store.list()[0]?.id }, sessionDefaults: { mainKey: "main" } }, auth: { role: "operator", scopes: ["operator.read", "operator.write", "operator.approvals"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
       } else {
         if (!connected) throw new Error("Connect first");
         if (!Object.hasOwn(methods, frame.method)) throw new Error("This feature is not available in Office");
@@ -141,12 +158,13 @@ wss.on("connection", ws => {
 });
 const tick = setInterval(() => broadcast("tick", { ts: Date.now() }), 30000); tick.unref();
 async function close(code = 0) {
-  if (stopping) return; stopping = true; clearInterval(tick); clearTimeout(rosterTimer); dictate.close();
+  if (stopping) return; stopping = true; clearInterval(tick); clearTimeout(rosterTimer); dictate.close(); schedules.close();
   for (const ws of clients) { stream.disconnected(ws); ws.close(1001, "Office stopping"); }
   wss.close(); server.close(); await workspace.close(); await native.close(); process.exitCode = code;
 }
 for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => void close());
 native.initialize().then(() => server.listen(Number(process.env.CODEX_ADAPTER_PORT || 18790), "127.0.0.1", () => {
+  schedules.start();
   console.log(`[office-codex] Configuration discovered: ${native.profile.rules.filter(r => r.status === "shared").length} shared rule files, ${native.profile.defaults.length} inherited defaults`);
   for (const warning of native.profile.warnings) console.warn(`[office-codex] ${warning}`);
   console.log("[office-codex] Independent stdio runtime ready");
