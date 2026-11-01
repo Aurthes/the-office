@@ -34,6 +34,7 @@ import { NavigationConsole, NavigationOverlay, navigationConsolePose, useStarNav
 import { WarpJourney } from "./WarpJourney";
 import { MonitorDashboard } from "./MonitorDashboard";
 import { SpaceActivity } from "./SpaceActivity";
+import { SpaceTrafficNotice } from "./SpaceTrafficNotice";
 import { emptySpaceMotion } from "./space-activity";
 import { ListeningBar } from "./ListeningBar";
 import { MusicPlayerDialog } from "./MusicPlayerDialog";
@@ -103,7 +104,9 @@ export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, 
   const previousNavigationView = useRef<{ target: THREE.Vector3; position: THREE.Vector3; zoom: number } | null>(null);
   const followed = useRef<{ id: string; x: number; z: number } | null>(null);
   const move = useRef<{ target: THREE.Vector3; position: THREE.Vector3; zoom: number } | null>(null);
+  const followSpace = useRef(false);
   useEffect(() => {
+    followSpace.current = !!objectFocus?.space;
     if (busy) { move.current = null; return; }
     const controls = controlsRef.current;
     if (navigationFocus && controls) {
@@ -140,12 +143,13 @@ export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, 
   }, [layout, focus, size.width, size.height, camera, gl, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy, podFocus, navigationFocus, objectFocus]);
   useEffect(() => {
     const controls = controlsRef.current;
-    const stop = () => { move.current = null; };
+    const stop = () => { move.current = null; followSpace.current = false; };
     controls?.addEventListener("start", stop);
     return () => controls?.removeEventListener("start", stop);
   }, [controlsRef]);
   useFrame((state, delta) => {
     if (busy) return;
+    if (objectFocus?.space && followSpace.current && controlsRef.current) move.current = shipObjectCameraPose(objectFocus, size.width, size.height, state.camera.position, controlsRef.current.target);
     const camera = state.camera;
     const person = followed.current && lookupRef.current.get(followed.current.id);
     if (person && followed.current) {
@@ -392,9 +396,9 @@ export function RingShipOffice(props: Props) {
   const cameraFocus = useMemo(() => ({ id: validFocus, request: focus.request + officeCenterSignal }), [validFocus, focus.request, officeCenterSignal]);
   const selected = currentLayout.cabins.find(c => c.id === validFocus || c.projectId === validFocus);
   const objectEnabled = !busy && !navigationOpen && !props.activeChatAgentId && !returnFlight && !monitorOpen && !musicOpen && !settingsOpen && !aiOpen;
-  const objectFocus = objectEnabled && !shipView && inspectedObject?.deck === visibleDeck && currentLayout.cabins.some(c => c.id === inspectedObject.cabinId) ? inspectedObject : null;
+  const objectFocus = objectEnabled && inspectedObject && (inspectedObject.space ? inspectedObject.space.seed === system.seed : !shipView && inspectedObject.deck === visibleDeck && currentLayout.cabins.some(c => c.id === inspectedObject.cabinId)) ? inspectedObject : null;
   const inspectObject = useCallback((object: ShipObject) => {
-    setInspectedObject(object); setDeck(object.deck); setWhole(false); setLiftOpen(false); setFleetOpen(false);
+    setInspectedObject(object); if (!object.space) setDeck(object.deck); setWhole(false); setLiftOpen(false); setFleetOpen(false);
   }, []);
   const reserveCount = layout.cabins.filter(c => c.kind === "reserve").length;
   const travel = useCallback((destination: DeckIndex, id = "") => {
@@ -436,7 +440,7 @@ export function RingShipOffice(props: Props) {
     <Canvas orthographic dpr={[0.85, 1.5]} camera={{ position: [25, 40, 36], zoom: 12, near: 0.1, far: 5000 }} shadows
       gl={{ antialias: true, powerPreference: "high-performance" }} onPointerMissed={() => { setLiftOpen(false); closeObject(); }} onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.95; gl.domElement.dataset.shipReady = "true"; }}>
       <GalaxyBackdrop system={system} motion={activityEnabled ? spaceMotion : undefined} />
-      {activityEnabled ? <SpaceActivity radius={layout.radius} seed={system.seed} paused={navigationOpen || busy} motion={spaceMotion} caption={spaceCaption} /> : null}
+      {activityEnabled ? <SpaceActivity radius={layout.radius} seed={system.seed} paused={navigationOpen || busy} motion={spaceMotion} caption={spaceCaption} enabled={objectEnabled} selected={objectFocus} onSelect={inspectObject} onExpire={closeObject} /> : null}
       <Lighting radius={layout.radius} dimmed={navigationOpen && navigation.phase !== "warp"} />
       <ShipHull layout={layout} deck={visibleDeck} whole={shipView} busy={busy} />
       {decks.map((value, index) => <group key={index} position={[0, index * DECK_STEP, 0]} visible={shipView || busy || index === visibleDeck}>
@@ -462,6 +466,7 @@ export function RingShipOffice(props: Props) {
       <LiftJourney trip={trip} layout={layout} controlsRef={controlsRef} overlayRef={overlayRef} onArrive={arrive} onComplete={complete} />
     </Canvas>
     {objectFocus ? <ShipObjectCard object={objectFocus} customRoom={currentLayout.cabins.some(c => c.id === objectFocus.cabinId && !!c.projectId && c.projectId !== SHARED_PROJECT_ID)} onClose={closeObject} /> : null}
+    {activityEnabled ? <SpaceTrafficNotice key={system.id} motion={spaceMotion} seed={system.seed} paused={!objectEnabled} /> : null}
     <fieldset className="contents" disabled={busy}>
     <div className="ship-heading pointer-events-none absolute left-1/2 top-5 z-10 -translate-x-1/2 text-center">
       <div className="truncate text-xs font-semibold uppercase tracking-[0.28em] text-[#e3c894]">{officeTitle}</div>

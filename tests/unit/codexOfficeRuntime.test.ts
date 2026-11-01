@@ -28,6 +28,23 @@ async function session(f: ReturnType<typeof fixture>) {
   return (await f.store.createSession({ name: "Own chat", projectId: project.id, requestId: "session" })).threadId;
 }
 describe("independent Office runtime", () => {
+  it("persists an unassigned agent, scopes its turns and terminal roots to its chosen folder, and does not create a project", async () => {
+    const f = fixture();
+    const input = { name: "Open Space agent", projectId: null, workspace: f.workspace, requestId: "open-space" };
+    const { threadId } = await f.store.createSession(input);
+    expect(await f.store.createSession(input)).toEqual({ threadId });
+    const store = new CodexOfficeStore(f.directory, f.client);
+    expect(store.projects()).toEqual([]);
+    expect(store.list()[0]).toMatchObject({ id: threadId, projectId: null, project: "Open Workspace", workspace: realpathSync(f.workspace) });
+    expect(store.sessionFolders(store.get(threadId))).toEqual([realpathSync(f.workspace)]);
+    expect(f.client.call).not.toHaveBeenCalled();
+    await store.call("turn/start", { threadId, input: [{ type: "text", text: "hello" }] });
+    expect(f.client.call).toHaveBeenLastCalledWith("turn/start", expect.objectContaining({ cwd: realpathSync(f.workspace), sandboxPolicy: expect.objectContaining({ writableRoots: [realpathSync(f.workspace)] }) }));
+    const context = f.client.call.mock.calls.find(([method]) => method === "thread/inject_items");
+    expect(JSON.stringify(context)).toContain('Open Workspace');
+    expect(() => store.createSession({ ...input, requestId: "invalid-project", projectId: "missing" })).toThrow("Choose an Office project");
+    expect(() => store.createSession({ ...input, requestId: "invalid-folder", workspace: path.join(f.root, "missing") })).toThrow("existing absolute");
+  });
   it("isolates state and strips inherited App connection overrides without changing the parent environment", () => {
     const f = fixture(), foreign = path.join(f.root, "native"); mkdirSync(foreign); writeFileSync(path.join(foreign, "sentinel"), "unchanged");
     const environment = { PATH: "/bin", CODEX_HOME: foreign, CODEX_SQLITE_HOME: foreign, CODEX_APP_SERVER_WS_URL: "ws://old", CODEX_ORIGINATOR_OVERRIDE: "native-app", CLAW3D_CODEX_CONTROL_SOCKET: "/old.sock", BROWSER_USE_ACCESS_PIPE_PATH: "/app-browser.sock", NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S: "app-tool-identity", OPENAI_API_KEY: "feature-api-test-key" };

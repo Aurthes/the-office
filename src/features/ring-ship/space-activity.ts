@@ -1,11 +1,11 @@
 // Fixed pools: encounters reuse these slots instead of spawning scene objects.
 export const SPACE_ACTIVITY_BUDGET = { asteroids: 18, ships: 3, dust: 64, drawCalls: 4 } as const;
 export type SpaceMotion = { elapsed: number; planetApproach: number; planetPass: number };
-export type SpaceEncounter = { trafficProgress: number; trafficCount: number; trafficLane: number; trafficDirection: number; planetApproach: number; planetPass: number; label: string };
-export type SpacePose = { x: number; y: number; z: number; rx: number; ry: number; rz: number; sx: number; sy: number; sz: number; opacity: number };
+export type SpaceEncounter = { trafficId: number; trafficSize: number; trafficStartsIn: number; trafficEndsIn: number; trafficProgress: number; trafficCount: number; trafficLane: number; trafficDirection: number; planetApproach: number; planetPass: number; label: string };
+export type SpacePose = { generation: number; x: number; y: number; z: number; rx: number; ry: number; rz: number; sx: number; sy: number; sz: number; opacity: number };
 export const emptySpaceMotion = (): SpaceMotion => ({ elapsed: 0, planetApproach: 0, planetPass: 0 });
-export const emptySpaceEncounter = (): SpaceEncounter => ({ trafficProgress: 0, trafficCount: 0, trafficLane: 0, trafficDirection: 1, planetApproach: 0, planetPass: 0, label: "Cruising" });
-export const emptySpacePose = (): SpacePose => ({ x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1, opacity: 1 });
+export const emptySpaceEncounter = (): SpaceEncounter => ({ trafficId: 0, trafficSize: 0, trafficStartsIn: 0, trafficEndsIn: 0, trafficProgress: 0, trafficCount: 0, trafficLane: 0, trafficDirection: 1, planetApproach: 0, planetPass: 0, label: "Cruising" });
+export const emptySpacePose = (): SpacePose => ({ generation: 0, x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1, opacity: 1 });
 
 const TAU = Math.PI * 2, length = Math.hypot(70, 73, 94), flat = Math.hypot(70, 94);
 const fx = -70 / length, fy = -73 / length, fz = -94 / length;
@@ -30,8 +30,11 @@ export function sampleSpaceEncounter(time: number, seed: number, out: SpaceEncou
   const cycle = Math.floor(time / 80), local = time % 80;
   const start = 8 + random(cycle + 7, seed) * 12, duration = 22 + random(cycle + 17, seed) * 6;
   const progress = (local - start) / duration;
+  out.trafficId = cycle;
+  out.trafficSize = 1 + Math.floor(random(cycle + 31, seed) * SPACE_ACTIVITY_BUDGET.ships);
+  out.trafficStartsIn = start - local; out.trafficEndsIn = start + duration - local;
   out.trafficProgress = Math.max(0, Math.min(1, progress));
-  out.trafficCount = progress >= 0 && progress < 1 ? 1 + Math.floor(random(cycle + 31, seed) * SPACE_ACTIVITY_BUDGET.ships) : 0;
+  out.trafficCount = progress >= 0 && progress < 1 ? out.trafficSize : 0;
   out.trafficLane = random(cycle + 47, seed);
   out.trafficDirection = random(cycle + 53, seed) > .5 ? 1 : -1;
   const orbit = Math.floor(time / 180), approach = (time % 180 - 28 - random(orbit + 71, seed) * 22) / 58;
@@ -52,6 +55,7 @@ export function advanceSpaceMotion(motion: SpaceMotion, delta: number, seed: num
 export function sampleAsteroid(index: number, time: number, seed: number, radius: number, out: SpacePose) {
   const progress = fraction(time / (65 + random(index + 3, seed) * 50) + random(index + 11, seed));
   const cycle = Math.floor(time / (65 + random(index + 3, seed) * 50) + random(index + 11, seed));
+  out.generation = cycle;
   const angle = random(index + cycle * 19 + 23, seed) * TAU;
   const lane = .35 + random(index + cycle * 13 + 37, seed) * .65;
   const spread = Math.max(60, radius * 1.7) * lane * (.5 + progress);
@@ -66,6 +70,7 @@ export function sampleAsteroid(index: number, time: number, seed: number, radius
 }
 
 export function samplePassingShip(index: number, encounter: SpaceEncounter, radius: number, out: SpacePose) {
+  out.generation = encounter.trafficId;
   const p = encounter.trafficProgress, direction = encounter.trafficDirection, span = Math.max(80, radius * 2);
   position(out, ((p * 4 - 2) * span - index * 12) * direction, (encounter.trafficLane - .5) * radius * 1.3 + index * 2, radius + 70 + index * 7);
   const scale = index < encounter.trafficCount ? envelope(p) * .8 : 0;

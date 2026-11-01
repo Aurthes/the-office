@@ -67,6 +67,10 @@ The first folder is primary; new chats use it as their working directory. Chats
 are grouped by Office project and retain independent Codex histories. The folder
 picker browses the Office computer, including when opened from a phone.
 
+Recruitment also offers **Open Space (no project)**, including when there are no
+projects. Choose an existing working folder for the agent. It is saved without
+a project; its folder context and workspace-write scope use only that folder.
+
 Use **Edit project** to add/remove folders or select a new primary. Changing the
 primary affects new chats only. Removing a folder used as a chat's working
 directory requires an explicit replacement for each affected chat; those tasks

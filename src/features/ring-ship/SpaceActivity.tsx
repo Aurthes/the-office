@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, type RefObject } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
+import { useCursor } from "@react-three/drei";
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { advanceSpaceMotion, emptySpaceEncounter, emptySpaceMotion, emptySpacePose, sampleAsteroid, samplePassingShip, SPACE_ACTIVITY_BUDGET, writeSpaceDust, type SpaceMotion } from "./space-activity";
+import type { ShipObject } from "./shipObjects";
 
 export function createSpaceActivityResources() {
   const hullParts: THREE.BufferGeometry[] = [], engineParts: THREE.BufferGeometry[] = [];
@@ -29,6 +31,8 @@ export function createSpaceActivityResources() {
   const hull = mergeGeometries(hullParts)!, engines = mergeGeometries(engineParts)!;
   for (const geometry of [...hullParts, ...engineParts]) geometry.dispose();
   const rock = new THREE.IcosahedronGeometry(1, 0), dust = new THREE.BufferGeometry();
+  rock.computeBoundingBox(); hull.computeBoundingBox(); engines.computeBoundingBox();
+  hull.boundingBox!.union(engines.boundingBox!);
   dust.setAttribute("position", new THREE.BufferAttribute(new Float32Array(SPACE_ACTIVITY_BUDGET.dust * 3), 3).setUsage(THREE.DynamicDrawUsage));
   dust.setAttribute("color", new THREE.BufferAttribute(new Float32Array(SPACE_ACTIVITY_BUDGET.dust * 3), 3).setUsage(THREE.DynamicDrawUsage));
   const rockMaterial = new THREE.MeshStandardMaterial({ color: "#71808c", roughness: 1, metalness: .03, flatShading: true });
@@ -41,20 +45,49 @@ export function createSpaceActivityResources() {
   };
 }
 
-export function SpaceActivity({ radius, seed, paused, motion, caption }: { radius: number; seed: number; paused: boolean; motion: RefObject<SpaceMotion>; caption: RefObject<HTMLElement | null> }) {
+export function SpaceActivity({ radius, seed, paused, motion, caption, enabled, selected, onSelect, onExpire }: {
+  radius: number; seed: number; paused: boolean; motion: RefObject<SpaceMotion>; caption: RefObject<HTMLElement | null>;
+  enabled: boolean; selected: ShipObject | null; onSelect: (object: ShipObject) => void; onExpire: () => void;
+}) {
   const t = useUiText(), resources = useMemo(() => createSpaceActivityResources(), []);
+  const { gl } = useThree();
+  const [hovered, setHovered] = useState<string | null>(null);
+  const expired = useRef("");
+  useCursor(enabled && !paused && !!hovered, "pointer", "auto", gl.domElement);
   const group = useRef<THREE.Group>(null), rocks = useRef<THREE.InstancedMesh>(null), ships = useRef<THREE.InstancedMesh>(null), engines = useRef<THREE.InstancedMesh>(null);
   const dust = useRef<THREE.Points>(null);
   const buffer = useMemo(() => {
     const object = new THREE.Object3D(), pose = emptySpacePose();
-    return { object, pose, encounter: emptySpaceEncounter(), transform() {
+    return { object, pose, normal: new THREE.Color("white"), glow: new THREE.Color("#ffe0a0").multiplyScalar(2), encounter: emptySpaceEncounter(), transform() {
       object.position.set(pose.x, pose.y, pose.z); object.rotation.set(pose.rx, pose.ry, pose.rz);
       object.scale.set(pose.sx, pose.sy, pose.sz); object.updateMatrix();
     } };
   }, []);
   const reduced = useRef(false), notice = useRef({ label: "", node: null as HTMLElement | null, translate: t });
+  const expire = () => { if (selected?.space && expired.current !== selected.id) { expired.current = selected.id; onExpire(); } };
+  const raycast = (mesh: RefObject<THREE.InstancedMesh | null>, ...args: Parameters<THREE.InstancedMesh["raycast"]>) => {
+    if (enabled && group.current?.visible && mesh.current) THREE.InstancedMesh.prototype.raycast.call(mesh.current, ...args);
+  };
+  const hover = (kind: "asteroid" | "ship", event: ThreeEvent<PointerEvent>) => {
+    if (!enabled || event.instanceId == null || event.intersections.some(hit => hit.distance < event.distance - .001)) return;
+    event.stopPropagation();
+    if (event.pointerType !== "touch") setHovered(`${kind}:${event.instanceId}`);
+  };
+  const select = (kind: "asteroid" | "ship", event: ThreeEvent<MouseEvent>) => {
+    if (!enabled || event.instanceId == null || event.intersections.some(hit => hit.distance < event.distance - .001)) return;
+    event.stopPropagation();
+    if (event.delta >= 6) return;
+    const index = event.instanceId, mesh = kind === "asteroid" ? rocks.current : ships.current;
+    if (!mesh || index >= mesh.count || !group.current?.visible) return;
+    const pose = kind === "asteroid" ? sampleAsteroid(index, motion.current.elapsed, seed, radius, buffer.pose) : samplePassingShip(index, buffer.encounter, radius, buffer.pose);
+    if (pose.opacity < .08) return;
+    mesh.getMatrixAt(index, buffer.object.matrix);
+    const bounds = mesh.geometry.boundingBox!.clone().applyMatrix4(buffer.object.matrix);
+    onSelect({ id: `space:${seed}:${kind}:${pose.generation}:${index}`, kind: kind === "asteroid" ? "asteroid" : buffer.encounter.trafficCount > 1 ? "passingFleet" : "passingShip",
+      cabinId: "space", cabinName: "Nearby space", deck: 0, bounds, parts: [], space: { kind, index, generation: pose.generation, seed } });
+  };
   useEffect(() => {
-    const media = window.matchMedia("(prefers-reduced-motion: reduce)"), update = () => { reduced.current = media.matches; };
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)"), update = () => { reduced.current = media.matches; if (media.matches) setHovered(null); };
     update(); media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
@@ -66,18 +99,30 @@ export function SpaceActivity({ radius, seed, paused, motion, caption }: { radiu
   useFrame((_state, delta) => {
     const active = !paused && !reduced.current && !document.hidden;
     if (group.current) group.current.visible = active;
-    if (!active || !rocks.current || !ships.current || !engines.current || !dust.current) return;
+    if (!active) { expire(); return; }
+    if (!rocks.current || !ships.current || !engines.current || !dust.current) return;
     const encounter = advanceSpaceMotion(motion.current, delta, seed, buffer.encounter), elapsed = motion.current.elapsed;
     const { object, pose, transform } = buffer;
+    let tracked = false;
+    const inspect = (kind: "asteroid" | "ship", index: number, mesh: THREE.InstancedMesh) => {
+      const match = selected?.space?.kind === kind && selected.space.index === index && selected.space.seed === seed && selected.space.generation === pose.generation && pose.opacity > .04;
+      if (match) { selected.bounds.copy(mesh.geometry.boundingBox!).applyMatrix4(object.matrix); tracked = true; }
+      mesh.setColorAt(index, enabled && (match || hovered === `${kind}:${index}`) ? buffer.glow : buffer.normal);
+    };
     for (let i = 0; i < SPACE_ACTIVITY_BUDGET.asteroids; i++) {
       sampleAsteroid(i, elapsed, seed, radius, pose); transform(); rocks.current.setMatrixAt(i, object.matrix);
+      inspect("asteroid", i, rocks.current);
     }
     rocks.current.instanceMatrix.needsUpdate = true;
+    rocks.current.instanceColor!.needsUpdate = true; rocks.current.boundingSphere = null;
     ships.current.count = engines.current.count = encounter.trafficCount;
     for (let i = 0; i < encounter.trafficCount; i++) {
       samplePassingShip(i, encounter, radius, pose); transform(); ships.current.setMatrixAt(i, object.matrix); engines.current.setMatrixAt(i, object.matrix);
+      inspect("ship", i, ships.current);
     }
-    if (encounter.trafficCount) { ships.current.instanceMatrix.needsUpdate = true; engines.current.instanceMatrix.needsUpdate = true; }
+    if (encounter.trafficCount) { ships.current.instanceMatrix.needsUpdate = true; ships.current.instanceColor!.needsUpdate = true; engines.current.instanceMatrix.needsUpdate = true; }
+    ships.current.boundingSphere = null;
+    if (selected?.space && !tracked) expire();
     const positions = dust.current.geometry.attributes.position, colors = dust.current.geometry.attributes.color;
     writeSpaceDust(elapsed, seed, radius, positions.array as Float32Array, colors.array as Float32Array);
     positions.needsUpdate = colors.needsUpdate = true;
@@ -86,8 +131,10 @@ export function SpaceActivity({ radius, seed, paused, motion, caption }: { radiu
     }
   });
   return <group ref={group} dispose={null}>
-    <instancedMesh ref={rocks} args={[resources.rock, resources.rockMaterial, SPACE_ACTIVITY_BUDGET.asteroids]} frustumCulled={false} raycast={() => {}} />
-    <instancedMesh ref={ships} args={[resources.hull, resources.hullMaterial, SPACE_ACTIVITY_BUDGET.ships]} frustumCulled={false} raycast={() => {}} />
+    <instancedMesh ref={rocks} name="space-asteroids" args={[resources.rock, resources.rockMaterial, SPACE_ACTIVITY_BUDGET.asteroids]} frustumCulled={false} raycast={(...args) => raycast(rocks, ...args)}
+      onPointerMove={event => hover("asteroid", event)} onPointerOut={() => setHovered(null)} onClick={event => select("asteroid", event)} />
+    <instancedMesh ref={ships} name="space-ships" args={[resources.hull, resources.hullMaterial, SPACE_ACTIVITY_BUDGET.ships]} frustumCulled={false} raycast={(...args) => raycast(ships, ...args)}
+      onPointerMove={event => hover("ship", event)} onPointerOut={() => setHovered(null)} onClick={event => select("ship", event)} />
     <instancedMesh ref={engines} args={[resources.engines, resources.engineMaterial, SPACE_ACTIVITY_BUDGET.ships]} frustumCulled={false} raycast={() => {}} />
     <points ref={dust} geometry={resources.dust} material={resources.dustMaterial} frustumCulled={false} raycast={() => {}} />
   </group>;

@@ -7,6 +7,12 @@ import { setUiLanguage } from "@/lib/i18n/ui-language";
 import type { ShipObject } from "@/features/ring-ship/shipObjects";
 const object: ShipObject = { id: "plant-1", kind: "pottedPlant", deck: 1, cabinId: "cabin", cabinName: "Rainforest Habitat", bounds: new Box3(new Vector3(), new Vector3(1, 1, 1)), parts: [] };
 afterEach(() => { cleanup(); setUiLanguage("en"); });
+it("uses the shared card for space discoveries without assigning them to a deck", () => {
+  render(React.createElement(ShipObjectCard, { object: { ...object, kind: "asteroid", space: { kind: "asteroid", index: 0, seed: 0, generation: 0 } }, customRoom: false, onClose: vi.fn() }));
+  expect(screen.getByRole("heading", { name: "Drifting asteroid" })).toBeVisible();
+  expect(screen.getByText("Nearby space")).toBeVisible();
+  expect(screen.queryByText(/L2/)).toBeNull();
+});
 it("shows the selected prop and its location, keeps its note stable, and closes with Escape or the close button", () => {
   const onClose = vi.fn();
   const view = render(React.createElement(ShipObjectCard, { object, customRoom: false, onClose }));
