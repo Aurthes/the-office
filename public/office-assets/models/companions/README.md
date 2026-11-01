@@ -33,10 +33,25 @@ data and duplicate textures were removed. The combined decoded RGBA texture
 footprint is approximately 7.3 MiB including mipmaps; actual GPU allocation and
 frame cost depend on the browser and device.
 
-Pets play their supplied idle clips; Mech Drone plays its supplied animation.
-C.O.R.E. has no authored animation and only floats gently. Animation mixers are
-stopped when these main-deck figures unmount. This first placement contains one
-cat, one dog, one drone and one bartender.
+Pets blend their supplied idle, walk, run and eating clips with procedural
+resting and stretching poses. They choose independent activities and use the
+ship's existing corridor routes to visit common cabins. Mech Drone combines its
+supplied flight animation with inspection, repair and charging behaviours.
+
+C.O.R.E. has no authored animation. At load time the app assigns its existing
+rigid arm parts to a small procedural skeleton. Both arms share one skeleton;
+the original triangle count, materials, texture maps and material draw count
+are retained. Inverse kinematics moves its actual grippers to glasses, cleaning
+cloths and the existing bottle positions. Its routine includes washing glasses,
+checking stock, pouring drinks and wiping the counter. Small visual effects use
+ordinary geometry and alpha materials, without extra lights or transmission.
+
+All four NPCs use the existing selection camera and information card, with live
+activity text. A selected moving NPC stays in view until the user moves the
+camera. Behaviour and animation pause on hidden decks; changing views preserves
+their current routine. Animation mixers, cloned skeletons and procedural buffers
+are released when the scene unmounts. There is one cat, one dog, one drone and
+one bartender; no additional character assets or network services are needed.
 
 License notices: `licenses/Kenney-Cube-Pets.txt` and
 `licenses/Companion-Robots-CC-BY-4.0.txt`. Changes listed above are adaptations

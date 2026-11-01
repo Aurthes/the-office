@@ -38,6 +38,13 @@ export function ShipObjectScene({ group, enabled, selectedId, onSelect }: {
 
 export function ShipObjectCard({ object, customRoom, onClose }: { object: ShipObject; customRoom: boolean; onClose: () => void }) {
   const t = useUiText();
+  const [snapshot, setSnapshot] = useState({ id: object.id, activity: object.npc?.activity || "" });
+  const activity = snapshot.id === object.id ? snapshot.activity : object.npc?.activity || "";
+  useEffect(() => {
+    if (!object.npc) return;
+    const timer = window.setInterval(() => setSnapshot(previous => previous.id === object.id && previous.activity === object.npc?.activity ? previous : { id: object.id, activity: object.npc?.activity || "" }), 350);
+    return () => window.clearInterval(timer);
+  }, [object]);
   const [name, description] = SHIP_OBJECT_INFO[object.kind];
   useEffect(() => {
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } };
@@ -46,9 +53,9 @@ export function ShipObjectCard({ object, customRoom, onClose }: { object: ShipOb
   }, [onClose]);
   return <section className="ship-object-card" aria-label={t("Object information")} data-object-id={object.id} data-object-kind={object.kind}>
     <div className="ship-object-card-heading"><span><ScanLine size={13} />{t(object.space ? "Space discovery" : "Ship discovery")}</span><button type="button" aria-label={t("Close object information")} onClick={onClose}><X size={16} /></button></div>
-    <h2>{t(name)}</h2>
+    <h2>{object.npc?.name || t(name)}</h2>
     <p className="ship-object-location">{object.space ? t("Nearby space") : <>L{object.deck + 1} · {customRoom ? object.cabinName : t(object.cabinName)}</>}</p>
     <p>{t(description)}</p>
-    <div className="ship-object-note"><span>{t("Crew note")}</span><p>{t(shipObjectNote(object.id))}</p></div>
+    <div className="ship-object-note"><span>{t(object.npc ? "Current activity" : "Crew note")}</span><p>{t(object.npc ? activity : shipObjectNote(object.id))}</p></div>
   </section>;
 }

@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { Disc3 } from "lucide-react";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { cabinAngle, shipPoint, type ShipCabin, type ShipLayout } from "./layout";
+import { BAR_LAYOUT } from "./barLayout";
 import "./listening-bar.css";
 
 const BRASS = "#c6a46a";
@@ -99,7 +100,7 @@ function BarModel({ onOpen }: { onOpen: () => void }) {
       <mesh position={[0, .78, 0]} castShadow><cylinderGeometry args={[.27, .26, .12, 40]} /><meshStandardMaterial color="#355146" roughness={.9} /></mesh>
       <mesh position={[0, .714, 0]}><cylinderGeometry args={[.265, .265, .022, 40]} /><meshStandardMaterial color={BRASS} metalness={.7} roughness={.3} /></mesh>
     </group>)}
-    <Bottle x={-1.95} height={.31} color="#315b43" /><Bottle x={-1.67} height={.25} color="#96552d" /><Bottle x={-1.4} height={.35} color="#3a665b" />
+    {BAR_LAYOUT.bottles.map(bottle => <Bottle key={bottle.x} {...bottle} />)}
     {[-1.1, -.87].map(x => <group key={x} position={[x, 1.33, -.1]}>
       <mesh position={[0, .055, 0]}><cylinderGeometry args={[.064, .054, .11, 24, 1, true]} /><meshPhysicalMaterial color="#d4e1d4" metalness={.1} roughness={.12} transparent opacity={.5} side={THREE.DoubleSide} /></mesh>
       <mesh position={[0, .025, 0]}><cylinderGeometry args={[.052, .05, .045, 24]} /><meshStandardMaterial color="#bc8941" roughness={.2} /></mesh>
@@ -110,6 +111,6 @@ function BarModel({ onOpen }: { onOpen: () => void }) {
 }
 
 export function ListeningBar({ layout, cabin, onOpen }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void }) {
-  const angle = cabinAngle(layout, cabin.slot), point = shipPoint(layout.rings[cabin.ring].radius + 1.65, angle);
+  const angle = cabinAngle(layout, cabin.slot), point = shipPoint(layout.rings[cabin.ring].radius + BAR_LAYOUT.radial, angle);
   return <group position={[point.x, 0, point.z]} rotation={[0, angle, 0]}><Suspense fallback={null}><BarModel onOpen={onOpen} /></Suspense></group>;
 }
