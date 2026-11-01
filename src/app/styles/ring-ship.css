@@ -4,15 +4,15 @@
 .ship-office .office-company-panel { max-width: none; }
 .ship-heading { max-width: calc(100% - 520px); }
 .ship-summary { backdrop-filter: blur(8px); }
-.space-traffic-notice { position: absolute; top: 66px; right: 16px; z-index: 22; width: min(252px, calc(100% - 24px)); border: 1px solid #d8b87a65; border-radius: 10px; background: #12232ef5; box-shadow: 0 8px 28px #0005; color: #cbdade; padding: 11px 13px; font: 11px/1.5 system-ui, sans-serif; }
-.space-traffic-heading { display: flex; align-items: center; gap: 7px; color: #e1c28a; font-size: 11px; }
-.space-traffic-heading > svg { flex-shrink: 0; }
+.space-traffic-notice { position: absolute; top: 66px; right: 16px; z-index: 22; width: min(208px, calc(100% - 24px)); border: 1px solid #d8b87a65; border-radius: 8px; background: #12232ef5; box-shadow: 0 8px 28px #0005; color: #cbdade; padding: 8px 10px; font: 10px/1.35 system-ui, sans-serif; }
+.space-traffic-heading { display: flex; align-items: center; gap: 5px; color: #e1c28a; font-size: 10px; }
+.space-traffic-heading > svg { flex-shrink: 0; width: 12px; height: 12px; }
 .space-traffic-heading button { display: grid; place-items: center; width: 28px; height: 28px; margin: -6px -6px -6px auto; border-radius: 5px; cursor: pointer; color: #9db2ba; }
 .space-traffic-heading button:hover { background: #ffffff12; color: white; }
 .space-traffic-heading button:focus-visible { outline: 2px solid #dfc18c; }
-.space-traffic-countdown { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+.space-traffic-countdown { display: flex; flex-direction: column; gap: 1px; margin-top: 4px; }
 .space-traffic-countdown p { display: flex; align-items: baseline; justify-content: space-between; color: #aabdc4; }
-.space-traffic-countdown strong { font: 19px/1.2 ui-monospace, monospace; font-variant-numeric: tabular-nums; color: #f1d8a9; }
+.space-traffic-countdown strong { font: 14px/1.2 ui-monospace, monospace; font-variant-numeric: tabular-nums; color: #f1d8a9; }
 .space-traffic-countdown > span { font-size: 9px; color: #7696a2; }
 .space-traffic-notice[data-phase=passing] { border-color: #88cabf55; }
 .space-traffic-notice[data-phase=passing] .space-traffic-heading, .space-traffic-notice[data-phase=passing] strong { color: #b4ddd2; }
