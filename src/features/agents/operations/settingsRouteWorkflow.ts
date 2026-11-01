@@ -1,9 +1,6 @@
 export type SettingsRouteTab =
   | "personality"
   | "capabilities"
-  | "skills"
-  | "system"
-  | "automations"
   | "advanced";
 
 export type InspectSidebarState =

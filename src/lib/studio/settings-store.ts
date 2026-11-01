@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-
 import { resolveStateDir } from "@/lib/clawdbot/paths";
 import {
   defaultStudioSettings,
@@ -73,11 +72,7 @@ const normalizeAdapterType = (value: string | undefined): StudioGatewayAdapterTy
   const normalized = value?.trim().toLowerCase();
   if (
     normalized === "openclaw" ||
-    normalized === "hermes" ||
-    normalized === "demo" ||
-    normalized === "local" ||
-    normalized === "claw3d" ||
-    normalized === "custom"
+    normalized === "demo"
   ) {
     return normalized;
   }
@@ -85,8 +80,8 @@ const normalizeAdapterType = (value: string | undefined): StudioGatewayAdapterTy
 };
 
 const readPortBasedGatewayProfile = (
-  adapterType: Extract<StudioGatewayAdapterType, "hermes" | "demo">,
-  envKey: "HERMES_ADAPTER_PORT" | "DEMO_ADAPTER_PORT"
+  adapterType: "demo",
+  envKey: "DEMO_ADAPTER_PORT"
 ): StudioGatewayProfile | null => {
   const rawPort = process.env[envKey]?.trim();
   if (!rawPort) return null;
@@ -101,11 +96,10 @@ const buildEnvGatewayDefaults = (): StudioGatewaySettings | null => {
   const envAdapterType =
     normalizeAdapterType(process.env.CLAW3D_GATEWAY_ADAPTER_TYPE) ?? "openclaw";
 
-  const hermesProfile = readPortBasedGatewayProfile("hermes", "HERMES_ADAPTER_PORT");
   const demoProfile = readPortBasedGatewayProfile("demo", "DEMO_ADAPTER_PORT");
 
   const profiles: Partial<Record<StudioGatewayAdapterType, StudioGatewayProfile>> = {};
-  if (hermesProfile) profiles.hermes = hermesProfile;
+
   if (demoProfile) profiles.demo = demoProfile;
 
   if (envUrl) {
@@ -118,9 +112,9 @@ const buildEnvGatewayDefaults = (): StudioGatewaySettings | null => {
     });
   }
 
-  const fallbackProfile = profiles.hermes ?? profiles.demo ?? null;
+  const fallbackProfile = profiles.demo ?? null;
   if (!fallbackProfile) return null;
-  const fallbackAdapterType = profiles.hermes ? "hermes" : "demo";
+  const fallbackAdapterType = "demo";
   return buildGatewaySettings({
     adapterType: fallbackAdapterType,
     url: fallbackProfile.url,

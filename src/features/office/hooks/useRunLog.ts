@@ -7,7 +7,7 @@ import type { GatewayClient, GatewayStatus } from "@/lib/gateway/GatewayClient";
 import { isSameSessionKey } from "@/lib/gateway/GatewayClient";
 import { isHeartbeatPrompt } from "@/lib/text/message-extract";
 
-export type RunTriggerKind = "user" | "heartbeat" | "cron";
+export type RunTriggerKind = "user" | "heartbeat";
 export type RunOutcomeKind = "ok" | "error" | null;
 
 export type RunRecord = {
@@ -23,7 +23,7 @@ export type RunRecord = {
 const MAX_RUN_RECORDS = 200;
 
 const resolveRunTrigger = (agent: AgentState): RunTriggerKind => {
-  if (agent.latestOverrideKind === "heartbeat" || agent.latestOverrideKind === "cron") {
+  if (agent.latestOverrideKind === "heartbeat") {
     return agent.latestOverrideKind;
   }
   const lastUserMessage = agent.lastUserMessage?.trim() ?? "";

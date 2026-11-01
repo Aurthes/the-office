@@ -48,11 +48,7 @@ export const GatewayConnectScreen = ({
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [showToken, setShowToken] = useState(false);
   const tokenOptional =
-    selectedAdapterType === "hermes" ||
-    selectedAdapterType === "demo" ||
-    selectedAdapterType === "local" ||
-    selectedAdapterType === "claw3d" ||
-    selectedAdapterType === "custom";
+    selectedAdapterType === "demo";
   const isLocal = useMemo(() => isLocalGatewayUrl(gatewayUrl), [gatewayUrl]);
   const localPort = useMemo(() => resolveLocalGatewayPort(gatewayUrl), [gatewayUrl]);
   const localGatewayCommand = useMemo(
@@ -70,21 +66,11 @@ export const GatewayConnectScreen = ({
   const useDemoPreset = () => {
     onAdapterTypeChange("demo");
   };
-  const useHermesPreset = () => {
-    onAdapterTypeChange("hermes");
-  };
+
   const useOpenClawPreset = () => {
     onAdapterTypeChange("openclaw");
   };
-  const useCustomPreset = () => {
-    onAdapterTypeChange("custom");
-  };
-  const useLocalPreset = () => {
-    onAdapterTypeChange("local");
-  };
-  const useClaw3dPreset = () => {
-    onAdapterTypeChange("claw3d");
-  };
+
   const statusCopy = useMemo(() => {
     if (status === "connecting" && isLocal) {
       return `Local gateway detected on port ${localPort}. Connecting…`;
@@ -101,17 +87,12 @@ export const GatewayConnectScreen = ({
     switch (selectedAdapterType) {
       case "openclaw":
         return "OpenClaw is the provider-rich gateway path. Use this when you want upstream model/provider routing managed by OpenClaw itself.";
-      case "hermes":
-        return "Hermes is the agent runtime path with its own provider/account flow behind the gateway.";
+
       case "demo":
         return "Demo can fall back to a seeded main agent locally, or connect to the bundled mock gateway for streaming replies.";
-      case "local":
-        return "Local runtime expects a direct HTTP runtime/orchestrator boundary, not a provider catalog.";
-      case "claw3d":
-        return "Claw3D runtime preserves Claw3D transcript conventions over the direct runtime seam.";
-      case "custom":
+
       default:
-        return "Custom is the generic direct runtime seam. Use it for compatible orchestrators, not for provider-specific auth flows.";
+        return "Connect to the OpenClaw-compatible gateway.";
     }
   }, [selectedAdapterType]);
   const connectDisabled = status === "connecting";
@@ -279,34 +260,7 @@ export const GatewayConnectScreen = ({
             >
               Demo backend
             </button>
-            <button
-              type="button"
-              className="ui-btn-secondary px-3 py-1.5 text-[11px] font-semibold tracking-[0.05em]"
-              onClick={useHermesPreset}
-            >
-              Hermes backend
-            </button>
-            <button
-              type="button"
-              className="ui-btn-secondary px-3 py-1.5 text-[11px] font-semibold tracking-[0.05em]"
-              onClick={useLocalPreset}
-            >
-              Local runtime
-            </button>
-            <button
-              type="button"
-              className="ui-btn-secondary px-3 py-1.5 text-[11px] font-semibold tracking-[0.05em]"
-              onClick={useClaw3dPreset}
-            >
-              Claw3D runtime
-            </button>
-            <button
-              type="button"
-              className="ui-btn-secondary px-3 py-1.5 text-[11px] font-semibold tracking-[0.05em]"
-              onClick={useCustomPreset}
-            >
-              Custom backend
-            </button>
+
             <button
               type="button"
               className="ui-btn-secondary px-3 py-1.5 text-[11px] font-semibold tracking-[0.05em]"
@@ -337,24 +291,7 @@ export const GatewayConnectScreen = ({
               Then choose <span className="font-mono text-foreground">Demo backend</span> and connect.
             </p>
           </div>
-          <div className="rounded-md border border-border bg-muted/30 px-3 py-3">
-            <p className="text-xs font-medium text-foreground">Using Hermes locally?</p>
-            <p className="mt-1 text-xs leading-snug text-muted-foreground">
-              Run <span className="font-mono text-foreground">npm run hermes-adapter</span>, then choose
-              <span className="font-mono text-foreground"> Hermes backend</span>. The default local URL is
-              <span className="font-mono text-foreground"> ws://localhost:18789</span>.
-            </p>
-          </div>
-          <div className="rounded-md border border-border bg-muted/30 px-3 py-3">
-            <p className="text-xs font-medium text-foreground">Using a local or custom runtime?</p>
-            <p className="mt-1 text-xs leading-snug text-muted-foreground">
-              Choose <span className="font-mono text-foreground">Local runtime</span>,
-              <span className="font-mono text-foreground"> Claw3D runtime</span>, or
-              <span className="font-mono text-foreground"> Custom backend</span> and point the URL at
-              your orchestrator or runtime boundary. These profiles already preserve separate saved URLs
-              and tokens, but transport-specific chat handoff still needs a follow-up slice.
-            </p>
-          </div>
+
           <div className="rounded-md border border-border bg-muted/30 px-3 py-3">
             <p className="text-xs font-medium text-foreground">Opening Claw3D from another machine?</p>
             <p className="mt-1 text-xs leading-snug text-muted-foreground">

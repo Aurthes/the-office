@@ -1,9 +1,4 @@
-import type {
-  StandupConfig,
-  StandupJiraConfig,
-  StandupManualEntry,
-  StandupScheduleConfig,
-} from "@/lib/office/standup/types";
+
 import {
   DEFAULT_ACTIVE_FLOOR_ID,
   getOfficeFloor,
@@ -14,14 +9,6 @@ import {
 } from "@/lib/office/floors";
 import type { AgentAvatarProfile } from "@/lib/avatars/profile";
 import { normalizeAgentAvatarProfile } from "@/lib/avatars/profile";
-import {
-  defaultTaskBoardPreference,
-  isTaskBoardSource,
-  isTaskBoardStatus,
-  type TaskBoardCard,
-  type TaskBoardPreference,
-  type TaskBoardPreferencePatch,
-} from "@/features/office/tasks/types";
 
 export type StudioGatewaySettings = {
   url: string;
@@ -31,21 +18,8 @@ export type StudioGatewaySettings = {
   lastKnownGood?: StudioGatewayConnectionState;
 };
 
-export type StudioGatewayAdapterType =
-  | "openclaw"
-  | "hermes"
-  | "demo"
-  | "local"
-  | "claw3d"
-  | "custom";
-export const STUDIO_GATEWAY_ADAPTER_TYPES = [
-  "openclaw",
-  "hermes",
-  "demo",
-  "local",
-  "claw3d",
-  "custom",
-] as const;
+export type StudioGatewayAdapterType = "openclaw" | "demo";
+export const STUDIO_GATEWAY_ADAPTER_TYPES = ["openclaw", "demo"] as const;
 
 export type StudioGatewayProfile = {
   url: string;
@@ -129,12 +103,7 @@ export type StudioAnalyticsPreferencePatch = {
 
 export type StudioOfficePreference = {
   title: string;
-  remoteOfficeEnabled: boolean;
-  remoteOfficeSourceKind: "presence_endpoint" | "openclaw_gateway";
-  remoteOfficeLabel: string;
-  remoteOfficePresenceUrl: string;
-  remoteOfficeGatewayUrl: string;
-  remoteOfficeToken: string;
+
   companyName: string;
   companyPrompt: string;
   companyImprovedBrief: string;
@@ -146,12 +115,7 @@ export type StudioOfficePreference = {
 
 export type StudioOfficePreferencePublic = {
   title: string;
-  remoteOfficeEnabled: boolean;
-  remoteOfficeSourceKind: "presence_endpoint" | "openclaw_gateway";
-  remoteOfficeLabel: string;
-  remoteOfficePresenceUrl: string;
-  remoteOfficeGatewayUrl: string;
-  remoteOfficeTokenConfigured: boolean;
+
   companyName: string;
   companyPrompt: string;
   companyImprovedBrief: string;
@@ -163,12 +127,7 @@ export type StudioOfficePreferencePublic = {
 
 export type StudioOfficePreferencePatch = {
   title?: string | null;
-  remoteOfficeEnabled?: boolean;
-  remoteOfficeSourceKind?: "presence_endpoint" | "openclaw_gateway";
-  remoteOfficeLabel?: string | null;
-  remoteOfficePresenceUrl?: string | null;
-  remoteOfficeGatewayUrl?: string | null;
-  remoteOfficeToken?: string | null;
+
   companyName?: string | null;
   companyPrompt?: string | null;
   companyImprovedBrief?: string | null;
@@ -180,27 +139,6 @@ export type StudioOfficePreferencePatch = {
 
 export type StudioDeskAssignments = Record<string, string>;
 export type StudioAgentAvatars = Record<string, AgentAvatarProfile>;
-
-export type StudioStandupPreference = StandupConfig;
-
-export type StudioStandupPreferencePublic = Omit<StudioStandupPreference, "jira"> & {
-  jira: StandupJiraConfigPublic;
-};
-
-export type StudioStandupPreferencePatch = {
-  schedule?: Partial<StandupScheduleConfig>;
-  jira?: Partial<StandupJiraConfig>;
-  manualByAgentId?: Record<string, Partial<StandupManualEntry> | null>;
-};
-
-export type StandupJiraConfigPublic = Omit<StandupJiraConfig, "apiToken"> & {
-  apiToken: string;
-  apiTokenConfigured: boolean;
-};
-
-export type StudioTaskBoardPreference = TaskBoardPreference;
-export type StudioTaskBoardPreferencePublic = TaskBoardPreference;
-export type StudioTaskBoardPreferencePatch = TaskBoardPreferencePatch;
 
 export type FloorRuntimeConnectionStatus =
   | "disconnected"
@@ -238,15 +176,13 @@ export type StudioSettings = {
   deskAssignments: Record<string, StudioDeskAssignments>;
   analytics: Record<string, StudioAnalyticsPreference>;
   office: Record<string, StudioOfficePreference>;
-  standup?: Record<string, StudioStandupPreference>;
-  taskBoard?: Record<string, StudioTaskBoardPreference>;
+
 };
 
-export type StudioSettingsPublic = Omit<StudioSettings, "gateway" | "office" | "standup"> & {
+export type StudioSettingsPublic = Omit<StudioSettings, "gateway" | "office"> & {
   gateway: StudioGatewaySettingsPublic | null;
   office: Record<string, StudioOfficePreferencePublic>;
-  standup?: Record<string, StudioStandupPreferencePublic>;
-  taskBoard?: Record<string, StudioTaskBoardPreferencePublic>;
+
 };
 
 export type StudioSettingsPatch = {
@@ -258,16 +194,12 @@ export type StudioSettingsPatch = {
   deskAssignments?: Record<string, Record<string, string | null> | null>;
   analytics?: Record<string, StudioAnalyticsPreferencePatch | null>;
   office?: Record<string, StudioOfficePreferencePatch | null>;
-  standup?: Record<string, StudioStandupPreferencePatch | null>;
-  taskBoard?: Record<string, StudioTaskBoardPreferencePatch | null>;
+
 };
 
 const SETTINGS_VERSION = 1 as const;
 const DEFAULT_OPENCLAW_GATEWAY_URL = "ws://localhost:18789";
 const DEFAULT_LOCAL_ADAPTER_GATEWAY_URL = "ws://localhost:18789";
-const DEFAULT_LOCAL_RUNTIME_URL = "http://localhost:7770";
-const DEFAULT_CLAW3D_RUNTIME_URL = "http://localhost:3000/api/runtime/custom";
-const DEFAULT_CUSTOM_RUNTIME_URL = "http://localhost:7770";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value && typeof value === "object");
@@ -386,41 +318,6 @@ export const defaultStudioAnalyticsPreference = (): StudioAnalyticsPreference =>
   },
 });
 
-export const defaultStudioStandupScheduleConfig = (): StandupScheduleConfig => ({
-  enabled: false,
-  cronExpr: "0 9 * * 1-5",
-  timezone: "UTC",
-  speakerSeconds: 8,
-  autoOpenBoard: true,
-  lastAutoRunAt: null,
-});
-
-export const defaultStudioStandupJiraConfig = (): StandupJiraConfig => ({
-  enabled: false,
-  baseUrl: "",
-  email: "",
-  apiToken: "",
-  projectKey: "",
-  jql: "",
-});
-
-export const defaultStudioStandupManualEntry = (): StandupManualEntry => ({
-  jiraAssignee: null,
-  currentTask: "",
-  blockers: "",
-  note: "",
-  updatedAt: null,
-});
-
-export const defaultStudioStandupPreference = (): StudioStandupPreference => ({
-  schedule: defaultStudioStandupScheduleConfig(),
-  jira: defaultStudioStandupJiraConfig(),
-  manualByAgentId: {},
-});
-
-export const defaultStudioTaskBoardPreference =
-  (): StudioTaskBoardPreference => defaultTaskBoardPreference();
-
 export const defaultStudioFloorRuntimeState = (
   floorId: FloorId,
 ): StudioFloorRuntimeState => {
@@ -447,73 +344,7 @@ const normalizeOptionalIsoString = (
   return trimmed ? trimmed : null;
 };
 
-const normalizeTaskBoardNotes = (value: unknown, fallback: string[] = []) => {
-  if (!Array.isArray(value)) return [...fallback];
-  return value
-    .filter((entry): entry is string => typeof entry === "string")
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .slice(0, 24);
-};
-
-const normalizeTaskBoardCard = (
-  value: unknown,
-  fallback?: TaskBoardCard
-): TaskBoardCard => {
-  const nowIso = new Date().toISOString();
-  const record = isRecord(value) ? value : {};
-  return {
-    id: coerceString(record.id) || fallback?.id || "",
-    title: coerceString(record.title) || fallback?.title || "Untitled task",
-    description: coerceString(record.description) || fallback?.description || "",
-    status: isTaskBoardStatus(record.status) ? record.status : (fallback?.status ?? "todo"),
-    source: isTaskBoardSource(record.source)
-      ? record.source
-      : (fallback?.source ?? "claw3d_manual"),
-    sourceEventId:
-      normalizeOptionalIsoString(record.sourceEventId, fallback?.sourceEventId ?? null) ??
-      null,
-    assignedAgentId:
-      normalizeSelectedAgentId(record.assignedAgentId, fallback?.assignedAgentId ?? null) ?? null,
-    createdAt:
-      normalizeOptionalIsoString(record.createdAt, fallback?.createdAt ?? nowIso) ?? nowIso,
-    updatedAt:
-      normalizeOptionalIsoString(record.updatedAt, fallback?.updatedAt ?? nowIso) ?? nowIso,
-    playbookJobId:
-      normalizeSelectedAgentId(record.playbookJobId, fallback?.playbookJobId ?? null) ?? null,
-    runId: normalizeSelectedAgentId(record.runId, fallback?.runId ?? null) ?? null,
-    channel: normalizeSelectedAgentId(record.channel, fallback?.channel ?? null) ?? null,
-    externalThreadId:
-      normalizeSelectedAgentId(record.externalThreadId, fallback?.externalThreadId ?? null) ??
-      null,
-    lastActivityAt:
-      normalizeOptionalIsoString(record.lastActivityAt, fallback?.lastActivityAt ?? null) ?? null,
-    notes: normalizeTaskBoardNotes(record.notes, fallback?.notes ?? []),
-    isArchived:
-      typeof record.isArchived === "boolean" ? record.isArchived : (fallback?.isArchived ?? false),
-    isInferred:
-      typeof record.isInferred === "boolean" ? record.isInferred : (fallback?.isInferred ?? false),
-  };
-};
-
-const normalizeTaskBoardPreference = (
-  value: unknown,
-  fallback: StudioTaskBoardPreference = defaultStudioTaskBoardPreference()
-): StudioTaskBoardPreference => {
-  const record = isRecord(value) ? value : {};
-  const rawCards = Array.isArray(record.cards) ? record.cards : fallback.cards;
-  return {
-    cards: rawCards
-      .map((entry) => normalizeTaskBoardCard(entry))
-      .filter((entry) => entry.id.length > 0),
-    selectedCardId:
-      normalizeSelectedAgentId(record.selectedCardId, fallback.selectedCardId) ?? null,
-  };
-};
-
 const DEFAULT_OFFICE_TITLE = "Luke Headquarters";
-const DEFAULT_REMOTE_OFFICE_LABEL = "Remote Office";
-const DEFAULT_REMOTE_OFFICE_SOURCE_KIND = "presence_endpoint" as const;
 
 const normalizeOfficeTitle = (
   value: unknown,
@@ -521,47 +352,6 @@ const normalizeOfficeTitle = (
 ) => {
   const title = coerceString(value);
   return (title || fallback).slice(0, 48);
-};
-
-const normalizeRemoteOfficeLabel = (
-  value: unknown,
-  fallback: string = DEFAULT_REMOTE_OFFICE_LABEL
-) => {
-  const label = coerceString(value);
-  return (label || fallback).slice(0, 48);
-};
-
-const normalizeRemoteOfficePresenceUrl = (value: unknown) => {
-  const raw = coerceString(value);
-  return raw.replace(/\/+$/, "");
-};
-
-const normalizeRemoteOfficeSourceKind = (
-  value: unknown,
-  fallback: StudioOfficePreference["remoteOfficeSourceKind"] = DEFAULT_REMOTE_OFFICE_SOURCE_KIND,
-): StudioOfficePreference["remoteOfficeSourceKind"] => {
-  const kind = coerceString(value);
-  if (kind === "presence_endpoint" || kind === "openclaw_gateway") {
-    return kind;
-  }
-  return fallback;
-};
-
-const normalizeRemoteOfficeGatewayUrl = (value: unknown) => {
-  const raw = coerceString(value);
-  if (!raw) return "";
-  try {
-    const parsed = new URL(raw);
-    if (parsed.protocol === "http:") {
-      return `ws://${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`;
-    }
-    if (parsed.protocol === "https:") {
-      return `wss://${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`;
-    }
-    return raw.replace(/\/+$/, "");
-  } catch {
-    return raw.replace(/\/+$/, "");
-  }
 };
 
 const normalizeCompanyField = (value: unknown) => coerceString(value).slice(0, 10_000);
@@ -577,12 +367,7 @@ const normalizeCompanyRoleTitles = (value: unknown, fallback: string[] = []) => 
 
 export const defaultStudioOfficePreference = (): StudioOfficePreference => ({
   title: DEFAULT_OFFICE_TITLE,
-  remoteOfficeEnabled: false,
-  remoteOfficeSourceKind: DEFAULT_REMOTE_OFFICE_SOURCE_KIND,
-  remoteOfficeLabel: DEFAULT_REMOTE_OFFICE_LABEL,
-  remoteOfficePresenceUrl: "",
-  remoteOfficeGatewayUrl: "",
-  remoteOfficeToken: "",
+
   companyName: "",
   companyPrompt: "",
   companyImprovedBrief: "",
@@ -595,12 +380,7 @@ export const defaultStudioOfficePreference = (): StudioOfficePreference => ({
 export const defaultStudioOfficePreferencePublic =
   (): StudioOfficePreferencePublic => ({
     title: DEFAULT_OFFICE_TITLE,
-    remoteOfficeEnabled: false,
-    remoteOfficeSourceKind: DEFAULT_REMOTE_OFFICE_SOURCE_KIND,
-    remoteOfficeLabel: DEFAULT_REMOTE_OFFICE_LABEL,
-    remoteOfficePresenceUrl: "",
-    remoteOfficeGatewayUrl: "",
-    remoteOfficeTokenConfigured: false,
+
     companyName: "",
     companyPrompt: "",
     companyImprovedBrief: "",
@@ -614,12 +394,7 @@ export const sanitizeStudioOfficePreference = (
   value: StudioOfficePreference
 ): StudioOfficePreferencePublic => ({
   title: value.title,
-  remoteOfficeEnabled: value.remoteOfficeEnabled,
-  remoteOfficeSourceKind: value.remoteOfficeSourceKind,
-  remoteOfficeLabel: value.remoteOfficeLabel,
-  remoteOfficePresenceUrl: value.remoteOfficePresenceUrl,
-  remoteOfficeGatewayUrl: value.remoteOfficeGatewayUrl,
-  remoteOfficeTokenConfigured: value.remoteOfficeToken.length > 0,
+
   companyName: value.companyName,
   companyPrompt: value.companyPrompt,
   companyImprovedBrief: value.companyImprovedBrief,
@@ -628,112 +403,6 @@ export const sanitizeStudioOfficePreference = (
   companyRoleTitles: value.companyRoleTitles,
   companyPlanJson: value.companyPlanJson,
 });
-
-const normalizeStandupScheduleConfig = (
-  value: unknown,
-  fallback: StandupScheduleConfig = defaultStudioStandupScheduleConfig()
-): StandupScheduleConfig => {
-  if (!isRecord(value)) return fallback;
-  const cronExpr = coerceString(value.cronExpr) || fallback.cronExpr;
-  const timezone = coerceString(value.timezone) || fallback.timezone;
-  const speakerSecondsRaw =
-    typeof value.speakerSeconds === "number" && Number.isFinite(value.speakerSeconds)
-      ? Math.round(value.speakerSeconds)
-      : fallback.speakerSeconds;
-  return {
-    enabled: typeof value.enabled === "boolean" ? value.enabled : fallback.enabled,
-    cronExpr,
-    timezone,
-    speakerSeconds: Math.max(4, Math.min(120, speakerSecondsRaw)),
-    autoOpenBoard:
-      typeof value.autoOpenBoard === "boolean"
-        ? value.autoOpenBoard
-        : fallback.autoOpenBoard,
-    lastAutoRunAt: normalizeOptionalIsoString(
-      value.lastAutoRunAt,
-      fallback.lastAutoRunAt
-    ),
-  };
-};
-
-const normalizeStandupJiraConfig = (
-  value: unknown,
-  fallback: StandupJiraConfig = defaultStudioStandupJiraConfig()
-): StandupJiraConfig => {
-  if (!isRecord(value)) return fallback;
-  const baseUrl = coerceString(value.baseUrl).replace(/\/+$/, "");
-  return {
-    enabled: typeof value.enabled === "boolean" ? value.enabled : fallback.enabled,
-    baseUrl: baseUrl || fallback.baseUrl,
-    email: coerceString(value.email) || fallback.email,
-    apiToken: coerceString(value.apiToken) || fallback.apiToken,
-    projectKey: coerceString(value.projectKey).toUpperCase() || fallback.projectKey,
-    jql: coerceString(value.jql) || fallback.jql,
-  };
-};
-
-const normalizeStandupManualEntry = (
-  value: unknown,
-  fallback: StandupManualEntry = defaultStudioStandupManualEntry()
-): StandupManualEntry => {
-  if (!isRecord(value)) return fallback;
-  return {
-    jiraAssignee: normalizeSelectedAgentId(value.jiraAssignee, fallback.jiraAssignee),
-    currentTask: coerceString(value.currentTask) || fallback.currentTask,
-    blockers: coerceString(value.blockers) || fallback.blockers,
-    note: coerceString(value.note) || fallback.note,
-    updatedAt: normalizeOptionalIsoString(value.updatedAt, fallback.updatedAt),
-  };
-};
-
-const normalizeStandupPreference = (
-  value: unknown,
-  fallback: StudioStandupPreference = defaultStudioStandupPreference()
-): StudioStandupPreference => {
-  if (!isRecord(value)) return fallback;
-  const manualByAgentId: Record<string, StandupManualEntry> = {};
-  if (isRecord(value.manualByAgentId)) {
-    for (const [agentIdRaw, entryRaw] of Object.entries(value.manualByAgentId)) {
-      const agentId = coerceString(agentIdRaw);
-      if (!agentId) continue;
-      manualByAgentId[agentId] = normalizeStandupManualEntry(
-        entryRaw,
-        fallback.manualByAgentId[agentId] ?? defaultStudioStandupManualEntry()
-      );
-    }
-  }
-  return {
-    schedule: normalizeStandupScheduleConfig(value.schedule, fallback.schedule),
-    jira: normalizeStandupJiraConfig(value.jira, fallback.jira),
-    manualByAgentId,
-  };
-};
-
-const normalizeStandup = (
-  value: unknown
-): Record<string, StudioStandupPreference> => {
-  if (!isRecord(value)) return {};
-  const standup: Record<string, StudioStandupPreference> = {};
-  for (const [gatewayKeyRaw, standupRaw] of Object.entries(value)) {
-    const gatewayKey = normalizeGatewayKey(gatewayKeyRaw);
-    if (!gatewayKey) continue;
-    standup[gatewayKey] = normalizeStandupPreference(standupRaw);
-  }
-  return standup;
-};
-
-const normalizeTaskBoard = (
-  value: unknown
-): Record<string, StudioTaskBoardPreference> => {
-  if (!isRecord(value)) return {};
-  const taskBoard: Record<string, StudioTaskBoardPreference> = {};
-  for (const [gatewayKeyRaw, taskBoardRaw] of Object.entries(value)) {
-    const gatewayKey = normalizeGatewayKey(gatewayKeyRaw);
-    if (!gatewayKey) continue;
-    taskBoard[gatewayKey] = normalizeTaskBoardPreference(taskBoardRaw);
-  }
-  return taskBoard;
-};
 
 const normalizeFocusedPreference = (
   value: unknown,
@@ -780,14 +449,7 @@ const normalizeGatewayProfiles = (
 ): Partial<Record<StudioGatewayAdapterType, StudioGatewayProfile>> | undefined => {
   if (!isRecord(value)) return undefined;
   const profiles: Partial<Record<StudioGatewayAdapterType, StudioGatewayProfile>> = {};
-  for (const adapterType of [
-    "openclaw",
-    "hermes",
-    "demo",
-    "local",
-    "claw3d",
-    "custom",
-  ] as const) {
+  for (const adapterType of ["openclaw", "demo"] as const) {
     const normalized = normalizeGatewayProfile(value[adapterType]);
     if (normalized) {
       profiles[adapterType] = normalized;
@@ -847,14 +509,7 @@ const mergeGatewayProfiles = (
   const next: Partial<Record<StudioGatewayAdapterType, StudioGatewayProfile>> = {
     ...(current ?? {}),
   };
-  for (const adapterType of [
-    "openclaw",
-    "hermes",
-    "demo",
-    "local",
-    "claw3d",
-    "custom",
-  ] as const) {
+  for (const adapterType of ["openclaw", "demo"] as const) {
     const profilePatch = patch[adapterType];
     if (profilePatch === undefined) continue;
     if (profilePatch === null) {
@@ -899,22 +554,9 @@ const mergeGatewayConnectionState = (
   };
 };
 
-const normalizeGatewayAdapterType = (
-  value: unknown,
-  fallback: StudioGatewayAdapterType = "openclaw"
-): StudioGatewayAdapterType => {
+const normalizeGatewayAdapterType = (value: unknown, fallback: StudioGatewayAdapterType = "openclaw"): StudioGatewayAdapterType => {
   const adapterType = coerceString(value).toLowerCase();
-  if (
-    adapterType === "demo" ||
-    adapterType === "hermes" ||
-    adapterType === "openclaw" ||
-    adapterType === "local" ||
-    adapterType === "claw3d" ||
-    adapterType === "custom"
-  ) {
-    return adapterType;
-  }
-  return fallback;
+  return adapterType === "openclaw" || adapterType === "demo" ? adapterType : fallback;
 };
 
 export const resolveDefaultStudioGatewayProfile = (
@@ -937,13 +579,7 @@ export const resolveDefaultStudioGatewayProfile = (
   }
 
   switch (adapterType) {
-    case "claw3d":
-      return { url: DEFAULT_CLAW3D_RUNTIME_URL, token: "" };
-    case "local":
-      return { url: DEFAULT_LOCAL_RUNTIME_URL, token: "" };
-    case "custom":
-      return { url: DEFAULT_CUSTOM_RUNTIME_URL, token: "" };
-    case "hermes":
+
     case "demo":
       return { url: DEFAULT_LOCAL_ADAPTER_GATEWAY_URL, token: "" };
     case "openclaw":
@@ -1106,26 +742,7 @@ const normalizeOfficePreference = (
   if (!isRecord(value)) return fallback;
   return {
     title: normalizeOfficeTitle(value.title, fallback.title),
-    remoteOfficeEnabled:
-      typeof value.remoteOfficeEnabled === "boolean"
-        ? value.remoteOfficeEnabled
-        : fallback.remoteOfficeEnabled,
-    remoteOfficeSourceKind: normalizeRemoteOfficeSourceKind(
-      value.remoteOfficeSourceKind,
-      fallback.remoteOfficeSourceKind,
-    ),
-    remoteOfficeLabel: normalizeRemoteOfficeLabel(
-      value.remoteOfficeLabel,
-      fallback.remoteOfficeLabel
-    ),
-    remoteOfficePresenceUrl: normalizeRemoteOfficePresenceUrl(
-      value.remoteOfficePresenceUrl ?? value.remoteOfficeUrl,
-    ),
-    remoteOfficeGatewayUrl: normalizeRemoteOfficeGatewayUrl(value.remoteOfficeGatewayUrl),
-    remoteOfficeToken:
-      value.remoteOfficeToken === null
-        ? ""
-        : coerceString(value.remoteOfficeToken) || fallback.remoteOfficeToken,
+
     companyName: normalizeCompanyField(value.companyName ?? fallback.companyName),
     companyPrompt: normalizeCompanyField(value.companyPrompt ?? fallback.companyPrompt),
     companyImprovedBrief: normalizeCompanyField(
@@ -1209,8 +826,7 @@ export const defaultStudioSettings = (): StudioSettings => ({
   deskAssignments: {},
   analytics: {},
   office: {},
-  standup: {},
-  taskBoard: {},
+
 });
 
 export const sanitizeStudioGatewaySettings = (
@@ -1242,28 +858,6 @@ export const sanitizeStudioGatewaySettings = (
   };
 };
 
-export const sanitizeStandupJiraConfig = (
-  value: StandupJiraConfig,
-): StandupJiraConfigPublic => ({
-  ...value,
-  apiToken: "",
-  apiTokenConfigured: value.apiToken.length > 0,
-});
-
-export const sanitizeStandupPreference = (
-  value: StudioStandupPreference,
-): StudioStandupPreferencePublic => ({
-  ...value,
-  jira: sanitizeStandupJiraConfig(value.jira),
-});
-
-export const sanitizeTaskBoardPreference = (
-  value: StudioTaskBoardPreference
-): StudioTaskBoardPreferencePublic => ({
-  cards: value.cards.map((card) => ({ ...card, notes: [...card.notes] })),
-  selectedCardId: value.selectedCardId,
-});
-
 export const sanitizeStudioSettings = (
   value: StudioSettings,
 ): StudioSettingsPublic => ({
@@ -1275,18 +869,7 @@ export const sanitizeStudioSettings = (
       sanitizeStudioOfficePreference(preference),
     ]),
   ),
-  standup: Object.fromEntries(
-    Object.entries(value.standup ?? {}).map(([gatewayKey, preference]) => [
-      gatewayKey,
-      sanitizeStandupPreference(preference),
-    ]),
-  ),
-  taskBoard: Object.fromEntries(
-    Object.entries(value.taskBoard ?? {}).map(([gatewayKey, preference]) => [
-      gatewayKey,
-      sanitizeTaskBoardPreference(preference),
-    ]),
-  ),
+
 });
 
 export const normalizeStudioSettings = (raw: unknown): StudioSettings => {
@@ -1299,8 +882,7 @@ export const normalizeStudioSettings = (raw: unknown): StudioSettings => {
   const deskAssignments = normalizeDeskAssignments(raw.deskAssignments);
   const analytics = normalizeAnalytics(raw.analytics);
   const office = normalizeOffice(raw.office);
-  const standup = normalizeStandup(raw.standup);
-  const taskBoard = normalizeTaskBoard(raw.taskBoard);
+
   return {
     version: SETTINGS_VERSION,
     gateway,
@@ -1311,8 +893,7 @@ export const normalizeStudioSettings = (raw: unknown): StudioSettings => {
     deskAssignments,
     analytics,
     office,
-    standup,
-    taskBoard,
+
   };
 };
 
@@ -1332,8 +913,7 @@ export const mergeStudioSettings = (
   const nextDeskAssignments = { ...current.deskAssignments };
   const nextAnalytics = { ...current.analytics };
   const nextOffice = { ...current.office };
-  const nextStandup = { ...(current.standup ?? {}) };
-  const nextTaskBoard = { ...(current.taskBoard ?? {}) };
+
   if (patch.officeFloors) {
     for (const floor of OFFICE_FLOORS) {
       const floorPatch = patch.officeFloors[floor.id];
@@ -1456,76 +1036,7 @@ export const mergeStudioSettings = (
       );
     }
   }
-  if (patch.standup) {
-    for (const [gatewayKeyRaw, standupPatch] of Object.entries(patch.standup)) {
-      const gatewayKey = normalizeGatewayKey(gatewayKeyRaw);
-      if (!gatewayKey) continue;
-      if (standupPatch === null) {
-        delete nextStandup[gatewayKey];
-        continue;
-      }
-      const fallback =
-        nextStandup[gatewayKey] ?? defaultStudioStandupPreference();
-      const nextManualByAgentId = { ...fallback.manualByAgentId };
-      if (standupPatch.manualByAgentId) {
-        for (const [agentIdRaw, entryPatch] of Object.entries(standupPatch.manualByAgentId)) {
-          const agentId = coerceString(agentIdRaw);
-          if (!agentId) continue;
-          if (entryPatch === null) {
-            delete nextManualByAgentId[agentId];
-            continue;
-          }
-          const manualFallback =
-            nextManualByAgentId[agentId] ?? defaultStudioStandupManualEntry();
-          nextManualByAgentId[agentId] = normalizeStandupManualEntry(
-            {
-              ...manualFallback,
-              ...entryPatch,
-            },
-            manualFallback
-          );
-        }
-      }
-      nextStandup[gatewayKey] = normalizeStandupPreference(
-        {
-          ...fallback,
-          ...standupPatch,
-          schedule: {
-            ...fallback.schedule,
-            ...(isRecord(standupPatch.schedule) ? standupPatch.schedule : {}),
-          },
-          jira: {
-            ...fallback.jira,
-            ...(isRecord(standupPatch.jira) ? standupPatch.jira : {}),
-          },
-          manualByAgentId: nextManualByAgentId,
-        },
-        fallback
-      );
-    }
-  }
-  if (patch.taskBoard) {
-    for (const [gatewayKeyRaw, taskBoardPatch] of Object.entries(patch.taskBoard)) {
-      const gatewayKey = normalizeGatewayKey(gatewayKeyRaw);
-      if (!gatewayKey) continue;
-      if (taskBoardPatch === null) {
-        delete nextTaskBoard[gatewayKey];
-        continue;
-      }
-      const fallback =
-        nextTaskBoard[gatewayKey] ?? defaultStudioTaskBoardPreference();
-      nextTaskBoard[gatewayKey] = normalizeTaskBoardPreference(
-        {
-          ...fallback,
-          ...taskBoardPatch,
-          cards: Array.isArray(taskBoardPatch.cards)
-            ? taskBoardPatch.cards
-            : fallback.cards,
-        },
-        fallback
-      );
-    }
-  }
+
   return {
     version: SETTINGS_VERSION,
     gateway: nextGateway ?? null,
@@ -1536,8 +1047,7 @@ export const mergeStudioSettings = (
     deskAssignments: nextDeskAssignments,
     analytics: nextAnalytics,
     office: nextOffice,
-    standup: nextStandup,
-    taskBoard: nextTaskBoard,
+
   };
 };
 
@@ -1614,22 +1124,4 @@ export const resolveOfficePreferencePublic = (
   const gatewayKey = normalizeGatewayKey(gatewayUrl);
   if (!gatewayKey) return defaultStudioOfficePreferencePublic();
   return settings.office[gatewayKey] ?? defaultStudioOfficePreferencePublic();
-};
-
-export const resolveStandupPreference = (
-  settings: StudioSettings | StudioSettingsPublic,
-  gatewayUrl: string
-): StudioStandupPreference => {
-  const gatewayKey = normalizeGatewayKey(gatewayUrl);
-  if (!gatewayKey) return defaultStudioStandupPreference();
-  return settings.standup?.[gatewayKey] ?? defaultStudioStandupPreference();
-};
-
-export const resolveTaskBoardPreference = (
-  settings: StudioSettings | StudioSettingsPublic,
-  gatewayUrl: string
-): StudioTaskBoardPreference => {
-  const gatewayKey = normalizeGatewayKey(gatewayUrl);
-  if (!gatewayKey) return defaultStudioTaskBoardPreference();
-  return settings.taskBoard?.[gatewayKey] ?? defaultStudioTaskBoardPreference();
 };

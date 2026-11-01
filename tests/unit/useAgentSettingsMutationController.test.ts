@@ -1,25 +1,15 @@
 import { createElement, useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, waitFor } from "@testing-library/react";
-
 import type { AgentPermissionsDraft } from "@/features/agents/operations/agentPermissionsOperation";
-import type { CronCreateDraft } from "@/lib/cron/createPayloadBuilder";
-import type { CronRunResult } from "@/lib/cron/types";
 import type { MutationBlockState } from "@/features/agents/operations/mutationLifecycleWorkflow";
-
 import { useAgentSettingsMutationController } from "@/features/agents/operations/useAgentSettingsMutationController";
-import { deleteAgentRecordViaStudio } from "@/features/agents/operations/deleteAgentOperation";
-import { performCronCreateFlow } from "@/features/agents/operations/cronCreateOperation";
 import { updateAgentPermissionsViaStudio } from "@/features/agents/operations/agentPermissionsOperation";
 import { runAgentConfigMutationLifecycle } from "@/features/agents/operations/mutationLifecycleWorkflow";
-import { runCronJobNow, removeCronJob } from "@/lib/cron/types";
 import { shouldAwaitDisconnectRestartForRemoteMutation } from "@/lib/gateway/gatewayReloadMode";
 import {
-  readGatewayAgentSkillsAllowlist,
-  updateGatewayAgentSkillsAllowlist,
+  deleteGatewayAgent,
 } from "@/lib/gateway/agentConfig";
-import { removeSkillFromGateway } from "@/lib/skills/remove";
-import { installSkill, loadAgentSkillStatus, updateSkill } from "@/lib/skills/types";
 
 let restartBlockHookParams:
   | {
@@ -49,12 +39,9 @@ vi.mock("@/features/agents/operations/useGatewayRestartBlock", () => ({
   },
 }));
 
-vi.mock("@/features/agents/operations/deleteAgentOperation", () => ({
-  deleteAgentRecordViaStudio: vi.fn(),
-}));
-
-vi.mock("@/features/agents/operations/cronCreateOperation", () => ({
-  performCronCreateFlow: vi.fn(),
+vi.mock("@/lib/gateway/agentConfig", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/gateway/agentConfig")>(),
+  deleteGatewayAgent: vi.fn(),
 }));
 
 vi.mock("@/features/agents/operations/agentPermissionsOperation", async () => {
@@ -77,57 +64,8 @@ vi.mock("@/features/agents/operations/mutationLifecycleWorkflow", async () => {
   };
 });
 
-vi.mock("@/lib/cron/types", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/cron/types")>("@/lib/cron/types");
-  return {
-    ...actual,
-    runCronJobNow: vi.fn(),
-    removeCronJob: vi.fn(),
-    listCronJobs: vi.fn(async () => ({ jobs: [] })),
-  };
-});
-
 vi.mock("@/lib/gateway/gatewayReloadMode", () => ({
   shouldAwaitDisconnectRestartForRemoteMutation: vi.fn(async () => false),
-}));
-
-vi.mock("@/lib/gateway/agentConfig", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/gateway/agentConfig")>(
-    "@/lib/gateway/agentConfig"
-  );
-  return {
-    ...actual,
-    readGatewayAgentSkillsAllowlist: vi.fn(async () => undefined),
-    updateGatewayAgentSkillsAllowlist: vi.fn(async () => undefined),
-  };
-});
-
-vi.mock("@/lib/skills/types", () => ({
-  loadAgentSkillStatus: vi.fn(async () => ({
-    workspaceDir: "/tmp/workspace",
-    managedSkillsDir: "/tmp/skills",
-    skills: [],
-  })),
-  installSkill: vi.fn(async () => ({
-    ok: true,
-    message: "Installed",
-    stdout: "",
-    stderr: "",
-    code: 0,
-  })),
-  updateSkill: vi.fn(async () => ({
-    ok: true,
-    skillKey: "browser",
-    config: {},
-  })),
-}));
-
-vi.mock("@/lib/skills/remove", () => ({
-  removeSkillFromGateway: vi.fn(async () => ({
-    removed: true,
-    removedPath: "/tmp/workspace/skills/browser",
-    source: "openclaw-workspace",
-  })),
 }));
 
 type ControllerValue = ReturnType<typeof useAgentSettingsMutationController>;
@@ -137,17 +75,6 @@ const draft: AgentPermissionsDraft = {
   webAccess: true,
   fileTools: false,
 };
-
-const createCronDraft = (): CronCreateDraft => ({
-  templateId: "custom",
-  name: "Nightly sync",
-  taskText: "Sync project status.",
-  scheduleKind: "every",
-  everyAmount: 30,
-  everyUnit: "minutes",
-  deliveryMode: "announce",
-  deliveryChannel: "last",
-});
 
 const renderController = (overrides?: Partial<Parameters<typeof useAgentSettingsMutationController>[0]>) => {
   const setError = vi.fn();
@@ -167,7 +94,7 @@ const renderController = (overrides?: Partial<Parameters<typeof useAgentSettings
   const params: Parameters<typeof useAgentSettingsMutationController>[0] = {
     client: client as never,
     status: "connected",
-    runtimeSupportsCron: true,
+
     isLocalGateway: false,
     agents: [{ agentId: "agent-1", name: "Agent One", sessionKey: "session-1" }] as never,
     hasCreateBlock: false,
@@ -220,60 +147,22 @@ const renderController = (overrides?: Partial<Parameters<typeof useAgentSettings
 };
 
 describe("useAgentSettingsMutationController", () => {
-  const mockedDeleteAgentViaStudio = vi.mocked(deleteAgentRecordViaStudio);
-  const mockedPerformCronCreateFlow = vi.mocked(performCronCreateFlow);
-  const mockedRunCronJobNow = vi.mocked(runCronJobNow);
-  const mockedRemoveCronJob = vi.mocked(removeCronJob);
+  const mockedDeleteAgentViaStudio = vi.mocked(deleteGatewayAgent);
+
   const mockedRunLifecycle = vi.mocked(runAgentConfigMutationLifecycle);
   const mockedUpdateAgentPermissions = vi.mocked(updateAgentPermissionsViaStudio);
   const mockedShouldAwaitRemoteRestart = vi.mocked(shouldAwaitDisconnectRestartForRemoteMutation);
-  const mockedReadGatewayAgentSkillsAllowlist = vi.mocked(readGatewayAgentSkillsAllowlist);
-  const mockedUpdateGatewayAgentSkillsAllowlist = vi.mocked(updateGatewayAgentSkillsAllowlist);
-  const mockedLoadAgentSkillStatus = vi.mocked(loadAgentSkillStatus);
-  const mockedInstallSkill = vi.mocked(installSkill);
-  const mockedRemoveSkillFromGateway = vi.mocked(removeSkillFromGateway);
-  const mockedUpdateSkill = vi.mocked(updateSkill);
 
   beforeEach(() => {
     restartBlockHookParams = null;
     mockedDeleteAgentViaStudio.mockReset();
-    mockedPerformCronCreateFlow.mockReset();
-    mockedRunCronJobNow.mockReset();
-    mockedRemoveCronJob.mockReset();
+
     mockedRunLifecycle.mockReset();
     mockedUpdateAgentPermissions.mockReset();
     mockedShouldAwaitRemoteRestart.mockReset();
-    mockedReadGatewayAgentSkillsAllowlist.mockReset();
-    mockedUpdateGatewayAgentSkillsAllowlist.mockReset();
-    mockedLoadAgentSkillStatus.mockReset();
-    mockedInstallSkill.mockReset();
-    mockedRemoveSkillFromGateway.mockReset();
-    mockedUpdateSkill.mockReset();
+
     mockedShouldAwaitRemoteRestart.mockResolvedValue(false);
-    mockedReadGatewayAgentSkillsAllowlist.mockResolvedValue(undefined);
-    mockedUpdateGatewayAgentSkillsAllowlist.mockResolvedValue(undefined);
-    mockedLoadAgentSkillStatus.mockResolvedValue({
-      workspaceDir: "/tmp/workspace",
-      managedSkillsDir: "/tmp/skills",
-      skills: [],
-    });
-    mockedInstallSkill.mockResolvedValue({
-      ok: true,
-      message: "Installed",
-      stdout: "",
-      stderr: "",
-      code: 0,
-    });
-    mockedRemoveSkillFromGateway.mockResolvedValue({
-      removed: true,
-      removedPath: "/tmp/workspace/skills/browser",
-      source: "openclaw-workspace",
-    });
-    mockedUpdateSkill.mockResolvedValue({
-      ok: true,
-      skillKey: "browser",
-      config: {},
-    });
+
   });
 
   afterEach(() => {
@@ -317,28 +206,6 @@ describe("useAgentSettingsMutationController", () => {
     expect(mockedDeleteAgentViaStudio).not.toHaveBeenCalled();
   });
 
-  it("cron_delete_is_denied_while_run_busy_without_changing_error_state", async () => {
-    mockedRunCronJobNow.mockImplementation(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      return { ok: true, ran: true } satisfies CronRunResult;
-    });
-    const ctx = renderController();
-
-    await act(async () => {
-      void ctx.getValue().handleRunCronJob("agent-1", "job-running");
-    });
-    await waitFor(() => {
-      expect(ctx.getValue().cronRunBusyJobId).toBe("job-running");
-    });
-
-    await act(async () => {
-      await ctx.getValue().handleDeleteCronJob("agent-1", "job-delete");
-    });
-
-    expect(mockedRemoveCronJob).not.toHaveBeenCalled();
-    expect(ctx.getValue().settingsCronError).toBeNull();
-  });
-
   it("allowed_rename_and_delete_delegate_to_lifecycle_runner", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     mockedRunLifecycle.mockImplementation(async ({ deps }) => {
@@ -348,7 +215,7 @@ describe("useAgentSettingsMutationController", () => {
       deps.clearBlock();
       return true;
     });
-    mockedDeleteAgentViaStudio.mockResolvedValue(undefined);
+    mockedDeleteAgentViaStudio.mockResolvedValue({ removed: true, removedBindings: 0 });
 
     const ctx = renderController();
 
@@ -450,484 +317,4 @@ describe("useAgentSettingsMutationController", () => {
     });
   });
 
-  it("create_cron_handler_delegates_to_create_operation", async () => {
-    mockedPerformCronCreateFlow.mockResolvedValue("created");
-    const ctx = renderController();
-
-    await act(async () => {
-      await ctx.getValue().handleCreateCronJob("agent-1", createCronDraft());
-    });
-
-    expect(mockedPerformCronCreateFlow).toHaveBeenCalledTimes(1);
-  });
-
-  it("cron_mutations_fail_fast_when_runtime_lacks_cron_capability", async () => {
-    const ctx = renderController({ runtimeSupportsCron: false });
-
-    await act(async () => {
-      await ctx.getValue().handleCreateCronJob("agent-1", createCronDraft());
-      await ctx.getValue().handleRunCronJob("agent-1", "job-1");
-      await ctx.getValue().handleDeleteCronJob("agent-1", "job-1");
-    });
-
-    expect(mockedPerformCronCreateFlow).not.toHaveBeenCalled();
-    expect(mockedRunCronJobNow).not.toHaveBeenCalled();
-    expect(mockedRemoveCronJob).not.toHaveBeenCalled();
-    expect(ctx.getValue().settingsCronError).toBe("This runtime does not support automations.");
-  });
-
-  it("loads_skills_when_settings_skills_tab_is_active", async () => {
-    const report = {
-      workspaceDir: "/tmp/workspace",
-      managedSkillsDir: "/tmp/skills",
-      skills: [],
-    };
-    mockedLoadAgentSkillStatus.mockResolvedValue(report);
-    const ctx = renderController({
-      settingsRouteActive: true,
-      inspectSidebarAgentId: "agent-1",
-      inspectSidebarTab: "skills",
-    });
-
-    await waitFor(() => {
-      expect(mockedLoadAgentSkillStatus).toHaveBeenCalledWith(expect.anything(), "agent-1");
-      expect(ctx.getValue().settingsSkillsReport).toEqual(report);
-    });
-  });
-
-  it("loads_skills_when_settings_system_tab_is_active", async () => {
-    const report = {
-      workspaceDir: "/tmp/workspace",
-      managedSkillsDir: "/tmp/skills",
-      skills: [],
-    };
-    mockedLoadAgentSkillStatus.mockResolvedValue(report);
-    const ctx = renderController({
-      settingsRouteActive: true,
-      inspectSidebarAgentId: "agent-1",
-      inspectSidebarTab: "system",
-    });
-
-    await waitFor(() => {
-      expect(mockedLoadAgentSkillStatus).toHaveBeenCalledWith(expect.anything(), "agent-1");
-      expect(ctx.getValue().settingsSkillsReport).toEqual(report);
-    });
-  });
-
-  it("use_all_and_disable_all_skills_write_via_config_queue", async () => {
-    const ctx = renderController();
-
-    await act(async () => {
-      await ctx.getValue().handleUseAllSkills("agent-1");
-      await ctx.getValue().handleDisableAllSkills("agent-1");
-    });
-
-    expect(ctx.enqueueConfigMutation).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "update-agent-skills" })
-    );
-    expect(mockedUpdateGatewayAgentSkillsAllowlist).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ agentId: "agent-1", mode: "all" })
-    );
-    expect(mockedUpdateGatewayAgentSkillsAllowlist).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ agentId: "agent-1", mode: "none" })
-    );
-    expect(ctx.loadAgents).toHaveBeenCalledTimes(2);
-    expect(ctx.refreshGatewayConfigSnapshot).toHaveBeenCalledTimes(2);
-    expect(mockedLoadAgentSkillStatus).not.toHaveBeenCalled();
-  });
-
-  it("sets_selected_skills_allowlist_via_config_queue", async () => {
-    const ctx = renderController();
-
-    await act(async () => {
-      await ctx.getValue().handleSetSkillsAllowlist("agent-1", [" github ", "slack", "github"]);
-    });
-
-    expect(ctx.enqueueConfigMutation).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "update-agent-skills" })
-    );
-    expect(mockedUpdateGatewayAgentSkillsAllowlist).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agentId: "agent-1",
-        mode: "allowlist",
-        skillNames: ["github", "slack"],
-      })
-    );
-    expect(ctx.loadAgents).toHaveBeenCalledTimes(1);
-    expect(ctx.refreshGatewayConfigSnapshot).toHaveBeenCalledTimes(1);
-  });
-
-  it("rejects_empty_selected_skills_allowlist_before_gateway_call", async () => {
-    const ctx = renderController();
-
-    await act(async () => {
-      await ctx.getValue().handleSetSkillsAllowlist("agent-1", [" ", ""]);
-    });
-
-    expect(mockedUpdateGatewayAgentSkillsAllowlist).not.toHaveBeenCalled();
-    expect(ctx.getValue().settingsSkillsError).toBe(
-      "Cannot set selected skills mode: choose at least one skill."
-    );
-  });
-
-  it("installs_skill_dependencies_with_per_skill_busy_and_message_state", async () => {
-    mockedLoadAgentSkillStatus.mockResolvedValue({
-      workspaceDir: "/tmp/workspace",
-      managedSkillsDir: "/tmp/skills",
-      skills: [],
-    });
-    const ctx = renderController({
-      settingsRouteActive: true,
-      inspectSidebarAgentId: "agent-1",
-      inspectSidebarTab: "skills",
-    });
-
-    await waitFor(() => {
-      expect(mockedLoadAgentSkillStatus).toHaveBeenCalledTimes(1);
-    });
-
-    await act(async () => {
-      await ctx.getValue().handleInstallSkill("agent-1", "browser", "browser", "install-browser");
-    });
-
-    expect(mockedInstallSkill).toHaveBeenCalledWith(expect.anything(), {
-      name: "browser",
-      installId: "install-browser",
-      timeoutMs: 120000,
-    });
-    expect(ctx.enqueueConfigMutation).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "update-skill-setup" })
-    );
-    expect(ctx.getValue().settingsSkillsBusyKey).toBeNull();
-    expect(ctx.getValue().settingsSkillMessages.browser).toEqual({
-      kind: "success",
-      message: "Installed",
-    });
-    expect(mockedLoadAgentSkillStatus).toHaveBeenCalledTimes(2);
-  });
-
-  it("refreshes_skills_after_system_setup_mutation_when_system_tab_is_active", async () => {
-    mockedLoadAgentSkillStatus.mockResolvedValue({
-      workspaceDir: "/tmp/workspace",
-      managedSkillsDir: "/tmp/skills",
-      skills: [],
-    });
-    const ctx = renderController({
-      settingsRouteActive: true,
-      inspectSidebarAgentId: "agent-1",
-      inspectSidebarTab: "system",
-    });
-
-    await waitFor(() => {
-      expect(mockedLoadAgentSkillStatus).toHaveBeenCalledTimes(1);
-    });
-
-    await act(async () => {
-      await ctx.getValue().handleInstallSkill("agent-1", "browser", "browser", "install-browser");
-    });
-
-    expect(mockedLoadAgentSkillStatus).toHaveBeenCalledTimes(2);
-  });
-
-  it("removes_skill_files_with_per_skill_busy_and_message_state", async () => {
-    mockedLoadAgentSkillStatus.mockResolvedValue({
-      workspaceDir: "/tmp/workspace",
-      managedSkillsDir: "/tmp/skills",
-      skills: [
-        {
-          name: "browser",
-          description: "",
-          source: "openclaw-workspace",
-          bundled: false,
-          filePath: "/tmp/workspace/skills/browser/SKILL.md",
-          baseDir: "/tmp/workspace/skills/browser",
-          skillKey: "browser",
-          always: false,
-          disabled: false,
-          blockedByAllowlist: false,
-          eligible: true,
-          requirements: { bins: [], anyBins: [], env: [], config: [], os: [] },
-          missing: { bins: [], anyBins: [], env: [], config: [], os: [] },
-          configChecks: [],
-          install: [],
-        },
-      ],
-    });
-    const ctx = renderController({
-      settingsRouteActive: true,
-      inspectSidebarAgentId: "agent-1",
-      inspectSidebarTab: "skills",
-    });
-
-    await waitFor(() => {
-      expect(mockedLoadAgentSkillStatus).toHaveBeenCalledTimes(1);
-    });
-    await waitFor(() => {
-      expect(ctx.getValue().settingsSkillsReport?.workspaceDir).toBe("/tmp/workspace");
-    });
-
-    await act(async () => {
-      await ctx.getValue().handleRemoveSkill("agent-1", {
-        skillKey: "browser",
-        source: "openclaw-workspace",
-        baseDir: "/tmp/workspace/skills/browser",
-      });
-    });
-
-    expect(mockedRemoveSkillFromGateway).toHaveBeenCalledWith(
-      expect.objectContaining({
-        skillKey: "browser",
-        source: "openclaw-workspace",
-        baseDir: "/tmp/workspace/skills/browser",
-        workspaceDir: "/tmp/workspace",
-        managedSkillsDir: "/tmp/skills",
-      })
-    );
-    expect(ctx.enqueueConfigMutation).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "update-skill-setup" })
-    );
-    expect(ctx.getValue().settingsSkillsBusyKey).toBeNull();
-    expect(ctx.getValue().settingsSkillMessages.browser).toEqual({
-      kind: "success",
-      message: "Skill removed from gateway files",
-    });
-  });
-
-  it("saves_skill_api_key_via_config_queue_and_refreshes_skills", async () => {
-    mockedLoadAgentSkillStatus.mockResolvedValue({
-      workspaceDir: "/tmp/workspace",
-      managedSkillsDir: "/tmp/skills",
-      skills: [],
-    });
-    const ctx = renderController({
-      settingsRouteActive: true,
-      inspectSidebarAgentId: "agent-1",
-      inspectSidebarTab: "skills",
-    });
-
-    await waitFor(() => {
-      expect(mockedLoadAgentSkillStatus).toHaveBeenCalledTimes(1);
-    });
-
-    await act(async () => {
-      ctx.getValue().handleSkillApiKeyDraftChange("browser", "token-123");
-    });
-    await act(async () => {
-      await ctx.getValue().handleSaveSkillApiKey("agent-1", "browser");
-    });
-
-    expect(mockedUpdateSkill).toHaveBeenCalledWith(expect.anything(), {
-      skillKey: "browser",
-      apiKey: "token-123",
-    });
-    expect(ctx.enqueueConfigMutation).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "update-skill-setup" })
-    );
-    expect(ctx.refreshGatewayConfigSnapshot).toHaveBeenCalledTimes(1);
-    expect(ctx.getValue().settingsSkillApiKeyDrafts.browser).toBe("token-123");
-    expect(ctx.getValue().settingsSkillMessages.browser).toEqual({
-      kind: "success",
-      message: "API key saved",
-    });
-  });
-
-  it("toggles_global_skill_enabled_via_skill_update", async () => {
-    mockedLoadAgentSkillStatus.mockResolvedValue({
-      workspaceDir: "/tmp/workspace",
-      managedSkillsDir: "/tmp/skills",
-      skills: [],
-    });
-    const ctx = renderController({
-      settingsRouteActive: true,
-      inspectSidebarAgentId: "agent-1",
-      inspectSidebarTab: "skills",
-    });
-
-    await waitFor(() => {
-      expect(mockedLoadAgentSkillStatus).toHaveBeenCalledTimes(1);
-    });
-
-    await act(async () => {
-      await ctx.getValue().handleSetSkillGlobalEnabled("agent-1", "browser", false);
-    });
-
-    expect(mockedUpdateSkill).toHaveBeenCalledWith(expect.anything(), {
-      skillKey: "browser",
-      enabled: false,
-    });
-    expect(ctx.enqueueConfigMutation).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "update-skill-setup" })
-    );
-    expect(ctx.refreshGatewayConfigSnapshot).toHaveBeenCalledTimes(1);
-    expect(ctx.getValue().settingsSkillMessages.browser).toEqual({
-      kind: "success",
-      message: "Skill disabled globally",
-    });
-  });
-
-  it("preserves_api_key_draft_and_sets_error_message_when_save_fails", async () => {
-    mockedLoadAgentSkillStatus.mockResolvedValue({
-      workspaceDir: "/tmp/workspace",
-      managedSkillsDir: "/tmp/skills",
-      skills: [],
-    });
-    mockedUpdateSkill.mockRejectedValue(new Error("invalid key"));
-    const ctx = renderController({
-      settingsRouteActive: true,
-      inspectSidebarAgentId: "agent-1",
-      inspectSidebarTab: "skills",
-    });
-
-    await waitFor(() => {
-      expect(mockedLoadAgentSkillStatus).toHaveBeenCalledTimes(1);
-    });
-
-    await act(async () => {
-      ctx.getValue().handleSkillApiKeyDraftChange("browser", "token-123");
-    });
-    await act(async () => {
-      await ctx.getValue().handleSaveSkillApiKey("agent-1", "browser");
-    });
-
-    expect(ctx.getValue().settingsSkillApiKeyDrafts.browser).toBe("token-123");
-    expect(ctx.getValue().settingsSkillsError).toBe("invalid key");
-    expect(ctx.getValue().settingsSkillMessages.browser).toEqual({
-      kind: "error",
-      message: "invalid key",
-    });
-  });
-
-  it("rejects_empty_api_key_before_gateway_call", async () => {
-    mockedLoadAgentSkillStatus.mockResolvedValue({
-      workspaceDir: "/tmp/workspace",
-      managedSkillsDir: "/tmp/skills",
-      skills: [],
-    });
-    const ctx = renderController({
-      settingsRouteActive: true,
-      inspectSidebarAgentId: "agent-1",
-      inspectSidebarTab: "skills",
-    });
-
-    await waitFor(() => {
-      expect(mockedLoadAgentSkillStatus).toHaveBeenCalledTimes(1);
-    });
-
-    await act(async () => {
-      ctx.getValue().handleSkillApiKeyDraftChange("browser", "   ");
-    });
-    await act(async () => {
-      await ctx.getValue().handleSaveSkillApiKey("agent-1", "browser");
-    });
-
-    expect(mockedUpdateSkill).not.toHaveBeenCalled();
-    expect(ctx.getValue().settingsSkillsError).toBe("API key cannot be empty.");
-    expect(ctx.getValue().settingsSkillMessages.browser).toEqual({
-      kind: "error",
-      message: "API key cannot be empty.",
-    });
-  });
-
-  it("disabling_one_skill_from_implicit_all_writes_explicit_allowlist", async () => {
-    mockedLoadAgentSkillStatus.mockResolvedValue({
-      workspaceDir: "/tmp/workspace",
-      managedSkillsDir: "/tmp/skills",
-      skills: [
-        {
-          name: "github",
-          description: "",
-          source: "shared",
-          bundled: false,
-          filePath: "/tmp/skills/github/SKILL.md",
-          baseDir: "/tmp/skills/github",
-          skillKey: "github",
-          always: false,
-          disabled: false,
-          blockedByAllowlist: false,
-          eligible: true,
-          requirements: { bins: [], anyBins: [], env: [], config: [], os: [] },
-          missing: { bins: [], anyBins: [], env: [], config: [], os: [] },
-          configChecks: [],
-          install: [],
-        },
-        {
-          name: "browser",
-          description: "",
-          source: "bundled",
-          bundled: true,
-          filePath: "/tmp/skills/browser/SKILL.md",
-          baseDir: "/tmp/skills/browser",
-          skillKey: "browser",
-          always: false,
-          disabled: false,
-          blockedByAllowlist: false,
-          eligible: true,
-          requirements: { bins: [], anyBins: [], env: [], config: [], os: [] },
-          missing: { bins: [], anyBins: [], env: [], config: [], os: [] },
-          configChecks: [],
-          install: [],
-        },
-        {
-          name: "slack",
-          description: "",
-          source: "shared",
-          bundled: false,
-          filePath: "/tmp/skills/slack/SKILL.md",
-          baseDir: "/tmp/skills/slack",
-          skillKey: "slack",
-          always: false,
-          disabled: false,
-          blockedByAllowlist: false,
-          eligible: true,
-          requirements: { bins: [], anyBins: [], env: [], config: [], os: [] },
-          missing: { bins: [], anyBins: [], env: [], config: [], os: [] },
-          configChecks: [],
-          install: [],
-        },
-        {
-          name: "apple-notes",
-          description: "",
-          source: "openclaw-managed",
-          bundled: false,
-          filePath: "/tmp/skills/apple-notes/SKILL.md",
-          baseDir: "/tmp/skills/apple-notes",
-          skillKey: "apple-notes",
-          always: false,
-          disabled: false,
-          blockedByAllowlist: false,
-          eligible: false,
-          requirements: { bins: [], anyBins: [], env: [], config: [], os: ["darwin"] },
-          missing: { bins: [], anyBins: [], env: [], config: [], os: ["darwin"] },
-          configChecks: [],
-          install: [],
-        },
-      ],
-    });
-    const ctx = renderController({
-      settingsRouteActive: true,
-      inspectSidebarAgentId: "agent-1",
-      inspectSidebarTab: "skills",
-    });
-
-    await waitFor(() => {
-      expect(ctx.getValue().settingsSkillsReport?.skills.length).toBe(4);
-    });
-
-    await act(async () => {
-      await ctx.getValue().handleSetSkillEnabled("agent-1", "browser", false);
-    });
-
-    expect(mockedReadGatewayAgentSkillsAllowlist).toHaveBeenCalledWith(
-      expect.objectContaining({ agentId: "agent-1" })
-    );
-    expect(mockedUpdateGatewayAgentSkillsAllowlist).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        agentId: "agent-1",
-        mode: "allowlist",
-        skillNames: ["github", "slack"],
-      })
-    );
-  });
 });

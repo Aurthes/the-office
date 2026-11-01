@@ -1,6 +1,19 @@
 import { expect, it } from "vitest";
 import { emptySpaceEncounter, emptySpacePose, sampleAsteroid, samplePassingShip, sampleSpaceEncounter, SPACE_ACTIVITY_BUDGET, writeSpaceDust } from "@/features/ring-ship/space-activity";
 
+it("uses the same encounter window for advance warnings, visible traffic and departure countdowns", () => {
+  for (const seed of [0, 1, 4]) for (const cycle of [0, 1, 9]) {
+    const now = cycle * 80, next = sampleSpaceEncounter(now, seed, emptySpaceEncounter());
+    const start = now + next.trafficStartsIn, end = now + next.trafficEndsIn;
+    expect(next.trafficId).toBe(cycle);
+    const warning = sampleSpaceEncounter(start - 5, seed, emptySpaceEncounter());
+    expect(warning.trafficStartsIn).toBeCloseTo(5); expect(warning.trafficCount).toBe(0);
+    const passing = sampleSpaceEncounter(start + 1, seed, emptySpaceEncounter());
+    expect(passing.trafficCount).toBe(next.trafficSize); expect(passing.trafficEndsIn).toBeCloseTo(end - start - 1);
+    expect(sampleSpaceEncounter(end + .01, seed, emptySpaceEncounter()).trafficCount).toBe(0);
+  }
+});
+
 it("varies quiet, traffic, and planetary encounters within fixed, bounded pools", () => {
   const state = emptySpaceEncounter(), labels = new Set<string>(), routes = new Set<string>();
   for (let seed = 0; seed < 5; seed++) for (let time = 0; time < 600; time += .5) {

@@ -88,10 +88,7 @@ const loadUpstreamGatewaySettings = (env = process.env) => {
   const gateway = parsed && typeof parsed === "object" ? parsed.gateway : null;
   const savedUrl = typeof gateway?.url === "string" ? gateway.url.trim() : "";
   const token = typeof gateway?.token === "string" ? gateway.token.trim() : "";
-  const adapterType =
-    typeof gateway?.adapterType === "string" && gateway.adapterType.trim()
-      ? gateway.adapterType.trim()
-      : "openclaw";
+  const adapterType = gateway?.adapterType === "demo" ? "demo" : "openclaw";
   const managedUrl = env.CLAW3D_CODEX_GATEWAY === "1" && adapterType === "openclaw"
     ? env.CLAW3D_GATEWAY_URL?.trim()
     : "";

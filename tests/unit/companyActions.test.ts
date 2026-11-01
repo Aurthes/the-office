@@ -5,6 +5,22 @@ import { CompanyActions } from "../../src/features/office/components/CompanyActi
 afterEach(cleanup);
 const projects = [{ id: "p", name: "Native project" }];
 describe("company creation controls", () => {
+  it.each([{ available: [] }, { available: projects }])("recruits into Open Space without creating or assigning a project", async ({ available }) => {
+    const call = vi.fn(async (method: string) => method === "office.account" ? { loggedIn: true } : { threadId: "unassigned" }), onCreated = vi.fn(async () => {});
+    render(React.createElement(CompanyActions, { client: { call }, projects: available, disabled: false, onCreated }));
+    expect(screen.getByRole("button", { name: "+ Recruit agent" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "+ Recruit agent" }));
+    fireEvent.change(screen.getByLabelText("Project"), { target: { value: "" } });
+    expect(screen.getByLabelText("Project")).not.toBeRequired();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Explorer" } });
+    expect(screen.getByLabelText("Working folder")).toBeRequired();
+    fireEvent.change(screen.getByLabelText("Working folder"), { target: { value: "/existing/work" } });
+    fireEvent.click(screen.getByRole("button", { name: "Recruit and create session" }));
+    await act(async () => {});
+    expect(call).toHaveBeenCalledWith("session.create", { name: "Explorer", projectId: null, workspace: "/existing/work", requestId: expect.any(String) });
+    expect(call.mock.calls.some(([method]) => method === "project.create")).toBe(false);
+    expect(onCreated).toHaveBeenCalledWith("unassigned");
+  });
   it("creates an Office project referencing existing folders", async () => {
     const call = vi.fn(async () => ({ project: { id: "new" } })), onCreated = vi.fn(async () => {});
     render(React.createElement(CompanyActions, { client: { call }, projects, disabled: false, onCreated }));

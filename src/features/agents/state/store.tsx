@@ -58,7 +58,7 @@ export type AgentState = AgentStoreSeed & {
   streamText: string | null;
   thinkingTrace: string | null;
   latestOverride: string | null;
-  latestOverrideKind: "heartbeat" | "cron" | null;
+  latestOverrideKind: "heartbeat" | null;
   lastAssistantMessageAt: number | null;
   lastActivityAt: number | null;
   latestPreview: string | null;

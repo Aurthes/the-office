@@ -331,21 +331,6 @@ Files:
 - Resolve operation: `src/features/agents/approvals/execApprovalResolveOperation.ts`
 - Wiring (subscribe + render): `src/app/page.tsx`, `src/features/agents/components/AgentChatPanel.tsx`
 
-## Media Rendering (Images From Agent Output)
-
-If an agent outputs lines like:
-- `MEDIA: /home/ubuntu/.openclaw/.../image.png`
-
-Studio may render them inline:
-1. UI rewrites eligible `MEDIA:` lines into markdown images (`![](/api/gateway/media?path=...)`) but avoids rewriting inside fenced code blocks.
-2. The browser requests `/api/gateway/media`.
-3. The API route reads the image either locally (only under `~/.openclaw`) or over SSH for remote gateways, and returns the bytes with the correct `Content-Type`.
-
-Files:
-- Rewrite helper: `src/lib/text/media-markdown.ts`
-- Media API route: `src/app/api/gateway/media/route.ts`
-- SSH helper + env vars (`OPENCLAW_GATEWAY_SSH_TARGET`, `OPENCLAW_GATEWAY_SSH_USER`): `src/lib/ssh/gateway-host.ts`
-
 ## Debugging Checklist (When Chat “Feels Buggy”)
 
 Start with the hop where symptoms appear.
@@ -363,10 +348,6 @@ Streaming correctness (missing/duplicated output):
 History and ordering issues:
 - `chat.history` merge logic and dedupe: `src/features/agents/operations/historySyncOperation.ts`
 - Transcript entry ordering/fingerprints: `src/features/agents/state/transcript.ts`
-
-Media not rendering:
-- `MEDIA:` rewrite behavior and code-fence skipping: `src/lib/text/media-markdown.ts`
-- Image fetch route behavior (local vs SSH, allowlisted extensions, size limits): `src/app/api/gateway/media/route.ts`
 
 If you need Gateway-side observability:
 - Capture the exact `connect` settings used by Studio (URL + token are stored server-side in the Studio settings file).

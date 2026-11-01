@@ -14,8 +14,7 @@ import type { InteractiveFurnitureModelProps } from "@/features/retro-office/obj
 
 export type JukeboxModelProps = InteractiveFurnitureModelProps & {
   active?: boolean;
-  /** False when the soundclaw skill is not installed. */
-  enabled?: boolean;
+
 };
 
 const C = {
@@ -38,7 +37,7 @@ export function JukeboxModel({
   isSelected,
   isHovered,
   active = false,
-  enabled = true,
+
   onPointerDown,
   onPointerOver,
   onPointerOut,
@@ -57,11 +56,7 @@ export function JukeboxModel({
   const scaleZ = (height * SCALE) / 0.7;
 
   const highlighted = isSelected || isHovered;
-  const playing = active && enabled;
-
-  // When the skill isn't installed, desaturate everything to grey.
-  const tint = (enabledColor: string, disabledColor: string) =>
-    enabled ? enabledColor : disabledColor;
+  const playing = active;
 
   useFrame((_state, delta) => {
     if (recordRef.current) {
@@ -87,7 +82,7 @@ export function JukeboxModel({
         <mesh position={[0, 0.75, 0]} castShadow receiveShadow>
           <boxGeometry args={[0.8, 1.2, 0.6]} />
           <meshStandardMaterial
-            color={tint(highlighted ? "#0f9a8e" : C.cabinet, highlighted ? "#555" : "#444")}
+            color={highlighted ? "#0f9a8e" : C.cabinet}
             roughness={0.6}
             metalness={0.1}
           />
@@ -96,22 +91,22 @@ export function JukeboxModel({
         {/* Cabinet top dome (tapered cylinder). */}
         <mesh position={[0, 1.4, 0]} castShadow>
           <cylinderGeometry args={[0.45, 0.5, 0.2, 32]} />
-          <meshStandardMaterial color={tint(C.cabinetDark, "#333")} roughness={0.5} metalness={0.2} />
+          <meshStandardMaterial color={C.cabinetDark} roughness={0.5} metalness={0.2} />
         </mesh>
 
         {/* Chrome dome cap. */}
         <mesh position={[0, 1.55, 0]} castShadow>
           <sphereGeometry args={[0.15, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
-          <meshStandardMaterial color={tint(C.metal, "#666")} roughness={0.3} metalness={0.8} />
+          <meshStandardMaterial color={C.metal} roughness={0.3} metalness={0.8} />
         </mesh>
 
         {/* Display screen. */}
         <mesh position={[0, 1.1, 0.31]}>
           <planeGeometry args={[0.6, 0.35]} />
           <meshStandardMaterial
-            color={tint(C.display, "#1a1a1a")}
-            emissive={enabled ? (playing ? C.neonActive : C.neon) : "#333"}
-            emissiveIntensity={enabled ? (localHovered || isHovered ? 0.5 : 0.2) : 0.08}
+            color={C.display}
+            emissive={(playing ? C.neonActive : C.neon)}
+            emissiveIntensity={(localHovered || isHovered ? 0.5 : 0.2)}
           />
         </mesh>
 
@@ -119,13 +114,13 @@ export function JukeboxModel({
         <Billboard position={[0, 1.1, 0.32]} follow={false}>
           <Text
             fontSize={0.07}
-            color={enabled ? C.displayText : "#666"}
+            color={C.displayText}
             anchorX="center"
             anchorY="middle"
             maxWidth={0.55}
             textAlign="center"
           >
-            {enabled ? (playing ? "♪  NOW PLAYING" : "SOUNDCLAW") : "NOT INSTALLED"}
+            {(playing ? "♪  NOW PLAYING" : "SOUNDCLAW")}
           </Text>
         </Billboard>
 
@@ -163,9 +158,9 @@ export function JukeboxModel({
             <mesh key={i} position={[-0.15 + i * 0.075, 0, 0.01]}>
               <cylinderGeometry args={[0.025, 0.025, 0.02, 16]} />
               <meshStandardMaterial
-                color={enabled ? color : "#555"}
-                emissive={enabled ? color : "#222"}
-                emissiveIntensity={enabled ? 0.5 : 0.05}
+                color={color}
+                emissive={color}
+                emissiveIntensity={0.5}
               />
             </mesh>
           ))}
@@ -174,27 +169,18 @@ export function JukeboxModel({
         {/* Side grilles (translucent). */}
         <mesh position={[-0.35, 0.75, 0]} rotation={[0, Math.PI / 2, 0]}>
           <planeGeometry args={[0.8, 0.6]} />
-          <meshStandardMaterial color={tint(C.metalDark, "#3a3a3a")} roughness={0.5} metalness={0.4} transparent opacity={0.8} />
+          <meshStandardMaterial color={C.metalDark} roughness={0.5} metalness={0.4} transparent opacity={0.8} />
         </mesh>
         <mesh position={[0.35, 0.75, 0]} rotation={[0, -Math.PI / 2, 0]}>
           <planeGeometry args={[0.8, 0.6]} />
-          <meshStandardMaterial color={tint(C.metalDark, "#3a3a3a")} roughness={0.5} metalness={0.4} transparent opacity={0.8} />
+          <meshStandardMaterial color={C.metalDark} roughness={0.5} metalness={0.4} transparent opacity={0.8} />
         </mesh>
 
         {/* Base plinth. */}
         <mesh position={[0, 0.05, 0]} receiveShadow>
           <boxGeometry args={[0.9, 0.1, 0.7]} />
-          <meshStandardMaterial color={tint(C.cabinetDark, "#2a2a2a")} roughness={0.7} metalness={0.1} />
+          <meshStandardMaterial color={C.cabinetDark} roughness={0.7} metalness={0.1} />
         </mesh>
-
-        {/* Floating "Install skill" hint above the machine when disabled and hovered. */}
-        {!enabled && (localHovered || isHovered) && (
-          <Billboard position={[0, 2.0, 0]} follow={false}>
-            <Text fontSize={0.07} color="#facc15" anchorX="center" anchorY="middle" outlineWidth={0.01} outlineColor="#000">
-              Click to install SOUNDCLAW
-            </Text>
-          </Billboard>
-        )}
 
         {/* Green point light when a song is playing. */}
         {playing && (

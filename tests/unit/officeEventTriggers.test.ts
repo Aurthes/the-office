@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-
 import type { AgentState, AgentStoreSeed } from "@/features/agents/state/store";
 import { createTranscriptEntryFromLine } from "@/features/agents/state/transcript";
 import {
@@ -177,38 +176,7 @@ describe("office event triggers", () => {
     });
 
     expect(afterStandup.manualGymUntilByAgentId.worker).toBeGreaterThan(5_000);
-    expect(afterStandup.pendingStandupRequest?.message).toBe(
-      "Start the standup meeting.",
-    );
-  });
 
-  it("does not replay standup commands from old transcript history", () => {
-    const sessionKey = "agent:main:main";
-    const agents = [
-      makeAgent({
-        agentId: "main",
-        name: "Main",
-        sessionKey,
-        lastUserMessage: "Start the standup meeting.",
-        transcriptEntries: [
-          makeTranscriptEntry({
-            line: "Start the standup meeting.",
-            role: "user",
-            sequenceKey: 1,
-            sessionKey,
-            timestampMs: 10_000,
-          }),
-        ],
-      }),
-    ];
-
-    const state = reconcileOfficeAnimationTriggerState({
-      state: createOfficeAnimationTriggerState(),
-      agents,
-      nowMs: 100_000,
-    });
-
-    expect(state.pendingStandupRequest).toBeNull();
   });
 
   it("treats final transport chat messages without an explicit user role as commands", () => {

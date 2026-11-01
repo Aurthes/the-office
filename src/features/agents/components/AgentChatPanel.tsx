@@ -17,7 +17,6 @@ import { markdownCodeComponents } from "@/components/markdown-code-block";
 import { Check, ChevronRight, Clock, Mic, Paperclip, Pencil, Trash2, X } from "lucide-react";
 import type { GatewayModelChoice } from "@/lib/gateway/models";
 import type { AgentAvatarProfile } from "@/lib/avatars/profile";
-import { rewriteMediaLinesToMarkdown } from "@/lib/text/media-markdown";
 import { normalizeAssistantDisplayText } from "@/lib/text/assistantText";
 import { isNearBottom } from "@/lib/dom";
 import { AgentAvatar } from "./AgentAvatar";
@@ -317,7 +316,7 @@ const ToolCallDetails = memo(function ToolCallDetails({
       {open && body ? (
         <div className="agent-markdown agent-tool-markdown mt-1 text-foreground">
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownCodeComponents}>
-            {rewriteMediaLinesToMarkdown(body)}
+            {body}
           </ReactMarkdown>
         </div>
       ) : null}
@@ -551,7 +550,7 @@ const AssistantMessageCard = memo(function AssistantMessageCard({
                         </div>
                       );
                     }
-                    const rewritten = rewriteMediaLinesToMarkdown(contentText);
+                    const rewritten = contentText;
                     if (!rewritten.includes("![](")) {
                       return (
                         <div className="whitespace-pre-wrap break-words text-foreground">
@@ -568,7 +567,7 @@ const AssistantMessageCard = memo(function AssistantMessageCard({
                 ) : (
                   <div className="agent-markdown text-foreground">
                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownCodeComponents}>
-                      {rewriteMediaLinesToMarkdown(contentText)}
+                      {contentText}
                     </ReactMarkdown>
                   </div>
                 )}

@@ -33,6 +33,14 @@ polling, database, network connection or model request.
 
 ## Travel and views
 
+Nearby asteroids and passing vessels can be clicked or tapped. The existing
+object card and camera framing follow the selected object until it leaves;
+dragging still rotates the view. A small upper-right traffic card appears six
+scene seconds before a vessel or convoy arrives, then counts down its departure.
+It uses the same scene clock as the vessels, disappears after the encounter,
+and can be dismissed for that encounter. Navigation, dialogs and reduced-motion
+preferences suppress the traffic notice along with the appropriate scene state.
+
 Click the central axis or its anchored **中央升降梯** sign to choose a destination.
 The current deck is disabled. The camera approaches the lift, switches to the
 cabin's first-person view during vertical travel, then opens the destination deck.

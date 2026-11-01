@@ -10,12 +10,9 @@ import {
   type AwaitingUserInputPatch,
 } from "@/features/agents/approvals/execApprovalRuntimeCoordinator";
 import { shouldPauseRunForPendingExecApproval } from "@/features/agents/approvals/execApprovalPausePolicy";
-import {
-  resolveGatewayEventIngressDecision,
-  type CronTranscriptIntent,
-} from "@/features/agents/state/gatewayEventIngressWorkflow";
 import type { AgentState } from "@/features/agents/state/store";
 import type { EventFrame } from "@/lib/gateway/GatewayClient";
+import { resolveExecApprovalEventEffects } from "@/features/agents/approvals/execApprovalLifecycleWorkflow";
 
 export type ExecApprovalPendingSnapshot = ApprovalPendingState;
 
@@ -27,8 +24,7 @@ export type ExecApprovalIngressCommand =
       preferredAgentId: string | null;
     }
   | { kind: "markActivity"; agentId: string }
-  | { kind: "recordCronDedupeKey"; dedupeKey: string }
-  | { kind: "appendCronTranscript"; intent: CronTranscriptIntent };
+;
 
 export type PauseRunIntent =
   | { kind: "skip"; reason: string }
@@ -158,19 +154,18 @@ export const planIngressCommands = (params: {
   agents: AgentState[];
   pendingState: ApprovalPendingState;
   pausedRunIdByAgentId: ReadonlyMap<string, string>;
-  seenCronDedupeKeys: ReadonlySet<string>;
+
   nowMs: number;
 }): ExecApprovalIngressCommand[] => {
-  const ingressDecision = resolveGatewayEventIngressDecision({
+  const ingressDecision = resolveExecApprovalEventEffects({
     event: params.event,
     agents: params.agents,
-    seenCronDedupeKeys: params.seenCronDedupeKeys,
-    nowMs: params.nowMs,
+
   });
 
   const approvalIngress = applyApprovalIngressEffects({
     pendingState: params.pendingState,
-    approvalEffects: ingressDecision.approvalEffects,
+    approvalEffects: ingressDecision,
     agents: params.agents,
     pausedRunIdByAgentId: params.pausedRunIdByAgentId,
   });
@@ -196,20 +191,6 @@ export const planIngressCommands = (params: {
 
   for (const agentId of approvalIngress.markActivityAgentIds) {
     commands.push({ kind: "markActivity", agentId });
-  }
-
-  if (ingressDecision.cronDedupeKeyToRecord) {
-    commands.push({
-      kind: "recordCronDedupeKey",
-      dedupeKey: ingressDecision.cronDedupeKeyToRecord,
-    });
-  }
-
-  if (ingressDecision.cronTranscriptIntent) {
-    commands.push({
-      kind: "appendCronTranscript",
-      intent: ingressDecision.cronTranscriptIntent,
-    });
   }
 
   return commands;

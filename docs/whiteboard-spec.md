@@ -387,7 +387,6 @@ Recommended order:
 This feature should align with:
 
 - standup systems in `src/features/office/hooks/useOfficeStandupController.ts`
-- standup API routes under `src/app/api/office/standup`
 - retro office whiteboard objects and room interactions
 - office settings persistence
 - task board seeding concepts already present in office task flows

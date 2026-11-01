@@ -1,4 +1,4 @@
-import type { CronJobSummary } from "@/lib/cron/types";
+
 import {
   buildLatestUpdatePatch,
   resolveLatestUpdateIntent,
@@ -44,12 +44,10 @@ const findLatestHeartbeatResponse = (messages: ChatHistoryMessage[]) => {
 
 export type SpecialLatestUpdateDeps = {
   callGateway: (method: string, params: unknown) => Promise<unknown>;
-  listCronJobs: () => Promise<{ jobs: CronJobSummary[] }>;
-  resolveCronJobForAgent: (jobs: CronJobSummary[], agentId: string) => CronJobSummary | null;
-  formatCronJobDisplay: (job: CronJobSummary) => string;
+
   dispatchUpdateAgent: (
     agentId: string,
-    patch: { latestOverride: string | null; latestOverrideKind: "heartbeat" | "cron" | null }
+    patch: { latestOverride: string | null; latestOverrideKind: "heartbeat" | null }
   ) => void;
   isDisconnectLikeError: (err: unknown) => boolean;
   logError: (message: string) => void;
@@ -115,16 +113,10 @@ export function createSpecialLatestUpdateOperation(
         return;
       }
 
-      if (intent.kind === "fetch-cron") {
-        const cronResult = await deps.listCronJobs();
-        const job = deps.resolveCronJobForAgent(cronResult.jobs, intent.agentId);
-        const content = job ? deps.formatCronJobDisplay(job) : "";
-        deps.dispatchUpdateAgent(agent.agentId, buildLatestUpdatePatch(content, "cron"));
-      }
     } catch (err) {
       if (!deps.isDisconnectLikeError(err)) {
         const message =
-          err instanceof Error ? err.message : "Failed to load latest cron/heartbeat update.";
+          err instanceof Error ? err.message : "Failed to load latest heartbeat update.";
         deps.logError(message);
       }
     } finally {
@@ -144,4 +136,3 @@ export function createSpecialLatestUpdateOperation(
 
   return { update, refreshHeartbeat, clearInFlight };
 }
-

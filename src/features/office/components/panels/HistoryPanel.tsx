@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-
 import type { AgentState } from "@/features/agents/state/store";
 import type { RunRecord, RunTriggerKind } from "@/features/office/hooks/useRunLog";
 
@@ -27,7 +26,7 @@ const formatDuration = (startedAt: number, endedAt: number | null) => {
 const TRIGGER_LABELS: Record<RunTriggerKind, string> = {
   user: "USER",
   heartbeat: "HEARTBEAT",
-  cron: "CRON",
+
 };
 
 export function HistoryPanel({
@@ -92,7 +91,7 @@ export function HistoryPanel({
             <option value="all">All triggers</option>
             <option value="user">User</option>
             <option value="heartbeat">Heartbeat</option>
-            <option value="cron">Cron</option>
+
           </select>
         </label>
       </div>

@@ -8,7 +8,7 @@ export type OfficeDeskDirective = "desk" | "release";
 export type OfficeGithubDirective = "github" | "release";
 export type OfficeGymDirective = "gym" | "release";
 export type OfficeQaDirective = "qa_lab" | "release";
-export type OfficeStandupDirective = "standup";
+
 export type OfficeCallPhase = "needs_message" | "ready_to_call";
 export type OfficeTextPhase = "needs_message" | "ready_to_send";
 export type OfficeCallDirective = {
@@ -33,7 +33,7 @@ export type OfficeIntentSnapshot = {
     | null;
   qa: OfficeQaDirective | null;
   art: null;
-  standup: OfficeStandupDirective | null;
+
   call: OfficeCallDirective | null;
   text: OfficeTextDirective | null;
 };
@@ -168,7 +168,6 @@ const resolveOfficeGymSkillDirectiveFromNormalized = (
   }
   const skillIntentPatterns = [
     /\bskills?\b/,
-    /\bskills?\s+marketplace\b/,
     /\bbuild\s+(?:another\s+)?skill\b/,
     /\bcreate\s+(?:another\s+)?skill\b/,
     /\bdevelop\s+(?:another\s+)?skill\b/,
@@ -241,50 +240,6 @@ const resolveOfficeQaDirectiveFromNormalized = (
 
   return qaIntentPatterns.some((pattern) => pattern.test(normalized))
     ? "qa_lab"
-    : null;
-};
-
-const resolveOfficeStandupDirectiveFromNormalized = (
-  normalized: string,
-): OfficeStandupDirective | null => {
-  const hasMeetingKeyword =
-    normalized.includes("standup") ||
-    normalized.includes("scrum") ||
-    normalized.includes("standard meeting");
-  if (
-    normalized.includes("meeting time") ||
-    normalized.includes("standup meeting") ||
-    normalized.includes("scrum meeting") ||
-    normalized.includes("standard meeting")
-  ) {
-    return "standup";
-  }
-  if (
-    hasMeetingKeyword &&
-    (normalized.includes("let's have") ||
-      normalized.includes("lets have") ||
-      normalized.includes("have a") ||
-      normalized.includes("start the") ||
-      normalized.includes("start "))
-  ) {
-    return "standup";
-  }
-  const standupIntentPatterns = [
-    /\b(?:lets|let's)\s+have\s+(?:a\s+)?standup(?:\s+meeting)?\b/,
-    /\b(?:lets|let's)\s+have\s+(?:a\s+)?scrum(?:\s+meeting)?\b/,
-    /\b(?:lets|let's)\s+have\s+(?:a\s+)?standard\s+meeting\b/,
-    /\bstandup\s+meeting\b/,
-    /\bscrum\s+meeting\b/,
-    /\bstandard\s+meeting\b/,
-    /\bmeeting\s+time\b/,
-    /\bscrum\s+meeting\s+time\b/,
-    /\bstandup\s+time\b/,
-    /\bstart\s+(?:the\s+)?standup\b/,
-    /\bstart\s+(?:the\s+)?scrum\b/,
-    /\bhave\s+(?:a\s+)?meeting\b/,
-  ];
-  return standupIntentPatterns.some((pattern) => pattern.test(normalized))
-    ? "standup"
     : null;
 };
 
@@ -419,7 +374,7 @@ export const resolveOfficeIntentSnapshot = (
       gym: null,
       qa: null,
       art: null,
-      standup: null,
+
       call: null,
       text: null,
     };
@@ -436,7 +391,7 @@ export const resolveOfficeIntentSnapshot = (
   );
   const qaDirective = resolveOfficeQaDirectiveFromNormalized(normalized);
   const gymSkillDirective = resolveOfficeGymSkillDirectiveFromNormalized(normalized);
-  const standupDirective = resolveOfficeStandupDirectiveFromNormalized(normalized);
+
   const callDirective = resolveOfficeCallDirectiveFromNormalized(normalized);
   const textDirective = resolveOfficeTextDirectiveFromNormalized(normalized);
   const gymDirective = gymManualDirective
@@ -468,7 +423,7 @@ export const resolveOfficeIntentSnapshot = (
     gym: gymDirective,
     qa: qaDirective,
     art: null,
-    standup: standupDirective,
+
     call: callDirective,
     text: textDirective,
   });
@@ -500,10 +455,6 @@ export const resolveOfficeQaDirective = (
   value: string | null | undefined,
 ): OfficeQaDirective | null => resolveOfficeIntentSnapshot(value).qa;
 
-export const resolveOfficeStandupDirective = (
-  value: string | null | undefined,
-): OfficeStandupDirective | null => resolveOfficeIntentSnapshot(value).standup;
-
 export const resolveOfficeCallDirective = (
   value: string | null | undefined,
 ): OfficeCallDirective | null => resolveOfficeIntentSnapshot(value).call;
@@ -517,8 +468,7 @@ const resolveTranscriptDirective = <
     | OfficeDeskDirective
     | OfficeGithubDirective
     | OfficeGymDirective
-    | OfficeQaDirective
-    | OfficeStandupDirective,
+    | OfficeQaDirective,
 >(
   entries: TranscriptEntry[] | undefined,
   resolver: (value: string | null | undefined) => TDirective | null,
