@@ -148,3 +148,38 @@ it("uses the new scene for the following song without interrupting the current o
   await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes("scene=blue-nebula"))).toBe(true));
   await waitFor(() => expect(audio).toHaveAttribute("src", "https://audio.music.126.net/next.mp3"));
 });
+it("automatically starts the scene mix on Office entry without opening the dialog", async () => {
+  render(createElement(MusicPlayerDialog, { autoPlay: true, open: false, onOpen: vi.fn(), onClose: vi.fn() }));
+  await waitFor(() => expect(document.querySelector("audio")).toHaveAttribute("src", "https://audio.music.126.net/test.mp3"));
+  expect(HTMLMediaElement.prototype.play).toHaveBeenCalledOnce();
+  expect(document.querySelector("dialog")?.open).toBe(false);
+  expect(screen.getByRole("region", { name: "Background music" })).toHaveTextContent("Track One");
+});
+it("retries blocked autoplay in a page gesture, then respects Pause across scene changes", async () => {
+  vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce(new DOMException("Gesture required", "NotAllowedError"));
+  const props = { autoPlay: true, open: false, onOpen: vi.fn(), onClose: vi.fn() };
+  const view = render(createElement(MusicPlayerDialog, props));
+  expect(await screen.findByRole("status")).toHaveTextContent("Tap to start music");
+  const audio = document.querySelector("audio")!;
+  fireEvent.click(document.body); expect(audio.play).toHaveBeenCalledTimes(2); fireEvent.play(audio);
+  fireEvent.click(document.body); expect(audio.play).toHaveBeenCalledTimes(2);
+  Object.defineProperty(audio, "paused", { configurable: true, value: false });
+  fireEvent.click(screen.getByRole("button", { name: "Pause music" })); fireEvent.pause(audio);
+  view.rerender(createElement(MusicPlayerDialog, { ...props, scene: "blue-nebula", sceneName: "Frost Veil" }));
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes("scene=blue-nebula"))).toBe(true));
+  fireEvent.click(document.body); expect(audio.play).toHaveBeenCalledTimes(2); expect(audio).toHaveAttribute("src", "https://audio.music.126.net/test.mp3");
+});
+it("does not unlock playback when Stop is pressed and does not restart on later rerenders", async () => {
+  vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce(new DOMException("Gesture required", "NotAllowedError"));
+  const props = { autoPlay: true, open: false, onOpen: vi.fn(), onClose: vi.fn() };
+  const view = render(createElement(MusicPlayerDialog, props));
+  await screen.findByRole("status"); fireEvent.click(screen.getByRole("button", { name: "Stop music" }));
+  fireEvent.click(document.body); view.rerender(createElement(MusicPlayerDialog, { ...props, scene: "blue-nebula" }));
+  expect(document.querySelector("audio")).toBeNull(); expect(HTMLMediaElement.prototype.play).toHaveBeenCalledOnce();
+});
+it("waits for authorization instead of starting a login flow during Office entry", async () => {
+  fetchMock.mockResolvedValue(reply({ configured: true, authorized: false }));
+  render(createElement(MusicPlayerDialog, { autoPlay: true, open: false, onOpen: vi.fn(), onClose: vi.fn() }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Sign in to NetEase", hidden: true })).toBeInTheDocument());
+  expect(document.querySelector("dialog")?.open).toBe(false); expect(fetchMock).toHaveBeenCalledOnce(); expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
+});

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { ExternalLink, Pause, Play, RotateCw, Search, SkipForward, Square, Volume2 } from "lucide-react";
 import { useUiText } from "@/lib/i18n/ui-language";
@@ -19,8 +19,8 @@ async function request<T>(url: string, signal: AbortSignal, method = "GET"): Pro
   return result;
 }
 
-export function NeteaseMusicPlayer({ scene, sceneName, controlsTarget, minimized, onOpen, onStop }: {
-  scene: string; sceneName: string; controlsTarget: HTMLElement | null; minimized: boolean; onOpen: () => void; onStop: () => void;
+export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget, minimized, onOpen, onStop }: {
+  autoPlay: boolean; scene: string; sceneName: string; controlsTarget: HTMLElement | null; minimized: boolean; onOpen: () => void; onStop: () => void;
 }) {
   const t = useUiText();
   const audio = useRef<HTMLAudioElement>(null);
@@ -28,6 +28,7 @@ export function NeteaseMusicPlayer({ scene, sceneName, controlsTarget, minimized
   const playRequest = useRef<AbortController | null>(null);
   const queue = useRef<Queue>({ songs: [], source: "scene", scene, batch: 0 });
   const wantsPlayback = useRef(false), switchingTrack = useRef(false);
+  const started = useRef(false);
   const failedSongs = useRef(new Set<string>());
   const [connection, setConnection] = useState<Connection | null>(null);
   const [query, setQuery] = useState("");
@@ -59,13 +60,22 @@ export function NeteaseMusicPlayer({ scene, sceneName, controlsTarget, minimized
   }, []);
   useEffect(() => {
     if (!track || !audio.current || !wantsPlayback.current) return;
-    void audio.current.play().catch(() => setPlayHint(true));
+    void audio.current.play().catch(cause => { if (cause.name !== "AbortError" && wantsPlayback.current) setPlayHint(true); });
   }, [track]);
+  useEffect(() => {
+    if (!playHint) return;
+    const retry = (event: Event) => {
+      if (event.target instanceof Element && event.target.closest(".music-mini, .music-dialog")) return;
+      if (wantsPlayback.current && audio.current?.paused) void audio.current.play().catch(() => {});
+    };
+    document.addEventListener("click", retry); document.addEventListener("keydown", retry);
+    return () => { document.removeEventListener("click", retry); document.removeEventListener("keydown", retry); };
+  }, [playHint]);
   useEffect(() => {
     if (!connection?.authorized || source === "search") return;
     const controller = new AbortController();
     request<Collection>(API + "?action=recommendations&scene=" + encodeURIComponent(scene) + "&source=" + source + "&batch=" + batch, controller.signal)
-      .then(result => { if (!controller.signal.aborted) { setSongs(result.songs); setPlaylists(result.playlists); } })
+      .then(result => { if (!controller.signal.aborted) { setSongs(result.songs); setPlaylists(result.playlists); startOnLoad(result.songs); } })
       .catch(cause => { if (!controller.signal.aborted) { setError(cause.message); setSongs([]); if (cause.code === "AUTH_REQUIRED") setConnection({ configured: true, authorized: false }); } });
     return () => controller.abort();
   }, [connection?.authorized, source, scene, batch]);
@@ -127,10 +137,17 @@ export function NeteaseMusicPlayer({ scene, sceneName, controlsTarget, minimized
     finally { if (playRequest.current === controller) { playRequest.current = null; setLoadingTrack(false); } }
   };
   const play = (song: Song) => {
-    failedSongs.current.clear(); wantsPlayback.current = true;
+    started.current = true; failedSongs.current.clear(); wantsPlayback.current = true;
     const current = { songs: songs || [song], source, scene, batch };
     void startAt(current, Math.max(0, current.songs.findIndex(item => item.id === song.id)));
   };
+  const startOnLoad = useEffectEvent((recommendations: Song[]) => {
+    if (!autoPlay || started.current || source !== "scene") return;
+    const first = recommendations.find(song => song.playable);
+    if (!first) return;
+    started.current = true; wantsPlayback.current = true;
+    void startAt({ songs: recommendations, source, scene, batch }, recommendations.indexOf(first));
+  });
   const next = async (manual = false) => {
     if (playRequest.current || (!manual && !wantsPlayback.current)) return;
     wantsPlayback.current = true;
@@ -139,8 +156,8 @@ export function NeteaseMusicPlayer({ scene, sceneName, controlsTarget, minimized
       await startAt({ ...queue.current, songs: [] }, 0);
     } else await startAt(queue.current, queue.current.songs.findIndex(song => song.id === selected?.id) + 1);
   };
-  const pause = () => { wantsPlayback.current = false; playRequest.current?.abort(); audio.current?.pause(); };
-  const resume = () => { wantsPlayback.current = true; if (audio.current) void audio.current.play().catch(() => setPlayHint(true)); };
+  const pause = () => { wantsPlayback.current = false; setPlayHint(false); playRequest.current?.abort(); audio.current?.pause(); };
+  const resume = () => { wantsPlayback.current = true; if (audio.current) void audio.current.play().catch(cause => { if (cause.name !== "AbortError" && wantsPlayback.current) setPlayHint(true); }); };
   const signIn = () => void perform(async signal => setLogin(await request<Login>(API, signal, "POST")));
   const keepPreviewRange = () => {
     const element = audio.current, preview = track?.preview;
@@ -205,7 +222,7 @@ export function NeteaseMusicPlayer({ scene, sceneName, controlsTarget, minimized
   </section>
     {controlsTarget && minimized && track && selected ? createPortal(<section className="music-mini" aria-label={t("Background music")}>
       <button type="button" className="music-mini-track" onClick={onOpen} aria-label={t("Open music player")} title={t("Open music player")}>
-        <span><strong>{selected.name}</strong><small>{selected.artists}</small></span>
+        <span><strong>{selected.name}</strong><small role={playHint ? "status" : undefined}>{playHint ? t("Tap to start music") : selected.artists}</small></span>
       </button>
       <button type="button" className="music-mini-button" aria-label={t(playing ? "Pause music" : "Resume music")} onClick={() => {
         if (!audio.current) return;
@@ -220,8 +237,7 @@ export function NeteaseMusicPlayer({ scene, sceneName, controlsTarget, minimized
           setVolume(next);
         }} /></label> : null}
       </div>
-      <button type="button" className="music-mini-button" aria-label={t("Stop music")} onClick={onStop}><Square size={15} /></button>
-      {playHint ? <p role="status">{t("Press play to start listening.")}</p> : null}
+      <button type="button" className="music-mini-button" aria-label={t("Stop music")} onClick={() => { wantsPlayback.current = false; onStop(); }}><Square size={15} /></button>
     </section>, controlsTarget) : null}
   </>;
 }
