@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import type { SessionClient } from "./SessionControls";
 import { useUiText } from "@/lib/i18n/ui-language";
@@ -8,9 +8,10 @@ export type ChatSettings = { model: string; effort: string | null; accessMode: s
 type Choices = { models: { id: string; name: string; efforts: string[]; defaultEffort: string }[];
   accessModes: { id: string; name: string; description?: string | null; allowed: boolean }[] };
 
-export function SessionSettings({ client, threadId, current, disabled, active, onBusyChange }: {
+export function SessionSettings({ client, threadId, current, disabled, active, onBusyChange, children }: {
   client: SessionClient; threadId: string; current: ChatSettings; disabled: boolean; active: boolean;
   onBusyChange: (busy: boolean) => void;
+  children?: ReactNode;
 }) {
   const t = useUiText();
   const [choices, setChoices] = useState<Choices | null>(null);
@@ -42,7 +43,7 @@ export function SessionSettings({ client, threadId, current, disabled, active, o
   const selectClass = "min-h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#172330] px-2 text-sm text-white disabled:opacity-45";
   const triggerClass = "session-setting-trigger relative inline-flex min-h-10 min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2 text-xs text-white/70 hover:bg-white/5";
   return <div className="mb-2">
-    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+    <div className="flex min-w-0 items-center gap-x-3 gap-y-1">
       <button aria-label={t("Model settings")} aria-expanded={modelOpen} onClick={() => setModelOpen(!modelOpen)} className={triggerClass}><span className="truncate">{model?.name || current.model}</span><span className="shrink-0 text-white/40">{current.effort ? t(current.effort) : t("Default")}</span><ChevronDown size={12} className="shrink-0" aria-hidden="true" /></button>
       <label className={triggerClass + (blocked ? " opacity-45" : "")}>
       <span className="truncate" aria-hidden="true">{access ? t(access.name) : current.accessMode === "custom" ? t("Custom permissions") : current.accessMode}</span><ChevronDown size={12} className="shrink-0" aria-hidden="true" />
@@ -55,6 +56,7 @@ export function SessionSettings({ client, threadId, current, disabled, active, o
       </select>
       </label>
       {busy ? <span role="status" className="text-xs text-white/45">{t("Saving…")}</span> : null}
+      {children}
     </div>
     {modelOpen ? <div className="mb-2 grid grid-cols-2 gap-3 rounded-xl border border-white/15 bg-[#172330] p-3">
       <label className="min-w-0 text-xs text-white/60">{t("Model")}<select aria-label={t("Select model")} disabled={blocked} value={current.model} onChange={event => void update({ model: event.target.value })} className={selectClass}>

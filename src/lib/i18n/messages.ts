@@ -421,6 +421,7 @@ export const ZH_CN: Record<string, string> = {
   "Enter this code on the OpenAI sign-in page.": "在 OpenAI 登录页面输入此代码。",
   "Complete sign-in in a browser on the Office computer.": "请在运行 Office 的电脑上完成浏览器登录。",
   "Context usage": "上下文用量",
+  "{percent}% used": "已用 {percent}%",
   "Context": "上下文",
   "input tokens": "输入 token",
   "Dictation needs an OpenAI API key on the Office server": "听写需要在 Office 服务端配置 OpenAI API key",

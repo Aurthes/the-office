@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Headphones, Mic, Paperclip, PhoneOff, Square, X } from "lucide-react";
 import { SessionSettings, type ChatSettings } from "./SessionSettings";
+import { SessionContextUsage } from "./SessionContextUsage";
 import { useSessionVoice } from "./useSessionVoice";
 import { SessionQuestions, type SessionQuestionRequest } from "./SessionQuestions";
 import { useNativeDictation } from "./useNativeDictation";
@@ -242,8 +243,9 @@ export function SessionControls({ client, threadId, onItems }: {
   });
   return <div onDragOver={event => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={event => { if (event.dataTransfer.files.length) { event.preventDefault(); void addFiles(Array.from(event.dataTransfer.files)); } }} className="max-h-[60dvh] shrink-0 overflow-y-auto border-t border-white/10 bg-[#111b27] p-3 text-xs [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))] md:px-4">
     <div className="mx-auto max-w-3xl">
-    {state?.tokenUsage ? <p className="mb-2 text-[11px] text-white/45" aria-label={t("Context usage")}>{t("Context")}: {state.tokenUsage.last.inputTokens.toLocaleString()} {t("input tokens")}{state.tokenUsage.modelContextWindow ? ` / ${state.tokenUsage.modelContextWindow.toLocaleString()}` : ""}</p> : null}
-    {state?.settings ? <SessionSettings key={`${threadId}:${state.features?.accountVersion || 0}`} client={client} threadId={threadId} current={state.settings} disabled={busy || !state.connected} active={Boolean(state.activeTurnId)} onBusyChange={setSettingsBusy} /> : null}
+    {state?.settings ? <SessionSettings key={`${threadId}:${state.features?.accountVersion || 0}`} client={client} threadId={threadId} current={state.settings} disabled={busy || !state.connected} active={Boolean(state.activeTurnId)} onBusyChange={setSettingsBusy}>
+      {state.tokenUsage ? <SessionContextUsage usage={state.tokenUsage} /> : null}
+    </SessionSettings> : null}
     <input ref={picker} type="file" multiple className="hidden" aria-label={t("Choose attachments")} onChange={event => { void addFiles(Array.from(event.target.files || [])); event.target.value = ""; }} />
     {uploads.length ? <div className="mb-2 flex max-h-24 flex-wrap gap-2 overflow-y-auto" aria-label={t("Pending attachments")}>{uploads.map(file => <div key={file.id} className="flex max-w-full items-center gap-2 rounded-lg border border-white/15 bg-white/5 py-1 pl-2">
       <span className="min-w-0 truncate" title={file.name}>{file.name}</span><span className={file.error ? "text-rose-200" : "shrink-0 text-white/40"}>{file.error ? t(file.error) : (!file.ref ? t("Uploading…") : Math.max(1, Math.ceil(file.size / 1024)) + " KB")}</span>
@@ -284,6 +286,7 @@ export function SessionControls({ client, threadId, onItems }: {
         {dictation.phase === "starting" ? t("Preparing microphone…") : dictation.phase === "transcribing" ? t("Transcribing…") : t("Recording · {time}", { time: `${Math.floor(dictation.seconds / 60)}:${String(Math.floor(dictation.seconds % 60)).padStart(2, "0")}` })}
       </span> : <span className="hidden min-w-0 flex-1 truncate text-xs text-white/45 sm:block">{state?.connected ? state.activeTurnId ? t("Codex is working…") : state.turnStatus === "interrupted" ? t("Stopped") : t("Codex · Connected") : connectionError ? t("Codex unavailable") : t("Connecting to Codex…")}</span>}
       <div className="flex shrink-0 items-center gap-2">
+        {!state?.settings && state?.tokenUsage ? <SessionContextUsage usage={state.tokenUsage} above /> : null}
         {state?.activeTurnId && !dictation.busy ? <button aria-label={t("Stop")} title={t("Stop")} disabled={busy || settingsBusy} onClick={() => void action("session.stop", {})} className="grid h-10 w-10 place-items-center rounded-lg text-rose-200 hover:bg-white/5 disabled:opacity-40"><Square size={15} fill="currentColor" aria-hidden="true" /></button> : null}
         <button aria-label={recording ? t("Transcribe and send") : undefined} title={recording ? t("Transcribe and send (Enter)") : undefined} disabled={busy || settingsBusy || !state?.connected || !readyToSend} onClick={send} className="min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40">{busy ? t("Submitting…") : dictation.busy ? t("Send") : state?.activeTurnId ? t("Steer") : t("Send")}</button>
       </div>
