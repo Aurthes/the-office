@@ -1,0 +1,52 @@
+name: Publish interactive demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "demo/**"
+      - "src/**"
+      - "public/**"
+      - "package.json"
+      - "package-lock.json"
+      - "postcss.config.mjs"
+      - "LICENSE"
+      - "THIRD_PARTY_NOTICES.md"
+      - ".github/workflows/demo-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.22.1"
+          cache: npm
+      - uses: actions/configure-pages@v5
+      - run: npm ci
+      - run: npm run demo:build
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist-demo
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

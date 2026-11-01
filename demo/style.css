@@ -1,0 +1,19 @@
+:root { color-scheme:dark; font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:#081421; color:#deebea; }
+html,body,#root { height:100%; margin:0; overflow:hidden; }
+.demo-app { display:flex; flex-direction:column; height:100dvh; }
+.demo-header { flex-shrink:0; display:flex; align-items:center; justify-content:space-between; gap:20px; min-height:70px; padding:12px 28px; border-bottom:1px solid #a5c9d41c; background:#09151e; }
+.demo-brand { color:#e6d3ab; font-size:17px; font-weight:700; letter-spacing:.18em; text-decoration:none; }
+.demo-brand span { display:block; margin-top:5px; font-size:11px; letter-spacing:.02em; font-weight:400; color:#90a9b7; }
+.demo-links { display:flex; align-items:center; gap:24px; font-size:12px; }
+.demo-links a { display:flex; align-items:center; gap:8px; color:#c3dedb; text-decoration:none; }
+.demo-badge { border:1px solid #7eafa72e; border-radius:99px; padding:7px 12px; font-size:9px; letter-spacing:.12em; color:#9bc6bb; }
+.demo-main { position:relative; display:flex; flex:1; min-height:0; }
+.demo-main>.ship-office { flex:1; width:0; }
+.demo-footer { flex-shrink:0; display:flex; gap:24px; justify-content:space-between; padding:10px 24px; background:#09151e; border-top:1px solid #a5c9d41c; color:#819eae; font-size:10px; }
+.demo-chat { position:relative; z-index:50; display:flex; flex-direction:column; flex-shrink:0; width:min(440px,100%); background:#101c28f5; border-left:1px solid #a5c9d430; box-shadow:-24px 0 70px #0005; }
+.demo-chat>header { display:flex; justify-content:space-between; align-items:center; gap:14px; padding:18px 20px; border-bottom:1px solid #ffffff12; }
+.demo-chat>header small { font-size:9px; color:#8bbbae; letter-spacing:.16em; }
+.demo-chat h2 { margin:5px 0 0; font-size:15px; font-weight:600; }
+.demo-chat>header button { padding:8px; border-radius:8px; color:#9db5c2; }
+.demo-transcript { display:flex; flex-direction:column; gap:14px; overflow:auto; flex:1; padding:20px; }
+@media(max-width:700px) { .demo-header { padding:12px 16px; min-height:64px; } .demo-brand { font-size:14px; } .demo-links { gap:10px; font-size:11px; } .demo-badge { display:none; } .demo-footer { padding:9px 12px; font-size:9px; } .demo-footer span+span { display:none; } .demo-chat { position:absolute; inset:0; width:100%; } }
