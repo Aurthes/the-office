@@ -88,11 +88,13 @@ void main() {
 
 export function GalaxyBackdrop({ system, motion }: { system: StarSystem; motion?: RefObject<SpaceMotion> }) {
   const size = useThree(state => state.size);
+  // Three.js caches this dictionary with the material. Keep its identity stable
+  // across resizes and system changes; update only its values before rendering.
   const uniforms = useMemo(() => ({
-    uCameraRotation: { value: new Matrix3() }, uAspect: { value: size.width / Math.max(1, size.height) },
+    uCameraRotation: { value: new Matrix3() }, uAspect: { value: 1 },
     uTime: { value: 0 }, uPlanetApproach: { value: 0 }, uPlanetPass: { value: 0 },
-    uCloud: { value: new Color(system.cloud) }, uGlow: { value: new Color(system.glow) }, uSeed: { value: system.seed },
-  }), [system, size.width, size.height]);
+    uCloud: { value: new Color() }, uGlow: { value: new Color() }, uSeed: { value: 0 },
+  }), []);
   if (system.id === "deep-space") return <>
     <color attach="background" args={["#081421"]} />
     <Stars radius={100} depth={50} count={1800} factor={15} saturation={0} fade speed={0} />
@@ -101,6 +103,10 @@ export function GalaxyBackdrop({ system, motion }: { system: StarSystem; motion?
     onBeforeRender={(_renderer, _scene, camera, _geometry, material) => {
       const live = (material as ShaderMaterial).uniforms;
       live.uCameraRotation.value.setFromMatrix4(camera.matrixWorld);
+      live.uAspect.value = size.width / Math.max(1, size.height);
+      live.uCloud.value.set(system.cloud);
+      live.uGlow.value.set(system.glow);
+      live.uSeed.value = system.seed;
       live.uTime.value = motion?.current.elapsed ?? 0;
       live.uPlanetApproach.value = motion?.current.planetApproach ?? 0;
       live.uPlanetPass.value = motion?.current.planetPass ?? 0;
