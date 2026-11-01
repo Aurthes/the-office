@@ -432,6 +432,7 @@ export const ZH_CN: Record<string, string> = {
   "Record here and transcribe with Codex. Click again to stop; review the draft before sending.": "网页录音，Codex 原生转文字；再次点击结束，文字填入草稿后再发送",
   "Voice chat": "语音对话",
   "Start a live voice chat in this session": "与此会话实时语音对话",
+  "Start an experimental voice call in this session": "与此会话进行语音通话（实验功能）",
   "Codex is working…": "Codex 正在工作…",
   "Stopped": "已停止",
   "Codex · Connected": "Codex · 已连接",

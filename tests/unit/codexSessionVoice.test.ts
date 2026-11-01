@@ -32,7 +32,21 @@ describe("native realtime voice ownership", () => {
     await voice.start("tab1", "original", "v=0", voiceId);
     voice.disconnected("unrelated"); expect(client.call).toHaveBeenCalledTimes(2);
     voice.disconnected("tab1");
+    await vi.waitFor(() => expect(client.call).toHaveBeenCalledTimes(3));
     expect(client.call).toHaveBeenLastCalledWith("thread/realtime/stop", { threadId: "original" });
+  });
+  it("cancels a call when its tab disconnects during native startup", async () => {
+    const { voice, client } = setup();
+    let accept!: () => void;
+    client.call.mockImplementationOnce(() => new Promise(resolve => { accept = () => resolve({}); }));
+    const starting = voice.start("tab1", "original", "v=0", voiceId);
+    const rejected = expect(starting).rejects.toThrow("取消");
+    await vi.waitFor(() => expect(client.call).toHaveBeenCalledTimes(1));
+    voice.disconnected("tab1");
+    await expect(voice.start("tab2", "other", "v=0", voiceId)).rejects.toThrow("已有");
+    accept(); await rejected;
+    await vi.waitFor(() => expect(client.call).toHaveBeenLastCalledWith("thread/realtime/stop", { threadId: "original" }));
+    expect(voice.active).toBeNull();
   });
   it("does not let another tab replace a call after an uncertain stop", async () => {
     const { voice, client } = setup();
