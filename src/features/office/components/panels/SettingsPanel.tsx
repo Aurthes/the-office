@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { CURATED_ELEVENLABS_VOICES } from "@/lib/voiceReply/catalog";
 import type { StudioGatewayAdapterType } from "@/lib/studio/settings";
 import { useUiLanguage } from "@/lib/i18n/ui-language";
 import { useUiText } from "@/lib/i18n/ui-language";
@@ -34,14 +33,6 @@ type SettingsPanelProps = {
   onRemoteOfficePresenceUrlChange: (url: string) => void;
   onRemoteOfficeGatewayUrlChange: (url: string) => void;
   onRemoteOfficeTokenChange: (token: string) => void;
-  voiceRepliesEnabled: boolean;
-  voiceRepliesVoiceId: string | null;
-  voiceRepliesSpeed: number;
-  voiceRepliesLoaded: boolean;
-  onVoiceRepliesToggle: (enabled: boolean) => void;
-  onVoiceRepliesVoiceChange: (voiceId: string | null) => void;
-  onVoiceRepliesSpeedChange: (speed: number) => void;
-  onVoiceRepliesPreview: (voiceId: string | null, voiceName: string) => void;
 };
 
 export function SettingsPanel({
@@ -71,14 +62,6 @@ export function SettingsPanel({
   onRemoteOfficePresenceUrlChange,
   onRemoteOfficeGatewayUrlChange,
   onRemoteOfficeTokenChange,
-  voiceRepliesEnabled,
-  voiceRepliesVoiceId,
-  voiceRepliesSpeed,
-  voiceRepliesLoaded,
-  onVoiceRepliesToggle,
-  onVoiceRepliesVoiceChange,
-  onVoiceRepliesSpeedChange,
-  onVoiceRepliesPreview,
 }: SettingsPanelProps) {
   const t = useUiText();
   const { language, setLanguage } = useUiLanguage();
@@ -402,83 +385,6 @@ export function SettingsPanel({
             onClick={() => onOpenOnboarding?.()}
             className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-emerald-100 transition-colors hover:border-emerald-400/40 hover:bg-emerald-500/15"
           >{t("Launch wizard")}</button>
-        </div>
-      </div>
-      <div className="ui-settings-row mt-3 flex min-h-[72px] items-center justify-between gap-6 rounded-lg border border-cyan-500/10 bg-black/20 px-4 py-3">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            role="switch"
-            aria-label={t("Voice replies")}
-            aria-checked={voiceRepliesEnabled}
-            className={`ui-switch self-center ${voiceRepliesEnabled ? "ui-switch--on" : ""}`}
-            onClick={() => onVoiceRepliesToggle(!voiceRepliesEnabled)}
-            disabled={!voiceRepliesLoaded}
-          >
-            <span className="ui-switch-thumb" />
-          </button>
-          <div className="flex flex-col">
-            <span className="text-[11px] font-medium text-white">{t("Voice replies")}</span>
-            <span className="text-[10px] text-white/80">{t("Play finalized assistant replies with a natural voice.")}</span>
-          </div>
-        </div>
-        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-cyan-200/70">
-          {voiceRepliesLoaded ? (voiceRepliesEnabled ? t("On") : t("Off")) : t("Loading")}
-        </span>
-      </div>
-      <div className="mt-3 rounded-lg border border-cyan-500/10 bg-black/20 px-4 py-3">
-        <div className="text-[11px] font-medium text-white">{t("Voice")}</div>
-        <div className="mt-1 text-[10px] text-white/75">{t("Choose the voice used for spoken agent replies.")}</div>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {CURATED_ELEVENLABS_VOICES.map((voice) => {
-            const selected = voice.id === voiceRepliesVoiceId;
-            return (
-              <button
-                key={voice.id ?? "default"}
-                type="button"
-                onClick={() => {
-                  onVoiceRepliesVoiceChange(voice.id);
-                  onVoiceRepliesPreview(voice.id, voice.label);
-                }}
-                disabled={!voiceRepliesLoaded}
-                className={`rounded-lg border px-3 py-2 text-left transition-colors ${
-                  selected
-                    ? "border-cyan-400/40 bg-cyan-500/12 text-white"
-                    : "border-cyan-500/10 bg-black/15 text-white/80 hover:border-cyan-400/20 hover:bg-cyan-500/6"
-                }`}
-              >
-                <div className="text-[11px] font-medium">{voice.label}</div>
-                <div className="mt-1 text-[10px] text-white/65">{t(voice.description)}</div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      <div className="mt-3 rounded-lg border border-cyan-500/10 bg-black/20 px-4 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-[11px] font-medium text-white">{t("Speed")}</div>
-            <div className="mt-1 text-[10px] text-white/75">{t("Adjust how fast the selected voice speaks.")}</div>
-          </div>
-          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-cyan-200/70">
-            {voiceRepliesSpeed.toFixed(2)}x
-          </span>
-        </div>
-        <input
-          type="range"
-          min="0.7"
-          max="1.2"
-          step="0.05"
-          value={voiceRepliesSpeed}
-          disabled={!voiceRepliesLoaded}
-          onChange={(event) =>
-            onVoiceRepliesSpeedChange(Number.parseFloat(event.target.value))
-          }
-          className="mt-3 h-2 w-full cursor-pointer appearance-none rounded-full bg-cyan-500/15 accent-cyan-400"
-        />
-        <div className="mt-1 flex items-center justify-between text-[10px] text-white/45">
-          <span>{t("Slower")}</span>
-          <span>{t("Faster")}</span>
         </div>
       </div>
     </div>

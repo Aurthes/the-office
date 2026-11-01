@@ -133,6 +133,7 @@
 }
 
 .agent-markdown .markdown-code-block {
+  position: relative;
   min-width: 0;
   overflow: hidden;
   border: 1px solid color-mix(in oklch, var(--surface-selected-border) 82%, transparent);
@@ -141,50 +142,31 @@
 }
 
 .agent-markdown .markdown-code-block > pre {
-  margin: 0;
+  margin: 0 36px 0 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
 }
 
-.markdown-code-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.1rem 0.6rem 0.1rem 0.85rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-2);
-  font-family: var(--font-sans), sans-serif;
-  font-size: 12px;
-  color: var(--muted-foreground);
-}
-
-.markdown-code-language {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .markdown-code-copy {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-width: 72px;
-  min-height: 36px;
-  padding: 0 8px;
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border-radius: 5px;
   cursor: pointer;
-  color: var(--foreground);
+  color: var(--muted-foreground);
 }
 
 .markdown-code-copy:hover { background: var(--surface-3); }
 .markdown-code-copy:focus-visible { outline: 2px solid var(--action-bg); outline-offset: -2px; }
-@media (pointer: coarse) { .markdown-code-copy { min-height: 44px; } }
+.markdown-code-copy[data-status="failed"] { color: var(--destructive); }
+@media (pointer: coarse) { .markdown-code-copy { width: 36px; height: 36px; } }
 
 .agent-tool-markdown pre {
   max-height: 70px;

@@ -51,7 +51,7 @@ class CodexOfficeClient {
   }
   fail(error) { this.ready = false; for (const request of this.pending.values()) { clearTimeout(request.timer); request.reject(error); } this.pending.clear(); }
   async initialize() {
-    const result = await this.call("initialize", { clientInfo: { name: "the_office", title: "The Office", version: "1" }, capabilities: { experimentalApi: false } });
+    const result = await this.call("initialize", { clientInfo: { name: "the_office", title: "The Office", version: "1" }, capabilities: { experimentalApi: true } });
     this.child.stdin.write(JSON.stringify({ method: "initialized" }) + "\n");
     if (this.profile.skillRoots.length) await this.call("skills/extraRoots/set", { extraRoots: this.profile.skillRoots });
     this.ready = true;

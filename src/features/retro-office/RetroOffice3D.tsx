@@ -2306,10 +2306,6 @@ export function RetroOffice3D({
   remoteOfficeStatusText = "Remote office disabled.",
   remoteLayoutSnapshot = null,
   remoteOfficeTokenConfigured = false,
-  voiceRepliesEnabled = false,
-  voiceRepliesVoiceId = null,
-  voiceRepliesSpeed = 1,
-  voiceRepliesLoaded = false,
   onOfficeTitleChange,
   onRemoteOfficeEnabledChange,
   onRemoteOfficeSourceKindChange,
@@ -2317,10 +2313,6 @@ export function RetroOffice3D({
   onRemoteOfficePresenceUrlChange,
   onRemoteOfficeGatewayUrlChange,
   onRemoteOfficeTokenChange,
-  onVoiceRepliesToggle,
-  onVoiceRepliesVoiceChange,
-  onVoiceRepliesSpeedChange,
-  onVoiceRepliesPreview,
   onGatewayDisconnect,
   onGatewayConnect,
   onGatewayUrlChange,
@@ -2423,10 +2415,6 @@ export function RetroOffice3D({
   remoteOfficeStatusText?: string;
   remoteLayoutSnapshot?: OfficeLayoutSnapshot | null;
   remoteOfficeTokenConfigured?: boolean;
-  voiceRepliesEnabled?: boolean;
-  voiceRepliesVoiceId?: string | null;
-  voiceRepliesSpeed?: number;
-  voiceRepliesLoaded?: boolean;
   onOfficeTitleChange?: (title: string) => void;
   onRemoteOfficeEnabledChange?: (enabled: boolean) => void;
   onRemoteOfficeSourceKindChange?: (
@@ -2436,10 +2424,6 @@ export function RetroOffice3D({
   onRemoteOfficePresenceUrlChange?: (url: string) => void;
   onRemoteOfficeGatewayUrlChange?: (url: string) => void;
   onRemoteOfficeTokenChange?: (token: string) => void;
-  onVoiceRepliesToggle?: (enabled: boolean) => void;
-  onVoiceRepliesVoiceChange?: (voiceId: string | null) => void;
-  onVoiceRepliesSpeedChange?: (speed: number) => void;
-  onVoiceRepliesPreview?: (voiceId: string | null, voiceName: string) => void;
   onGatewayDisconnect?: () => void;
   onGatewayConnect?: () => void;
   onGatewayUrlChange?: (value: string) => void;
@@ -3475,40 +3459,6 @@ export function RetroOffice3D({
     return 1400;
   }, [getBoothAudioContext]);
 
-  const playBoothVoice = useCallback(
-    async (text: string): Promise<void> => {
-      try {
-        const response = await fetch("/api/office/voice/reply", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text,
-            voiceId: voiceRepliesVoiceId ?? undefined,
-            speed: voiceRepliesSpeed ?? 1,
-          }),
-        });
-        if (!response.ok) return;
-        const blob = await response.blob();
-        const audioContext = await getBoothAudioContext();
-        if (!audioContext) return;
-        if (audioContext.state === "suspended") {
-          await audioContext.resume();
-        }
-        const arrayBuffer = await blob.arrayBuffer();
-        const decoded = await audioContext.decodeAudioData(
-          arrayBuffer.slice(0),
-        );
-        const source = audioContext.createBufferSource();
-        source.buffer = decoded;
-        source.connect(audioContext.destination);
-        source.start();
-      } catch (error) {
-        console.warn("Booth voice playback failed.", error);
-      }
-    },
-    [getBoothAudioContext, voiceRepliesSpeed, voiceRepliesVoiceId],
-  );
-
   useEffect(() => {
     if (followAgentId && (activeGithubTerminalUid || githubReviewAgentId)) {
       const timer = window.setTimeout(() => {
@@ -4070,9 +4020,6 @@ export function RetroOffice3D({
             stageTimer = window.setTimeout(() => {
               if (cancelled) return;
               setPhoneCallStep("speaking");
-              if (scenario.spokenText?.trim()) {
-                void playBoothVoice(scenario.spokenText);
-              }
               onPhoneCallSpeakRef.current?.({
                 agentId: boothAgentId,
                 requestKey: `${boothAgentId}:${scenario.dialNumber}:${scenario.spokenText ?? ""}`,
@@ -4116,7 +4063,6 @@ export function RetroOffice3D({
     activePhoneCallFlowKey,
     closeManualPhoneBoothView,
     phoneBoothImmersive,
-    playBoothVoice,
     playPhoneKeyTone,
     playPhoneRingTone,
   ]);
@@ -4642,10 +4588,6 @@ export function RetroOffice3D({
           buildMockPhoneCallScenario({
             callee: "my contact",
             message: "This is a demo call from the OpenClaw phone booth.",
-            voiceAvailable:
-              voiceRepliesLoaded &&
-              Boolean(voiceRepliesVoiceId) &&
-              voiceRepliesEnabled,
           }),
         );
         setManualPhoneBoothOpen(true);
@@ -4728,9 +4670,6 @@ export function RetroOffice3D({
       planPath,
       renderAgentsRef,
       serverTerminal,
-      voiceRepliesEnabled,
-      voiceRepliesLoaded,
-      voiceRepliesVoiceId,
     ],
   );
 
@@ -7005,7 +6944,7 @@ export function RetroOffice3D({
           </button>
           <button
             onClick={() => setSettingsModalOpen(true)}
-            title={t("Voice reply settings")}
+            title={t("Settings")}
             className={`w-7 h-7 flex items-center justify-center rounded-md transition-all backdrop-blur-sm border ${settingsModalOpen ? "bg-amber-500/30 text-amber-300 border-amber-500/50" : "bg-[#1c1610]/80 text-amber-500/40 border-amber-900/20 hover:text-amber-400"}`}
           >
             <Settings2 size={12} />
@@ -7107,22 +7046,6 @@ export function RetroOffice3D({
                 }
                 onRemoteOfficeTokenChange={(token) =>
                   onRemoteOfficeTokenChange?.(token)
-                }
-                voiceRepliesEnabled={voiceRepliesEnabled}
-                voiceRepliesVoiceId={voiceRepliesVoiceId}
-                voiceRepliesSpeed={voiceRepliesSpeed}
-                voiceRepliesLoaded={voiceRepliesLoaded}
-                onVoiceRepliesToggle={(enabled) =>
-                  onVoiceRepliesToggle?.(enabled)
-                }
-                onVoiceRepliesVoiceChange={(voiceId) =>
-                  onVoiceRepliesVoiceChange?.(voiceId)
-                }
-                onVoiceRepliesSpeedChange={(speed) =>
-                  onVoiceRepliesSpeedChange?.(speed)
-                }
-                onVoiceRepliesPreview={(voiceId, voiceName) =>
-                  onVoiceRepliesPreview?.(voiceId, voiceName)
                 }
               />
             </div>

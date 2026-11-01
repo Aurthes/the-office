@@ -127,22 +127,6 @@ export type StudioAnalyticsPreferencePatch = {
   budgets?: Partial<StudioAnalyticsBudgetSettings>;
 };
 
-export type StudioVoiceRepliesProvider = "elevenlabs";
-
-export type StudioVoiceRepliesPreference = {
-  enabled: boolean;
-  provider: StudioVoiceRepliesProvider;
-  voiceId: string | null;
-  speed: number;
-};
-
-export type StudioVoiceRepliesPreferencePatch = {
-  enabled?: boolean;
-  provider?: StudioVoiceRepliesProvider;
-  voiceId?: string | null;
-  speed?: number;
-};
-
 export type StudioOfficePreference = {
   title: string;
   remoteOfficeEnabled: boolean;
@@ -253,7 +237,6 @@ export type StudioSettings = {
   avatars: Record<string, StudioAgentAvatars>;
   deskAssignments: Record<string, StudioDeskAssignments>;
   analytics: Record<string, StudioAnalyticsPreference>;
-  voiceReplies: Record<string, StudioVoiceRepliesPreference>;
   office: Record<string, StudioOfficePreference>;
   standup?: Record<string, StudioStandupPreference>;
   taskBoard?: Record<string, StudioTaskBoardPreference>;
@@ -274,7 +257,6 @@ export type StudioSettingsPatch = {
   avatars?: Record<string, Record<string, AgentAvatarProfile | null> | null>;
   deskAssignments?: Record<string, Record<string, string | null> | null>;
   analytics?: Record<string, StudioAnalyticsPreferencePatch | null>;
-  voiceReplies?: Record<string, StudioVoiceRepliesPreferencePatch | null>;
   office?: Record<string, StudioOfficePreferencePatch | null>;
   standup?: Record<string, StudioStandupPreferencePatch | null>;
   taskBoard?: Record<string, StudioTaskBoardPreferencePatch | null>;
@@ -404,14 +386,6 @@ export const defaultStudioAnalyticsPreference = (): StudioAnalyticsPreference =>
   },
 });
 
-export const defaultStudioVoiceRepliesPreference =
-  (): StudioVoiceRepliesPreference => ({
-    enabled: false,
-    provider: "elevenlabs",
-    voiceId: null,
-    speed: 1,
-  });
-
 export const defaultStudioStandupScheduleConfig = (): StandupScheduleConfig => ({
   enabled: false,
   cronExpr: "0 9 * * 1-5",
@@ -461,11 +435,6 @@ export const defaultStudioFloorRuntimeState = (
     lastErrorCode: null,
     lastErrorMessage: null,
   };
-};
-
-const normalizeVoiceReplySpeed = (value: unknown, fallback: number = 1): number => {
-  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
-  return Math.min(1.2, Math.max(0.7, value));
 };
 
 const normalizeOptionalIsoString = (
@@ -1130,40 +1099,6 @@ const normalizeAnalytics = (value: unknown): Record<string, StudioAnalyticsPrefe
   return analytics;
 };
 
-const normalizeVoiceRepliesProvider = (
-  value: unknown,
-  fallback: StudioVoiceRepliesProvider = "elevenlabs"
-): StudioVoiceRepliesProvider => {
-  const provider = coerceString(value);
-  return provider === "elevenlabs" ? provider : fallback;
-};
-
-const normalizeVoiceRepliesPreference = (
-  value: unknown,
-  fallback: StudioVoiceRepliesPreference = defaultStudioVoiceRepliesPreference()
-): StudioVoiceRepliesPreference => {
-  if (!isRecord(value)) return fallback;
-  return {
-    enabled: typeof value.enabled === "boolean" ? value.enabled : fallback.enabled,
-    provider: normalizeVoiceRepliesProvider(value.provider, fallback.provider),
-    voiceId: normalizeSelectedAgentId(value.voiceId, fallback.voiceId),
-    speed: normalizeVoiceReplySpeed(value.speed, fallback.speed),
-  };
-};
-
-const normalizeVoiceReplies = (
-  value: unknown
-): Record<string, StudioVoiceRepliesPreference> => {
-  if (!isRecord(value)) return {};
-  const voiceReplies: Record<string, StudioVoiceRepliesPreference> = {};
-  for (const [gatewayKeyRaw, voiceRepliesRaw] of Object.entries(value)) {
-    const gatewayKey = normalizeGatewayKey(gatewayKeyRaw);
-    if (!gatewayKey) continue;
-    voiceReplies[gatewayKey] = normalizeVoiceRepliesPreference(voiceRepliesRaw);
-  }
-  return voiceReplies;
-};
-
 const normalizeOfficePreference = (
   value: unknown,
   fallback: StudioOfficePreference = defaultStudioOfficePreference()
@@ -1273,7 +1208,6 @@ export const defaultStudioSettings = (): StudioSettings => ({
   avatars: {},
   deskAssignments: {},
   analytics: {},
-  voiceReplies: {},
   office: {},
   standup: {},
   taskBoard: {},
@@ -1364,7 +1298,6 @@ export const normalizeStudioSettings = (raw: unknown): StudioSettings => {
   const avatars = normalizeAvatars(raw.avatars);
   const deskAssignments = normalizeDeskAssignments(raw.deskAssignments);
   const analytics = normalizeAnalytics(raw.analytics);
-  const voiceReplies = normalizeVoiceReplies(raw.voiceReplies);
   const office = normalizeOffice(raw.office);
   const standup = normalizeStandup(raw.standup);
   const taskBoard = normalizeTaskBoard(raw.taskBoard);
@@ -1377,7 +1310,6 @@ export const normalizeStudioSettings = (raw: unknown): StudioSettings => {
     avatars,
     deskAssignments,
     analytics,
-    voiceReplies,
     office,
     standup,
     taskBoard,
@@ -1399,7 +1331,6 @@ export const mergeStudioSettings = (
   const nextAvatars = { ...current.avatars };
   const nextDeskAssignments = { ...current.deskAssignments };
   const nextAnalytics = { ...current.analytics };
-  const nextVoiceReplies = { ...current.voiceReplies };
   const nextOffice = { ...current.office };
   const nextStandup = { ...(current.standup ?? {}) };
   const nextTaskBoard = { ...(current.taskBoard ?? {}) };
@@ -1507,25 +1438,6 @@ export const mergeStudioSettings = (
       );
     }
   }
-  if (patch.voiceReplies) {
-    for (const [gatewayKeyRaw, voiceRepliesPatch] of Object.entries(patch.voiceReplies)) {
-      const gatewayKey = normalizeGatewayKey(gatewayKeyRaw);
-      if (!gatewayKey) continue;
-      if (voiceRepliesPatch === null) {
-        delete nextVoiceReplies[gatewayKey];
-        continue;
-      }
-      const fallback =
-        nextVoiceReplies[gatewayKey] ?? defaultStudioVoiceRepliesPreference();
-      nextVoiceReplies[gatewayKey] = normalizeVoiceRepliesPreference(
-        {
-          ...fallback,
-          ...voiceRepliesPatch,
-        },
-        fallback
-      );
-    }
-  }
   if (patch.office) {
     for (const [gatewayKeyRaw, officePatch] of Object.entries(patch.office)) {
       const gatewayKey = normalizeGatewayKey(gatewayKeyRaw);
@@ -1623,7 +1535,6 @@ export const mergeStudioSettings = (
     avatars: nextAvatars,
     deskAssignments: nextDeskAssignments,
     analytics: nextAnalytics,
-    voiceReplies: nextVoiceReplies,
     office: nextOffice,
     standup: nextStandup,
     taskBoard: nextTaskBoard,
@@ -1685,15 +1596,6 @@ export const resolveAnalyticsPreference = (
   const gatewayKey = normalizeGatewayKey(gatewayUrl);
   if (!gatewayKey) return defaultStudioAnalyticsPreference();
   return settings.analytics[gatewayKey] ?? defaultStudioAnalyticsPreference();
-};
-
-export const resolveVoiceRepliesPreference = (
-  settings: StudioSettings | StudioSettingsPublic,
-  gatewayUrl: string
-): StudioVoiceRepliesPreference => {
-  const gatewayKey = normalizeGatewayKey(gatewayUrl);
-  if (!gatewayKey) return defaultStudioVoiceRepliesPreference();
-  return settings.voiceReplies[gatewayKey] ?? defaultStudioVoiceRepliesPreference();
 };
 
 export const resolveOfficePreference = (

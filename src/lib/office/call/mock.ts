@@ -46,7 +46,6 @@ const buildRecipientReply = (message: string): string => {
 export const buildMockPhoneCallScenario = (params: {
   callee: string;
   message?: string | null;
-  voiceAvailable: boolean;
 }): MockPhoneCallScenario => {
   const calleeLabel = formatCalleeLabel(params.callee);
   const dialNumber = resolveDialNumber();
@@ -60,7 +59,6 @@ export const buildMockPhoneCallScenario = (params: {
       spokenText: null,
       recipientReply: null,
       statusLine: `Waiting for your message to ${calleeLabel}.`,
-      voiceAvailable: params.voiceAvailable,
     };
   }
   return {
@@ -71,6 +69,5 @@ export const buildMockPhoneCallScenario = (params: {
     spokenText: buildSpokenText(message),
     recipientReply: buildRecipientReply(message),
     statusLine: `Connected to ${calleeLabel}.`,
-    voiceAvailable: params.voiceAvailable,
   };
 };

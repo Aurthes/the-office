@@ -39,6 +39,8 @@ import { ListeningBar } from "./ListeningBar";
 import { MusicPlayerDialog } from "./MusicPlayerDialog";
 import { AiComputationCore } from "./AiComputationCore";
 import { AiCenterDashboard } from "./AiCenterDashboard";
+import { ShipObjectScene, ShipObjectCard } from "./ShipObjectInteraction";
+import { shipObjectCameraPose, type ShipObject } from "./shipObjects";
 
 type Props = ComponentProps<typeof RetroOffice3D> & { navigationPreview?: boolean; musicPreview?: boolean };
 type Controls = ComponentRef<typeof OrbitControls>;
@@ -75,12 +77,12 @@ function ShipHull({ layout, deck, whole, busy }: { layout: ShipLayout; deck: Dec
     </group>
   </>;
 }
-function StaticShip({ layout }: { layout: ShipLayout }) {
+function StaticShip({ layout, enabled, selectedId, onSelect }: { layout: ShipLayout; enabled: boolean; selectedId?: string; onSelect: (object: ShipObject) => void }) {
   const t = useUiText();
   const models = useModels();
   const group = useMemo(() => buildShipGeometry(layout, models, t), [layout, models, t]);
   useEffect(() => () => disposeShipGeometry(group), [group]);
-  return <primitive object={group} />;
+  return <ShipObjectScene group={group} enabled={enabled} selectedId={selectedId} onSelect={onSelect} />;
 }
 function Lighting({ radius, dimmed = false }: { radius: number; dimmed?: boolean }) {
   const intensity = dimmed ? .12 : 1;
@@ -95,7 +97,7 @@ function Lighting({ radius, dimmed = false }: { radius: number; dimmed?: boolean
     <directionalLight position={[25, 12, -25]} intensity={0.65 * intensity} color="#a0d7ed" />
   </>;
 }
-export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy, podFocus, navigationFocus }: { navigationFocus?: { point: ShipPoint; deck: DeckIndex } | null; podFocus?: { point: ShipPoint; launch: boolean } | null; deck: DeckIndex; whole: boolean; busy: boolean; layout: ShipLayout; focus: { id: string; request: number }; controlsRef: RefObject<Controls | null>; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null; chatExpanded?: boolean }) {
+export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy, podFocus, navigationFocus, objectFocus }: { objectFocus?: ShipObject | null; navigationFocus?: { point: ShipPoint; deck: DeckIndex } | null; podFocus?: { point: ShipPoint; launch: boolean } | null; deck: DeckIndex; whole: boolean; busy: boolean; layout: ShipLayout; focus: { id: string; request: number }; controlsRef: RefObject<Controls | null>; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null; chatExpanded?: boolean }) {
   const { size, camera, gl } = useThree();
   const previousView = useRef<{ target: THREE.Vector3; position: THREE.Vector3; zoom: number } | null>(null);
   const previousNavigationView = useRef<{ target: THREE.Vector3; position: THREE.Vector3; zoom: number } | null>(null);
@@ -130,8 +132,12 @@ export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, 
       const offset = (launch?new THREE.Vector3(-5,-2.8,9):new THREE.Vector3(-9,7,-11)).applyAxisAngle(new THREE.Vector3(0,1,0),Math.atan2(point.x,point.z));
       move.current={target,position:target.clone().add(offset),zoom:Math.max(.2,Math.min(size.width/(launch?15:16),size.height/(launch?17:11),100))};return;
     }
+    if (objectFocus && controls) {
+      move.current = shipObjectCameraPose(objectFocus, size.width, size.height, camera.position, controls.target);
+      return;
+    }
     move.current = shipCameraPose(layout, size.width, size.height, deck, whole, focus.id);
-  }, [layout, focus, size.width, size.height, camera, gl, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy, podFocus, navigationFocus]);
+  }, [layout, focus, size.width, size.height, camera, gl, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy, podFocus, navigationFocus, objectFocus]);
   useEffect(() => {
     const controls = controlsRef.current;
     const stop = () => { move.current = null; };
@@ -166,7 +172,7 @@ function CabinTargets({ layout, focus, onSelect }: { layout: ShipLayout; focus: 
   return <>{layout.cabins.map(cabin => {
     const ring = layout.rings[cabin.ring], selected = cabin.id === focus || cabin.projectId === focus;
     return <mesh key={cabin.id} position={[0, 0.075, 0]} rotation={[-Math.PI / 2, 0, 0]}
-      onClick={event => { event.stopPropagation(); onSelect(cabin.projectId || cabin.id); }}>
+      onClick={event => { event.stopPropagation(); if (event.delta < 6) onSelect(cabin.projectId || cabin.id); }}>
       <ringGeometry args={[ring.radius - ring.depth / 2 + 0.1, ring.radius + ring.depth / 2 - 0.1, 24, 1, cabin.slot * step - Math.PI / 2, step]} />
       <meshBasicMaterial side={THREE.DoubleSide} color={cabin.color} transparent opacity={selected && cabin.kind!=="return" ? 0.15 : 0} depthWrite={false} />
     </mesh>;
@@ -306,7 +312,10 @@ export function RingShipOffice(props: Props) {
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [musicOpen, setMusicOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
-  const openMonitor = () => setMonitorOpen(true);
+  const [inspectedObject, setInspectedObject] = useState<ShipObject | null>(null);
+  const closeObject = useCallback(() => setInspectedObject(null), []);
+  const openMonitor = () => { closeObject(); setMonitorOpen(true); };
+  const openAiCenter = () => { closeObject(); setAiOpen(true); };
   const overlayRef = useRef<HTMLDivElement>(null);
   const pendingFocus = useRef("");
   const busy = !!trip;
@@ -344,7 +353,7 @@ export function RingShipOffice(props: Props) {
     if (!agent || !seat) { onReturnFinished?.(); return; }
     const rendered = crewLookupRef.current.get(agent.id);
     const route = returnRoute(layout, seat, rendered ? worldPoint(rendered) : seat);
-    setDeck(seat.deck);setWhole(false);setFleetOpen(false);setLiftOpen(false);
+    setInspectedObject(null);setDeck(seat.deck);setWhole(false);setFleetOpen(false);setLiftOpen(false);
     setReturnFlight({...route,agentId:agent.id,requestId:request.requestId,name:agent.name,appearance:agent.avatarProfile?.duck});
     setReturnStage("walking");setReturnError("");archiveResultRef.current={status:"pending"};
     returnTransferRef.current={};returnRideRef.current=null;
@@ -382,14 +391,21 @@ export function RingShipOffice(props: Props) {
   const validFocus = currentLayout.cabins.some(c => c.id === focus.id || c.projectId === focus.id) ? focus.id : "";
   const cameraFocus = useMemo(() => ({ id: validFocus, request: focus.request + officeCenterSignal }), [validFocus, focus.request, officeCenterSignal]);
   const selected = currentLayout.cabins.find(c => c.id === validFocus || c.projectId === validFocus);
+  const objectEnabled = !busy && !navigationOpen && !props.activeChatAgentId && !returnFlight && !monitorOpen && !musicOpen && !settingsOpen && !aiOpen;
+  const objectFocus = objectEnabled && !shipView && inspectedObject?.deck === visibleDeck && currentLayout.cabins.some(c => c.id === inspectedObject.cabinId) ? inspectedObject : null;
+  const inspectObject = useCallback((object: ShipObject) => {
+    setInspectedObject(object); setDeck(object.deck); setWhole(false); setLiftOpen(false); setFleetOpen(false);
+  }, []);
   const reserveCount = layout.cabins.filter(c => c.kind === "reserve").length;
   const travel = useCallback((destination: DeckIndex, id = "") => {
     if (busy || destination === visibleDeck) return;
+    setInspectedObject(null);
     pendingFocus.current = id; setLiftOpen(false); setMenuOpen(false); setFleetOpen(false);
     setTrip({ from: visibleDeck, to: destination, id: performance.now() });
   }, [busy, visibleDeck]);
   const select = useCallback((id: string) => {
     if (busy) return;
+    setInspectedObject(null);
     const cabin = layout.cabins.find(c => c.id === id || c.projectId === id);
     if (cabin && cabin.deck !== visibleDeck) { travel(cabin.deck, id); return; }
     if (cabin?.kind === "monitor") setMonitorOpen(true);
@@ -403,7 +419,7 @@ export function RingShipOffice(props: Props) {
     else setFocus(previous => ({ id: pendingFocus.current, request: previous.request + 1 }));
   }, []);
   const onAgentChatSelect = props.onAgentChatSelect;
-  const open = useCallback((id: string) => { if (busy) return; setFleetOpen(false); setLiftOpen(false); onAgentChatSelect?.(id); }, [onAgentChatSelect, busy]);
+  const open = useCallback((id: string) => { if (busy) return; setInspectedObject(null); setFleetOpen(false); setLiftOpen(false); onAgentChatSelect?.(id); }, [onAgentChatSelect, busy]);
   const areas = [
     ...[SHARED_PROJECT_ID, ...roster.projects.map(p => p.id)].map(id => {
       const cabins = layout.cabins.filter(c => c.projectId === id);
@@ -418,21 +434,21 @@ export function RingShipOffice(props: Props) {
   const button = "flex h-9 min-w-9 items-center justify-center rounded-lg border border-white/15 bg-[#122735]/90 px-2 text-xs text-[#b8cccf] hover:border-[#d7af77]/70";
   return <div className={`ship-office relative h-full w-full overflow-hidden bg-[#081421] text-[#deebea]${navigationOpen ? " star-navigation-active" : ""}`} data-star-system={system.id} data-navigation-phase={navigationPreview ? navigation.phase : undefined} data-ship-deck={visibleDeck} data-ship-mode={shipView ? "ship" : "deck"} data-ship-travelling={busy} data-ship-visible-crew={visibleAgents.length} data-ship-sectors={layout.allocation.sectors} data-ship-reserves={reserveCount} data-ship-projects={roster.projects.length} data-ship-placed={agents.filter(agent => layout.seats[agent.id]).length}>
     <Canvas orthographic dpr={[0.85, 1.5]} camera={{ position: [25, 40, 36], zoom: 12, near: 0.1, far: 5000 }} shadows
-      gl={{ antialias: true, powerPreference: "high-performance" }} onPointerMissed={() => setLiftOpen(false)} onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.95; gl.domElement.dataset.shipReady = "true"; }}>
+      gl={{ antialias: true, powerPreference: "high-performance" }} onPointerMissed={() => { setLiftOpen(false); closeObject(); }} onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.95; gl.domElement.dataset.shipReady = "true"; }}>
       <GalaxyBackdrop system={system} motion={activityEnabled ? spaceMotion : undefined} />
       {activityEnabled ? <SpaceActivity radius={layout.radius} seed={system.seed} paused={navigationOpen || busy} motion={spaceMotion} caption={spaceCaption} /> : null}
       <Lighting radius={layout.radius} dimmed={navigationOpen && navigation.phase !== "warp"} />
       <ShipHull layout={layout} deck={visibleDeck} whole={shipView} busy={busy} />
       {decks.map((value, index) => <group key={index} position={[0, index * DECK_STEP, 0]} visible={shipView || busy || index === visibleDeck}>
-        <StaticShip layout={value} /><ReturnPodBay layout={value} active={!!returnFlight}/>
-        {value.cabins.filter(c => c.kind === "ai").map(cabin => <AiComputationCore key={cabin.id} layout={value} cabin={cabin} interactive={!shipView && !busy && index === visibleDeck} onOpen={() => select(cabin.id)} />)}
+        <StaticShip layout={value} enabled={objectEnabled && (shipView || index === visibleDeck)} selectedId={objectFocus?.id} onSelect={inspectObject} /><ReturnPodBay layout={value} active={!!returnFlight}/>
+        {value.cabins.filter(c => c.kind === "ai").map(cabin => <AiComputationCore key={cabin.id} layout={value} cabin={cabin} interactive={objectEnabled && !shipView && index === visibleDeck} onOpen={() => select(cabin.id)} />)}
       </group>)}
       {!shipView && !busy ? <group position={[0, visibleDeck * DECK_STEP, 0]}>
         <CabinTargets layout={currentLayout} focus={validFocus} onSelect={select} />
-        {props.musicPreview && visibleDeck === 0 ? currentLayout.cabins.filter(c => c.kind === "lounge").map(cabin => <ListeningBar key={cabin.id} layout={currentLayout} cabin={cabin} onOpen={() => setMusicOpen(true)} />) : null}
+        {props.musicPreview && visibleDeck === 0 ? currentLayout.cabins.filter(c => c.kind === "lounge").map(cabin => <ListeningBar key={cabin.id} layout={currentLayout} cabin={cabin} onOpen={() => { closeObject(); setMusicOpen(true); }} />) : null}
         {currentLayout.cabins.filter(c => c.kind === "monitor").map(cabin => <group key={cabin.id}>
           {!navigationOpen ? <MonitorRoomScreen layout={currentLayout} cabin={cabin} onOpen={openMonitor} /> : null}
-          {navigationPreview ? <NavigationConsole layout={currentLayout} cabin={cabin} state={navigation} onAction={navigate} disabled={busy || !!returnFlight || !!props.activeChatAgentId || navigation.phase === "warp"} /> : null}
+          {navigationPreview ? <NavigationConsole layout={currentLayout} cabin={cabin} state={navigation} onAction={action => { closeObject(); navigate(action); }} disabled={busy || !!returnFlight || !!props.activeChatAgentId || navigation.phase === "warp"} /> : null}
         </group>)}
         <Crew agents={visibleAgents.filter(a=>a.id!==returnFlight?.agentId)} layout={currentLayout} focus={validFocus} onOpen={open} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} />
       </group> : null}
@@ -441,10 +457,11 @@ export function RingShipOffice(props: Props) {
       </group>:null}
       <OrbitControls ref={controlsRef} makeDefault enabled={!busy && !(navigationPreview && (navigation.phase === "confirm" || navigation.phase === "warp"))} enableDamping={!busy} dampingFactor={0.15} minZoom={0.15} maxZoom={110} minPolarAngle={0.12} maxPolarAngle={Math.PI * 0.72} />
       <CameraRig layout={currentLayout} focus={cameraFocus} controlsRef={controlsRef} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} chatExpanded={props.chatExpanded} deck={visibleDeck} whole={shipView} busy={busy}
-        podFocus={returnCamera} navigationFocus={navigationFocus}/>
-      <LiftEntry deck={visibleDeck} whole={shipView} open={liftOpen} disabled={busy || !!props.activeChatAgentId || navigationOpen} counts={counts} onOpen={() => setLiftOpen(true)} onClose={() => setLiftOpen(false)} onTravel={travel} />
+        podFocus={returnCamera} navigationFocus={navigationFocus} objectFocus={objectFocus}/>
+      <LiftEntry deck={visibleDeck} whole={shipView} open={liftOpen} disabled={busy || !!props.activeChatAgentId || navigationOpen} counts={counts} onOpen={() => { closeObject(); setLiftOpen(true); }} onClose={() => setLiftOpen(false)} onTravel={travel} />
       <LiftJourney trip={trip} layout={layout} controlsRef={controlsRef} overlayRef={overlayRef} onArrive={arrive} onComplete={complete} />
     </Canvas>
+    {objectFocus ? <ShipObjectCard object={objectFocus} customRoom={currentLayout.cabins.some(c => c.id === objectFocus.cabinId && !!c.projectId && c.projectId !== SHARED_PROJECT_ID)} onClose={closeObject} /> : null}
     <fieldset className="contents" disabled={busy}>
     <div className="ship-heading pointer-events-none absolute left-1/2 top-5 z-10 -translate-x-1/2 text-center">
       <div className="truncate text-xs font-semibold uppercase tracking-[0.28em] text-[#e3c894]">{officeTitle}</div>
@@ -453,9 +470,9 @@ export function RingShipOffice(props: Props) {
     <div className="ship-toolbar absolute right-3 top-3 z-20 flex items-center gap-2">
       <div title={`Runtime: Codex (${gatewayStatus})`} className={`rounded-lg border px-2 py-2 text-[10px] uppercase tracking-wider ${gatewayStatus === "connected" ? "border-emerald-300/25 bg-emerald-400/10 text-emerald-200" : "border-amber-300/25 bg-amber-400/10 text-amber-100"}`}><span className="max-md:hidden">CODEX · </span>{t(gatewayStatus)}</div>
       <button className={button} title={t("Deck overview")} aria-label={t("Deck overview")} onClick={() => select("")}><Home size={15} /></button>
-      <button className={button} title={t("Whole ship")} aria-label={t("Whole ship")} aria-pressed={shipView} onClick={() => { setWhole(value => !value); setLiftOpen(false); setFocus(previous => ({ id: "", request: previous.request + 1 })); }}><Layers3 size={15} /></button>
-      <button className={button} title={t("Open AI Center")} aria-label={t("Open AI Center")} onClick={() => setAiOpen(true)}><BrainCircuit size={15} /></button>
-      <button className={button} title={t("Voice reply settings")} aria-label={t("Settings")} onClick={() => setSettingsOpen(true)}><Settings2 size={15} /></button>
+      <button className={button} title={t("Whole ship")} aria-label={t("Whole ship")} aria-pressed={shipView} onClick={() => { closeObject(); setWhole(value => !value); setLiftOpen(false); setFocus(previous => ({ id: "", request: previous.request + 1 })); }}><Layers3 size={15} /></button>
+      <button className={button} title={t("Open AI Center")} aria-label={t("Open AI Center")} onClick={openAiCenter}><BrainCircuit size={15} /></button>
+      <button className={button} title={t("Voice reply settings")} aria-label={t("Settings")} onClick={() => { closeObject(); setSettingsOpen(true); }}><Settings2 size={15} /></button>
     </div>
     <div className="ship-sidebar">
       <CompanyWorkAreaMenu areas={areas} activeId={validFocus} sessionCount={agents.length} open={menuOpen} onOpenChange={setMenuOpen} onSelect={select} actions={companyActions} description={t("Use the central lift to change decks · Empty cabins are ready to use")} />
@@ -478,8 +495,8 @@ export function RingShipOffice(props: Props) {
       <div className="text-xs text-[#e1cb9f]">{selected ? (selected.kind === "work" && selected.projectId !== SHARED_PROJECT_ID ? selected.name : t(selected.name)) : shipView ? t("Three-ring ship · Whole ship") : `L${visibleDeck + 1} · ${t(DECK_NAMES[visibleDeck])}`}</div>
       <div className="mt-1 text-[11px] text-[#9fb9c2]">{selected ? t(PUBLIC_DESCRIPTIONS[selected.kind]) : t("{0} projects · {1} sessions · {2} reserve cabins", { "0": roster.projects.length, "1": agents.length, "2": reserveCount })}</div>
       {selected?.kind === "monitor" ? <button type="button" onClick={openMonitor} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#71d3c8]/40 px-3 text-xs text-[#b7eee0] hover:bg-white/10">{t("Open monitoring dashboard")} <Monitor size={13} /></button> : null}
-      {selected?.kind === "ai" ? <button type="button" onClick={() => setAiOpen(true)} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#86e6de]/40 px-3 text-xs text-[#b7eee0] hover:bg-white/10">{t("Open AI Center")} <BrainCircuit size={13} /></button> : null}
-      {navigationPreview && selected?.kind === "monitor" ? <button type="button" onClick={() => navigate({ type: "open" })} className="pointer-events-auto mt-2 min-h-10 rounded-lg border border-[#9dc7d3]/40 px-3 text-xs text-[#c6e0e9]">{t("Open star chart")}</button> : null}
+      {selected?.kind === "ai" ? <button type="button" onClick={openAiCenter} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#86e6de]/40 px-3 text-xs text-[#b7eee0] hover:bg-white/10">{t("Open AI Center")} <BrainCircuit size={13} /></button> : null}
+      {navigationPreview && selected?.kind === "monitor" ? <button type="button" onClick={() => { closeObject(); navigate({ type: "open" }); }} className="pointer-events-auto mt-2 min-h-10 rounded-lg border border-[#9dc7d3]/40 px-3 text-xs text-[#c6e0e9]">{t("Open star chart")}</button> : null}
       <div className="mt-1 text-[9px] text-[#829da9]">{t("{working} working · {idle} idle · Drag to rotate · Scroll to zoom · Use the central lift to change decks", { working: agents.filter(a => a.status === "working").length, idle: agents.filter(a => a.status === "idle").length })}</div>
     </div>
     </fieldset>
@@ -497,16 +514,14 @@ export function RingShipOffice(props: Props) {
     </div>:null}
     {settingsOpen ? <div className="absolute inset-0 z-40 flex justify-end bg-black/40 p-3 backdrop-blur-sm" onKeyDown={event => { if (event.key === "Escape") setSettingsOpen(false); }}>
       <div className="w-full max-w-sm overflow-auto rounded-xl border border-white/15 bg-[#071522] shadow-2xl">
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-xs"><span>{t("Ship and voice settings")}</span><button className={button} aria-label={t("Close studio settings")} onClick={() => setSettingsOpen(false)}><X size={14} /></button></div>
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-xs"><span>{t("Settings")}</span><button className={button} aria-label={t("Close studio settings")} onClick={() => setSettingsOpen(false)}><X size={14} /></button></div>
         <SettingsPanel {...props} officeTitle={officeTitle} officeTitleLoaded={!!props.officeTitleLoaded} onOfficeTitleChange={value => props.onOfficeTitleChange?.(value)}
           remoteOfficeEnabled={!!props.remoteOfficeEnabled} remoteOfficeSourceKind={props.remoteOfficeSourceKind || "presence_endpoint"} remoteOfficeLabel={props.remoteOfficeLabel || "Remote Office"}
           remoteOfficePresenceUrl={props.remoteOfficePresenceUrl || ""} remoteOfficeGatewayUrl={props.remoteOfficeGatewayUrl || ""} remoteOfficeTokenConfigured={!!props.remoteOfficeTokenConfigured}
           onRemoteOfficeEnabledChange={v => props.onRemoteOfficeEnabledChange?.(v)} onRemoteOfficeSourceKindChange={v => props.onRemoteOfficeSourceKindChange?.(v)}
           onRemoteOfficeLabelChange={v => props.onRemoteOfficeLabelChange?.(v)} onRemoteOfficePresenceUrlChange={v => props.onRemoteOfficePresenceUrlChange?.(v)}
           onRemoteOfficeGatewayUrlChange={v => props.onRemoteOfficeGatewayUrlChange?.(v)} onRemoteOfficeTokenChange={v => props.onRemoteOfficeTokenChange?.(v)}
-          voiceRepliesEnabled={!!props.voiceRepliesEnabled} voiceRepliesVoiceId={props.voiceRepliesVoiceId || null} voiceRepliesSpeed={props.voiceRepliesSpeed || 1} voiceRepliesLoaded={!!props.voiceRepliesLoaded}
-          onVoiceRepliesToggle={v => props.onVoiceRepliesToggle?.(v)} onVoiceRepliesVoiceChange={v => props.onVoiceRepliesVoiceChange?.(v)}
-          onVoiceRepliesSpeedChange={v => props.onVoiceRepliesSpeedChange?.(v)} onVoiceRepliesPreview={(id, name) => props.onVoiceRepliesPreview?.(id, name)} />
+        />
       </div>
     </div> : null}
   </div>;

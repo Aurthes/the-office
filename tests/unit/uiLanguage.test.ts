@@ -16,8 +16,6 @@ const settingsProps = {
   remoteOfficeLabel: "远程团队", remoteOfficePresenceUrl: "", remoteOfficeGatewayUrl: "", remoteOfficeTokenConfigured: false,
   onRemoteOfficeEnabledChange: vi.fn(), onRemoteOfficeSourceKindChange: vi.fn(), onRemoteOfficeLabelChange: vi.fn(),
   onRemoteOfficePresenceUrlChange: vi.fn(), onRemoteOfficeGatewayUrlChange: vi.fn(), onRemoteOfficeTokenChange: vi.fn(),
-  voiceRepliesEnabled: false, voiceRepliesVoiceId: null, voiceRepliesSpeed: 1, voiceRepliesLoaded: true,
-  onVoiceRepliesToggle: vi.fn(), onVoiceRepliesVoiceChange: vi.fn(), onVoiceRepliesSpeedChange: vi.fn(), onVoiceRepliesPreview: vi.fn(),
 };
 afterEach(() => { cleanup(); vi.restoreAllMocks(); setUiLanguage("en"); localStorage.clear(); });
 
@@ -28,6 +26,8 @@ describe("interface language", () => {
     render(React.createElement(SettingsPanel, settingsProps));
     expect(screen.getByLabelText("Language")).toHaveValue("en");
     expect(screen.getByText("Studio title")).toBeVisible();
+    expect(screen.queryByRole("switch", { name: "Voice replies" })).toBeNull();
+    expect(screen.queryByText("Choose the voice used for spoken agent replies.")).toBeNull();
     expect(screen.getByLabelText("Dictation shortcut")).toHaveValue("ctrl-shift-space");
     function Label() { const t = useUiText(); return React.createElement("span", null, t("Settings")); }
     localStorage.setItem(UI_LANGUAGE_KEY, "zh-CN");

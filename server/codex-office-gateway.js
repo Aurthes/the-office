@@ -9,6 +9,7 @@ const { CodexOfficeStore } = require("./codex-office-store");
 const { CodexSessionControls } = require("./codex-session-controls");
 const { CodexSessionStream } = require("./codex-session-stream");
 const { CodexSessionWorkspace } = require("./codex-session-workspace");
+const { CodexOfficeVoice } = require("./codex-office-voice");
 const { loadSessionHistoryPage } = require("./codex-session-history");
 const { createOfficeDictation, suggestNextMessage } = require("./office-model-services");
 const { readAiCenter } = require("./ai-center");
@@ -16,8 +17,8 @@ const { readAiCenter } = require("./ai-center");
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
 const directory = officeEnvironment(path.resolve(process.env.CLAW3D_OFFICE_DATA_DIR || path.join(process.env.CLAW3D_DATA_DIR || path.join(os.homedir(), ".local/share/claw3d"), "office-runtime"))).home;
-const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, login;
-const features = { dictation: Boolean(process.env.OPENAI_API_KEY), dictationHTTP: true, voice: false, prediction: Boolean(process.env.OPENAI_API_KEY), terminal: true, accountVersion: 0 };
+const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login;
+const features = { dictation: Boolean(process.env.OPENAI_API_KEY), dictationHTTP: true, voice: true, prediction: Boolean(process.env.OPENAI_API_KEY), terminal: true, accountVersion: 0 };
 const broadcast = (event, payload) => { const frame = JSON.stringify({ type: "event", event, seq: seq++, payload }); for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame); };
 function changed() { if (!rosterTimer) rosterTimer = setTimeout(() => { rosterTimer = null; broadcast("roster.updated", { ts: Date.now() }); }, 150); }
 const native = new CodexOfficeClient({ home: process.env.CLAW3D_OFFICE_CODEX_HOME || path.join(directory, "codex"), onFrame(frame) {
@@ -25,12 +26,16 @@ const native = new CodexOfficeClient({ home: process.env.CLAW3D_OFFICE_CODEX_HOM
   if (frame.method === "account/login/completed") { login = null; features.accountVersion++; store.defaultModel = null; for (const state of controls.states.values()) state.version++; stream.refresh(); broadcast("office.account", { changed: true, success: frame.params.success, error: frame.params.error }); }
   workspace?.handle(frame);
   const mapped = store?.handle(frame); if (!mapped) return;
+  voice?.handle(mapped);
   controls?.handle(mapped); if (mapped.params?.threadId) stream?.changed(mapped.params.threadId);
 } });
-store = new CodexOfficeStore(directory, native, changed, id => Boolean(controls?.state(id).activeTurnId || workspace?.snapshot(id)?.running || workspace?.starts.has(id)));
+store = new CodexOfficeStore(directory, native, changed, id => Boolean(voice?.active?.threadId === id || controls?.state(id).activeTurnId || workspace?.snapshot(id)?.running || workspace?.starts.has(id)));
 controls = new CodexSessionControls(store, () => [], { settings: store, features });
 stream = new CodexSessionStream(controls);
 workspace = new CodexSessionWorkspace(native, { commandExec: true, policy: id => store.overrides(id).sandboxPolicy, roots: row => store.sessionFolders(row) });
+voice = new CodexOfficeVoice(store, controls, (ws, payload) => {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "event", event: "session.voice", payload }));
+});
 const agents = () => store.list().map(row => ({ ...row, role: row.project, identity: { name: row.name, emoji: "💬" }, needsInput: Boolean(controls.questions(row.id).some(q => !q.submitted) || controls.snapshot(row.id).approvalCount) }));
 const key = id => `agent:${id}:main`;
 const history = (id, cursor) => loadSessionHistoryPage(store.call.bind(store), store.get(id), cursor);
@@ -53,7 +58,7 @@ const methods = {
   "session.create": p => store.createSession(p),
   "session.rename": p => store.renameSession(p),
   "session.reassign": p => store.reassignSession(p),
-  "session.archive": p => { if (controls.state(p.threadId).activeTurnId) throw new Error("Stop the active task before archiving"); return store.archiveSession(p); },
+  "session.archive": p => { if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before archiving"); if (controls.state(p.threadId).activeTurnId) throw new Error("Stop the active task before archiving"); return store.archiveSession(p); },
   "config.get": async () => ({ exists: true, hash: "office-codex-1", config: { gateway: { reload: { mode: "hot" } }, agents: { list: agents() } } }),
   "sessions.list": async p => ({ sessions: store.list().filter(r => !p.agentId || p.agentId === r.id).map(r => ({ key: key(r.id), displayName: r.name, updatedAt: r.updatedAt, model: r.model, thinkingLevel: r.effort })) }),
   "sessions.preview": async p => ({ ts: Date.now(), previews: (p.keys || []).map(key => ({ key, status: "empty", items: [] })) }),
@@ -66,7 +71,9 @@ const methods = {
   "session.send": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); return controls.send(p.threadId, p.message, p.requestId, p.attachments); },
   "session.stop": p => { store.get(p.threadId); return controls.stop(p.threadId); },
   "session.settings.choices": p => { store.get(p.threadId); return controls.choices(p.threadId); },
-  "session.settings.update": p => { store.get(p.threadId); return controls.updateSettings(p.threadId, p.settings); },
+  "session.settings.update": p => { store.get(p.threadId); if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before changing settings"); return controls.updateSettings(p.threadId, p.settings); },
+  "session.voice.start": async (p, ws) => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before calling"); return voice.start(ws, p.threadId, p.sdp, p.voiceId); },
+  "session.voice.stop": (p, ws) => { store.get(p.threadId); return voice.stop(ws, p.threadId, p.voiceId); },
   "session.question.reply": p => { store.get(p.threadId); return controls.replyQuestions(p.threadId, p.promptId, p.answers); },
   "session.approval.reply": p => { store.get(p.threadId); return controls.reply(p.threadId, p.requestId, p.decision); },
   "session.workspace.list": p => workspace.files(store.get(p.threadId), p.path, p.root),
@@ -109,7 +116,7 @@ wss.on("connection", ws => {
         if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) throw new Error("Invalid gateway token");
         if (!native.ready) throw new Error("Office Codex is starting");
         connected = true; clients.add(ws);
-        result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "office-codex-1", connId: crypto.randomUUID() }, features: { methods: Object.keys(methods), events: ["tick", "session.stream", "session.terminal", "roster.updated", "project.updated", "office.account", "session.prediction"] }, snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: store.list()[0]?.id }, sessionDefaults: { mainKey: "main" } }, auth: { role: "operator", scopes: ["operator.read", "operator.write", "operator.approvals"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
+        result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "office-codex-1", connId: crypto.randomUUID() }, features: { methods: Object.keys(methods), events: ["tick", "session.stream", "session.terminal", "session.voice", "roster.updated", "project.updated", "office.account", "session.prediction"] }, snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: store.list()[0]?.id }, sessionDefaults: { mainKey: "main" } }, auth: { role: "operator", scopes: ["operator.read", "operator.write", "operator.approvals"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
       } else {
         if (!connected) throw new Error("Connect first");
         if (!Object.hasOwn(methods, frame.method)) throw new Error("This feature is not available in Office");
@@ -119,7 +126,7 @@ wss.on("connection", ws => {
       send({ type: "res", id: frame.id, ok: true, payload: result });
     } catch (error) { send({ type: "res", id: frame.id, ok: false, error: { code: "UNAVAILABLE", message: error.message } }); }
   });
-  ws.on("close", () => { clients.delete(ws); stream.disconnected(ws); workspace.disconnected(ws); }); ws.on("error", () => { clients.delete(ws); stream.disconnected(ws); workspace.disconnected(ws); });
+  ws.on("close", () => { clients.delete(ws); voice.disconnected(ws); stream.disconnected(ws); workspace.disconnected(ws); }); ws.on("error", () => { clients.delete(ws); voice.disconnected(ws); stream.disconnected(ws); workspace.disconnected(ws); });
 });
 const tick = setInterval(() => broadcast("tick", { ts: Date.now() }), 30000); tick.unref();
 async function close(code = 0) {

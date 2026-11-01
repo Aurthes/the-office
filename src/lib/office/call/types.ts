@@ -8,5 +8,4 @@ export type MockPhoneCallScenario = {
   spokenText: string | null;
   recipientReply: string | null;
   statusLine: string;
-  voiceAvailable: boolean;
 };

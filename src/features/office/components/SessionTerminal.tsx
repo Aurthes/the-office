@@ -98,7 +98,7 @@ export function SessionTerminal({ client, threadId }: { client: SessionClient; t
   return <div className="session-terminal flex min-h-0 flex-1 flex-col" onKeyDown={event => event.stopPropagation()}>
     <div className="session-workspace-toolbar">
       <span className="mr-auto text-xs text-white/50">Codex · {state?.running ? t("Running") : state ? t("Exited · {code}", { code: state.exitCode ?? "?" }) : t("No terminal")}</span>
-      {[['Tab', '\t'], ['Esc', '\x1b'], ['Ctrl C', '\x03']].map(([label, value]) => <button key={label} disabled={!state?.running || !connected} onClick={() => write.current?.(value)}>{label}</button>)}
+      {[['Tab', '\t'], ['Esc', '\x1b'], ['Ctrl C', '\x03']].map(([label, value]) => <button key={label} disabled={!state?.running || !connected} onClick={() => { write.current?.(value); focus.current?.(); }}>{label}</button>)}
       <button disabled={busy || !connected} onClick={() => void action(state?.running ? "stop" : "start")} aria-label={t(state?.running ? "Close terminal" : "Start terminal")}>{state?.running ? <Square size={14} /> : <Play size={14} />}{t(state?.running ? "Close" : "Start terminal")}</button>
     </div>
     {error ? <p role="alert" className="px-3 py-2 text-xs text-amber-200">{t(error)} <button className="underline" onClick={() => void resync.current?.()}>{t("Retry")}</button></p> : null}

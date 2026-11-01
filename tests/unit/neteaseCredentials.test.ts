@@ -17,11 +17,72 @@ function configRoot() {
   return directory;
 }
 
+function runPrompts(appIds: string[], keyInput = pem, pasteTogether = false) {
+  const root = configRoot();
+  const result = spawnSync(process.execPath, ["-e", `
+    const fs = require("node:fs"), { PassThrough } = require("node:stream");
+    const config = JSON.parse(fs.readFileSync(0, "utf8"));
+    const input = new PassThrough();
+    input.isTTY = true; input.setRawMode = () => {};
+    Object.defineProperty(process, "stdin", { value: input });
+    Object.defineProperty(process.stdout, "isTTY", { value: true });
+    const write = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk, ...args) => {
+      const result = write(chunk, ...args);
+      if (String(chunk) === "appId: ") {
+        const value = config.appIds.shift();
+        if (value === undefined) throw new Error("Unexpected App ID prompt");
+        setImmediate(() => input.write(value + "\\r" + (config.pasteTogether ? config.keyInput + "\\n" : "")));
+      }
+      if (String(chunk) === "privateKey: " && !config.pasteTogether) setImmediate(() => input.write(config.keyInput + "\\n"));
+      return result;
+    };
+    require(config.script).main(config.root).catch(error => { console.error(error.message); process.exitCode = 1; });
+  `], {
+    input: JSON.stringify({ appIds, keyInput, pasteTogether, root, script: path.resolve("scripts/setup-netease-credentials.js") }),
+    encoding: "utf8", timeout: 5000,
+  });
+  return { root, result };
+}
+
 afterEach(() => {
   for (const directory of temporary.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
 });
 
 describe("NetEase local credential setup", () => {
+  it("shows App ID while typing and before asking for the hidden private key", () => {
+    const { root, result } = runPrompts(["test-visible-app"]);
+    expect(result.status).toBe(0);
+    expect(result.stdout.split("Using App ID:")[0]).toContain("test-visible-app");
+    expect(result.stdout).toContain("Using App ID: test-visible-app");
+    expect(result.stdout.indexOf("Using App ID:")).toBeLessThan(result.stdout.indexOf("privateKey: "));
+    expect(result.stdout).not.toContain(pem.split("\n")[1]);
+    expect(JSON.parse(fs.readFileSync(path.join(root, "the-office/netease/credentials.json"), "utf8")))
+      .toEqual({ appId: "test-visible-app", privateKey: pem });
+  });
+
+  it("retries empty and spaced App IDs before asking for the private key", () => {
+    const { result } = runPrompts(["", "bad app id", " corrected-app "]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("App ID is empty");
+    expect(result.stdout).toContain("App ID contains spaces");
+    expect(result.stdout).toContain("Using App ID: corrected-app");
+    expect(result.stdout.match(/privateKey: /g)).toHaveLength(1);
+  });
+
+  it("does not echo private key lines pasted in the same input chunk as App ID", () => {
+    const { result } = runPrompts(["batch-paste-app"], pem, true);
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain(pem.split("\n")[1]);
+  });
+
+  it("cancels from the private key prompt without saving", () => {
+    const { root, result } = runPrompts(["cancel-app"], "\u0003");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Cancelled. No credentials were saved.");
+    expect(fs.existsSync(path.join(root, "the-office/netease/credentials.json"))).toBe(false);
+  });
+
   it("accepts PEM, escaped PEM and both single-line RSA formats", () => {
     const variants = [pem, pem.replace(/\n/g, "\\n"), ...(["pkcs8", "pkcs1"] as const).map(
       (type) => privateKey.export({ format: "der", type }).toString("base64"),
@@ -41,7 +102,8 @@ describe("NetEase local credential setup", () => {
         expect((error as Error).message).not.toContain(value);
       }
     }
-    expect(() => normalizeCredentials("", pem)).toThrow("appId");
+    expect(() => normalizeCredentials("", pem)).toThrow("App ID is empty");
+    expect(() => normalizeCredentials("app id", pem)).toThrow("App ID contains spaces");
   });
 
   it("saves only app credentials with private directory and file permissions", () => {
