@@ -3,12 +3,13 @@
 .ship-office .office-company-menu { position: relative; top: auto; left: auto; }
 .ship-office .office-company-panel { max-width: none; }
 .ship-heading { max-width: calc(100% - 520px); }
-/* Keep corner cards compact; music has its own centered bottom row with room for expanded controls. */
-.ship-bottom-hud { position:absolute; left:16px; right:16px; bottom:16px; z-index:20; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,280px); grid-template-rows:minmax(0,1fr) auto; align-items:end; gap:12px; max-height:calc(100% - 80px); overflow-y:auto; overscroll-behavior:contain; pointer-events:none; }
+/* Music stays on the bottom edge; corner cards reserve its height above that row. */
+.ship-office:has(.music-mini) { --ship-hud-bottom:72px; }
+.ship-office:has(.music-mini-volume-popover) { --ship-hud-bottom:120px; }
+.ship-bottom-hud { position:absolute; left:16px; right:16px; bottom:var(--ship-hud-bottom,16px); z-index:20; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,280px); grid-template-rows:minmax(0,1fr); align-items:end; gap:12px; max-height:calc(100% - var(--ship-hud-bottom,16px) - 64px); overflow-y:auto; overscroll-behavior:contain; pointer-events:none; }
 .ship-bottom-right { display:flex; flex-direction:column; align-items:flex-end; gap:12px; min-width:0; min-height:0; max-height:100%; }
 .ship-bottom-right > :not(.ship-object-card) { flex-shrink:0; }
 .ship-summary { justify-self:start; width:fit-content; min-width:0; max-width:460px; backdrop-filter:blur(8px); }
-.ship-bottom-hud > .music-controls-anchor { grid-column:1 / -1; justify-self:center; }
 .star-navigation-active .ship-summary { visibility:hidden; }
 .space-traffic-notice { position: absolute; top: 66px; right: 16px; z-index: 22; width: min(208px, calc(100% - 24px)); border: 1px solid #d8b87a65; border-radius: 8px; background: #12232ef5; box-shadow: 0 8px 28px #0005; color: #cbdade; padding: 8px 10px; font: 10px/1.35 system-ui, sans-serif; }
 .space-traffic-heading { display: flex; align-items: center; gap: 5px; color: #e1c28a; font-size: 10px; }
@@ -62,7 +63,7 @@
   .ship-toolbar { gap: 4px; }
   .ship-toolbar > div { font-size: 8px; padding: 7px 6px; }
   .ship-toolbar > button { height: 29px; min-width: 29px; padding: 4px; }
-  .ship-bottom-hud { left:12px; right:12px; bottom:72px; max-height:calc(100% - 140px); grid-template-columns:minmax(0,1fr) minmax(0,44%); gap:8px; }
+  .ship-bottom-hud { left:12px; right:12px; bottom:var(--ship-hud-bottom,72px); max-height:calc(100% - var(--ship-hud-bottom,72px) - 68px); grid-template-columns:minmax(0,1fr) minmax(0,44%); gap:8px; }
   .ship-summary { padding:8px 10px; max-width:100%; }
   .ship-summary > div:last-child { display: none; }
   .ship-summary > div:nth-child(2) { max-width: 280px; font-size: 10px; }

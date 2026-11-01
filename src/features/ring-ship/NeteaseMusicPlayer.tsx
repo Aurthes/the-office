@@ -244,7 +244,7 @@ export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget,
         if (!audio.current) return;
         if (audio.current.paused) resume(); else pause();
       }}>{playing ? <Pause size={18} /> : <Play size={18} />}</button>
-      <button type="button" className="music-mini-button" aria-label={t("Next track")} disabled={loadingTrack} onClick={() => { void next(true); }}><SkipForward size={16} /></button>
+      <button type="button" className="music-mini-button music-mini-next" aria-label={t("Next track")} disabled={loadingTrack} onClick={() => { void next(true); }}><SkipForward size={16} /></button>
       <div className="music-mini-volume">
         <button type="button" className="music-mini-button" aria-label={t("Music volume")} aria-expanded={volumeOpen} onClick={() => setVolumeOpen(value => !value)}><Volume2 size={16} /></button>
         {volumeOpen ? <label className="music-mini-volume-popover"><input type="range" aria-label={t("Music volume")} min="0" max="1" step="0.01" value={volume} onChange={event => {
