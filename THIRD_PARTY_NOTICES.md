@@ -1,5 +1,13 @@
 # Third-party notices
 
+## Codex CLI
+
+Office installs the official `@openai/codex@0.166.0` npm package as its independent
+agent runtime. Source: [OpenAI Codex](https://github.com/openai/codex), tag
+`rust-v0.166.0`. License: **Apache-2.0**, included in
+[licenses/Codex-Apache-2.0.txt](licenses/Codex-Apache-2.0.txt).
+The native Codex/ChatGPT application is not bundled or modified.
+
 ## Claw3D
 
 The Office is derived from [iamlukethedev/Claw3D](https://github.com/iamlukethedev/Claw3D).

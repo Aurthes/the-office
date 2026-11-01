@@ -89,7 +89,8 @@ const methods = {
 const dictate = createOfficeDictation({ token, findThread: id => store.get(id) });
 const server = http.createServer((req, res) => {
   if (req.method === "POST" && req.url?.split("?")[0] === "/dictation") return void dictate(req, res);
-  res.writeHead(native.ready ? 200 : 503, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: native.ready, runtime: "Office-owned Codex", agents: store.list().length, readOnly: false, features }));
+  const { rules, defaults, warnings } = native.profile;
+  res.writeHead(native.ready ? 200 : 503, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: native.ready, runtime: "Office-owned Codex", agents: store.list().length, readOnly: false, features, configuration: { rules, defaults, extraSkillRoots: native.profile.skillRoots.length, warnings } }));
 });
 const wss = new WebSocketServer({ server, maxPayload: 256 * 1024 });
 wss.on("connection", ws => {
@@ -125,4 +126,8 @@ async function close(code = 0) {
   wss.close(); server.close(); await workspace.close(); await native.close(); process.exitCode = code;
 }
 for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => void close());
-native.initialize().then(() => server.listen(Number(process.env.CODEX_ADAPTER_PORT || 18790), "127.0.0.1", () => console.log("[office-codex] Independent stdio runtime ready"))).catch(error => { console.error(error.message); void close(1); });
+native.initialize().then(() => server.listen(Number(process.env.CODEX_ADAPTER_PORT || 18790), "127.0.0.1", () => {
+  console.log(`[office-codex] Configuration discovered: ${native.profile.rules.filter(r => r.status === "shared").length} shared rule files, ${native.profile.defaults.length} inherited defaults`);
+  for (const warning of native.profile.warnings) console.warn(`[office-codex] ${warning}`);
+  console.log("[office-codex] Independent stdio runtime ready");
+})).catch(error => { console.error(error.message); void close(1); });

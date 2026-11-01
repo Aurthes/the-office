@@ -19,6 +19,17 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), "office-live-"));
 const data = path.join(root, "office"), home = path.join(data, "codex"), workspace = path.join(root, "workspace"), secondary = path.join(root, "repo-b"), excluded = path.join(root, "unattached"), uploads = path.join(root, "uploads"), foreign = path.join(root, "native");
 for (const p of [home, workspace, secondary, excluded, foreign]) fs.mkdirSync(p, { recursive: true });
 fs.writeFileSync(path.join(foreign, "sentinel"), "native state unchanged");
+fs.writeFileSync(path.join(foreign, "AGENTS.md"), "OFFICE_GLOBAL_RULE_MARKER");
+fs.writeFileSync(path.join(foreign, "config.toml"), 'model_reasoning_effort="high"\nsqlite_home="/must-not-be-used"\ncli_auth_credentials_store="keyring"\nsandbox_mode="danger-full-access"\n');
+const legacySkill = path.join(foreign, "skills", "office-profile-probe"), disabledSkill = path.join(foreign, "skills", "disabled-profile-probe");
+fs.mkdirSync(legacySkill, { recursive: true }); fs.mkdirSync(disabledSkill, { recursive: true });
+fs.writeFileSync(path.join(legacySkill, "SKILL.md"), '---\nname: office-profile-probe\ndescription: OFFICE_LEGACY_SKILL_MARKER\n---\nA temporary skill used only by the local Office integration fixture.\n');
+fs.writeFileSync(path.join(disabledSkill, "SKILL.md"), '---\nname: disabled-profile-probe\ndescription: OFFICE_DISABLED_SKILL_MARKER\n---\nDisabled test fixture.\n');
+fs.appendFileSync(path.join(foreign, "config.toml"), `[[skills.config]]\npath=${JSON.stringify(path.join(disabledSkill, "SKILL.md"))}\nenabled=false\n`);
+function sourceSnapshot(directory = foreign) {
+  return fs.readdirSync(directory).sort().flatMap(name => { const file = path.join(directory, name); return fs.statSync(file).isDirectory() ? sourceSnapshot(file) : [[path.relative(foreign, file), crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")]]; });
+}
+let sourceBefore = JSON.stringify(sourceSnapshot());
 const payloads = [], checks = []; let gateway, socket;
 let diagnosticClient, gatewayErrors = "";
 const provider = http.createServer((request, response) => {
@@ -45,9 +56,10 @@ class BrowserClient {
   call(method, params = {}) { return new Promise((resolve, reject) => { const id = String(++this.serial), timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`Timed out: ${method}`)); }, 20000); this.pending.set(id, { resolve, reject, timer }); this.ws.send(JSON.stringify({ type: "req", id, method, params })); }); }
 }
 const token = crypto.randomBytes(32).toString("hex"); let port;
-async function start() {
-  const env = { ...process.env, CODEX_HOME: foreign, CODEX_SQLITE_HOME: foreign, CODEX_APP_SERVER_WS_URL: "ws://127.0.0.1:1", CLAW3D_GATEWAY_TOKEN: token, CLAW3D_CODEX_BIN: binary, CLAW3D_OFFICE_DATA_DIR: data, CLAW3D_OFFICE_CODEX_HOME: home, CLAW3D_UPLOAD_DIR: uploads, CODEX_ADAPTER_PORT: String(port) };
+async function start(useBundled = false) {
+  const env = { ...process.env, CODEX_HOME: foreign, CLAW3D_CODEX_CONFIG_HOME: foreign, CODEX_SQLITE_HOME: foreign, CODEX_APP_SERVER_WS_URL: "ws://127.0.0.1:1", CLAW3D_GATEWAY_TOKEN: token, CLAW3D_CODEX_BIN: binary, CLAW3D_OFFICE_DATA_DIR: data, CLAW3D_OFFICE_CODEX_HOME: home, CLAW3D_UPLOAD_DIR: uploads, CODEX_ADAPTER_PORT: String(port) };
   delete env.OPENAI_API_KEY;
+  if (useBundled) delete env.CLAW3D_CODEX_BIN;
   gateway = spawn(process.execPath, [fileURLToPath(new URL("../server/codex-office-gateway.js", import.meta.url))], { env, stdio: ["ignore", "pipe", "pipe"] });
   let output = "", exited = false; gateway.stdout.on("data", data => { output += data; }); gateway.stderr.on("data", data => { gatewayErrors = (gatewayErrors + data).slice(-3000); }); gateway.once("exit", () => { exited = true; });
   await until(() => output.includes("runtime ready") || exited, "Office gateway did not start"); if (exited) throw new Error("Office gateway exited before readiness");
@@ -63,7 +75,9 @@ try {
   provider.listen(0, "127.0.0.1"); await once(provider, "listening");
   fs.writeFileSync(path.join(home, "config.toml"), `model = "gpt-6.1-sol"\nmodel_provider = "office_check"\n[model_providers.office_check]\nname = "Local test fixture"\nbase_url = "http://127.0.0.1:${provider.address().port}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\n`);
   const portProbe = net.createServer(); portProbe.listen(0, "127.0.0.1"); await once(portProbe, "listening"); port = portProbe.address().port; await new Promise(r => portProbe.close(r));
-  let client = await start();
+  let client = await start(true);
+  const health = await (await fetch(`http://127.0.0.1:${port}/health`)).json();
+  check("configuration is automatically discovered", health.configuration.rules.some(r => r.name === "AGENTS.md" && r.status === "shared") && health.configuration.defaults.includes("model_reasoning_effort") && health.configuration.warnings.length === 0);
   check("clean independent roster", (await client.call("office.snapshot")).agents.length === 0);
   const { project } = await client.call("project.create", { name: "Check project", rootPaths: [workspace, secondary], requestId: "project-1" });
   check("project references multiple existing folders", project.rootPaths.length === 2 && project.rootPaths[0] === fs.realpathSync(workspace));
@@ -98,13 +112,18 @@ try {
   const imagePresent = payloads.some(p => JSON.stringify(p.input).includes("input_image"));
   if (!imagePresent) console.log(JSON.stringify({ diagnostic: payloads.map(p => ({ model: p.model, userContent: p.input?.filter(i => i.role === "user").flatMap(i => i.content || []).map(c => ({ type: c.type, text: c.text?.slice(-350) })) })) }));
   check("actual Codex reply and image input", imagePresent);
+  check("Codex loads shared global instructions", JSON.stringify(payloads.at(-1).input).includes("OFFICE_GLOBAL_RULE_MARKER"));
+  check("Codex discovers legacy skills through the public extra-roots API", JSON.stringify(payloads.at(-1).input).includes("OFFICE_LEGACY_SKILL_MARKER"));
+  check("source per-skill disables remain effective", !JSON.stringify(payloads.at(-1).input).includes("OFFICE_DISABLED_SKILL_MARKER"));
   check("project context reaches Codex without appearing as a user message", payloads.some(p => p.input?.some(i => i.role === "developer" && JSON.stringify(i).includes(fs.realpathSync(secondary)))) && !(await client.call("session.history", { threadId })).messages.some(m => m.content.includes("Current Office project context")));
   await client.call("project.update", { projectId: project.id, name: "Updated project", rootPaths: [workspace], requestId: "remove-secondary" });
   check("saved history", (await client.call("session.history", { threadId })).messages.some(m => m.content === "OFFICE_CHECK_OK"));
   const originalNativeId = JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].codexThreadId;
+  fs.writeFileSync(path.join(foreign, "AGENTS.md"), "OFFICE_UPDATED_GLOBAL_RULE_MARKER"); sourceBefore = JSON.stringify(sourceSnapshot());
   await stop(); client = await start();
   await client.call("session.send", { threadId, message: "OFFICE_SECOND_MARKER", requestId: "send-2" });
   await until(() => payloads.length >= 2, "Continuation did not reach the provider");
+  check("resumed chats load updated shared rules after restart", JSON.stringify(payloads.at(-1).input).includes("OFFICE_UPDATED_GLOBAL_RULE_MARKER"));
   const contexts = payloads.at(-1).input.filter(i => i.role === "developer" && JSON.stringify(i).includes("Current Office project context"));
   check("project edits replace folder context after restart", contexts.length > 0 && !JSON.stringify(contexts.at(-1)).includes(fs.realpathSync(secondary)));
   await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].status === "idle", "Second turn did not finish");
@@ -117,7 +136,7 @@ try {
   await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].status === "idle", "Interrupted turn did not finish");
   await client.call("session.archive", { threadId, requestId: "archive-1" });
   check("own archive", (await client.call("office.snapshot")).agents.length === 0);
-  check("foreign state untouched", fs.readFileSync(path.join(foreign, "sentinel"), "utf8") === "native state unchanged" && fs.readdirSync(foreign).length === 1);
+  check("foreign state untouched", JSON.stringify(sourceSnapshot()) === sourceBefore);
   console.log(JSON.stringify({ passed: checks.length, syntheticModelOnly: true, userAppHomeUsed: false }));
 } catch (error) {
   console.log(JSON.stringify({ diagnostic: { error: error.message, socketState: socket?.readyState, requests: payloads.length, events: diagnosticClient?.events.slice(-8).map(e => ({ event: e.event, turnStatus: e.payload?.turnStatus, error: e.payload?.error, itemCount: e.payload?.items?.length })), gatewayErrors } }));

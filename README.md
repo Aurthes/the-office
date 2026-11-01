@@ -67,6 +67,14 @@ Open `http://localhost:3000`, select the **Demo** backend and connect to
 
 Use the independent backend for new Office work:
 
+`npm ci` includes Office's own pinned official Codex CLI. On startup, Office
+automatically discovers your public Codex rules, standalone skills and selected
+ordinary defaults. Existing Office-specific settings take priority. First-time
+account authorization is still separate; App credentials, conversations,
+databases and App-specific integrations are not imported. See
+[automatic configuration discovery](docs/office-owned-state.md#automatic-configuration-discovery)
+for the supported scope and platform requirements.
+
 | Mode | Purpose | Setup |
 | --- | --- | --- |
 | Office-owned Codex runtime | Separate process, login, projects and sessions; `npm run codex-gateway` | [Setup and tested features](docs/office-owned-state.md) |
@@ -147,8 +155,9 @@ inherited codebase has existing lint findings; a full `npm run lint` is not
 currently a clean gate. Dependencies are pinned in `package-lock.json`.
 
 Docker publication is manual through the GitHub Actions workflow and targets
-`ghcr.io/<your-account>/the-office`. The inherited image remains a generic Studio
-image; a validated independent Codex runtime is not bundled with it.
+`ghcr.io/<your-account>/the-office`. The image starts Studio; deploy the Office
+gateway as a separate service. Dependencies include the pinned CLI, but the
+complete independent-backend Docker deployment has not been validated.
 
 ## Repository and upstream
 

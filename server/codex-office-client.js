@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
 const { spawn } = require("node:child_process");
+const { prepareOfficeProfile, sourceHome } = require("./codex-office-profile");
 
 function canonical(value) {
   const absolute = path.resolve(value);
@@ -14,7 +15,7 @@ function officeEnvironment(home, environment = process.env) {
   const resolved = canonical(home), native = canonical(path.join(os.homedir(), ".codex"));
   if (resolved === path.parse(resolved).root) throw new Error("Office cannot use the filesystem root as its data directory");
   const inherited = environment.CODEX_HOME ? canonical(environment.CODEX_HOME) : native;
-  for (const root of new Set([native, inherited])) {
+  for (const root of new Set([native, inherited, canonical(sourceHome(environment))])) {
     if (resolved === root || resolved.startsWith(root + path.sep) || root.startsWith(resolved + path.sep))
       throw new Error("Office requires a separate Codex data directory outside the native App home");
   }
@@ -27,10 +28,13 @@ function officeEnvironment(home, environment = process.env) {
 
 // One Office-owned child, with public stdio RPC and no App attachment or daemon.
 class CodexOfficeClient {
-  constructor({ home, binary = process.env.CLAW3D_CODEX_BIN || "codex", env = process.env, onFrame = () => {} }) {
+  constructor({ home, binary, env = process.env, onFrame = () => {} }) {
     const isolated = officeEnvironment(home, env);
     this.home = isolated.home; this.ready = false; this.pending = new Map(); this.serial = 0;
-    this.child = spawn(binary, ["-c", `sqlite_home=${JSON.stringify(this.home)}`, "-c", 'cli_auth_credentials_store="file"', "app-server", "--listen", "stdio://"], {
+    this.profile = prepareOfficeProfile(this.home, env);
+    const command = binary || env.CLAW3D_CODEX_BIN;
+    const launcher = command ? [] : [require.resolve("@openai/codex/bin/codex.js")];
+    this.child = spawn(command || process.execPath, [...launcher, ...this.profile.overrides, "-c", `sqlite_home=${JSON.stringify(this.home)}`, "-c", 'cli_auth_credentials_store="file"', "app-server", "--listen", "stdio://"], {
       cwd: this.home, env: isolated.env, stdio: ["pipe", "pipe", "inherit"],
     });
     this.exited = new Promise(resolve => { this.resolveExit = resolve; });
@@ -48,7 +52,9 @@ class CodexOfficeClient {
   fail(error) { this.ready = false; for (const request of this.pending.values()) { clearTimeout(request.timer); request.reject(error); } this.pending.clear(); }
   async initialize() {
     const result = await this.call("initialize", { clientInfo: { name: "the_office", title: "The Office", version: "1" }, capabilities: { experimentalApi: false } });
-    this.child.stdin.write(JSON.stringify({ method: "initialized" }) + "\n"); this.ready = true;
+    this.child.stdin.write(JSON.stringify({ method: "initialized" }) + "\n");
+    if (this.profile.skillRoots.length) await this.call("skills/extraRoots/set", { extraRoots: this.profile.skillRoots });
+    this.ready = true;
     return result;
   }
   call(method, params = {}, timeoutMs = 15000) {
