@@ -50,10 +50,43 @@ it("uses song detail for personal apps, upgrades audio to HTTPS and preserves pr
   });
   expect(await f.music.track("song-1")).toEqual({ url: "https://audio.music.126.net/song.mp3", preview: { start: 10, end: 40 } });
 });
+it("builds a scene mix from fitting playlists, removes unavailable tracks and keeps playable VIP songs", async () => {
+  const f = setup();
+  f.fetchImpl.mockImplementation(async (url, init) => {
+    const biz = JSON.parse(new URLSearchParams(init.body as URLSearchParams).get("bizContent")!);
+    if (url.includes("/search/playlist/")) {
+      expect(biz.keyword).toBe("太空 ambient");
+      return response({ records: [{ id: "metal", name: "Space metal", tags: ["金属"] }, { id: "ambient", name: "Space ambient" }, { id: "score", name: "Space soundtrack" }] });
+    }
+    expect(url).toContain("/playlist/song/list/get/v3"); expect(biz.playlistId).not.toBe("metal");
+    return response([{ id: "vip", name: "Playable VIP", visible: true, playFlag: true, vipFlag: true, freeTrailFlag: true }, { id: "blocked", name: "Blocked", visible: false, playFlag: false }]);
+  });
+  const result = await f.music.recommendations({ scene: "deep-space" });
+  expect(result.songs).toEqual([{ id: "vip", name: "Playable VIP", artists: "", album: "", playable: true }]);
+  expect(result.playlists.map((p: { id: string }) => p.id)).toEqual(["ambient", "score"]);
+});
+it("uses official daily recommendations and filters their array response without leaking playback URLs", async () => {
+  const f = setup();
+  f.fetchImpl.mockImplementationOnce(async url => {
+    expect(url).toContain("/recommend/songlist/get/v2");
+    return response([{ id: "daily", name: "Daily song", visible: true, playFlag: true, playUrl: "DO_NOT_FORWARD" }, { id: "blocked", name: "Blocked", playFlag: false }]);
+  });
+  expect(await f.music.recommendations({ source: "daily" })).toEqual({ songs: [{ id: "daily", name: "Daily song", artists: "", album: "", playable: true }], playlists: [] });
+});
+it("falls back to space ambient when a scene's matching playlists have no playable songs", async () => {
+  const f = setup();
+  f.fetchImpl.mockImplementation(async (url, init) => {
+    const biz = JSON.parse(new URLSearchParams(init.body as URLSearchParams).get("bizContent")!);
+    if (url.includes("/search/playlist/")) return response({ records: [{ id: biz.keyword === "desert ambient" ? "empty" : "space", name: biz.keyword }] });
+    return response(biz.playlistId === "space" ? [{ id: "song", name: "Ambient", playFlag: true }] : []);
+  });
+  expect((await f.music.recommendations({ scene: "amber-nebula" })).songs).toMatchObject([{ name: "Ambient", playable: true }]);
+  expect(f.fetchImpl).toHaveBeenCalledTimes(4);
+});
 it("reports missing audio and authorization failures without exposing tokens", async () => {
   const f = setup();
   f.fetchImpl.mockResolvedValueOnce(response({ playUrl: null }));
-  await expect(f.music.track("song")).rejects.toMatchObject({ status: 403 });
+  await expect(f.music.track("song")).rejects.toMatchObject({ status: 403, code: "TRACK_UNAVAILABLE", publicMessage: "This song is not available in this player." });
   f.fetchImpl.mockResolvedValueOnce(response(null, 1408, f.auth.accessToken));
   await expect(f.music.search("song")).rejects.toMatchObject({ status: 401, code: "AUTH_REQUIRED", publicMessage: "Sign in to NetEase again." });
   f.fetchImpl.mockResolvedValueOnce(response(null, 500, "Failed with " + f.auth.accessToken));

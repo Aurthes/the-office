@@ -6,7 +6,7 @@ import { useUiText } from "@/lib/i18n/ui-language";
 import { NeteaseMusicPlayer } from "./NeteaseMusicPlayer";
 import "./listening-bar.css";
 
-export function MusicPlayerDialog({ open = true, onOpen, onClose }: { open?: boolean; onOpen: () => void; onClose: () => void }) {
+export function MusicPlayerDialog({ open = true, scene = "deep-space", sceneName = "Quiet Anchorage", onOpen, onClose }: { open?: boolean; scene?: string; sceneName?: string; onOpen: () => void; onClose: () => void }) {
   const t = useUiText();
   const dialog = useRef<HTMLDialogElement>(null);
   const [player, setPlayer] = useState<"netease" | null>(null);
@@ -34,7 +34,7 @@ export function MusicPlayerDialog({ open = true, onOpen, onClose }: { open?: boo
           <span>{t("Closing the panel keeps the music playing.")}</span>
           <button type="button" onClick={() => setReload(value => value + 1)} aria-label={t("Reload music player")}><RotateCw size={15} />{t("Reload")}</button>
         </div>
-        <NeteaseMusicPlayer key={reload} controlsTarget={controlsTarget} minimized={!open} onOpen={onOpen} onStop={stop} />
+        <NeteaseMusicPlayer key={reload} scene={scene} sceneName={sceneName} controlsTarget={controlsTarget} minimized={!open} onOpen={onOpen} onStop={stop} />
       </> : <div className="music-chooser">
         <div className="music-record-art" aria-hidden="true"><div className="music-vinyl"><span>33⅓</span></div><div className="music-arm" /></div>
         <p className="music-intro">{t("Pick a player. Set the mood.")}</p>

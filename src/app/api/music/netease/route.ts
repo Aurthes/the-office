@@ -13,6 +13,7 @@ export async function GET(request: Request) {
   try {
     const action = url.searchParams.get("action");
     const result = action === "search" ? await music.search(url.searchParams.get("query"))
+      : action === "recommendations" ? await music.recommendations({ scene: url.searchParams.get("scene") || "deep-space", source: url.searchParams.get("source") || "scene", batch: Number(url.searchParams.get("batch")) || 0 })
       : action === "track" ? await music.track(url.searchParams.get("id"))
       : action === "login" ? await music.pollLogin() : await music.status();
     return Response.json(result, { headers });

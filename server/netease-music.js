@@ -5,6 +5,12 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const QRCode = require("qrcode");
 
+const SCENE_QUERIES = {
+  "deep-space": "太空 ambient", "blue-nebula": "冰川 氛围 纯音乐", "amber-nebula": "desert ambient",
+  "jade-nebula": "海洋 氛围 纯音乐", "violet-rift": "科幻 游戏 原声",
+};
+const songView = song => ({ id: song.id, name: song.name, artists: (song.artists?.length ? song.artists : song.fullArtists || []).map(artist => artist.name).filter(Boolean).join(" / "), album: song.album?.name || song.albumName || "", playable: song.visible !== false && song.playFlag !== false });
+
 function musicError(message, status = 502, code = "MUSIC_UNAVAILABLE") {
   return Object.assign(new Error(message), { publicMessage: message, status, code });
 }
@@ -89,7 +95,29 @@ function createNeteaseMusic({ directory = path.join(os.homedir(), ".config/the-o
     if (typeof query !== "string" || !query.trim() || query.length > 200) throw musicError("Enter a song or artist name.", 400);
     const { app, auth } = await session();
     const data = await request(app, "/openapi/music/basic/search/song/get/v3", { keyword: query.trim(), limit: 20, offset: 0 }, auth.device, auth.accessToken);
-    return { songs: (data?.records || []).map(song => ({ id: song.id, name: song.name, artists: (song.artists?.length ? song.artists : song.fullArtists || []).map(artist => artist.name).filter(Boolean).join(" / "), album: song.album?.name || "", playable: song.visible !== false && song.playFlag !== false })) };
+    return { songs: (data?.records || []).map(songView) };
+  }
+  async function recommendations({ scene = "deep-space", source = "scene", batch = 0 } = {}) {
+    const { app, auth } = await session();
+    const call = (endpoint, business) => request(app, endpoint, business, auth.device, auth.accessToken);
+    // freeTrailFlag means preview support, not that this user is limited to a preview.
+    const availableSongs = songs => songs.filter(song => song.visible !== false && song.playFlag !== false).map(songView);
+    if (source === "daily") {
+      const data = await call("/openapi/music/basic/recommend/songlist/get/v2", { limit: 30 });
+      return { songs: availableSongs(Array.isArray(data) ? data : data?.records || []), playlists: [] };
+    }
+    const keyword = Object.hasOwn(SCENE_QUERIES, scene) ? SCENE_QUERIES[scene] : SCENE_QUERIES["deep-space"];
+    const found = await call("/openapi/music/basic/search/playlist/get/v2", { keyword, limit: 10, offset: 0 });
+    const playlists = (found?.records || []).filter(list => !/摇滚|金属|说唱|流行|舞曲|劲爆|\b(metal|rock|rap|dance|pop|vocal|DJ)\b|hip.?hop|k.?pop/i.test([list.name, ...(list.tags || [])].join(" ")));
+    const start = (Math.trunc(Math.max(0, Math.min(10000, Number(batch) || 0))) * 2) % (playlists.length || 1);
+    const chosen = playlists.length ? [playlists[start], playlists[(start + 1) % playlists.length]].filter((list, index, all) => all.findIndex(item => item.id === list.id) === index) : [];
+    const lists = await Promise.all(chosen.map(async list => {
+      const data = await call("/openapi/music/basic/playlist/song/list/get/v3", { playlistId: list.id, limit: 60, offset: 0 });
+      return availableSongs(Array.isArray(data) ? data : data?.records || []);
+    }));
+    const songs = [...new Map(lists.flat().map(song => [song.id, song])).values()];
+    if (!songs.length && keyword !== SCENE_QUERIES["deep-space"]) return recommendations({ scene: "deep-space", batch });
+    return { songs, playlists: chosen.map(list => ({ id: list.id, name: list.name })) };
   }
   async function track(songId) {
     if (typeof songId !== "string" || !songId || songId.length > 128) throw musicError("Choose a song to play.", 400);
@@ -98,7 +126,7 @@ function createNeteaseMusic({ directory = path.join(os.homedir(), ".config/the-o
     const data = await request(app, "/openapi/music/basic/song/detail/get/v2", { songId, withUrl: true, bitrate: 128 }, auth.device, auth.accessToken);
     let url;
     try { url = new URL(data?.playUrl); if (!["http:", "https:"].includes(url.protocol)) throw new Error(); url.protocol = "https:"; }
-    catch { throw musicError("This song is not available for your account.", 403); }
+    catch { throw musicError("This song is not available in this player.", 403, "TRACK_UNAVAILABLE"); }
     const preview = data.freeTrail;
     return { url: url.href, preview: preview && Number(preview.end) > Number(preview.start) ? { start: Number(preview.start), end: Number(preview.end) } : null };
   }
@@ -132,6 +160,6 @@ function createNeteaseMusic({ directory = path.join(os.homedir(), ".config/the-o
     if (![801, 802].includes(data?.status)) throw musicError("NetEase sign-in failed. Please retry.");
     return { state: data.status === 802 ? "confirm" : "waiting" };
   }
-  return { status, search, track, startLogin, pollLogin };
+  return { status, search, recommendations, track, startLogin, pollLogin };
 }
 module.exports = { createNeteaseMusic };
