@@ -7,6 +7,7 @@ const { createAccountMonitorProxy } = require("./account-monitor-proxy");
 const { createGatewayProxy } = require("./gateway-proxy");
 const { assertPublicHostAllowed, resolveHosts } = require("./network-policy");
 const { loadUpstreamGatewaySettings } = require("./studio-settings");
+const { createProxyBoundary } = require("./proxy-boundary");
 
 const resolvePort = () => {
   const raw = process.env.PORT?.trim() || "3000";
@@ -98,6 +99,11 @@ async function main() {
   const accessGate = createAccessGate({
     token: process.env.STUDIO_ACCESS_TOKEN,
   });
+  const proxyBoundary = createProxyBoundary({
+    token: process.env.CLAW3D_PROXY_TOKEN,
+    publicOrigins: process.env.CLAW3D_PUBLIC_ORIGINS || "",
+    required: process.env.NEXT_PUBLIC_CLAW3D_WEB_ACCESS === "1",
+  });
   const accountMonitor = createAccountMonitorProxy(process.env.CLAW3D_ACCOUNT_MONITOR_URL);
 
   const proxy = createGatewayProxy({
@@ -113,15 +119,15 @@ async function main() {
       return true;
     },
     verifyClient: (info) => {
-      // The public entry is protected by Cloudflare Access. Also reject
-      // cross-site browser connections to the loopback Studio port.
-      return sameOrigin(info.req) && accessGate.allowUpgrade(info.req);
+      return !proxyBoundary(info.req, true) && sameOrigin(info.req) && accessGate.allowUpgrade(info.req);
     },
   });
 
   await app.prepare();
   const handleUpgrade = app.getUpgradeHandler();
   const handleServerUpgrade = (req, socket, head) => {
+    const rejected = proxyBoundary(req, true);
+    if (rejected) { socket.end(`HTTP/1.1 ${rejected} Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`); return; }
     if (resolvePathname(req.url) === "/api/gateway/ws") {
       proxy.handleUpgrade(req, socket, head);
       return;
@@ -134,12 +140,14 @@ async function main() {
   const createServer = () =>
     useHttps
       ? https.createServer(httpsCert, (req, res) => {
+          const rejected = proxyBoundary(req); if (rejected) { res.writeHead(rejected); res.end("Access rejected"); return; }
           if (!sameOrigin(req)) { res.writeHead(403); res.end("Origin rejected"); return; }
           if (accessGate.handleHttp(req, res)) return;
           if (accountMonitor(req, res)) return;
           handle(req, res);
         })
       : http.createServer((req, res) => {
+          const rejected = proxyBoundary(req); if (rejected) { res.writeHead(rejected); res.end("Access rejected"); return; }
           if (!sameOrigin(req)) { res.writeHead(403); res.end("Origin rejected"); return; }
           if (accessGate.handleHttp(req, res)) return;
           if (accountMonitor(req, res)) return;
