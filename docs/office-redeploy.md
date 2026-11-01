@@ -49,6 +49,9 @@ configuration changes. It replaces services one at a time. After `bootout`, it
 waits for **both deregistration and old PID exit** before `bootstrap`. A running
 PID and a successful loopback health response are required for readiness; the
 gateway must also return `ok: true`. Health checks reject redirects.
+For a protected public Studio, readiness automatically supplies
+`X-Office-Proxy-Token` from the service's private `CLAW3D_PROXY_TOKEN` setting.
+The token is not included in the deployment result or logs.
 
 If any cutover fails, all attempted services are restored in reverse order,
 including the service whose stop/start failed. Each recovery has its own error

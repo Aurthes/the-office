@@ -86,7 +86,9 @@ function healthURL(raw) {
 }
 async function healthy(service) {
   try {
-    const response = await fetch(service.health, { redirect: "error", signal: AbortSignal.timeout(600) });
+    const value = plist(fs.readFileSync(service.plist));
+    const token = value.EnvironmentVariables?.CLAW3D_PROXY_TOKEN;
+    const response = await fetch(service.health, { redirect: "error", signal: AbortSignal.timeout(600), headers: token ? { "x-office-proxy-token": token } : {} });
     if (response.status !== 200) return false;
     return service.kind !== "gateway" || (await response.json()).ok === true;
   } catch { return false; }

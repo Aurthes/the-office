@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MusicPlayerDialog } from "@/features/ring-ship/MusicPlayerDialog";
 import { setUiLanguage } from "@/lib/i18n/ui-language";
@@ -148,15 +148,14 @@ it("does not restart playback if the user pauses during a pending next-track req
   await waitFor(() => expect(screen.getByRole("button", { name: "Next track" })).not.toBeDisabled());
   expect(audio).toHaveAttribute("src", "https://audio.music.126.net/test.mp3");
 });
-it("uses the new scene for the following song without interrupting the current one", async () => {
+it("switches the playing track on arrival in a new scene without waiting for the old song to end", async () => {
   const onOpen = vi.fn(), onClose = vi.fn(), view = render(createElement(MusicPlayerDialog, { onOpen, onClose }));
   fireEvent.click(screen.getByRole("button", { name: /网易云音乐.*NetEase Cloud Music/ })); fireEvent.click(await screen.findByRole("button", { name: "Play Track One" }));
   const audio = document.querySelector("audio")!; await waitFor(() => expect(audio).toHaveAttribute("src", "https://audio.music.126.net/test.mp3")); fireEvent.loadedMetadata(audio); fireEvent.play(audio);
   view.rerender(createElement(MusicPlayerDialog, { scene: "blue-nebula", sceneName: "Frost Veil", onOpen, onClose }));
-  expect(audio).toHaveAttribute("src", "https://audio.music.126.net/test.mp3");
-  fireEvent.ended(audio);
   await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes("scene=blue-nebula"))).toBe(true));
   await waitFor(() => expect(audio).toHaveAttribute("src", "https://audio.music.126.net/next.mp3"));
+  expect(document.querySelector("audio")).toBe(audio);
 });
 it("automatically starts the scene mix on Office entry without opening the dialog", async () => {
   render(createElement(MusicPlayerDialog, { autoPlay: true, open: false, onOpen: vi.fn(), onClose: vi.fn() }));
@@ -175,9 +174,56 @@ it("retries blocked autoplay in a page gesture, then respects Pause across scene
   fireEvent.click(document.body); expect(audio.play).toHaveBeenCalledTimes(2);
   Object.defineProperty(audio, "paused", { configurable: true, value: false });
   fireEvent.click(screen.getByRole("button", { name: "Pause music" })); fireEvent.pause(audio);
+  Object.defineProperty(audio, "paused", { value: true });
   view.rerender(createElement(MusicPlayerDialog, { ...props, scene: "blue-nebula", sceneName: "Frost Veil" }));
-  await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes("scene=blue-nebula"))).toBe(true));
-  fireEvent.click(document.body); expect(audio.play).toHaveBeenCalledTimes(2); expect(audio).toHaveAttribute("src", "https://audio.music.126.net/test.mp3");
+  await waitFor(() => expect(audio).toHaveAttribute("src", "https://audio.music.126.net/next.mp3"));
+  fireEvent.click(document.body); expect(audio.play).toHaveBeenCalledTimes(2);
+  fireEvent.click(screen.getByRole("button", { name: "Resume music" })); expect(audio.play).toHaveBeenCalledTimes(3);
+});
+it("keeps a pause made during a warp lookup and prepares the new scene when resumed", async () => {
+  let finish: ((value: unknown) => void) | undefined, pending = true;
+  const normal = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((input: string) => input.includes("action=track&id=song-2") && pending ? new Promise(resolve => { pending = false; finish = resolve; }) : normal(input));
+  const props = { autoPlay: true, open: false, onOpen: vi.fn(), onClose: vi.fn() };
+  const view = render(createElement(MusicPlayerDialog, props));
+  const audio = document.querySelector("audio")!; await waitFor(() => expect(audio).toHaveAttribute("src", "https://audio.music.126.net/test.mp3")); fireEvent.loadedMetadata(audio); fireEvent.play(audio);
+  view.rerender(createElement(MusicPlayerDialog, { ...props, scene: "blue-nebula" })); await waitFor(() => expect(finish).toBeDefined());
+  fireEvent.pause(audio); await act(async () => { finish!(reply({ url: "https://audio.music.126.net/next.mp3", preview: null })); });
+  expect(audio).toHaveAttribute("src", "https://audio.music.126.net/test.mp3"); expect(audio.play).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: "Resume music" }));
+  await waitFor(() => expect(audio).toHaveAttribute("src", "https://audio.music.126.net/next.mp3"));
+});
+it("ignores a late recommendation response from a previous warp destination", async () => {
+  let finish: ((value: unknown) => void) | undefined;
+  const normal = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((input: string) => input.includes("action=recommendations&scene=blue-nebula") ? new Promise(resolve => { finish = resolve; }) : normal(input));
+  const props = { autoPlay: true, open: false, onOpen: vi.fn(), onClose: vi.fn() };
+  const view = render(createElement(MusicPlayerDialog, props));
+  const audio = document.querySelector("audio")!; await waitFor(() => expect(audio).toHaveAttribute("src", "https://audio.music.126.net/test.mp3")); fireEvent.loadedMetadata(audio); fireEvent.play(audio);
+  view.rerender(createElement(MusicPlayerDialog, { ...props, scene: "blue-nebula" })); await waitFor(() => expect(finish).toBeDefined());
+  view.rerender(createElement(MusicPlayerDialog, { ...props, scene: "amber-nebula" })); await waitFor(() => expect(audio).toHaveAttribute("src", "https://audio.music.126.net/next.mp3"));
+  await act(async () => { finish!(reply({ songs: [{ ...song, id: "stale-blue-track" }], playlists: [] })); });
+  expect(audio).toHaveAttribute("src", "https://audio.music.126.net/next.mp3");
+  expect(fetchMock.mock.calls.some(([url]) => String(url).includes("id=stale-blue-track"))).toBe(false);
+});
+it("cancels a previous destination's pending track as soon as another warp arrives", async () => {
+  let blueTrack: ((value: unknown) => void) | undefined, amberMix: ((value: unknown) => void) | undefined;
+  const normal = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((input: string) => {
+    if (input.includes("action=track&id=song-2")) return new Promise(resolve => { blueTrack = resolve; });
+    if (input.includes("action=recommendations&scene=amber-nebula")) return new Promise(resolve => { amberMix = resolve; });
+    if (input.includes("action=track&id=amber-track")) return Promise.resolve(reply({ url: "https://audio.music.126.net/amber.mp3", preview: null }));
+    return normal(input);
+  });
+  const props = { autoPlay: true, open: false, onOpen: vi.fn(), onClose: vi.fn() };
+  const view = render(createElement(MusicPlayerDialog, props));
+  const audio = document.querySelector("audio")!; await waitFor(() => expect(audio).toHaveAttribute("src", "https://audio.music.126.net/test.mp3")); fireEvent.loadedMetadata(audio); fireEvent.play(audio);
+  view.rerender(createElement(MusicPlayerDialog, { ...props, scene: "blue-nebula" })); await waitFor(() => expect(blueTrack).toBeDefined());
+  view.rerender(createElement(MusicPlayerDialog, { ...props, scene: "amber-nebula" })); await waitFor(() => expect(amberMix).toBeDefined());
+  await act(async () => { blueTrack!(reply({ url: "https://audio.music.126.net/next.mp3", preview: null })); });
+  expect(audio).toHaveAttribute("src", "https://audio.music.126.net/test.mp3");
+  await act(async () => { amberMix!(reply({ songs: [{ ...song, id: "amber-track", name: "Desert ambience" }], playlists: [] })); });
+  await waitFor(() => expect(audio).toHaveAttribute("src", "https://audio.music.126.net/amber.mp3"));
 });
 it("does not unlock playback when Stop is pressed and does not restart on later rerenders", async () => {
   vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce(new DOMException("Gesture required", "NotAllowedError"));

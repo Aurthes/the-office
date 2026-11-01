@@ -26,7 +26,7 @@
 .star-course-actions button { display:flex; align-items:center; justify-content:center; gap:12px; min-height:44px; padding:10px 14px; border:1px solid #819baa55; border-radius:3px; font-size:11px; cursor:pointer; }
 .star-course-actions .star-engage { background:#b6d4d9; color:#132a35; border-color:#bddde4; }
 .star-navigation-overlay button:focus-visible, .star-console-label:focus-visible, .star-map-label:focus-visible { outline:2px solid #f0d29a; outline-offset:4px; }
-.star-location { position:absolute; bottom:18px; right:20px; z-index:12; max-width:250px; padding:10px 14px; border:1px solid #8cb0c12b; border-radius:3px; background:#071522e6; text-align:right; pointer-events:none; }
+.star-location { max-width:250px; padding:10px 14px; border:1px solid #8cb0c12b; border-radius:3px; background:#071522e6; text-align:right; pointer-events:none; }
 .galaxy-preview .ship-toolbar > div:first-child { display:none; }
 .star-location span { display:block; font-size:11px; letter-spacing:.08em; }
 .star-location small { display:block; margin-top:4px; color:#8aa3b2; font:9px/1.5 var(--font-mono),monospace; }
@@ -42,7 +42,6 @@
   .star-map-help { bottom:18px; left:18px; max-width:calc(100% - 36px); font-size:9px; }
   .star-navigation-overlay[data-navigation-phase="confirm"] .star-map-help { display:none; }
   .star-course { bottom:18px; right:18px; padding:18px; }
-  .star-location { right:12px; bottom:12px; }
   .star-location small { max-width:160px; font-size:8px; }
   .star-map-label { font-size:10px; padding:5px 7px; }
 }

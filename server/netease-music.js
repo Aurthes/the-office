@@ -8,6 +8,7 @@ const QRCode = require("qrcode");
 const SCENE_QUERIES = {
   "deep-space": "太空 纯音乐", "blue-nebula": "冰川 氛围 纯音乐", "amber-nebula": "desert ambient instrumental",
   "jade-nebula": "海洋 氛围 纯音乐", "violet-rift": "科幻 游戏 纯音乐",
+  "black-hole": "dark ambient 纯音乐",
 };
 const songView = song => ({ id: song.id, name: song.name, artists: (song.artists?.length ? song.artists : song.fullArtists || []).map(artist => artist.name).filter(Boolean).join(" / "), album: song.album?.name || song.albumName || "", playable: song.visible !== false && song.playFlag !== false });
 

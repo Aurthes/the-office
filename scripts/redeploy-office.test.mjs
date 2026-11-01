@@ -97,6 +97,20 @@ test("real LaunchAgents: controller survives caller exit and waits for old proce
   assert.ok(!fs.existsSync(`${f.services[0].plist}.redeploy-lock`));
 });
 
+test("real LaunchAgents: private backend health credential is supplied without appearing in results", mac, async t => {
+  const f = await fixture(t, ["studio"]), token = "fixture-private-proxy-credential-".repeat(2);
+  const file = f.services[0].candidate;
+  const value = JSON.parse(execFileSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", file], { encoding: "utf8" }));
+  value.EnvironmentVariables = { CLAW3D_PROXY_TOKEN: token }; writePlist(file, value);
+  const entry = path.join(f.root, "new/server/index.js");
+  fs.writeFileSync(entry, fs.readFileSync(entry, "utf8").replace("res.setHeader('content-type'", `if(req.headers['x-office-proxy-token']!==${JSON.stringify(token)}){res.statusCode=401;res.end();return;}res.setHeader('content-type'`));
+  const result = await f.start();
+  assert.equal(result.phase, "succeeded", JSON.stringify(result));
+  assert.ok(!JSON.stringify(result).includes(token));
+  const response = await fetch(f.services[0].health, { headers: { "x-office-proxy-token": token } });
+  assert.equal((await response.json()).version, "new");
+});
+
 test("real LaunchAgents: new process exits on startup; old configuration and health are restored", mac, async t => {
   const f = await fixture(t);
   fs.writeFileSync(path.join(f.root, "new/server/codex-office-gateway.js"), "process.exit(42);\n");
