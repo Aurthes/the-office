@@ -13,7 +13,7 @@ import { MessageSquare, ChevronDown, ChevronLeft, ChevronRight, Maximize2, Minim
 import type { OfficeAgent } from "@/features/retro-office/core/types";
 import { getAgentActivity, type AgentActivity } from "@/features/retro-office/core/agentActivity";
 import { AgentActivityIndicator } from "@/features/office/components/AgentActivityIndicator";
-import { RunningAvatarLoader } from "@/features/agents/components/RunningAvatarLoader";
+import { OfficeConnectionScreen } from "@/features/office/components/OfficeConnectionScreen";
 import { ExistingSessionPanel } from "@/features/office/components/ExistingSessionPanel";
 import { useSessionVoice } from "@/features/office/components/useSessionVoice";
 import { SessionVoiceCall } from "@/features/office/components/SessionVoice";
@@ -3301,22 +3301,7 @@ export function OfficeScreen({
       {voice.status !== "off" && (!chatOpen || focusedChatAgent?.agentId !== voice.threadId) ? <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-3 right-3 z-[90] mx-auto max-w-lg">
         <SessionVoiceCall voice={voice} owner={state.agents.find(agent => agent.agentId === voice.threadId)?.name || voice.threadId || "Codex"} onReturn={() => { if (voice.threadId) handleOpenAgentChat(voice.threadId); }} />
       </div> : null}
-      {showGatewayLoadingOverlay ? (
-        <div
-          className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-[#120a05]/76"
-          aria-label={t("Connecting to runtime")}
-          role="status"
-        >
-          <div className="rounded-xl border border-amber-700/45 bg-[#1a1008] px-8 py-6 shadow-2xl">
-            <RunningAvatarLoader
-              size={28}
-              trackWidth={76}
-              label="Connecting to your runtime..."
-              labelClassName="text-amber-100/80"
-            />
-          </div>
-        </div>
-      ) : null}
+      {showGatewayLoadingOverlay ? <OfficeConnectionScreen connecting /> : null}
       {showGatewayConnectOverlay ? (
         <div className="pointer-events-auto absolute inset-0 z-50 flex items-start justify-center bg-[#120a05]/76 px-4 py-10">
           <div className="w-full max-w-[860px] rounded-2xl border border-amber-900/55 bg-[#120a05]/98 p-3 shadow-2xl">
