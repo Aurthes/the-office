@@ -1,9 +1,9 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
-import { useGLTF } from "@react-three/drei";
+import { useFrame, useLoader } from "@react-three/fiber";
 import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone } from "three/addons/utils/SkeletonUtils.js";
 import { cabinAngle, shipPoint, type ShipCabin, type ShipLayout } from "./layout";
 
@@ -16,7 +16,7 @@ const MODELS = {
 type Kind = keyof typeof MODELS;
 
 function Companion({ kind, height, position, rotation }: { kind: Kind; height: number; position: [number, number, number]; rotation: number }) {
-  const source = useGLTF(MODELS[kind]);
+  const source = useLoader(GLTFLoader, MODELS[kind]);
   const figure = useMemo(() => {
     const scene = clone(source.scene);
     scene.updateMatrixWorld(true);
