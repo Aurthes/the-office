@@ -37,7 +37,7 @@ Do not commit personal, environment-specific, or secret instructions to this rep
 
 ### Service overview
 
-The Office is a Next.js 16 frontend derived from Claw3D (TypeScript, React 19, Three.js, Phaser) for OpenClaw. It runs a custom Node.js server (`server/index.js`) that bundles a same-origin WebSocket proxy to the upstream OpenClaw Gateway. No database or Docker is required. The only hard system dependency is Node.js 20+ with npm 10+.
+The Office is a Next.js 16 frontend derived from Claw3D (TypeScript, React 19, Three.js) for OpenClaw. It runs a custom Node.js server (`server/index.js`) that bundles a same-origin WebSocket proxy to the upstream OpenClaw Gateway. No database or Docker is required. The only hard system dependency is Node.js 20+ with npm 10+.
 
 ### Running the app
 
@@ -55,10 +55,10 @@ The Office is a Next.js 16 frontend derived from Claw3D (TypeScript, React 19, T
 
 ### Build
 
-- `npm run build` — Next.js production build. Expect a non-blocking warning about `Can't resolve 'openclaw'`; the `openclaw` npm package is resolved optionally at runtime and is not bundled.
+- `npm run build` — Next.js production build.
 
 ### Gotchas
 
-- The `openclaw` npm package is not a dependency of this repo. The build warning about it is harmless.
+- The `openclaw` npm package is not a dependency of this repo. OpenClaw integration uses the gateway protocol; do not add local runtime imports for speech features.
 - `npm run studio:setup` is interactive (TTY prompts) — avoid running it in non-interactive cloud environments.
 - Vitest runs in watch mode by default; always pass `--run` for CI/cloud agent use.

@@ -7,7 +7,6 @@ It is the UI and proxy layer, not the OpenClaw runtime itself. OpenClaw remains 
 
 - an `/agents` workspace for chat, approvals, settings, and runtime monitoring,
 - an `/office` 3D environment for spatializing agent activity,
-- an `/office/builder` surface for editing office layouts,
 - a Studio-side settings and proxy layer that connects the browser to an upstream OpenClaw gateway.
 
 ## Goals
@@ -26,7 +25,7 @@ It is the UI and proxy layer, not the OpenClaw runtime itself. OpenClaw remains 
 Claw3D is split into four main parts:
 
 1. Browser UI.
-   The Next.js client renders the agents workspace, the office, and the builder.
+   The Next.js client renders the agents workspace and the office.
 2. Studio API routes.
    Server routes handle local settings and other server-only operations.
 3. Studio WebSocket proxy.
@@ -80,7 +79,7 @@ This keeps the upstream connection server-managed and makes local, remote, and t
 ## Repo Shape
 - `src/app`: routes, layouts, and API endpoints.
 - `src/features/agents`: agents workspace UI and agent-runtime state handling.
-- `src/features/office`: office screens, panels, and builder UI.
+- `src/features/office`: office screens and panels.
 - `src/features/retro-office`: 3D scene, navigation, actors, and rendering helpers.
 - `src/lib`: gateway adapters, Studio settings, office derivation logic, and shared utilities.
 - `server`: custom Studio server and WebSocket proxy.

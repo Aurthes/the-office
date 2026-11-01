@@ -5,6 +5,22 @@ import { SessionControls } from "../../src/features/office/components/SessionCon
 const snapshot = { connected: true, version: 1, activeTurnId: "turn", items: [], approvals: [] };
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 describe("shared-session composer", () => {
+  it("keeps unavailable Codex speech buttons disabled while text chat remains usable", async () => {
+    const call = vi.fn().mockResolvedValue({ ...snapshot, activeTurnId: null,
+      features: { dictation: false, voice: false, prediction: false } });
+    render(React.createElement(SessionControls, { client: { call }, threadId: "no-speech", onItems: vi.fn() }));
+    const dictation = await screen.findByRole("button", { name: "Dictation" });
+    const voice = screen.getByRole("button", { name: "Voice chat" });
+    expect(dictation).toBeDisabled();
+    expect(voice).toBeDisabled();
+    fireEvent.click(dictation);
+    fireEvent.click(voice);
+    expect(call.mock.calls.map(([method]) => method)).toEqual(["session.attach"]);
+    const input = screen.getByLabelText("Send to session");
+    expect(input).not.toBeDisabled();
+    fireEvent.change(input, { target: { value: "Text still works" } });
+    expect(input).toHaveValue("Text still works");
+  });
   it("shows a failed connection honestly and enables the same composer after reconnecting", async () => {
     const call = vi.fn().mockRejectedValueOnce(new Error("Required MCP unavailable")).mockResolvedValue(snapshot);
     render(React.createElement(SessionControls, { client: { call }, threadId: "cold-original", onItems: vi.fn() }));

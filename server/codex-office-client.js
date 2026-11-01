@@ -22,7 +22,7 @@ function officeEnvironment(home, environment = process.env) {
   fs.mkdirSync(resolved, { recursive: true, mode: 0o700 });
   // Optional voice/suggestion API credentials belong to the Office service;
   // they must not silently switch Codex away from its own account login.
-  const env = Object.fromEntries(Object.entries(environment).filter(([key]) => !key.startsWith("CODEX_") && !key.startsWith("BROWSER_USE_") && !["CLAW3D_CODEX_CONTROL_SOCKET", "NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S", "OPENAI_API_KEY"].includes(key)));
+  const env = Object.fromEntries(Object.entries(environment).filter(([key]) => !key.startsWith("CODEX_") && !key.startsWith("BROWSER_USE_") && !["CLAW3D_CODEX_CONTROL_SOCKET", "NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S", "OPENAI_API_KEY", "OPENAI_ADMIN_KEY"].includes(key)));
   return { home: resolved, env: { ...env, CODEX_HOME: resolved, CODEX_SQLITE_HOME: resolved } };
 }
 
@@ -51,7 +51,7 @@ class CodexOfficeClient {
   }
   fail(error) { this.ready = false; for (const request of this.pending.values()) { clearTimeout(request.timer); request.reject(error); } this.pending.clear(); }
   async initialize() {
-    const result = await this.call("initialize", { clientInfo: { name: "the_office", title: "The Office", version: "1" }, capabilities: { experimentalApi: false } });
+    const result = await this.call("initialize", { clientInfo: { name: "the_office", title: "The Office", version: "1" }, capabilities: { experimentalApi: true } });
     this.child.stdin.write(JSON.stringify({ method: "initialized" }) + "\n");
     if (this.profile.skillRoots.length) await this.call("skills/extraRoots/set", { extraRoots: this.profile.skillRoots });
     this.ready = true;

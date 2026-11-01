@@ -5,7 +5,7 @@ export type DeckIndex = 0 | 1 | 2;
 export const DECKS = [0, 1, 2] as const;
 export const DECK_STEP = 10;
 export const DECK_NAMES = ["Main deck", "Expansion deck", "Reserve deck"] as const;
-export type CabinKind = "work" | "reserve" | "garden" | "hydroponics" | "canteen" | "gym" | "servers" | "maintenance" | "lounge" | "cargo" | "observatory" | "quarters" | "return" | "monitor";
+export type CabinKind = "work" | "reserve" | "garden" | "hydroponics" | "canteen" | "gym" | "servers" | "ai" | "maintenance" | "lounge" | "cargo" | "observatory" | "quarters" | "return" | "monitor";
 export type ShipPoint = { x: number; z: number };
 export type ShipAssignment = { deck?: DeckIndex; ring: RingIndex; slot: number; span: number };
 type CabinLocation = { deck: DeckIndex; ring: RingIndex; slot: number };
@@ -27,7 +27,7 @@ export const RING_DEPTHS = [5.6, 6.8, 8] as const;
 export const RING_CAPACITIES = [3, 6, 8] as const;
 export const PUBLIC_CABINS: ReadonlyArray<{ id: string; ring: RingIndex; slot: number; kind: CabinKind; name: string; color: string }> = [
   { id: "public:lounge", ring: 0, slot: 0, kind: "lounge", name: "Observation lounge", color: "#d6af71" },
-  { id: "public:servers", ring: 0, slot: 4, kind: "servers", name: "Server room", color: "#77a9ce" },
+  { id: "public:servers", ring: 0, slot: 4, kind: "ai", name: "AI Center", color: "#86e6de" },
   { id: "public:garden", ring: 1, slot: 0, kind: "garden", name: "Rainforest habitat", color: "#75b788" },
   { id: "public:hydroponics", ring: 1, slot: 4, kind: "hydroponics", name: "Hydroponics", color: "#79c5aa" },
   { id: "public:canteen", ring: 1, slot: 6, kind: "canteen", name: "Dining and coffee", color: "#daa26a" },
@@ -122,6 +122,7 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
   }))));
   for (const deck of DECKS) for (const p of PUBLIC_CABINS) {
     if (p.kind !== "return" || deck === 0) Object.assign(cabins[deck * 3 * sectors + p.ring * sectors + p.slot], p, { id: cabinId(p.id, deck) });
+    if (p.kind === "ai" && deck !== 0) Object.assign(cabins[deck * 3 * sectors + p.ring * sectors + p.slot], { kind: "servers", name: "Server room", color: "#77a9ce" });
   }
   const seats: Record<string, ShipSeat> = Object.create(null);
   for (const group of groups) {
@@ -194,6 +195,7 @@ export function routeBetweenCabins(layout: ShipLayout, from: ShipSeat, destinati
 }
 
 export const PUBLIC_DESCRIPTIONS: Record<CabinKind, string> = {
+  ai: "Open the computation core for subscription usage, tokens, and API quotas.",
   monitor: "Open the main screen for strategy dashboards and server fleet status.",
   return: "Return to Earth in a drop pod and archive the same Codex session.",
   work: "Workspace assigned by project. Select a crew member to continue their session.", reserve: "Cabin and connections are ready for future projects.",

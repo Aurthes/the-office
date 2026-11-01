@@ -20,7 +20,7 @@ Claw3D is the UI and local Studio/proxy layer around an existing OpenClaw Gatewa
 
 Next.js App Router entry points and API routes.
 
-- Route pages such as `src/app/office/page.tsx` and `src/app/office/builder/page.tsx` are composition roots.
+- Route pages such as `src/app/office/page.tsx` are composition roots.
 - `src/app/api/*` contains server-side boundaries for Studio settings, gateway-backed helpers, office flows, and path suggestions.
 - Keep heavy feature logic out of route files when possible. Route files should mostly compose feature modules and server boundaries.
 
@@ -29,7 +29,7 @@ Next.js App Router entry points and API routes.
 Vertical slices for UI and feature-specific state.
 
 - `src/features/agents`: fleet UI, chat, approvals, runtime event workflows, hydration, history sync, and settings-related operations.
-- `src/features/office`: office screens, panels, builder surfaces, standup/GitHub/voice flows, and office-facing hooks.
+- `src/features/office`: office screens, panels, standup/GitHub/voice flows, and office-facing hooks.
 - `src/features/retro-office`: the immersive React Three Fiber office runtime, including 3D objects, navigation, persistence, scene systems, and actor behavior.
 
 When you are changing a user-facing workflow, start in `src/features` before reaching for `src/lib`.
@@ -112,12 +112,9 @@ Important runtime files:
 
 ## Office Architecture
 
-There are two office-related stacks in this repository:
-
-- The immersive live office at `/office`, powered by React Three Fiber and `src/features/retro-office`.
-- The builder/editor stack at `/office/builder`, powered by Phaser and `src/features/office`.
-
-These systems are related, but they are not the same runtime.
+At `/office`, `OfficeScreen` selects the Three.js scene for the configured
+runtime. Codex session mode uses `src/features/ring-ship`; other runtime profiles
+use `src/features/retro-office`.
 
 ### Immersive Office Stack
 
@@ -129,18 +126,6 @@ Key files:
 - `src/features/retro-office/RetroOffice3D.tsx`: renders the 3D world and consumes the derived animation state.
 - `src/features/retro-office/core/navigation.ts`: builds nav grids, resolves destinations, and exports specialized route helpers.
 - `src/features/retro-office/core/furnitureDefaults.ts`: default room/object layout plus migration-style ensure helpers.
-
-### Builder Stack
-
-Key files:
-
-- `src/features/office/components/OfficeBuilderPanel.tsx`.
-- `src/features/office/components/OfficePhaserCanvas.tsx`.
-- `src/features/office/phaser/OfficeBuilderScene.ts`.
-- `src/features/office/phaser/OfficeViewerScene.ts`.
-- `src/lib/office/schema.ts`.
-
-The builder uses the `OfficeMap` schema. The immersive retro office still has its own furniture/defaults/persistence pipeline. When touching office code, confirm which stack you are actually changing.
 
 ## Office Intent Layer
 
@@ -230,13 +215,9 @@ Current `src/app/api` routes:
 
 - `studio/route.ts`: load and patch local Studio settings.
 - `path-suggestions/route.ts`: local filesystem path suggestions.
-- `office/route.ts`: office layout/builder persistence.
-- `office/publish/route.ts`: publish office maps.
 - `office/github/route.ts`: GitHub-related office flow helpers.
 - `office/browser-preview/route.ts`: browser preview helpers for office experiences.
 - `office/presence/route.ts`: office presence/state helpers.
-- `office/voice/transcribe/route.ts`: voice transcription.
-- `office/voice/reply/route.ts`: voice reply generation.
 - `office/standup/config/route.ts`: standup config persistence.
 - `office/standup/meeting/route.ts`: standup meeting state helpers.
 - `office/standup/run/route.ts`: standup run execution.
@@ -290,7 +271,7 @@ A few patterns are used repeatedly in the repo:
 
 ## Contributor Footguns
 
-- The immersive retro office and the Phaser builder are separate systems. Verify which one you need before editing.
+- The ship and legacy retro office have separate scene and layout code. Verify which one you need before editing.
 - The Gateway is the source of truth for runtime state. Avoid inventing local parallel state for sessions, runs, or transcripts.
 - Studio settings are local and per-workspace/gateway. Use them for UI preferences, desk assignments, and connection details only.
 - Transport-specific session keys such as Telegram sessions still need to map back to the correct agent. Reuse session-key helpers instead of writing ad-hoc parsing.
