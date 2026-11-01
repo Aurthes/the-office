@@ -12,10 +12,7 @@ import { translateUi } from "@/lib/i18n/messages";
 
 const settingsProps = {
   officeTitle: "我的工作室", officeTitleLoaded: true, onOfficeTitleChange: vi.fn(),
-  remoteOfficeEnabled: false, remoteOfficeSourceKind: "presence_endpoint" as const,
-  remoteOfficeLabel: "远程团队", remoteOfficePresenceUrl: "", remoteOfficeGatewayUrl: "", remoteOfficeTokenConfigured: false,
-  onRemoteOfficeEnabledChange: vi.fn(), onRemoteOfficeSourceKindChange: vi.fn(), onRemoteOfficeLabelChange: vi.fn(),
-  onRemoteOfficePresenceUrlChange: vi.fn(), onRemoteOfficeGatewayUrlChange: vi.fn(), onRemoteOfficeTokenChange: vi.fn(),
+
 };
 afterEach(() => { cleanup(); vi.restoreAllMocks(); setUiLanguage("en"); localStorage.clear(); });
 
@@ -48,7 +45,7 @@ describe("interface language", () => {
     expect(screen.getByRole("combobox", { name: "前往工区" })).toBeVisible();
     expect(screen.getByRole("option", { name: "Settings · 0" })).toBeInTheDocument();
     expect(screen.getByDisplayValue("我的工作室")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("远程团队")).toBeInTheDocument();
+
     expect(screen.getByText("中文原文 stays unchanged")).toBeInTheDocument();
     expect(screen.getByText("Keep English 原文")).toBeInTheDocument();
     expect(localStorage.getItem(UI_LANGUAGE_KEY)).toBe("zh-CN");

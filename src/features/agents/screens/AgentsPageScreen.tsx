@@ -31,15 +31,8 @@ import {
 import type { AgentState } from "@/features/agents/state/store";
 import { createGatewayRuntimeEventHandler } from "@/features/agents/state/gatewayRuntimeEventHandler";
 import {
-  type CronJobSummary,
-  formatCronJobDisplay,
-  listCronJobs,
-  resolveLatestCronJobForAgent,
-} from "@/lib/cron/types";
-import {
   createGatewayAgent,
   readConfigAgentList,
-  resolveDefaultConfigAgentId,
   slugifyAgentName,
 } from "@/lib/gateway/agentConfig";
 import { buildAvatarDataUrl } from "@/lib/avatars/multiavatar";
@@ -237,7 +230,7 @@ const AgentsPageScreen = () => {
   } = useRuntimeConnection(settingsCoordinator);
   const runtimeSupportsConfig = supportsCapability("config");
   const runtimeSupportsModels = supportsCapability("models");
-  const runtimeSupportsCron = supportsCapability("cron");
+
   const { state, dispatch, hydrateAgents, setError, setLoading } = useAgentStore();
   const [showConnectionPanel, setShowConnectionPanel] = useState(false);
   const [focusFilter, setFocusFilter] = useState<FocusFilter>("all");
@@ -257,7 +250,7 @@ const AgentsPageScreen = () => {
   const [mobilePane, setMobilePane] = useState<MobilePane>("chat");
   const [inspectSidebar, setInspectSidebar] = useState<InspectSidebarState>(null);
   const [avatarCreatorAgentId, setAvatarCreatorAgentId] = useState<string | null>(null);
-  const [systemInitialSkillKey, setSystemInitialSkillKey] = useState<string | null>(null);
+
   const [personalityHasUnsavedChanges, setPersonalityHasUnsavedChanges] = useState(false);
   const [settingsSidebarItem, setSettingsSidebarItem] = useState<SettingsSidebarItem>("personality");
   const [createAgentBlock, setCreateAgentBlock] = useState<CreateAgentBlockState | null>(null);
@@ -270,7 +263,7 @@ const AgentsPageScreen = () => {
   const pendingExecApprovalsByAgentIdRef = useRef(pendingExecApprovalsByAgentId);
   const unscopedPendingExecApprovalsRef = useRef(unscopedPendingExecApprovals);
   const specialUpdateRef = useRef<Map<string, string>>(new Map());
-  const seenCronEventIdsRef = useRef<Set<string>>(new Set());
+
   const preferredSelectedAgentIdRef = useRef<string | null>(null);
   const runtimeEventHandlerRef = useRef<ReturnType<typeof createGatewayRuntimeEventHandler> | null>(
     null
@@ -324,14 +317,7 @@ const AgentsPageScreen = () => {
     if (!inspectSidebarAgentId) return null;
     return agents.find((entry) => entry.agentId === inspectSidebarAgentId) ?? null;
   }, [agents, inspectSidebarAgentId]);
-  useEffect(() => {
-    setSystemInitialSkillKey(null);
-  }, [inspectSidebarAgentId]);
-  useEffect(() => {
-    if (effectiveSettingsTab !== "system") {
-      setSystemInitialSkillKey(null);
-    }
-  }, [effectiveSettingsTab]);
+
   const settingsAgentPermissionsDraft = useMemo(() => {
     if (!inspectSidebarAgent) return null;
     const baseConfig =
@@ -355,39 +341,7 @@ const AgentsPageScreen = () => {
       existingTools: tools,
     });
   }, [gatewayConfigSnapshot, inspectSidebarAgent]);
-  const settingsAgentSkillsAllowlist = useMemo(() => {
-    if (!inspectSidebarAgent) return undefined;
-    const baseConfig =
-      gatewayConfigSnapshot?.config &&
-      typeof gatewayConfigSnapshot.config === "object" &&
-      !Array.isArray(gatewayConfigSnapshot.config)
-        ? (gatewayConfigSnapshot.config as Record<string, unknown>)
-        : undefined;
-    const list = readConfigAgentList(baseConfig);
-    const configEntry = list.find((entry) => entry.id === inspectSidebarAgent.agentId) ?? null;
-    const raw = configEntry?.skills;
-    if (!Array.isArray(raw)) return undefined;
-    return raw
-      .filter((value): value is string => typeof value === "string")
-      .map((value) => value.trim())
-      .filter((value) => value.length > 0);
-  }, [gatewayConfigSnapshot, inspectSidebarAgent]);
-  const settingsDefaultAgentId = useMemo(() => {
-    const baseConfig =
-      gatewayConfigSnapshot?.config &&
-      typeof gatewayConfigSnapshot.config === "object" &&
-      !Array.isArray(gatewayConfigSnapshot.config)
-        ? (gatewayConfigSnapshot.config as Record<string, unknown>)
-        : undefined;
-    return resolveDefaultConfigAgentId(baseConfig);
-  }, [gatewayConfigSnapshot]);
-  const settingsSkillScopeWarning = useMemo(() => {
-    if (!inspectSidebarAgent) return null;
-    if (inspectSidebarAgent.agentId === settingsDefaultAgentId) {
-      return "Setup actions are shared across agents. Installs run in this shared workspace.";
-    }
-    return `Setup actions are shared across agents. Installs currently run in ${settingsDefaultAgentId} (shared workspace), not ${inspectSidebarAgent.agentId}.`;
-  }, [inspectSidebarAgent, settingsDefaultAgentId]);
+
   const focusedPendingExecApprovals = useMemo(() => {
     if (!focusedAgentId) return unscopedPendingExecApprovals;
     const scoped = pendingExecApprovalsByAgentId[focusedAgentId] ?? [];
@@ -429,8 +383,8 @@ const AgentsPageScreen = () => {
     settingsHeaderThinkingRaw.charAt(0).toUpperCase() + settingsHeaderThinkingRaw.slice(1);
   const activeSettingsSidebarItem: SettingsSidebarItem = settingsSidebarItem;
   const settingsSidebarEntries = useMemo(
-    () => resolveSettingsSidebarEntries(runtimeSupportsCron),
-    [runtimeSupportsCron]
+    () => resolveSettingsSidebarEntries(),
+    []
   );
 
   useEffect(() => {
@@ -454,26 +408,17 @@ const AgentsPageScreen = () => {
     document.head.appendChild(link);
   }, [faviconHref]);
 
-  const resolveCronJobForAgent = useCallback((jobs: CronJobSummary[], agentId: string) => {
-    return resolveLatestCronJobForAgent(jobs, agentId);
-  }, []);
-
   const specialLatestUpdate = useMemo(() => {
     return createSpecialLatestUpdateOperation({
       callGateway: (method, params) => client.call(method, params),
-      listCronJobs: () =>
-        runtimeSupportsCron
-          ? listCronJobs(client, { includeDisabled: true })
-          : Promise.resolve({ jobs: [] }),
-      resolveCronJobForAgent,
-      formatCronJobDisplay,
+
       dispatchUpdateAgent: (agentId, patch) => {
         dispatch({ type: "updateAgent", agentId, patch });
       },
       isDisconnectLikeError: isGatewayDisconnectLikeError,
       logError: (message) => console.error(message),
     });
-  }, [client, dispatch, resolveCronJobForAgent, runtimeSupportsCron]);
+  }, [client, dispatch]);
 
   const refreshHeartbeatLatestUpdate = useCallback(() => {
     const agents = stateRef.current.agents;
@@ -555,7 +500,7 @@ const AgentsPageScreen = () => {
   const settingsMutationController = useAgentSettingsMutationController({
     client,
     status,
-    runtimeSupportsCron,
+
     isLocalGateway,
     agents,
     hasCreateBlock: Boolean(createAgentBlock),
@@ -871,15 +816,6 @@ const AgentsPageScreen = () => {
     replace: router.replace,
     confirmDiscard: () => window.confirm("Discard changes?"),
   });
-  const handleOpenSystemSkillSetup = useCallback(
-    (skillKey?: string) => {
-      const normalized = skillKey?.trim() ?? "";
-      setSystemInitialSkillKey(normalized.length > 0 ? normalized : null);
-      setSettingsSidebarItem("system");
-      handleSettingsRouteTabChange("system");
-    },
-    [handleSettingsRouteTabChange]
-  );
 
   const handleOpenCreateAgentModal = useCallback(() => {
     if (createAgentBusy) return;
@@ -1174,7 +1110,7 @@ const AgentsPageScreen = () => {
           unscopedApprovals: unscopedPendingExecApprovalsRef.current,
         }),
         pausedRunIdByAgentId: approvalPausedRunIdByAgentRef.current,
-        seenCronDedupeKeys: seenCronEventIdsRef.current,
+
         nowMs: Date.now(),
         replacePendingState: (pendingState) => {
           if (
@@ -1197,7 +1133,7 @@ const AgentsPageScreen = () => {
         pauseRunForApproval: (approval, commandPreferredAgentId) =>
           pauseRunForExecApproval(approval, commandPreferredAgentId),
         dispatch,
-        recordCronDedupeKey: (dedupeKey) => seenCronEventIdsRef.current.add(dedupeKey),
+
       });
     },
     [dispatch, pauseRunForExecApproval]
@@ -1556,17 +1492,7 @@ const AgentsPageScreen = () => {
                         <div className="mx-auto w-full max-w-[920px]">
                           <AgentSettingsPanel
                             key={`${inspectSidebarAgent.agentId}:${effectiveSettingsTab}`}
-                            mode={
-                              effectiveSettingsTab === "automations"
-                                ? "automations"
-                                : effectiveSettingsTab === "skills"
-                                  ? "skills"
-                                  : effectiveSettingsTab === "system"
-                                    ? "system"
-                                    : effectiveSettingsTab === "advanced"
-                                      ? "advanced"
-                                      : "capabilities"
-                            }
+                            mode={effectiveSettingsTab === "advanced" ? "advanced" : "capabilities"}
                             showHeader={false}
                             agent={inspectSidebarAgent}
                             onClose={handleBackToChat}
@@ -1587,72 +1513,7 @@ const AgentsPageScreen = () => {
                             onThinkingTracesToggle={(enabled) =>
                               handleThinkingTracesToggle(inspectSidebarAgent.agentId, enabled)
                             }
-                            skillsReport={settingsMutationController.settingsSkillsReport}
-                            skillsLoading={settingsMutationController.settingsSkillsLoading}
-                            skillsError={settingsMutationController.settingsSkillsError}
-                            skillsBusy={settingsMutationController.settingsSkillsBusy}
-                            skillsBusyKey={settingsMutationController.settingsSkillsBusyKey}
-                            skillMessages={settingsMutationController.settingsSkillMessages}
-                            skillApiKeyDrafts={settingsMutationController.settingsSkillApiKeyDrafts}
-                            defaultAgentScopeWarning={settingsSkillScopeWarning}
-                            systemInitialSkillKey={systemInitialSkillKey}
-                            onSystemInitialSkillHandled={() => {
-                              setSystemInitialSkillKey(null);
-                            }}
-                            skillsAllowlist={settingsAgentSkillsAllowlist}
-                            onSetSkillEnabled={(skillName, enabled) =>
-                              settingsMutationController.handleSetSkillEnabled(
-                                inspectSidebarAgent.agentId,
-                                skillName,
-                                enabled
-                              )
-                            }
-                            onOpenSystemSetup={handleOpenSystemSkillSetup}
-                            onInstallSkill={(skillKey, name, installId) =>
-                              settingsMutationController.handleInstallSkill(
-                                inspectSidebarAgent.agentId,
-                                skillKey,
-                                name,
-                                installId
-                              )
-                            }
-                            onRemoveSkill={(skill) =>
-                              settingsMutationController.handleRemoveSkill(
-                                inspectSidebarAgent.agentId,
-                                skill
-                              )
-                            }
-                            onSkillApiKeyChange={(skillKey, value) =>
-                              settingsMutationController.handleSkillApiKeyDraftChange(skillKey, value)
-                            }
-                            onSaveSkillApiKey={(skillKey) =>
-                              settingsMutationController.handleSaveSkillApiKey(
-                                inspectSidebarAgent.agentId,
-                                skillKey
-                              )
-                            }
-                            onSetSkillGlobalEnabled={(skillKey, enabled) =>
-                              settingsMutationController.handleSetSkillGlobalEnabled(
-                                inspectSidebarAgent.agentId,
-                                skillKey,
-                                enabled
-                              )
-                            }
-                            cronJobs={settingsMutationController.settingsCronJobs}
-                            cronLoading={settingsMutationController.settingsCronLoading}
-                            cronError={settingsMutationController.settingsCronError}
-                            cronCreateBusy={settingsMutationController.cronCreateBusy}
-                            cronRunBusyJobId={settingsMutationController.cronRunBusyJobId}
-                            cronDeleteBusyJobId={settingsMutationController.cronDeleteBusyJobId}
-                            onCreateCronJob={(draft) =>
-                              settingsMutationController.handleCreateCronJob(inspectSidebarAgent.agentId, draft)
-                            }
-                            onRunCronJob={(jobId) =>
-                              settingsMutationController.handleRunCronJob(inspectSidebarAgent.agentId, jobId)
-                            }
-                            onDeleteCronJob={(jobId) =>
-                              settingsMutationController.handleDeleteCronJob(inspectSidebarAgent.agentId, jobId)
-                            }
+
                             controlUiUrl={selectedAdapterType === "openclaw" ? controlUiUrl : null}
                             adapterType={selectedAdapterType}
                           />

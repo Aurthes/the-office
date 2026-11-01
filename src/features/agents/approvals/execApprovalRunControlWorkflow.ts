@@ -81,7 +81,7 @@ export function planApprovalIngressRunControl(params: {
   agents: AgentState[];
   pendingState: ExecApprovalPendingSnapshot;
   pausedRunIdByAgentId: ReadonlyMap<string, string>;
-  seenCronDedupeKeys: ReadonlySet<string>;
+
   nowMs: number;
 }): ExecApprovalIngressCommand[] {
   return planIngressCommands({
@@ -89,7 +89,7 @@ export function planApprovalIngressRunControl(params: {
     agents: params.agents,
     pendingState: params.pendingState,
     pausedRunIdByAgentId: params.pausedRunIdByAgentId,
-    seenCronDedupeKeys: params.seenCronDedupeKeys,
+
     nowMs: params.nowMs,
   });
 }

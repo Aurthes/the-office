@@ -17,25 +17,16 @@ export type RuntimeCapability =
   | "agents"
   | "sessions"
   | "chat"
-  | "agent-messages"
-  | "agent-handoffs"
   | "streaming"
   | "runtime-agent-events"
   | "approvals"
   | "config"
   | "models"
-  | "skills"
-  | "cron"
+
   | "files"
   | "agent-roles";
 
-export type RuntimeProviderId =
-  | "openclaw"
-  | "hermes"
-  | "demo"
-  | "local"
-  | "claw3d"
-  | "custom";
+export type RuntimeProviderId = "openclaw" | "demo";
 
 export type RuntimeProviderMetadata = {
   id: RuntimeProviderId;

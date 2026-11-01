@@ -1,6 +1,6 @@
 import { parseAgentIdFromSessionKey } from "@/lib/gateway/GatewayClient";
 
-export type LatestUpdateKind = "heartbeat" | "cron" | null;
+export type LatestUpdateKind = "heartbeat" | null;
 
 export type LatestUpdateIntent =
   | { kind: "reset" }
@@ -10,23 +10,14 @@ export type LatestUpdateIntent =
       sessionLimit: number;
       historyLimit: number;
     }
-  | { kind: "fetch-cron"; agentId: string }
   | { kind: "noop" };
 
 const SPECIAL_UPDATE_HEARTBEAT_RE = /\bheartbeat\b/i;
-const SPECIAL_UPDATE_CRON_RE = /\bcron\b/i;
+
 const HEARTBEAT_SESSION_LIMIT = 48;
 const HEARTBEAT_HISTORY_LIMIT = 200;
 
-export const resolveLatestUpdateKind = (message: string): LatestUpdateKind => {
-  const lowered = message.toLowerCase();
-  const heartbeatIndex = lowered.search(SPECIAL_UPDATE_HEARTBEAT_RE);
-  const cronIndex = lowered.search(SPECIAL_UPDATE_CRON_RE);
-  if (heartbeatIndex === -1 && cronIndex === -1) return null;
-  if (heartbeatIndex === -1) return "cron";
-  if (cronIndex === -1) return "heartbeat";
-  return cronIndex > heartbeatIndex ? "cron" : "heartbeat";
-};
+export const resolveLatestUpdateKind = (message: string): LatestUpdateKind => SPECIAL_UPDATE_HEARTBEAT_RE.test(message) ? "heartbeat" : null;
 
 export const resolveLatestUpdateIntent = (params: {
   message: string;
@@ -51,18 +42,15 @@ export const resolveLatestUpdateIntent = (params: {
       historyLimit: HEARTBEAT_HISTORY_LIMIT,
     };
   }
-  return {
-    kind: "fetch-cron",
-    agentId: params.agentId.trim(),
-  };
+  return { kind: "reset" };
 };
 
 export const buildLatestUpdatePatch = (
   content: string,
-  kind?: "heartbeat" | "cron"
+  kind?: "heartbeat"
 ): {
   latestOverride: string | null;
-  latestOverrideKind: "heartbeat" | "cron" | null;
+  latestOverrideKind: "heartbeat" | null;
 } => {
   return {
     latestOverride: content || null,

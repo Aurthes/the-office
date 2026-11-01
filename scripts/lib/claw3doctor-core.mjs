@@ -6,21 +6,15 @@ export const DOCTOR_STATUSES = {
 
 const VALID_ADAPTER_TYPES = new Set([
   "openclaw",
-  "hermes",
   "demo",
-  "local",
-  "claw3d",
-  "custom",
 ]);
 const TUNNEL_HOST_PATTERN =
   /(cloudflare|trycloudflare|ngrok|tailscale|tunnel)/i;
 const DEFAULT_GATEWAY_URL_BY_ADAPTER = {
   openclaw: "ws://localhost:18789",
-  hermes: "ws://localhost:18789",
+
   demo: "ws://localhost:18789",
-  local: "http://localhost:7770",
-  claw3d: "http://localhost:3000/api/runtime/custom",
-  custom: "http://localhost:7770",
+
 };
 
 const isRecord = (value) =>
@@ -54,15 +48,6 @@ const formatStatusBadge = (status) => {
 export const normalizeAdapterType = (value, fallback = "openclaw") => {
   const normalized = trimString(value).toLowerCase();
   return VALID_ADAPTER_TYPES.has(normalized) ? normalized : fallback;
-};
-
-export const isCustomRuntimeAdapter = (adapterType) => {
-  const normalized = normalizeAdapterType(adapterType, "");
-  return (
-    normalized === "custom" ||
-    normalized === "local" ||
-    normalized === "claw3d"
-  );
 };
 
 export const resolveRuntimeContext = ({
@@ -236,47 +221,8 @@ export const buildOpenClawWarnings = ({
   return warnings;
 };
 
-export const buildCustomRuntimeWarnings = ({
-  gatewayUrl,
-  allowlist = "",
-  nodeEnv = "",
-}) => {
-  const warnings = [];
-  const url = trimString(gatewayUrl);
-  if (!url) return warnings;
-
-  let parsed = null;
-  try {
-    parsed = new URL(url);
-  } catch {
-    warnings.push("Custom runtime URL is not a valid URL.");
-    return warnings;
-  }
-
-  if (parsed.protocol === "ws:" || parsed.protocol === "wss:") {
-    warnings.push(
-      "Custom runtime profile uses a websocket URL. The custom provider boundary is expected to expose an HTTP API (for example /health and /v1/chat/completions).",
-    );
-  }
-
-  const isProduction = trimString(nodeEnv).toLowerCase() === "production";
-  const hostname = parsed.hostname.toLowerCase();
-  const isLocalHost =
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "::1" ||
-    hostname.endsWith(".local");
-  if (isProduction && !isLocalHost && !trimString(allowlist)) {
-    warnings.push(
-      "Production custom runtime is configured without CUSTOM_RUNTIME_ALLOWLIST or UPSTREAM_ALLOWLIST. The runtime proxy should not rely on open-host defaults there.",
-    );
-  }
-
-  return warnings;
-};
-
 export const buildGatewayFailureActions = ({
-  adapterType,
+
   message = "",
   gatewayUrl = "",
 }) => {
@@ -346,12 +292,6 @@ export const buildGatewayFailureActions = ({
   if (isTunnelBacked) {
     actions.push(
       "Because this endpoint looks tunnel-backed, reproduce once via direct local or LAN access to separate runtime problems from tunnel/proxy problems.",
-    );
-  }
-
-  if (isCustomRuntimeAdapter(adapterType)) {
-    actions.push(
-      "Custom runtimes should answer over HTTP on /health or /registry, not just a raw websocket endpoint.",
     );
   }
 
@@ -436,12 +376,6 @@ export const summarizeChecks = (checks) => {
   return DOCTOR_STATUSES.pass;
 };
 
-export const shouldRunHermesChecks = ({ runtimeContext, env = process.env }) =>
-  runtimeContext.adapterType === "hermes" ||
-  Boolean(
-    trimString(env.HERMES_API_URL) || trimString(env.HERMES_ADAPTER_PORT),
-  );
-
 export const shouldRunOpenClawChecks = ({
   runtimeContext,
   openclawConfigExists = false,
@@ -450,9 +384,6 @@ export const shouldRunOpenClawChecks = ({
 export const shouldRunDemoChecks = ({ runtimeContext, env = process.env }) =>
   runtimeContext.adapterType === "demo" ||
   Boolean(trimString(env.DEMO_ADAPTER_PORT));
-
-export const shouldRunCustomChecks = ({ runtimeContext }) =>
-  isCustomRuntimeAdapter(runtimeContext.adapterType);
 
 export const formatDoctorReport = ({
   summary,

@@ -147,9 +147,7 @@ describe("runCompanyBootstrapOperation", () => {
       deleteExistingAgent: async (agentId) => {
         order.push(`delete:${agentId}`);
       },
-      clearReusedAgentState: async () => {
-        order.push("clear-reused");
-      },
+
       onExistingAgentDeleted: (agentId) => {
         order.push(`deleted:${agentId}`);
       },
@@ -250,9 +248,7 @@ describe("runCompanyBootstrapOperation", () => {
       deleteExistingAgent: async (agentId) => {
         order.push(`delete:${agentId}`);
       },
-      clearReusedAgentState: async (agentId) => {
-        order.push(`clear-reused:${agentId}`);
-      },
+
       renameAgent: async (agentId, name) => {
         order.push(`rename:${agentId}:${name}`);
       },
@@ -296,7 +292,6 @@ describe("runCompanyBootstrapOperation", () => {
 
     expect(order).not.toContain("delete:main");
     expect(order.slice(0, 2)).toEqual(["delete:old-b", "deleted:old-b"]);
-    expect(order).toContain("clear-reused:main");
     expect(order).toContain("rename:main:CreativeLead");
     expect(order).toContain("write:main");
     expect(order).toContain("avatar:main");

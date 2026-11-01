@@ -1,17 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-
 import type { PendingExecApproval } from "@/features/agents/approvals/types";
 import {
   EXEC_APPROVAL_AUTO_RESUME_WAIT_TIMEOUT_MS,
   runExecApprovalAutoResumeOperation,
-  runGatewayEventIngressOperation,
   runPauseRunForExecApprovalOperation,
   runResolveExecApprovalOperation,
 } from "@/features/agents/approvals/execApprovalRunControlOperation";
 import type { ExecApprovalPendingSnapshot } from "@/features/agents/approvals/execApprovalControlLoopWorkflow";
 import type { AgentState } from "@/features/agents/state/store";
 import { EXEC_APPROVAL_AUTO_RESUME_MARKER } from "@/lib/text/message-extract";
-import type { EventFrame } from "@/lib/gateway/GatewayClient";
 
 const createAgent = (overrides?: Partial<AgentState>): AgentState => ({
   agentId: "agent-1",
@@ -245,53 +242,4 @@ describe("execApprovalRunControlOperation", () => {
     );
   });
 
-  it("executes ingress commands from gateway events", () => {
-    const dispatch = vi.fn();
-    const replacePendingState = vi.fn();
-    const pauseRunForApproval = vi.fn(async () => undefined);
-    const recordCronDedupeKey = vi.fn();
-
-    const event: EventFrame = {
-      type: "event",
-      event: "cron",
-      payload: {
-        action: "finished",
-        sessionKey: "agent:agent-1:main",
-        jobId: "job-1",
-        sessionId: "session-1",
-        runAtMs: 123,
-        status: "ok",
-        summary: "cron summary",
-      },
-    };
-
-    const commands = runGatewayEventIngressOperation({
-      event,
-      getAgents: () => [createAgent()],
-      getPendingState: () => createPendingState(),
-      pausedRunIdByAgentId: new Map(),
-      seenCronDedupeKeys: new Set(),
-      nowMs: 1_000,
-      replacePendingState,
-      pauseRunForApproval,
-      dispatch,
-      recordCronDedupeKey,
-    });
-
-    expect(commands).toHaveLength(2);
-    expect(recordCronDedupeKey).toHaveBeenCalledWith("cron:job-1:session-1");
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "appendOutput",
-        agentId: "agent-1",
-      })
-    );
-    expect(dispatch).toHaveBeenCalledWith({
-      type: "markActivity",
-      agentId: "agent-1",
-      at: 123,
-    });
-    expect(replacePendingState).not.toHaveBeenCalled();
-    expect(pauseRunForApproval).not.toHaveBeenCalled();
-  });
 });

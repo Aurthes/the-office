@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-
 import { type GatewayConnectionState, useGatewayConnection } from "@/lib/gateway/GatewayClient";
 import { createRuntimeProvider } from "@/lib/runtime/createRuntimeProvider";
 import {
@@ -25,8 +24,8 @@ export const useRuntimeConnection = (
 ): RuntimeConnectionState => {
   const gateway = useGatewayConnection(settingsCoordinator);
   const provider = useMemo(
-    () => createRuntimeProvider(gateway.activeAdapterType, gateway.client, gateway.gatewayUrl),
-    [gateway.activeAdapterType, gateway.client, gateway.gatewayUrl]
+    () => createRuntimeProvider(gateway.activeAdapterType, gateway.client),
+    [gateway.activeAdapterType, gateway.client]
   );
   const capabilities = provider.capabilities;
 
