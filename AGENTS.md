@@ -42,7 +42,7 @@ The Office is a Next.js 16 frontend derived from Claw3D (TypeScript, React 19, T
 ### Running the app
 
 - `npm run dev` starts the dev server on port 3000 via the custom server (`node server/index.js --dev`).
-- Use the demo gateway for local exploration. Existing-App session mode is legacy; the independent Codex runtime must meet docs/office-owned-state.md before being presented as install-ready. OpenClaw is optional. A disconnected gateway shows the connection form.
+- Use the demo gateway for local exploration or `npm run codex-gateway` for the independent Office runtime described in docs/office-owned-state.md. Existing-App adapters have been removed. OpenClaw is optional. A disconnected gateway shows the connection form.
 - `.env` is copied from `.env.example`; see `README.md` "Configuration" for variable descriptions.
 
 ### Lint, typecheck, and tests
