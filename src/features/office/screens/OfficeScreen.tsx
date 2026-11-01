@@ -10,12 +10,13 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { MessageSquare, ChevronDown, ChevronLeft, ChevronRight, Mic, Maximize2, Minimize2, X } from "lucide-react";
+import { MessageSquare, ChevronDown, ChevronLeft, ChevronRight, Mic, Maximize2, Minimize2, PanelLeft, X } from "lucide-react";
 import type { OfficeAgent } from "@/features/retro-office/core/types";
 import { getAgentActivity, type AgentActivity } from "@/features/retro-office/core/agentActivity";
 import { AgentActivityIndicator } from "@/features/office/components/AgentActivityIndicator";
 import { RunningAvatarLoader } from "@/features/agents/components/RunningAvatarLoader";
 import { ExistingSessionPanel } from "@/features/office/components/ExistingSessionPanel";
+import { SessionListDivider } from "@/features/office/components/SessionListDivider";
 import { CompanyActions } from "@/features/office/components/CompanyActions";
 import { useCompletionReadState } from "@/features/office/hooks/useCompletionReadState";
 import { useCompanyRosterSync } from "@/features/office/hooks/useCompanyRosterSync";
@@ -4792,6 +4793,14 @@ export function OfficeScreen({
   const emptyFleetMessage =
     state.error?.trim() ||
     "Connected to the gateway, but no agents were loaded into the office.";
+  const sessionListToggle = <button type="button" onClick={() => setChatRosterCollapsed(value => !value)}
+    aria-label={t(chatRosterCollapsed ? "Open session list" : "Close session list")} aria-expanded={!chatRosterCollapsed} aria-controls="session-chat-list"
+    title={`${t("Sessions ·")} ${chatRosterEntries.length}`} className="session-header-button"><PanelLeft size={18} /></button>;
+  const sessionWindowActions = <>
+    <button type="button" onClick={() => setChatExpanded(value => !value)} aria-label={t(chatExpanded ? "Restore chat window" : "Expand chat window")}
+      title={t(chatExpanded ? "Restore" : "Expand")} className="session-header-button office-chat-expand hidden md:inline-flex">{chatExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
+    <button type="button" onClick={() => setChatOpen(false)} aria-label={t("Close chat and return to office")} title={t("Close chat")} className="session-header-button"><X size={18} /></button>
+  </>;
 
   return (
     <main className="office-responsive relative h-full w-full overflow-hidden bg-black">
@@ -5456,13 +5465,6 @@ export function OfficeScreen({
           : `office-chat-dock fixed bottom-3 ${sessionView ? "z-50" : "z-30"} flex flex-col items-end gap-2 ${sidebarOpen ? "right-84" : "right-3"} ${debugEnabled ? "hidden" : ""}`}
         style={sessionView && chatOpen && chatViewport ? { height: chatViewport.height, top: chatViewport.top, bottom: "auto" } : undefined}
       >
-        {sessionView && chatOpen ? <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-3 py-2 [padding-top:max(0.5rem,env(safe-area-inset-top))]">
-          <button type="button" onClick={() => setChatRosterCollapsed(value => !value)} aria-expanded={!chatRosterCollapsed} className="min-h-10 rounded-md px-3 text-sm text-white/75 hover:bg-white/10">{t("Sessions ·")} {chatRosterEntries.length}</button>
-          <div className="flex items-center gap-1">
-            <button type="button" onClick={() => setChatExpanded(value => !value)} aria-label={chatExpanded ? t("Restore chat window") : t("Expand chat window")} title={chatExpanded ? t("Restore") : t("Expand")} className="office-chat-expand hidden min-h-10 items-center gap-2 rounded-md px-3 text-sm text-white/65 hover:bg-white/10 md:inline-flex">{chatExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}{chatExpanded ? t("Restore") : t("Expand")}</button>
-            <button type="button" onClick={() => setChatOpen(false)} aria-label={t("Close chat and return to office")} title={t("Close chat")} className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-md px-3 text-cyan-100 hover:bg-white/10"><X size={18} /></button>
-          </div>
-        </div> : null}
         {chatOpen && (
           <div
             className={sessionView ? "relative flex min-h-0 w-full flex-1 overflow-hidden" : "flex overflow-hidden rounded border border-white/10 bg-[#0e0a04] shadow-2xl"}
@@ -5474,7 +5476,8 @@ export function OfficeScreen({
             }}
           >
             <div
-              className={sessionView ? chatRosterCollapsed ? "hidden" : "absolute inset-y-0 left-0 z-20 flex w-[min(280px,85vw)] shrink-0 flex-col border-r border-white/10 bg-[#171e28] shadow-2xl md:static md:w-60 md:shadow-none" : `flex shrink-0 flex-col border-r border-white/10 transition-[width] ${chatRosterCollapsed ? "w-12" : "w-52"}`}
+              id={sessionView ? "session-chat-list" : undefined}
+              className={sessionView ? chatRosterCollapsed ? "hidden" : "session-chat-list flex min-w-0 shrink-0 flex-col overflow-hidden bg-[#171e28]" : `flex shrink-0 flex-col border-r border-white/10 transition-[width] ${chatRosterCollapsed ? "w-12" : "w-52"}`}
             >
               <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
                 {!chatRosterCollapsed ? (
@@ -5559,10 +5562,13 @@ export function OfficeScreen({
                 )}
               </div>
             </div>
+            {sessionView && !chatRosterCollapsed ? <SessionListDivider /> : null}
 
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              {sessionView && !focusedChatAgent ? <header className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 p-2">{sessionListToggle}{sessionWindowActions}</header> : null}
               {focusedChatAgent ? (
                 sessionView ? <ExistingSessionPanel onOpenWorkspace={openSessionWorkspace} key={focusedChatAgent.agentId} client={client} threadId={focusedChatAgent.agentId}
+                  headerStart={sessionListToggle} headerEnd={sessionWindowActions}
                   projects={companyRoster?.projects}
                   agentName={focusedChatAgent.name} onSessionRenamed={name => dispatch({ type: "updateAgent", agentId: focusedChatAgent.agentId, patch: { name, sessionDisplayName: name } })}
                   avatarProfile={focusedChatAgent.avatarProfile} agentStatus={focusedChatAgent.needsInput ? "needsInput" : focusedChatAgent.status} agentModel={focusedChatAgent.model}

@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { ArrowRightLeft, ArrowLeft, ChevronRight, ExternalLink, LogOut, MoreHorizontal, PanelRight, SlidersHorizontal, PencilLine, UserRound } from "lucide-react";
 import type { CharacterMode } from "@/features/ring-ship/DuckCharacterPanel";
@@ -27,8 +27,10 @@ type Message = LiveSessionItem;
 type HistoryPage = { threadId: string; messages: Message[]; nextCursor: string | null };
 type LoadMode = "latest" | "older";
 
-export function ExistingSessionPanel({ client, threadId, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, projects = [] }: {
+export function ExistingSessionPanel({ client, threadId, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, headerStart, headerEnd, projects = [] }: {
   client: SessionClient;
+  headerStart?: ReactNode;
+  headerEnd?: ReactNode;
   onOpenWorkspace?: () => void;
   threadId: string;
   onReturnToEarth?: () => void;
@@ -176,16 +178,17 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
     event.currentTarget.closest("details")?.removeAttribute("open");
     setCharacterMode(mode);
   };
-  return <SessionPreviewContext.Provider value={openPreview}><section className="flex min-h-0 flex-1 flex-col text-white" aria-label={t("Codex session")}>
-    <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-2">
-      <div className="min-w-0">
+  return <SessionPreviewContext.Provider value={openPreview}><section className="session-panel flex min-h-0 min-w-0 flex-1 flex-col text-white" aria-label={t("Codex session")}>
+    <header className="session-panel-header flex shrink-0 items-center gap-2 border-b border-white/10 px-3 py-2">
+      {headerStart}
+      <div className="min-w-0 flex-1">
         <h2 className="truncate text-sm font-semibold" title={sessionName}>{data?.id === threadId ? sessionName : t("Loading session information…")}</h2>
         {data?.id === threadId ? <p className="mt-1 truncate text-xs text-white/45">{data.project}</p> : null}
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {characterOpen ? <button type="button" onClick={() => setCharacterMode("chat")} className="session-action-back"><ArrowLeft size={14} />{t("Back to chat")}</button> : null}
         {!characterOpen ? <button type="button" aria-label={t(workspaceOpen ? "Close workspace" : "Open workspace")} aria-expanded={workspaceOpen} title={t("Workspace")}
-          disabled={!data?.controlsAvailable} className="session-action-back" onClick={() => { setWorkspaceOpen(value => !value); if (!workspaceOpen) onOpenWorkspace?.(); }}><PanelRight size={15} /><span>{t("Workspace")}</span></button> : null}
+          disabled={!data?.controlsAvailable} className="session-action-back session-workspace-toggle" onClick={() => { setWorkspaceOpen(value => !value); if (!workspaceOpen) onOpenWorkspace?.(); }}><PanelRight size={15} /><span>{t("Workspace")}</span></button> : null}
         <details className="session-actions relative" aria-label={t("Session information")}>
           <summary aria-label={t("Session information")} className="session-actions-trigger"><MoreHorizontal size={18} aria-hidden="true" /></summary>
           <div className="session-actions-popover">
@@ -208,6 +211,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
             </div>
           </div>
         </details>
+        {headerEnd}
       </div>
     </header>
     {characterOpen && data && onSaveCharacter ? <DuckCharacterPanel key={`${threadId}:${characterMode}`} mode={characterMode} onModeChange={setCharacterMode} onRename={data.controlsAvailable ? rename : undefined} onReassign={data.controlsAvailable ? reassign : undefined} projects={projects} info={{ ...data, name: sessionName }} profile={avatarProfile} status={agentStatus || data.status} model={agentModel} onSave={onSaveCharacter} /> : null}
