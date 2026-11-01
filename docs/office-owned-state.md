@@ -139,6 +139,10 @@ describe these public configuration surfaces.
 
 ## Chat feature map
 
+Office-owned [scheduled tasks](scheduled-tasks.md) send recurring instructions
+to an existing Office conversation. Manage them using the small screen beside
+the operations console. The gateway schedules them independently of browser tabs.
+
 | Feature | Independent runtime behavior and validation |
 | --- | --- |
 | Projects and sessions | Office-only create, rename, reassign and archive. Empty chats survive restart. Restore/unarchive UI is not connected yet. No native App import or two-way management |
