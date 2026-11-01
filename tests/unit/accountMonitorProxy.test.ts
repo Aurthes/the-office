@@ -36,6 +36,8 @@ it("proxies only dashboard reads and preserves queries without account/session c
   expect(seen).toEqual([{ path: "/api/curve?source=fixture&metric=account_equity&begin=1&end=2", cookie: undefined, authorization: undefined }]);
   expect(await response.json()).toEqual({ path: seen[0].path });
   expect((await fetch(base + "/account-history/app.js")).status).toBe(200);
+  expect((await fetch(base + "/account-history/aggregate.js")).status).toBe(200);
+  expect(await (await fetch(base + "/account-history/api/aggregate?hours=168")).json()).toEqual({ path: "/api/aggregate?hours=168" });
 });
 it("canonicalizes the root and leaves unrelated Office routes alone", async () => {
   const root = await fetch(base + "/account-history?window=1h", { redirect: "manual" });

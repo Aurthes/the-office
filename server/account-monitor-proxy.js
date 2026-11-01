@@ -10,7 +10,7 @@ function createAccountMonitorProxy(origin) {
     throw new Error("The account monitor must use a loopback HTTP origin");
   }
   const prefix = "/account-history";
-  const paths = new Set(["/", "/index.html", "/app.js", "/api/latest", "/api/curve"]);
+  const paths = new Set(["/", "/index.html", "/app.js", "/aggregate.js", "/api/latest", "/api/curve", "/api/aggregate"]);
   return (req, res) => {
     const url = new URL(req.url, "http://office.local");
     if (url.pathname !== prefix && !url.pathname.startsWith(prefix + "/")) return false;
