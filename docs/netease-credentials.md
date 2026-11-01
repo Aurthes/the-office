@@ -20,4 +20,8 @@ The `the-office` and `netease` directories have mode `700`; the file has mode `6
 
 Keep the file outside the repository and the public assets directory. Do not paste credentials into chat, commands, frontend code, or `NEXT_PUBLIC_*` variables. The browser must not receive the developer private key.
 
-This saves developer application credentials only. It does not configure the official CLI or connect the Office player. NetEase user authorization, search, and browser playback still need separate verification. A normal NetEase account QR login is separate from these app credentials.
+The script saves developer application credentials only. Open the listening bar's turntable in Office, choose NetEase, then use the sign-in QR or the official authorization link. Account authorization is separate from developer credentials. An existing Office authorization is reused, and expired access tokens are refreshed when possible; revoked or expired authorization offers sign-in again.
+
+Account tokens are stored in `authorization.json` beside the credentials with mode `600`. A pending sign-in uses `pending-authorization.json`, also mode `600`, and expires after five minutes. The server signs requests and keeps credentials and account tokens out of browser responses. The browser receives song metadata, a temporary audio URL, or a sign-in QR/link.
+
+Personal developer applications use the device descriptors from the official `@music163/ncm-cli` 0.1.7 client. Search uses `/openapi/music/basic/search/song/get/v3`; playback uses `/openapi/music/basic/song/detail/get/v2` with `withUrl`, which is available to personal apps even when the separate `song/playurl` endpoint is not. Availability, previews and account entitlements are enforced by NetEase. Browser playback requires a user action; if automatic start is blocked, tap the audio controls.
