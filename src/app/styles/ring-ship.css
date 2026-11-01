@@ -3,7 +3,12 @@
 .ship-office .office-company-menu { position: relative; top: auto; left: auto; }
 .ship-office .office-company-panel { max-width: none; }
 .ship-heading { max-width: calc(100% - 520px); }
-.ship-summary { backdrop-filter: blur(8px); }
+/* Shared flow reserves each panel's real height, including wrapped text and expanded controls. */
+.ship-bottom-hud { position:absolute; left:16px; right:16px; bottom:16px; z-index:20; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,280px); grid-template-rows:minmax(0,1fr); align-items:end; gap:12px; max-height:calc(100% - 80px); overflow-y:auto; overscroll-behavior:contain; pointer-events:none; }
+.ship-bottom-right { display:flex; flex-direction:column; align-items:flex-end; gap:12px; min-width:0; min-height:0; max-height:100%; }
+.ship-bottom-right > :not(.ship-object-card) { flex-shrink:0; }
+.ship-summary { min-width:0; max-width:460px; backdrop-filter:blur(8px); }
+.star-navigation-active .ship-summary { visibility:hidden; }
 .space-traffic-notice { position: absolute; top: 66px; right: 16px; z-index: 22; width: min(208px, calc(100% - 24px)); border: 1px solid #d8b87a65; border-radius: 8px; background: #12232ef5; box-shadow: 0 8px 28px #0005; color: #cbdade; padding: 8px 10px; font: 10px/1.35 system-ui, sans-serif; }
 .space-traffic-heading { display: flex; align-items: center; gap: 5px; color: #e1c28a; font-size: 10px; }
 .space-traffic-heading > svg { flex-shrink: 0; width: 12px; height: 12px; }
@@ -20,7 +25,7 @@
 @media (prefers-reduced-motion: no-preference) { .space-traffic-notice[data-phase=approaching] .space-traffic-heading > svg { animation: space-traffic-pulse 1.2s ease-in-out infinite; } }
 @media (max-width: 767px) { .space-traffic-notice { top: 62px; right: 12px; } }
 @media (max-height: 600px) { .ship-office:has(.ship-object-card) .space-traffic-notice { display: none; } }
-.ship-object-card { position: absolute; right: 16px; top: 50%; z-index: 21; transform: translateY(-50%); width: 268px; max-height: calc(100% - 120px); overflow-y: auto; padding: 18px; border: 1px solid #d9b57a80; border-radius: 12px; background: #132631f5; color: #c9d9dc; box-shadow: 0 16px 48px #0006, inset 0 1px #fff1; font: 12px/1.6 system-ui, sans-serif; }
+.ship-object-card { width:100%; min-height:0; flex-shrink:1; max-height:min(300px,35dvh); overflow-y:auto; pointer-events:auto; padding:18px; border:1px solid #d9b57a80; border-radius:12px; background:#132631f5; color:#c9d9dc; box-shadow:0 16px 48px #0006,inset 0 1px #fff1; font:12px/1.6 system-ui,sans-serif; }
 .ship-object-card-heading, .ship-object-card-heading span { display: flex; align-items: center; justify-content: space-between; gap: 7px; }
 .ship-object-card-heading span { color: #d9b57a; font: 9px/1.4 ui-monospace, monospace; text-transform: uppercase; letter-spacing: 1.5px; }
 .ship-object-card-heading button { display: grid; place-items: center; width: 32px; height: 32px; margin: -8px -8px -8px 0; border-radius: 6px; color: #a3b7bd; cursor: pointer; }
@@ -32,7 +37,7 @@
 .ship-object-note > span { color: #d9b57a; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; }
 .ship-object-note p { margin-top: 4px; color: #92adb5; font-size: 11px; }
 @media (max-width: 767px) {
-  .ship-object-card { top: auto; bottom: 70px; left: 12px; right: 12px; width: auto; max-height: min(215px, 42%); transform: none; padding: 14px 16px; }
+  .ship-object-card { max-height:min(215px,35dvh); padding:14px 16px; }
   .ship-object-card h2 { margin-top: 8px; font-size: 18px; }
   .ship-object-card .ship-object-location { margin-bottom: 8px; }
   .ship-object-note { margin-top: 10px; padding-top: 8px; }
@@ -56,7 +61,8 @@
   .ship-toolbar { gap: 4px; }
   .ship-toolbar > div { font-size: 8px; padding: 7px 6px; }
   .ship-toolbar > button { height: 29px; min-width: 29px; padding: 4px; }
-  .ship-summary { bottom: 54px; left: 10px; padding: 8px 10px; max-width: calc(100% - 20px); }
+  .ship-bottom-hud { left:12px; right:12px; bottom:72px; max-height:calc(100% - 140px); grid-template-columns:minmax(0,1fr); grid-template-rows:auto minmax(0,1fr); }
+  .ship-summary { padding:8px 10px; max-width:100%; }
   .ship-summary > div:last-child { display: none; }
   .ship-summary > div:nth-child(2) { max-width: 280px; font-size: 10px; }
 }
@@ -75,7 +81,8 @@
   .ship-office .office-company-panel-heading button { min-width: 36px; min-height: 36px; }
   .ship-office .office-company-label, .ship-office .office-company-description { display: none; }
   .ship-heading { top: 12px; max-width: 48%; }
-  .ship-summary { bottom: 12px; max-width: 320px; }
+  .ship-bottom-hud { grid-template-columns:minmax(0,1fr) minmax(0,280px); grid-template-rows:minmax(0,1fr); }
+  .ship-summary { max-width:320px; }
   .ship-summary > div:nth-child(2) { display: none; }
 }
 

@@ -46,5 +46,5 @@ export function MusicPlayerDialog({ open = true, autoPlay = false, scene = "deep
         <p className="music-footnote">{t("Search and listen without leaving the office.")}</p>
       </div>}
     </div>
-  </dialog><div ref={setControlsTarget} /></>;
+  </dialog><div className="music-controls-anchor" ref={setControlsTarget} /></>;
 }

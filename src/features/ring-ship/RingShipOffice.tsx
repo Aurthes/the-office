@@ -469,7 +469,6 @@ export function RingShipOffice(props: Props) {
       <LiftEntry deck={visibleDeck} whole={shipView} open={liftOpen} disabled={busy || !!props.activeChatAgentId || navigationOpen} counts={counts} onOpen={() => { closeObject(); setLiftOpen(true); }} onClose={() => setLiftOpen(false)} onTravel={travel} />
       <LiftJourney trip={trip} layout={layout} controlsRef={controlsRef} overlayRef={overlayRef} onArrive={arrive} onComplete={complete} />
     </Canvas>
-    {objectFocus ? <ShipObjectCard object={objectFocus} customRoom={currentLayout.cabins.some(c => c.id === objectFocus.cabinId && !!c.projectId && c.projectId !== SHARED_PROJECT_ID)} onClose={closeObject} /> : null}
     {activityEnabled ? <SpaceTrafficNotice key={system.id} motion={spaceMotion} seed={system.seed} paused={!objectEnabled} /> : null}
     <fieldset className="contents" disabled={busy}>
     <div className="ship-heading pointer-events-none absolute left-1/2 top-5 z-10 -translate-x-1/2 text-center">
@@ -500,7 +499,10 @@ export function RingShipOffice(props: Props) {
         </div> : null}
       </div>
     </div>
-    <div className="ship-summary pointer-events-none absolute bottom-4 left-4 z-10 max-w-[min(70vw,460px)] rounded-xl border border-white/10 bg-[#102531]/90 px-4 py-3">
+    </fieldset>
+    <div className="ship-bottom-hud">
+    <fieldset className="contents" disabled={busy}>
+    <div className="ship-summary pointer-events-none rounded-xl border border-white/10 bg-[#102531]/90 px-4 py-3">
       <div className="text-xs text-[#e1cb9f]">{selected ? (selected.kind === "work" && selected.projectId !== SHARED_PROJECT_ID ? selected.name : t(selected.name)) : shipView ? t("Three-ring ship · Whole ship") : `L${visibleDeck + 1} · ${t(DECK_NAMES[visibleDeck])}`}</div>
       <div className="mt-1 text-[11px] text-[#9fb9c2]">{selected ? t(PUBLIC_DESCRIPTIONS[selected.kind]) : t("{0} projects · {1} sessions · {2} reserve cabins", { "0": roster.projects.length, "1": agents.length, "2": reserveCount })}</div>
       {selected?.kind === "monitor" ? <button type="button" onClick={openMonitor} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#71d3c8]/40 px-3 text-xs text-[#b7eee0] hover:bg-white/10">{t("Open monitoring dashboard")} <Monitor size={13} /></button> : null}
@@ -510,13 +512,17 @@ export function RingShipOffice(props: Props) {
       <div className="mt-1 text-[9px] text-[#829da9]">{t("{working} working · {idle} idle · Drag to rotate · Scroll to zoom · Use the central lift to change decks", { working: agents.filter(a => a.status === "working").length, idle: agents.filter(a => a.status === "idle").length })}</div>
     </div>
     </fieldset>
+    <div className="ship-bottom-right">
+    {objectFocus ? <ShipObjectCard object={objectFocus} customRoom={currentLayout.cabins.some(c => c.id === objectFocus.cabinId && !!c.projectId && c.projectId !== SHARED_PROJECT_ID)} onClose={closeObject} /> : null}
+    <MusicPlayerDialog autoPlay open={musicOpen} scene={system.id} sceneName={system.name} onOpen={() => setMusicOpen(true)} onClose={() => setMusicOpen(false)} />
     {navigationPreview && !navigationOpen ? <div className="star-location"><span style={{ color: system.color }}>{t(system.name)}</span><small>{t(system.description)}</small>{activityEnabled ? <small ref={spaceCaption} className="star-cruise-status">{t("Cruising")}</small> : null}</div> : null}
+    </div>
+    </div>
     {navigationOpen && navigation.phase !== "warp" ? <NavigationOverlay state={navigation} onAction={navigate} /> : null}
     {navigationPreview && navigation.phase === "warp" && navigation.destination ? <WarpJourney destination={starSystem(navigation.destination)} onArrive={arriveSystem} onComplete={completeWarp} /> : null}
     <MonitorDashboard open={monitorOpen} onClose={() => setMonitorOpen(false)} />
     <ScheduledTasks open={tasksOpen} onClose={() => setTasksOpen(false)} onOpenSession={open} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
     <AiCenterDashboard open={aiOpen} onClose={() => setAiOpen(false)} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
-    <MusicPlayerDialog autoPlay open={musicOpen} scene={system.id} sceneName={system.name} onOpen={() => setMusicOpen(true)} onClose={() => setMusicOpen(false)} />
     <LiftOverlay trip={trip} overlayRef={overlayRef} />
     {returnFlight ? <div role="status" aria-live="polite" className="absolute bottom-20 sm:bottom-4 left-1/2 z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-amber-200/25 bg-[#101e29]/95 px-4 py-3 text-center shadow-xl">
       <div className="truncate text-xs text-amber-100">{returnFlight.name}</div>

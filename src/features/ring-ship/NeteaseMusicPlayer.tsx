@@ -29,6 +29,7 @@ export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget,
   const queue = useRef<Queue>({ songs: [], source: "scene", scene, batch: 0 });
   const wantsPlayback = useRef(false), switchingTrack = useRef(false);
   const started = useRef(false);
+  const appliedScene = useRef(scene);
   const failedSongs = useRef(new Set<string>());
   const [connection, setConnection] = useState<Connection | null>(null);
   const [query, setQuery] = useState("");
@@ -72,10 +73,14 @@ export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget,
     return () => { document.removeEventListener("click", retry); document.removeEventListener("keydown", retry); };
   }, [playHint]);
   useEffect(() => {
-    if (!connection?.authorized || source === "search") return;
+    const sceneChanged = appliedScene.current !== scene;
+    if (!connection?.authorized || (source === "search" && !sceneChanged)) return;
+    if (sceneChanged) playRequest.current?.abort();
     const controller = new AbortController();
-    request<Collection>(API + "?action=recommendations&scene=" + encodeURIComponent(scene) + "&source=" + source + "&batch=" + batch, controller.signal)
-      .then(result => { if (!controller.signal.aborted) { setSongs(result.songs); setPlaylists(result.playlists); startOnLoad(result.songs); } })
+    const requestedSource = sceneChanged ? "scene" : source;
+    const requestedBatch = sceneChanged ? 0 : batch;
+    request<Collection>(API + "?action=recommendations&scene=" + encodeURIComponent(scene) + "&source=" + requestedSource + "&batch=" + requestedBatch, controller.signal)
+      .then(result => { if (!controller.signal.aborted) applyRecommendations(result, scene, requestedSource, requestedBatch); })
       .catch(cause => { if (!controller.signal.aborted) { setError(cause.message); setSongs([]); if (cause.code === "AUTH_REQUIRED") setConnection({ configured: true, authorized: false }); } });
     return () => controller.abort();
   }, [connection?.authorized, source, scene, batch]);
@@ -112,7 +117,7 @@ export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget,
     if (source === nextSource) { setSongs(result.songs); setPlaylists(result.playlists); }
     return { songs: [...result.songs.filter(song => song.id !== selected?.id), ...result.songs.filter(song => song.id === selected?.id)], source: nextSource, scene, batch: nextBatch };
   };
-  const startAt = async (current: Queue, start: number) => {
+  const startAt = async (current: Queue, start: number, prepareOnly = false) => {
     playRequest.current?.abort();
     const controller = new AbortController(); playRequest.current = controller;
     setLoadingTrack(true); setError("");
@@ -122,7 +127,7 @@ export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget,
         for (const song of current.songs.slice(start).filter(item => item.playable && !failedSongs.current.has(item.id))) {
           try {
             const result = await request<Track>(API + "?action=track&id=" + encodeURIComponent(song.id) + (current.source === "scene" ? "&instrumental=1" : ""), controller.signal);
-            if (controller.signal.aborted || !wantsPlayback.current) return;
+            if (controller.signal.aborted || (!wantsPlayback.current && !prepareOnly)) return;
             switchingTrack.current = true; queue.current = current;
             setPlayHint(false); setSelected(song); setTrack(result); return;
           } catch (cause) {
@@ -137,16 +142,23 @@ export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget,
     finally { if (playRequest.current === controller) { playRequest.current = null; setLoadingTrack(false); } }
   };
   const play = (song: Song) => {
-    started.current = true; failedSongs.current.clear(); wantsPlayback.current = true;
+    started.current = true; appliedScene.current = scene; failedSongs.current.clear(); wantsPlayback.current = true;
     const current = { songs: songs || [song], source, scene, batch };
     void startAt(current, Math.max(0, current.songs.findIndex(item => item.id === song.id)));
   };
-  const startOnLoad = useEffectEvent((recommendations: Song[]) => {
-    if (!autoPlay || started.current || source !== "scene") return;
-    const first = recommendations.find(song => song.playable);
+  const applyRecommendations = useEffectEvent((collection: Collection, requestedScene: string, requestedSource: Source, requestedBatch: number) => {
+    if (requestedScene !== scene) return;
+    const sceneChanged = appliedScene.current !== scene;
+    appliedScene.current = scene;
+    setSongs(collection.songs); setPlaylists(collection.playlists);
+    if (sceneChanged) { setSource("scene"); setBatch(0); }
+    if (requestedSource !== "scene" || (!(autoPlay && !started.current) && !(sceneChanged && started.current))) return;
+    const first = collection.songs.find(song => song.playable && (!sceneChanged || song.id !== selected?.id)) || collection.songs.find(song => song.playable);
     if (!first) return;
-    started.current = true; wantsPlayback.current = true;
-    void startAt({ songs: recommendations, source, scene, batch }, recommendations.indexOf(first));
+    const prepareOnly = started.current && !wantsPlayback.current;
+    started.current = true;
+    if (!prepareOnly) wantsPlayback.current = true;
+    void startAt({ songs: collection.songs, source: "scene", scene, batch: requestedBatch }, collection.songs.indexOf(first), prepareOnly);
   });
   const next = async (manual = false) => {
     if (playRequest.current || (!manual && !wantsPlayback.current)) return;
@@ -157,7 +169,11 @@ export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget,
     } else await startAt(queue.current, queue.current.songs.findIndex(song => song.id === selected?.id) + 1);
   };
   const pause = () => { wantsPlayback.current = false; setPlayHint(false); playRequest.current?.abort(); audio.current?.pause(); };
-  const resume = () => { wantsPlayback.current = true; if (audio.current) void audio.current.play().catch(cause => { if (cause.name !== "AbortError" && wantsPlayback.current) setPlayHint(true); }); };
+  const resume = () => {
+    wantsPlayback.current = true;
+    if (queue.current.scene !== scene) { void startAt({ ...queue.current, songs: [], source: "scene" }, 0); return; }
+    if (audio.current) void audio.current.play().catch(cause => { if (cause.name !== "AbortError" && wantsPlayback.current) setPlayHint(true); });
+  };
   const signIn = () => void perform(async signal => setLogin(await request<Login>(API, signal, "POST")));
   const keepPreviewRange = () => {
     const element = audio.current, preview = track?.preview;

@@ -5,7 +5,7 @@
 .listening-bar-label:focus-visible { opacity:1; pointer-events:auto; }
 @media (hover:hover) { .listening-bar-anchor:hover .listening-bar-label { opacity:1; pointer-events:auto; } }
 .listening-bar-label:hover { background:#355146; border-color:#e5c992; }
-.music-dialog { width:min(580px,calc(100vw - 28px)); max-width:none; max-height:calc(100dvh - 28px); margin:auto; padding:0; border:1px solid #c6a46a55; border-radius:22px; background:#15231e; color:#f0e9dc; box-shadow:0 28px 100px #0008; font-family:var(--font-sans),sans-serif; overflow:auto; }
+.music-dialog { width:min(580px,calc(100vw - 28px)); max-width:none; max-height:calc(100dvh - 28px); margin:auto; padding:0; border:1px solid #c6a46a55; border-radius:22px; background:#15231e; color:#f0e9dc; box-shadow:0 28px 100px #0008; font-family:var(--font-sans),sans-serif; overflow:auto; pointer-events:auto; }
 .music-dialog::backdrop { background:#030b10b8; backdrop-filter:blur(9px); }
 .music-dialog:not([open]) { display:none; }
 .music-dialog-player { width:min(1280px,calc(100vw - 28px)); height:calc(100dvh - 28px); }
@@ -71,7 +71,9 @@
 .music-provider-open { display:flex; align-items:center; gap:6px; font-size:11px; color:#d9c294; }
 .music-footnote { margin:18px 0 0; color:#92a08f; font-size:11px; }
 .music-dialog :focus-visible,.listening-bar-label:focus-visible { outline:2px solid #e4c892; outline-offset:4px; }
-.music-mini { position:absolute; right:16px; bottom:16px; z-index:20; display:grid; grid-template-columns:minmax(0,1fr) repeat(4,36px); align-items:center; width:280px; max-width:calc(100% - 24px); padding:3px 6px; border:1px solid #ffffff1a; border-radius:10px; background:#102531ed; color:#deebea; box-shadow:0 8px 28px #0004; backdrop-filter:blur(8px); font-family:var(--font-sans),sans-serif; }
+.music-controls-anchor { width:280px; max-width:100%; }
+.music-controls-anchor:empty { display:none; }
+.music-mini { position:relative; display:grid; grid-template-columns:minmax(0,1fr) repeat(4,36px); align-items:center; width:100%; padding:3px 6px; border:1px solid #ffffff1a; border-radius:10px; background:#102531ed; color:#deebea; box-shadow:0 8px 28px #0004; backdrop-filter:blur(8px); font-family:var(--font-sans),sans-serif; pointer-events:auto; }
 .music-mini-track { display:flex; align-items:center; min-width:0; min-height:36px; padding:0 4px; text-align:left; cursor:pointer; }
 .music-mini-track > span { display:flex; min-width:0; flex-direction:column; gap:2px; }
 .music-mini-track strong,.music-mini-track small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -80,10 +82,9 @@
 .music-mini-button { display:grid; place-items:center; width:36px; height:36px; border-radius:7px; color:#c5d7d9; cursor:pointer; }
 .music-mini-button:disabled { opacity:.4; cursor:default; }
 .music-mini-button:hover,.music-mini-track:hover { background:#ffffff0a; }
-.music-mini-volume { position:relative; }
-.music-mini-volume-popover { position:absolute; bottom:calc(100% + 10px); right:-36px; width:160px; padding:8px 12px; border:1px solid #ffffff20; border-radius:8px; background:#102531; box-shadow:0 6px 20px #0005; }
+.music-mini-volume { position:static; }
+.music-mini:has(.music-mini-volume-popover) { padding-top:51px; }
+.music-mini-volume-popover { position:absolute; top:6px; right:6px; width:160px; padding:8px 12px; border:1px solid #ffffff20; border-radius:8px; background:#102531; box-shadow:0 6px 20px #0005; }
 .music-mini-volume input { display:block; width:100%; height:20px; accent-color:#d7bc85; cursor:pointer; }
 .music-mini :focus-visible { outline:2px solid #e4c892; outline-offset:2px; }
-@media(max-width:900px) { .music-mini { right:12px; bottom:54px; } .ship-office:has(.music-mini) .ship-summary { bottom:110px; } .ship-office:has(.music-mini-volume-popover) .ship-summary { bottom:160px; } }
-@media(max-height:600px) and (orientation:landscape) { .music-mini { width:280px; right:12px; bottom:12px; } .ship-office:has(.music-mini) .ship-summary { bottom:12px; max-width:calc(100% - 320px); } }
 @media(max-width:600px) { .music-discovery { padding:14px 16px 0; } .music-header { padding:20px; } .music-heading h1 { font-size:21px; } .music-chooser { padding:20px; } .music-provider { flex-wrap:wrap; gap:12px; padding:14px; } .music-provider-open { width:100%; justify-content:flex-end; } .music-record-art { height:170px; } }
