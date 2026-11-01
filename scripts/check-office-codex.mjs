@@ -40,6 +40,11 @@ const provider = http.createServer((request, response) => {
     emit({ type: "response.created", response: { id } });
     const last = [...(payload.input || [])].reverse().find(item => item.role === "user");
     if (JSON.stringify(last).includes("OFFICE_HOLD")) return;
+    if (JSON.stringify(last).includes("OFFICE_QUESTION") && !payload.input.some(i => i.type === "function_call_output" && i.call_id === "async-question-1")) {
+      const item = { id: "fc_question", type: "function_call", namespace: "functions", name: "request_user_input_async", call_id: "async-question-1", arguments: JSON.stringify({ questions: [{ title: "Choose a test route", options: ["First route", "Second route"] }] }) };
+      emit({ type: "response.output_item.done", output_index: 0, item });
+      emit({ type: "response.completed", response: { id, output: [item] } }); response.end(); return;
+    }
     const item = { id: `msg_${payloads.length}`, type: "message", role: "assistant", content: [{ type: "output_text", text: "OFFICE_CHECK_OK" }] };
     emit({ type: "response.output_item.done", output_index: 0, item });
     emit({ type: "response.completed", response: { id, output: [item], usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 } } }); response.end();
@@ -130,10 +135,28 @@ try {
   await client.call("project.update", { projectId: project.id, name: "Updated project", rootPaths: [secondary], workspaces: { [threadId]: fs.realpathSync(secondary) }, requestId: "replace-cwd" });
   check("cwd replacement keeps conversation identity", (await client.call("session.inspect", { threadId, includeHistory: false })).workspace === fs.realpathSync(secondary));
   check("restart retains model-visible history and identity", JSON.stringify(payloads.at(-1).input).includes("OFFICE_FIRST_MARKER") && JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].codexThreadId === originalNativeId);
+  await client.call("session.send", { threadId, message: "OFFICE_QUESTION", requestId: "send-question" });
+  await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].pendingQuestions?.length > 0, "No structured async question from actual Codex");
+  await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].status === "idle", "Question turn did not finish");
+  let question = (await client.call("session.attach", { threadId })).questions[0];
+  check("public asynchronous questions retain their choices", question.questions[0].options[1].label === "Second route");
+  check("pending question sets yellow input marker", (await client.call("office.snapshot")).agents[0].needsInput === true);
+  await stop(); client = await start();
+  question = (await client.call("session.attach", { threadId })).questions[0];
+  check("pending choice cards survive gateway restart", question.requestId === "async:async-question-1");
+  const answerTurn = await client.call("session.question.reply", { threadId, promptId: question.requestId, requestId: "answer-question", answers: { [question.questions[0].id]: "Second route" } });
+  await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].completionKey === answerTurn.turnId, "Choice answer did not finish");
+  check("choice answer reaches Codex as a user reply", payloads.at(-1).input.some(i => i.role === "user" && JSON.stringify(i).includes("send_user_message_question_reply") && JSON.stringify(i).includes("Second route")));
+  check("choice reply reaches the same conversation and clears its input marker", !(await client.call("office.snapshot")).agents[0].needsInput && (await client.call("session.attach", { threadId })).questions.length === 0);
+  check("completed result is available for browser unread marker", (await client.call("office.snapshot")).agents[0].completedResult?.unread === true);
   await client.call("session.send", { threadId, message: "OFFICE_HOLD", requestId: "send-3" });
   await until(() => JSON.stringify(payloads.at(-1)).includes("OFFICE_HOLD"), "Hold did not start");
   check("stop own active turn", (await client.call("session.stop", { threadId })).status === "interruptRequested");
   await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].status === "idle", "Interrupted turn did not finish");
+  check("interrupted turn is available for Play", (await client.call("session.attach", { threadId })).turnStatus === "interrupted" && !(await client.call("office.snapshot")).agents[0].completedResult);
+  await client.call("session.continue", { threadId, requestId: "play-continue" });
+  await until(() => JSON.stringify(payloads.at(-1).input).includes("Continue where you left off.") && JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].status === "idle", "Play continuation did not finish");
+  check("Play continues with original history and native identity", JSON.stringify(payloads.at(-1).input).includes("OFFICE_FIRST_MARKER") && JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].codexThreadId === originalNativeId);
   await client.call("session.archive", { threadId, requestId: "archive-1" });
   check("own archive", (await client.call("office.snapshot")).agents.length === 0);
   check("foreign state untouched", JSON.stringify(sourceSnapshot()) === sourceBefore);

@@ -133,21 +133,22 @@ class CodexSessionControls {
           details: item?.details, supported: request.supported && !oversized && (request.method !== "item/fileChange/requestApproval" || Boolean(item?.details && !item.incompleteDetails)) };
       }) };
   }
-  async send(id, text, requestId, attachments = []) {
+  async send(id, text, requestId, attachments = [], { resumeInterrupted = false } = {}) {
     this.requireReady();
     const input = await messageInput(text, attachments, id);
     if (typeof requestId !== "string" || requestId.length > 100 || !requestId) throw new Error("缺少发送请求 ID");
     const prior = this.sends.get(requestId);
     if (prior) {
-      if (prior.id !== id || prior.hash !== crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex")) throw new Error("发送请求 ID 冲突");
+      if (prior.id !== id || prior.resumeInterrupted !== resumeInterrupted || prior.hash !== crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex")) throw new Error("发送请求 ID 冲突");
       if (!prior.result) throw new Error("这次发送已提交，结果需核对，未重复发送");
       return prior.result;
     }
-    const entry = { id, hash: crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex") };
+    const entry = { id, resumeInterrupted, hash: crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex") };
     this.sends.set(requestId, entry);
     if (this.sends.size > 128) this.sends.delete(this.sends.keys().next().value);
     await this.attach(id); await this.refreshTurn(id);
     const active = this.state(id).activeTurnId;
+    if (resumeInterrupted && (active || this.state(id).turnStatus !== "interrupted")) throw new Error("This task is no longer interrupted. Refresh the conversation before continuing.");
     // The desktop uses this identity to display external steering as a user
     // message. Reuse the send ID so duplicate requests keep the same identity.
     const result = await this.client.call(active ? "turn/steer" : "turn/start", { threadId: id, input, clientUserMessageId: requestId, ...(active ? { expectedTurnId: active } : this.options.settings?.overrides(id) || {}) });

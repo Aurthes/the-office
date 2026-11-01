@@ -139,6 +139,8 @@ describe these public configuration surfaces.
 | --- | --- |
 | Projects and sessions | Office-only create, rename, reassign and archive. Empty chats survive restart. Restore/unarchive UI is not connected yet. No native App import or two-way management |
 | Text and task progress | Public thread/turn APIs; streaming, saved history, continuation after process restart and interrupt tested through the gateway. Separate real-account two-turn continuation also passed |
+| Interrupted tasks | An empty composer shows Play after an interrupted turn. It submits “Continue where you left off.” in the same thread; the gateway rechecks that the latest turn is still interrupted |
+| Questions and status markers | Public blocking requests and asynchronous agent-message question fields render choice cards. Yellow `!` means input is needed; yellow `?` means a completed result has not been viewed in this browser. Pending asynchronous cards persist in Office state; ordinary chat replies dismiss earlier cards |
 | Models and reasoning | Account's public model catalog; validated choices persist in Office and apply to the next turn. Additional messages during a task use its current settings |
 | Access and approvals | Public sandbox/approval fields; Read only, Default permissions and confirmed Full access. Command/file/question handlers reused; permission grants are limited to the requested permissions for that turn. Fixtures verify response routing; not every real approval variant has been induced |
 | Context usage | Displays reported last-input tokens and nullable model context window. Real usage events received. This is not a hidden-prompt inspector or cumulative billing-token percentage |

@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const { sessionChoices, settingsPatch } = require("./codex-session-settings");
 const { loadSessionHistoryPage } = require("./codex-session-history");
 const { clipText } = require("./codex-session-items");
+const { pendingAfterItem } = require("./codex-session-questions");
 
 const ACCESS = {
   ":read-only": { approvalPolicy: "on-request", sandbox: "read-only", policy: "readOnly" },
@@ -27,7 +28,15 @@ class CodexOfficeStore {
   save() { const temporary = this.file + ".tmp"; fs.writeFileSync(temporary, JSON.stringify(this.data, null, 2) + "\n", { mode: 0o600 }); fs.renameSync(temporary, this.file); this.changed(); }
   projects() { return this.data.projects; }
   get(id) { const row = this.data.sessions.find(s => s.id === id && !s.archived); if (!row) throw new Error("Office session is missing or archived"); return row; }
-  list() { return this.data.sessions.filter(s => !s.archived).map(s => ({ ...s, project: this.data.projects.find(p => p.id === s.projectId)?.name || "Open Workspace", workspace: s.workspace, model: s.settings?.model || this.defaultModel || null, effort: s.settings?.effort || null, completedResult: s.completionKey ? { key: s.completionKey, unread: false } : null })); }
+  list() { return this.data.sessions.filter(s => !s.archived).map(s => {
+    const row = { ...s }; delete row.pendingQuestions;
+    return { ...row, project: this.data.projects.find(p => p.id === s.projectId)?.name || "Open Workspace", workspace: s.workspace, model: s.settings?.model || this.defaultModel || null, effort: s.settings?.effort || null, completedResult: s.completionKey ? { key: s.completionKey, unread: true } : null };
+  }); }
+  pendingQuestions(id) { return this.get(id).pendingQuestions || []; }
+  clearQuestions(id, requestIds) {
+    const row = this.get(id), next = this.pendingQuestions(id).filter(q => !requestIds.includes(q.requestId));
+    if (next.length !== this.pendingQuestions(id).length) { row.pendingQuestions = next; this.save(); }
+  }
   name(value) { if (typeof value !== "string" || !value.trim() || value.trim().length > 120) throw new Error("Name must contain 1–120 characters"); return value.trim(); }
   directory(value) { if (typeof value !== "string" || !path.isAbsolute(value) || !fs.statSync(value, { throwIfNoEntry: false })?.isDirectory()) throw new Error("Choose an existing absolute project directory on the Codex computer"); return fs.realpathSync(value); }
   once(input, action) {
@@ -150,7 +159,28 @@ class CodexOfficeStore {
         }
         row.attemptedTurn = true; this.save();
       }
-      try { return await this.client.call(method, mapped); }
+      // Reuse the first latest-turn read to recover questions from public history
+      // for Office rows created before structured questions were supported.
+      const latestRead = method === "thread/turns/list" && params.limit === 1 && params.sortDirection === "desc";
+      const previousStatus = row.status, previousCompletion = row.completionKey;
+      const restoreQuestions = latestRead && !Array.isArray(row.pendingQuestions);
+      if (restoreQuestions) mapped.itemsView = "full";
+      try {
+        const result = await this.client.call(method, mapped);
+        let updated = false;
+        if (restoreQuestions && !Array.isArray(row.pendingQuestions)) {
+          row.pendingQuestions = (result.data[0]?.items || []).reduce(pendingAfterItem, []); updated = true;
+        }
+        // Reconcile persisted running/unknown rows after an Office restart.
+        // A live event received during this read remains authoritative.
+        if (latestRead && row.status === previousStatus && row.completionKey === previousCompletion) {
+          const turn = result.data[0], status = turn?.status === "inProgress" ? "running" : turn?.status === "failed" ? "error" : "idle";
+          const completionKey = turn?.status === "completed" ? turn.id : null;
+          if (row.status !== status || row.completionKey !== completionKey) { row.status = status; row.completionKey = completionKey; updated = true; }
+        }
+        if (updated) this.save();
+        return result;
+      }
       catch (error) {
         if (["thread/resume", "thread/turns/list"].includes(method) && !row.attemptedTurn && !row.hasTurns && missingRollout(error)) {
           row.codexThreadId = null; row.projectContext = null; this.save(); return method === "thread/resume" ? this.emptyContext(row) : { data: [], nextCursor: null };
@@ -167,8 +197,12 @@ class CodexOfficeStore {
     if (!nativeId) return frame;
     const row = this.data.sessions.find(s => s.codexThreadId === nativeId);
     if (!row) return null;
-    if (frame.method === "turn/started") { row.hasTurns = true; row.status = "running"; row.updatedAt = Date.now(); this.save(); }
-    if (frame.method === "turn/completed") { row.status = p.turn.status === "failed" ? "error" : "idle"; row.updatedAt = Date.now(); row.completionKey = p.turn.id; this.save(); }
+    if (frame.method === "turn/started") { row.hasTurns = true; row.status = "running"; row.completionKey = null; row.updatedAt = Date.now(); this.save(); }
+    if (frame.method === "turn/completed") { row.status = p.turn.status === "failed" ? "error" : "idle"; row.updatedAt = Date.now(); row.completionKey = p.turn.status === "completed" ? p.turn.id : null; this.save(); }
+    if (frame.method === "item/completed" && ["agentMessage", "userMessage"].includes(p.item?.type)) {
+      const previous = row.pendingQuestions || [], pending = pendingAfterItem(previous, p.item);
+      if (pending !== previous) { row.pendingQuestions = pending; this.save(); }
+    }
     return { ...frame, params: { ...p, ...(p.threadId ? { threadId: row.id } : {}), ...(p.thread ? { thread: { ...p.thread, id: row.id } } : {}) } };
   }
 }

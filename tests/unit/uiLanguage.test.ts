@@ -77,12 +77,14 @@ describe("interface language", () => {
   });
 
   it("changes question controls while preserving questions and answer options", () => {
-    render(React.createElement(SessionQuestions, { client: { call: vi.fn() }, threadId: "t", request: { requestId: "q", questions: [{ id: "q1", question: "你想保留哪个名字？", options: [{ label: "Settings", description: "请原样保留" }] }] } }));
+    render(React.createElement(SessionQuestions, { client: { call: vi.fn() }, threadId: "t", request: { requestId: "q", questions: [{ id: "q1", question: "你想保留哪个名字？", isOther: true, options: [{ label: "Settings", description: "请原样保留" }] }] } }));
     expect(screen.getByText("你想保留哪个名字？")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Submit answer" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Custom answer" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Submit answer" })).not.toBeInTheDocument();
     act(() => setUiLanguage("zh-CN"));
     expect(screen.getByText("你想保留哪个名字？")).toBeVisible();
-    expect(screen.getByLabelText("Settings请原样保留")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Settings.*请原样保留/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "自定义回答" }));
     expect(screen.getByRole("button", { name: "提交答案" })).toBeVisible();
   });
 

@@ -28,6 +28,41 @@ async function session(f: ReturnType<typeof fixture>) {
   return (await f.store.createSession({ name: "Own chat", projectId: project.id, requestId: "session" })).threadId;
 }
 describe("independent Office runtime", () => {
+  it("keeps structured async questions in Office state and streams them across restart", async () => {
+    const f = fixture(), id = await session(f); f.store.get(id).codexThreadId = "native-own-thread";
+    const controls = new CodexSessionControls(f.store, (threadId: string) => f.store.pendingQuestions(threadId), { settings: f.store });
+    const event = { method: "item/completed", params: { threadId: "native-own-thread", turnId: "t", item: { id: "prompt", type: "agentMessage", delivery: "async", questions: [{ title: "Choose?", options: ["First", "Second"] }], text: "Choose?" } } };
+    controls.handle(f.store.handle(event));
+    expect(controls.snapshot(id).questions[0].questions[0].options).toEqual([{ label: "First" }, { label: "Second" }]);
+    const restarted = new CodexOfficeStore(f.directory, f.client);
+    expect(restarted.pendingQuestions(id)).toEqual(f.store.pendingQuestions(id));
+    f.store.handle(event); expect(f.store.pendingQuestions(id)).toHaveLength(1);
+    f.store.clearQuestions(id, ["async:prompt"]); expect(f.store.pendingQuestions(id)).toEqual([]);
+  });
+  it("recovers legacy Office questions from the first bounded public latest-turn read", async () => {
+    const f = fixture(), id = await session(f); Object.assign(f.store.get(id), { codexThreadId: "native-own-thread", hasTurns: true });
+    f.client.call.mockResolvedValue({ data: [{ id: "t", status: "completed", items: [{ type: "agentMessage", id: "old-prompt", delivery: "async", questions: [{ title: "Still pending?" }] }] }] });
+    await f.store.call("thread/turns/list", { threadId: id, limit: 1, itemsView: "notLoaded", sortDirection: "desc" });
+    expect(f.client.call).toHaveBeenLastCalledWith("thread/turns/list", { threadId: "native-own-thread", limit: 1, itemsView: "full", sortDirection: "desc" });
+    expect(f.store.pendingQuestions(id)[0].requestId).toBe("async:old-prompt");
+    await f.store.call("thread/turns/list", { threadId: id, limit: 1, itemsView: "notLoaded", sortDirection: "desc" });
+    expect(f.client.call).toHaveBeenLastCalledWith("thread/turns/list", expect.objectContaining({ itemsView: "notLoaded" }));
+  });
+  it("marks only completed results as candidates for browser unread badges", async () => {
+    const f = fixture(), id = await session(f); f.store.get(id).codexThreadId = "native-own-thread";
+    const event = (method: string, status: string) => f.store.handle({ method, params: { threadId: "native-own-thread", turn: { id: "t", status } } });
+    event("turn/completed", "completed"); expect(f.store.list()[0].completedResult).toEqual({ key: "t", unread: true });
+    event("turn/started", "inProgress"); expect(f.store.list()[0].completedResult).toBeNull();
+    event("turn/completed", "interrupted"); expect(f.store.list()[0].completedResult).toBeNull();
+    event("turn/completed", "failed"); expect(f.store.list()[0]).toMatchObject({ status: "error", completedResult: null });
+  });
+  it("reconciles a task interrupted by a backend restart using the owner's public latest-turn read", async () => {
+    const f = fixture(), id = await session(f); Object.assign(f.store.get(id), { codexThreadId: "native-own-thread", hasTurns: true, status: "unknown", completionKey: "stale-result" });
+    f.client.call.mockResolvedValue({ data: [{ id: "stopped", status: "interrupted", items: [] }] });
+    await f.store.call("thread/turns/list", { threadId: id, limit: 1, itemsView: "notLoaded", sortDirection: "desc" });
+    expect(f.store.list()[0]).toMatchObject({ status: "idle", completedResult: null });
+    expect(f.store.list()[0]).not.toHaveProperty("pendingQuestions");
+  });
   it("isolates state and strips inherited App connection overrides without changing the parent environment", () => {
     const f = fixture(), foreign = path.join(f.root, "native"); mkdirSync(foreign); writeFileSync(path.join(foreign, "sentinel"), "unchanged");
     const environment = { PATH: "/bin", CODEX_HOME: foreign, CODEX_SQLITE_HOME: foreign, CODEX_APP_SERVER_WS_URL: "ws://old", CODEX_ORIGINATOR_OVERRIDE: "native-app", CLAW3D_CODEX_CONTROL_SOCKET: "/old.sock", BROWSER_USE_ACCESS_PIPE_PATH: "/app-browser.sock", NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S: "app-tool-identity", OPENAI_API_KEY: "feature-api-test-key" };
