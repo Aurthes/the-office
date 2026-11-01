@@ -110,10 +110,6 @@ import {
 } from "@/lib/agents/personalityBuilder";
 import { writeGatewayAgentFiles } from "@/lib/gateway/agentFiles";
 import { randomUUID } from "@/lib/uuid";
-import {
-  HQSidebar,
-  type HQSidebarTab,
-} from "@/features/office/components/HQSidebar";
 import { CompanyBuilderModal } from "@/features/company-builder/components/CompanyBuilderModal";
 import {
   buildGenerateCompanyPlanPrompt,
@@ -131,10 +127,6 @@ import type {
   CompanyBuilderInput,
   CompanyBuilderPlan,
 } from "@/features/company-builder/types";
-import { AnalyticsPanel } from "@/features/office/components/panels/AnalyticsPanel";
-import { HistoryPanel } from "@/features/office/components/panels/HistoryPanel";
-import { InboxPanel } from "@/features/office/components/panels/InboxPanel";
-import { useRunLog } from "@/features/office/hooks/useRunLog";
 import {
   OnboardingWizard,
   useOnboardingState,
@@ -742,10 +734,8 @@ export function OfficeScreen({
   } =
     useRuntimeConnection(settingsCoordinator);
   const voice = useSessionVoice(client);
-  const runtimeSupportsApprovals = supportsCapability("approvals");
 
   const runtimeSupportsModels = supportsCapability("models");
-  const runtimeSupportsRunLifecycle = supportsCapability("runtime-agent-events");
   const { state, dispatch, hydrateAgents, setError, setLoading } =
     useAgentStore();
   const [agentsLoaded, setAgentsLoaded] = useState(false);
@@ -897,14 +887,10 @@ export function OfficeScreen({
   const activeFloorIdRef = useRef<FloorId>("lobby");
   const floorRosterCacheRef = useRef(floorRosterCache);
   const [gatewayModels, setGatewayModels] = useState<GatewayModelChoice[]>([]);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [danceUntilByAgentId, setDanceUntilByAgentId] = useState<Record<string, number>>({});
 
   // Auto-open jukebox panel for legacy direct-auth callbacks.
-
-  const [activeSidebarTab, setActiveSidebarTab] =
-    useState<HQSidebarTab>("inbox");
 
   const { showOnboarding, completeOnboarding, resetOnboarding } =
     useOnboardingState();
@@ -2387,13 +2373,6 @@ export function OfficeScreen({
     setAgentEditorAgentId(null);
   }, [agentEditorAgentId, state.agents]);
 
-  const runLog = useRunLog({
-    client,
-    status,
-    enabled: runtimeSupportsRunLifecycle,
-    agents: state.agents,
-  });
-
   const animationNowMs = Date.now();
   const officeAnimationState = useMemo(() => ({
     ...buildOfficeAnimationState({ state: officeTriggerState, agents: state.agents, nowMs: animationNowMs }),
@@ -3303,9 +3282,6 @@ export function OfficeScreen({
       smsBoothHoldByAgentId[agent.agentId] ||
       qaHoldByAgentId[agent.agentId],
   ).length;
-  const unseenInboxCount = state.agents.filter(
-    (agent) => agent.hasUnseenActivity,
-  ).length;
   const showEmptyFleetBanner =
     status === "connected" && agentsLoaded && state.agents.length === 0 && !companyCreationAvailable;
   const emptyFleetMessage =
@@ -3502,56 +3478,6 @@ export function OfficeScreen({
             <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-red-200/75">{t("Fleet mutation")}</div>
             <div className="mt-1 text-sm text-red-50">{deleteAgentStatusLine}</div>
           </div>
-        </div>
-      ) : null}
-
-      {!debugEnabled ? (
-        <div className={sessionView ? "office-company-hq max-md:hidden" : undefined}>
-        <HQSidebar
-          open={sidebarOpen}
-          activeTab={activeSidebarTab}
-          inboxCount={unseenInboxCount}
-          onToggle={() => setSidebarOpen((prev) => !prev)}
-          onTabChange={setActiveSidebarTab}
-
-          onAddAgent={handleOpenCreateAgentWizard}
-          onOpenCompanyBuilder={handleOpenCompanyBuilder}
-          inboxPanel={
-            <InboxPanel
-              agents={state.agents}
-              onSelectAgent={(agentId) => {
-                handleOpenAgentChat(agentId);
-                setActiveSidebarTab("inbox");
-              }}
-            />
-          }
-          historyPanel={
-            <HistoryPanel
-              runs={runLog}
-              agents={state.agents}
-              onSelectAgent={(agentId) => {
-                handleOpenAgentChat(agentId);
-                setActiveSidebarTab("history");
-              }}
-            />
-          }
-
-          analyticsPanel={
-            <AnalyticsPanel
-              client={client}
-              status={status}
-              approvalsEnabled={runtimeSupportsApprovals}
-              agents={state.agents}
-              runLog={runLog}
-              gatewayUrl={gatewayUrl}
-              settingsCoordinator={settingsCoordinator}
-              onSelectAgent={(agentId) => {
-                handleOpenAgentChat(agentId);
-                setActiveSidebarTab("analytics");
-              }}
-            />
-          }
-        />
         </div>
       ) : null}
 
@@ -3775,7 +3701,7 @@ export function OfficeScreen({
       <div
         className={sessionView && chatOpen
           ? `office-session-chat fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[#11161e] text-white shadow-2xl md:inset-y-3 md:right-3 md:left-auto md:rounded-xl md:border md:border-white/15 ${chatExpanded ? "md:w-[calc(100vw-1.5rem)]" : "md:w-[min(960px,calc(100vw-1.5rem))]"}`
-          : `office-chat-dock fixed bottom-3 ${sessionView ? "z-50" : "z-30"} flex flex-col items-end gap-2 ${sidebarOpen ? "right-84" : "right-3"} ${debugEnabled ? "hidden" : ""}`}
+          : `office-chat-dock fixed bottom-3 ${sessionView ? "z-50" : "z-30"} flex flex-col items-end gap-2 right-3 ${debugEnabled ? "hidden" : ""}`}
         style={sessionView && chatOpen && chatViewport ? { height: chatViewport.height, top: chatViewport.top, bottom: "auto" } : undefined}
       >
         {chatOpen && (
