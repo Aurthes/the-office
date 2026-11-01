@@ -3,7 +3,8 @@ import path from "node:path";
 
 import { resolveStateDir } from "@/lib/clawdbot/paths";
 import { readConfigAgentList } from "@/lib/gateway/agentConfig";
-import type { OfficeAgentState } from "@/lib/office/schema";
+
+type OfficeAgentState = "idle" | "working" | "meeting" | "error";
 
 export type OfficeAgentPresence = {
   agentId: string;
