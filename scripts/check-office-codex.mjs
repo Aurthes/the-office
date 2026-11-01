@@ -144,8 +144,9 @@ try {
   await stop(); client = await start();
   question = (await client.call("session.attach", { threadId })).questions[0];
   check("pending choice cards survive gateway restart", question.requestId === "async:async-question-1");
-  await client.call("session.question.reply", { threadId, promptId: question.requestId, requestId: "answer-question", answers: { [question.questions[0].id]: "Second route" } });
-  await until(() => JSON.stringify(payloads.at(-1).input).includes("Second route") && JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].status === "idle", "Choice answer did not reach Codex");
+  const answerTurn = await client.call("session.question.reply", { threadId, promptId: question.requestId, requestId: "answer-question", answers: { [question.questions[0].id]: "Second route" } });
+  await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].completionKey === answerTurn.turnId, "Choice answer did not finish");
+  check("choice answer reaches Codex as a user reply", payloads.at(-1).input.some(i => i.role === "user" && JSON.stringify(i).includes("send_user_message_question_reply") && JSON.stringify(i).includes("Second route")));
   check("choice reply reaches the same conversation and clears its input marker", !(await client.call("office.snapshot")).agents[0].needsInput && (await client.call("session.attach", { threadId })).questions.length === 0);
   check("completed result is available for browser unread marker", (await client.call("office.snapshot")).agents[0].completedResult?.unread === true);
   await client.call("session.send", { threadId, message: "OFFICE_HOLD", requestId: "send-3" });
