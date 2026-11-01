@@ -5,6 +5,7 @@ import { MonitorDashboard } from "@/features/ring-ship/MonitorDashboard";
 import { formatBytes, ServerDashboard } from "@/features/ring-ship/ServerDashboard";
 
 const links = [{ id: "grafana", label: "Grafana", url: "https://grafana.example.com/d/a", visual: "chart" }];
+const leadlag = { id: "account-history", label: "Lead-Lag 净值 / P&L", url: "/account-history/", visual: "chart" };
 beforeEach(() => {
   Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.open = true; } });
   Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.open = false; } });
@@ -38,6 +39,46 @@ it("saves configured labels and links without translating user names", async () 
   expect(await screen.findByRole("button", { name: "Open monitor: My custom metrics" })).toBeInTheDocument();
   const save = vi.mocked(fetch).mock.calls.find(([, options]) => options?.method === "PUT");
   expect(JSON.parse(String(save?.[1]?.body)).links[0]).toMatchObject({ label: "My custom metrics", url: "https://metrics.example.com/d/new" });
+});
+
+it("embeds Lead-Lag on demand without opening a tab and removes it on back and close", async () => {
+  vi.mocked(fetch).mockResolvedValue(Response.json({ links: [...links, leadlag] }));
+  const open = vi.spyOn(window, "open").mockReturnValue(null), close = vi.fn();
+  render(createElement(MonitorDashboard, { open: true, onClose: close }));
+  const card = await screen.findByRole("button", { name: `Open monitor: ${leadlag.label}` });
+  expect(document.querySelector("iframe")).toBeNull();
+  fireEvent.click(card);
+  expect(screen.getByTitle(leadlag.label)).toHaveAttribute("src", leadlag.url);
+  expect(screen.getByRole("heading", { name: leadlag.label })).toBeInTheDocument();
+  expect(open).not.toHaveBeenCalled();
+  expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/servers"))).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Back to monitors" }));
+  expect(document.querySelector("iframe")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: `Open monitor: ${leadlag.label}` }));
+  fireEvent.click(screen.getByRole("button", { name: "Close monitoring dashboard" }));
+  expect(document.querySelector("iframe")).toBeNull();
+  expect(close).toHaveBeenCalledOnce();
+});
+
+it("unmounts the embedded document when the parent closes the console", async () => {
+  vi.mocked(fetch).mockResolvedValue(Response.json({ links: [leadlag] }));
+  const view = render(createElement(MonitorDashboard, { open: true, onClose: vi.fn() }));
+  fireEvent.click(await screen.findByRole("button", { name: `Open monitor: ${leadlag.label}` }));
+  expect(screen.getByTitle(leadlag.label)).toBeInTheDocument();
+  view.rerender(createElement(MonitorDashboard, { open: false, onClose: vi.fn() }));
+  expect(document.querySelector("iframe")).toBeNull();
+});
+
+it("closes the console when Escape is pressed inside the embedded page", async () => {
+  vi.mocked(fetch).mockResolvedValue(Response.json({ links: [leadlag] }));
+  const close = vi.fn();
+  render(createElement(MonitorDashboard, { open: true, onClose: close }));
+  fireEvent.click(await screen.findByRole("button", { name: `Open monitor: ${leadlag.label}` }));
+  const frame = screen.getByTitle(leadlag.label) as HTMLIFrameElement;
+  fireEvent.load(frame);
+  act(() => { frame.contentWindow?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true })); });
+  expect(close).toHaveBeenCalledOnce();
+  expect(document.querySelector("iframe")).toBeNull();
 });
 
 it("keeps unknown resource values distinct from genuine zero usage", () => {

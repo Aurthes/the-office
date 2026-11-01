@@ -258,6 +258,7 @@ export const ZH_CN: Record<string, string> = {
   "Open monitoring dashboard": "打开监控总览",
   "Open server fleet status": "打开服务器总览",
   "Opens in a reusable browser tab": "在可重复使用的浏览器标签页中打开",
+  "Opens inside this console": "在中控内打开",
   "Operations console": "运行监控台",
   "Reachability is separate from server purpose.": "连接状态与线上、线下用途分别显示。",
   "Read-only host samples · Updates every 30 seconds while visible": "只读采样 · 面板可见时每 30 秒更新",

@@ -59,10 +59,16 @@ opens a console of illustrated dashboard shortcuts. Configure their names, URLs,
 and illustrations in the console; settings are saved with the local Studio state
 and shared across devices. `CLAW3D_GRAFANA_URL` supplies the initial Grafana link
 at runtime; the existing build-time `NEXT_PUBLIC_CLAW3D_GRAFANA_URL` also works.
-Each shortcut opens its own reusable browser tab with the dashboard's normal
+External shortcuts open their own reusable browser tabs with the dashboard's normal
 login. Repeat clicks preserve its page for five minutes after the last click;
 after a longer gap, the next click reloads its configured URL. Studio never closes
 those tabs, copies Grafana charts, or requires Grafana embedding changes.
+
+The `/account-history/` shortcut opens inside the monitoring console, keeping
+the local Lead-Lag page in the current Office tab. Back returns to the console;
+closing the console (including Escape from the embedded page) removes the iframe
+and its refresh timers. The ship's 3D rendering pauses while the console is open.
+Other shortcuts, including Grafana, keep their existing browser-tab behavior.
 
 Local dashboards can use a same-origin shortcut such as `/account-history/`,
 so the link follows the Office host on every device. To connect a separately
