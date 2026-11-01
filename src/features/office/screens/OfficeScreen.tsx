@@ -8,7 +8,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { MessageSquare, ChevronDown, ChevronLeft, ChevronRight, Maximize2, Minimize2, PanelLeft, X } from "lucide-react";
 import type { OfficeAgent } from "@/features/retro-office/core/types";
@@ -27,9 +26,6 @@ import { GatewayConnectScreen } from "@/features/agents/components/GatewayConnec
 import { useAgentStore, type AgentState } from "@/features/agents/state/store";
 import {
   buildAgentMainSessionKey,
-  type EventFrame,
-  isSameSessionKey,
-  parseAgentIdFromSessionKey,
 } from "@/lib/gateway/GatewayClient";
 import { useRuntimeConnection } from "@/lib/runtime/useRuntimeConnection";
 import {
@@ -47,41 +43,25 @@ import {
 import {
   createGatewayAgent,
   renameGatewayAgent,
+  deleteGatewayAgent,
 } from "@/lib/gateway/agentConfig";
 import {
   runStudioBootstrapLoadOperation,
   executeStudioBootstrapLoadCommands,
 } from "@/features/agents/operations/studioBootstrapOperation";
 import { isGatewayDisconnectLikeError } from "@/lib/gateway/GatewayClient";
-import { createGatewayRuntimeEventHandler } from "@/features/agents/state/gatewayRuntimeEventHandler";
 import {
-  buildHistoryLines,
-  classifyGatewayEventKind,
-  isReasoningRuntimeAgentStream,
-  type AgentEventPayload,
-  type ChatEventPayload,
   type SummaryPreviewSnapshot,
 } from "@/features/agents/state/runtimeEventBridge";
 import {
-  extractText,
-  extractThinking,
-  extractToolLines,
   isHeartbeatPrompt,
-  stripUiMetadata,
 } from "@/lib/text/message-extract";
 import { resolveOfficeIntentSnapshot } from "@/lib/office/deskDirectives";
 import { type CompanyRoster } from "@/features/retro-office/core/companyLayout";
 import { OfficeFloorNav } from "@/features/office/components/OfficeFloorNav";
 import { OfficeSceneBoundary } from "@/features/office/components/OfficeSceneBoundary";
 import { AgentChatPanel } from "@/features/agents/components/AgentChatPanel";
-import {
-  RemoteAgentChatPanel,
-  type RemoteAgentChatMessage,
-} from "@/features/office/components/RemoteAgentChatPanel";
 import { useOfficeFloorRuntimePersistence } from "@/features/office/hooks/useOfficeFloorRuntimePersistence";
-import {
-  type RuntimeAgentMessageMode,
-} from "@/lib/runtime/agentMessaging";
 import {
   buildFloorRosterState,
   createFloorRosterCache,
@@ -104,16 +84,8 @@ import {
   applyCreateAgentBootstrapPermissions,
   CREATE_AGENT_DEFAULT_PERMISSIONS,
 } from "@/features/agents/operations/createAgentBootstrapOperation";
-import {
-  deleteAgentRecordViaStudio,
-  deleteAgentViaStudio,
-  trashAgentStateViaStudio,
-} from "@/features/agents/operations/deleteAgentOperation";
 import { planAgentSettingsMutation } from "@/features/agents/operations/agentSettingsMutationWorkflow";
-import {
-  executeHistorySyncCommands,
-  runHistorySyncOperation,
-} from "@/features/agents/operations/historySyncOperation";
+
 import {
   buildQueuedMutationBlock,
   runAgentConfigMutationLifecycle,
@@ -121,14 +93,7 @@ import {
   type CreateAgentBlockState,
 } from "@/features/agents/operations/mutationLifecycleWorkflow";
 import { useConfigMutationQueue } from "@/features/agents/operations/useConfigMutationQueue";
-import {
-  RUNTIME_SYNC_DEFAULT_HISTORY_LIMIT,
-  RUNTIME_SYNC_MAX_HISTORY_LIMIT,
-} from "@/features/agents/operations/runtimeSyncControlWorkflow";
-import {
-  TRANSCRIPT_V2_ENABLED,
-  logTranscriptDebugMetric,
-} from "@/features/agents/state/transcript";
+
 import {
   buildGatewayModelChoices,
   type GatewayModelChoice,
@@ -169,30 +134,12 @@ import type {
 import { AnalyticsPanel } from "@/features/office/components/panels/AnalyticsPanel";
 import { HistoryPanel } from "@/features/office/components/panels/HistoryPanel";
 import { InboxPanel } from "@/features/office/components/panels/InboxPanel";
-import { KanbanDisabledPanel } from "@/features/office/components/panels/KanbanDisabledPanel";
-import { PlaybooksPanel } from "@/features/office/components/panels/PlaybooksPanel";
-import { SkillsMarketplaceModal } from "@/features/office/components/panels/SkillsMarketplaceModal";
-import { TaskBoardPanel } from "@/features/office/components/panels/TaskBoardPanel";
-import { JukeboxPanel } from "@/features/spotify-jukebox/components/JukeboxPanel";
-import { JukeboxDisabledPanel } from "@/features/spotify-jukebox/components/JukeboxDisabledPanel";
-import { executeBrowserJukeboxCommand } from "@/features/spotify-jukebox/agentBridge";
-import {
-  SOUNDCLAW_PLAYBACK_STARTED_EVENT_NAME,
-  useJukeboxStore,
-} from "@/features/spotify-jukebox/store";
-import { useOfficeSkillTriggers } from "@/features/office/hooks/useOfficeSkillTriggers";
-import { useRemoteOfficePresence } from "@/features/office/hooks/useRemoteOfficePresence";
-import { useRemoteOfficeLayout } from "@/features/office/hooks/useRemoteOfficeLayout";
-import { useOfficeSkillsMarketplace } from "@/features/office/hooks/useOfficeSkillsMarketplace";
-import { useOfficeStandupController } from "@/features/office/hooks/useOfficeStandupController";
 import { useRunLog } from "@/features/office/hooks/useRunLog";
-import { useTaskBoardController } from "@/features/office/tasks/useTaskBoardController";
 import {
   OnboardingWizard,
   useOnboardingState,
 } from "@/features/onboarding";
 import { useStudioOfficePreference } from "@/hooks/useStudioOfficePreference";
-import { isRemoteOfficeAgentId } from "@/features/retro-office/core/district";
 import {
   buildOfficeAnimationState,
   clearOfficeAnimationTriggerHold,
@@ -202,16 +149,12 @@ import {
   type OfficePhoneCallRequest,
   type OfficeTextMessageRequest,
 } from "@/lib/office/eventTriggers";
-import { buildOfficeSkillTriggerHoldMaps } from "@/lib/office/places";
 import type { MockPhoneCallScenario } from "@/lib/office/call/types";
 import type { MockTextMessageScenario } from "@/lib/office/text/types";
 import {
   buildOfficeDeskMonitor,
   type OfficeDeskMonitor,
 } from "@/lib/office/deskMonitor";
-import { deriveSkillReadinessState } from "@/lib/skills/presentation";
-import type { StandupAgentSnapshot } from "@/lib/office/standup/types";
-import type { SkillStatusEntry } from "@/lib/skills/types";
 import { useUiText } from "@/lib/i18n/ui-language";
 
 function OfficeLoading({ ship = false }: { ship?: boolean }) {
@@ -294,33 +237,9 @@ const createDemoMainAgentSeed = (): {
 });
 const MAX_OPENCLAW_LOG_ENTRIES = 200;
 const MAX_OPENCLAW_AGENT_OUTPUT_LINES = 12;
-const OFFICE_DANCE_MS = 60_000;
+
 const GATEWAY_LOADING_OVERLAY_DELAY_MS = 1_200;
 const GATEWAY_CONNECT_OVERLAY_DELAY_MS = 1_500;
-
-const getLatestUserRequestForAgent = (
-  agent: AgentState,
-): { text: string; requestKey: string } | null => {
-  const transcriptEntries = Array.isArray(agent.transcriptEntries)
-    ? agent.transcriptEntries
-    : [];
-  for (let index = transcriptEntries.length - 1; index >= 0; index -= 1) {
-    const entry = transcriptEntries[index];
-    if (!entry || entry.role !== "user") continue;
-    const text = entry.text.trim();
-    if (!text) continue;
-    return {
-      text,
-      requestKey: `${agent.sessionKey}:${entry.sequenceKey}:${text}`,
-    };
-  }
-  const fallback = agent.lastUserMessage?.trim() ?? "";
-  if (!fallback) return null;
-  return {
-    text: fallback,
-    requestKey: `${agent.sessionKey}:fallback:${fallback}`,
-  };
-};
 
 type OpenClawLogEntry = {
   id: string;
@@ -348,6 +267,7 @@ type PreparedTextMessageEntry = {
 
 type OfficeDeleteMutationBlockState = {
   kind: "delete-agent";
+
   agentId: string;
   agentName: string;
   phase: "queued" | "mutating" | "awaiting-restart";
@@ -434,32 +354,6 @@ const resolveOfficeMutationGuardMessage = (guardReason?: string) => {
   return "The office fleet is busy right now.";
 };
 
-const PHONE_BOOTH_ASSISTANT_FALLBACK_RE =
-  /\b(?:i\s+)?can(?:not|['’]t)\s+(?:place|make)\s+(?:phone\s+)?calls?\b/i;
-
-const shouldSuppressPhoneBoothAssistantReply = (params: {
-  agents: AgentState[];
-  event: EventFrame;
-  phoneCallByAgentId: Record<string, OfficePhoneCallRequest>;
-}): boolean => {
-  if (classifyGatewayEventKind(params.event.event) !== "runtime-chat") return false;
-  const payload = params.event.payload as ChatEventPayload | undefined;
-  if (!payload?.sessionKey) return false;
-  const message =
-    typeof payload.message === "object" && payload.message !== null
-      ? (payload.message as Record<string, unknown>)
-      : null;
-  const role = typeof message?.role === "string" ? message.role : null;
-  if (role !== "assistant") return false;
-  const text = extractText(payload.message)?.trim() ?? "";
-  if (!text || !PHONE_BOOTH_ASSISTANT_FALLBACK_RE.test(text)) return false;
-  const agentId =
-    params.agents.find((agent) => agent.sessionKey === payload.sessionKey)?.agentId ??
-    parseAgentIdFromSessionKey(payload.sessionKey);
-  if (!agentId) return false;
-  return Boolean(params.phoneCallByAgentId[agentId]);
-};
-
 const safeJsonStringify = (value: unknown) => {
   try {
     return JSON.stringify(value, null, 2) ?? String(value);
@@ -493,100 +387,6 @@ const renderOpenClawHighlightedText = (
   );
 };
 
-const resolveMessageRole = (message: unknown) =>
-  message && typeof message === "object"
-    ? ((message as Record<string, unknown>).role ?? null)
-    : null;
-
-const formatOpenClawEventLogEntry = (event: EventFrame): OpenClawLogEntry => {
-  const eventKind = classifyGatewayEventKind(event.event);
-  const baseSummary = `seq=${event.seq ?? "-"} stateVersion=${safeJsonStringify(event.stateVersion ?? null)}`;
-  let summary = baseSummary;
-  let role: string | null = null;
-  let messageText: string | null = null;
-  let thinkingText: string | null = null;
-  let streamText: string | null = null;
-  let toolText: string | null = null;
-
-  if (eventKind === "runtime-chat") {
-    const payload = event.payload as ChatEventPayload | undefined;
-    if (payload) {
-      role =
-        typeof resolveMessageRole(payload.message) === "string"
-          ? String(resolveMessageRole(payload.message))
-          : null;
-      const text = extractText(payload.message);
-      const thinking = extractThinking(payload.message ?? payload);
-      const toolLines = extractToolLines(payload.message ?? payload);
-      summary = `chat session=${payload.sessionKey || "-"} run=${payload.runId || "-"} state=${payload.state} role=${String(role ?? "-")} stopReason=${payload.stopReason ?? "-"} | ${baseSummary}`;
-      if (text) {
-        messageText = stripUiMetadata(text).trim() || text.trim();
-      }
-      if (thinking) {
-        thinkingText = thinking.trim();
-      }
-      if (toolLines.length > 0) {
-        toolText = toolLines.join(" | ");
-      }
-    }
-  } else if (eventKind === "runtime-agent") {
-    const payload = event.payload as AgentEventPayload | undefined;
-    if (payload) {
-      const data =
-        payload.data && typeof payload.data === "object"
-          ? (payload.data as Record<string, unknown>)
-          : null;
-      const phase = typeof data?.phase === "string" ? data.phase : "-";
-      const text =
-        typeof data?.text === "string"
-          ? data.text
-          : typeof data?.delta === "string"
-            ? data.delta
-            : "";
-      const extractedThinking = extractThinking(data ?? payload);
-      summary = `agent session=${payload.sessionKey || "-"} run=${payload.runId || "-"} stream=${payload.stream || "-"} phase=${phase} reasoning=${String(isReasoningRuntimeAgentStream(payload.stream ?? ""))} | ${baseSummary}`;
-      if (extractedThinking) {
-        thinkingText = extractedThinking.trim();
-      } else if (text.trim()) {
-        streamText = text.trim();
-      }
-    }
-  }
-
-  return createOpenClawLogEntry({
-    eventName: event.event,
-    eventKind,
-    summary,
-    role,
-    messageText,
-    thinkingText,
-    streamText,
-    toolText,
-    payload: event.payload ?? null,
-  });
-};
-
-const resolveLatestUserTextFromPreview = (
-  previewResult: SummaryPreviewSnapshot | null | undefined,
-  sessionKey: string,
-): string | null => {
-  const previews = Array.isArray(previewResult?.previews)
-    ? previewResult.previews
-    : [];
-  const preview = previews.find((entry) => entry.key === sessionKey);
-  if (!preview || !Array.isArray(preview.items)) return null;
-  for (let index = preview.items.length - 1; index >= 0; index -= 1) {
-    const item = preview.items[index];
-    if (!item) continue;
-    if (item.role === "assistant") continue;
-    if (item.role === "user") {
-      const text = item.text.trim();
-      if (text) return text;
-    }
-  }
-  return null;
-};
-
 const getDeterministicItem = (id: string) => {
   let hash = 0;
   for (let i = 0; i < id.length; i++) {
@@ -616,23 +416,6 @@ const mapAgentToOffice = (agent: AgentState): OfficeAgent => {
     color: stringToColor(agent.agentId),
     item: getDeterministicItem(agent.agentId),
     avatarProfile: agent.avatarProfile ?? null,
-  };
-};
-
-const mapRemotePresenceAgentToOffice = (agent: {
-  agentId: string;
-  name: string;
-  state: "idle" | "working" | "meeting" | "error";
-}): OfficeAgent => {
-  const stableId = `remote:${agent.agentId}`;
-  const isWorking = agent.state === "working" || agent.state === "meeting";
-  return {
-    id: stableId,
-    name: agent.name || "Unknown",
-    status: agent.state === "error" ? "error" : isWorking ? "working" : "idle",
-    color: stringToColor(stableId),
-    item: getDeterministicItem(stableId),
-    avatarProfile: null,
   };
 };
 
@@ -692,75 +475,14 @@ type OfficeFeedEvent = {
   name: string;
   text: string;
   ts: number;
-  kind?: "status" | "reply";
-};
 
-type RemoteChatSessionState = {
-  draft: string;
-  mode: RuntimeAgentMessageMode;
-  sending: boolean;
-  handoffing: boolean;
-  handoffContext: string;
-  handoffDeliverables: string;
-  handoffAcceptance: string;
-  error: string | null;
-  messages: RemoteAgentChatMessage[];
 };
 
 type ChatRosterEntry = {
   id: string;
   name: string;
-  kind: "local" | "remote";
+
   activity: AgentActivity;
-};
-
-const EMPTY_REMOTE_CHAT_SESSION: RemoteChatSessionState = {
-  draft: "",
-  mode: "direct",
-  sending: false,
-  handoffing: false,
-  handoffContext: "",
-  handoffDeliverables: "",
-  handoffAcceptance: "",
-  error: null,
-  messages: [],
-};
-const MAX_REMOTE_MESSAGE_CHARS = 2_000;
-
-const extractRemoteHistoryText = (value: unknown): string => {
-  if (typeof value === "string") return value.trim();
-  if (Array.isArray(value)) {
-    return value
-      .map((entry) => {
-        if (typeof entry === "string") return entry;
-        if (entry && typeof entry === "object" && "text" in entry && typeof entry.text === "string") {
-          return entry.text;
-        }
-        if (entry && typeof entry === "object" && "content" in entry && typeof entry.content === "string") {
-          return entry.content;
-        }
-        return "";
-      })
-      .join("")
-      .trim();
-  }
-  return "";
-};
-
-const resolveLatestAssistantHistoryText = (messages: unknown): string | null => {
-  if (!Array.isArray(messages)) return null;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const entry = messages[index];
-    if (!entry || typeof entry !== "object") continue;
-    const role = "role" in entry && typeof entry.role === "string" ? entry.role.trim().toLowerCase() : "";
-    if (role !== "assistant") continue;
-    const text =
-      extractRemoteHistoryText("content" in entry ? entry.content : undefined) ||
-      extractRemoteHistoryText("text" in entry ? entry.text : undefined) ||
-      extractRemoteHistoryText("message" in entry ? entry.message : undefined);
-    if (text) return text;
-  }
-  return null;
 };
 
 const normalizeOfficeFeedText = (
@@ -1020,9 +742,8 @@ export function OfficeScreen({
   } =
     useRuntimeConnection(settingsCoordinator);
   const voice = useSessionVoice(client);
-  const runtimeSupportsSkills = supportsCapability("skills");
   const runtimeSupportsApprovals = supportsCapability("approvals");
-  const runtimeSupportsCron = supportsCapability("cron");
+
   const runtimeSupportsModels = supportsCapability("models");
   const runtimeSupportsRunLifecycle = supportsCapability("runtime-agent-events");
   const { state, dispatch, hydrateAgents, setError, setLoading } =
@@ -1063,12 +784,11 @@ export function OfficeScreen({
   const [openClawConsoleCopyStatus, setOpenClawConsoleCopyStatus] = useState<
     "idle" | "copied" | "error"
   >("idle");
-  const taskBoardEventHandlerRef = useRef<(event: EventFrame) => void>(() => {});
-  const taskBoardRefreshRef = useRef<() => Promise<void>>(async () => {});
+
   const [officeTriggerState, setOfficeTriggerState] = useState(() =>
     createOfficeAnimationTriggerState(),
   );
-  const prevWorkingRef = useRef<Record<string, boolean>>({});
+
   const prevAssistantPreviewRef = useRef<
     Record<string, { ts: number; text: string }>
   >({});
@@ -1078,8 +798,7 @@ export function OfficeScreen({
   const [lastSeenByAgentId, setLastSeenByAgentId] = useState<
     Record<string, number>
   >({});
-  const [marketplaceGymHoldByAgentId, setMarketplaceGymHoldByAgentId] =
-    useState<Record<string, boolean>>({});
+
   const [gymCooldownUntilByAgentId, setGymCooldownUntilByAgentId] = useState<
     Record<string, number>
   >({});
@@ -1096,8 +815,7 @@ export function OfficeScreen({
   const lastGatewayActivityAtRef = useRef(0);
   const stateRef = useRef(state);
   const officeTriggerStateRef = useRef(officeTriggerState);
-  const historyInFlightRef = useRef<Set<string>>(new Set());
-  const lastTransportHistoryRefreshKeyRef = useRef<Record<string, string>>({});
+
   const [chatOpen, setChatOpen] = useState(false);
   const [returnRequest, setReturnRequest] = useState<{ agentId: string; requestId: string } | null>(null);
   const archiveSession = useCallback(async (threadId: string, requestId: string) => {
@@ -1127,9 +845,7 @@ export function OfficeScreen({
   const [selectedChatAgentId, setSelectedChatAgentId] = useState<string | null>(
     null,
   );
-  const [remoteChatByAgentId, setRemoteChatByAgentId] = useState<
-    Record<string, RemoteChatSessionState>
-  >({});
+
   const [agentEditorAgentId, setAgentEditorAgentId] = useState<string | null>(null);
   const [agentEditorInitialSection, setAgentEditorInitialSection] =
     useState<AgentEditorSection>("avatar");
@@ -1173,9 +889,7 @@ export function OfficeScreen({
   const [activeFloorId, setActiveFloorId] = useState<FloorId>("lobby");
   const [pendingFloorRuntimeSwitch, setPendingFloorRuntimeSwitch] =
     useState<PendingFloorRuntimeSwitch | null>(null);
-  const previousGatewayStatusRef = useRef<"disconnected" | "connecting" | "connected">(
-    "disconnected",
-  );
+
   const didAutoNavigateFromLobbyRef = useRef(false);
   const [floorRosterCache, setFloorRosterCache] = useState(() =>
     createFloorRosterCache(),
@@ -1184,35 +898,14 @@ export function OfficeScreen({
   const floorRosterCacheRef = useRef(floorRosterCache);
   const [gatewayModels, setGatewayModels] = useState<GatewayModelChoice[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
-  const [kanbanInstallPromptOpen, setKanbanInstallPromptOpen] = useState(false);
-  const [kanbanInstallProgress, setKanbanInstallProgress] = useState<{
-    active: boolean;
-    percent: number;
-    message: string;
-    error: string | null;
-  }>({
-    active: false,
-    percent: 0,
-    message: "",
-    error: null,
-  });
+
   const [danceUntilByAgentId, setDanceUntilByAgentId] = useState<Record<string, number>>({});
-  const initJukeboxStore = useJukeboxStore((state) => state.init);
-  const jukeboxToken = useJukeboxStore((state) => state.token);
+
   // Auto-open jukebox panel for legacy direct-auth callbacks.
-  const [jukeboxOpen, setJukeboxOpen] = useState(() => {
-    if (typeof window === "undefined") return false;
-    const searchParams = new URL(window.location.href).searchParams;
-    return searchParams.has("code");
-  });
+
   const [activeSidebarTab, setActiveSidebarTab] =
     useState<HQSidebarTab>("inbox");
-  const pendingJukeboxCommandTimeoutsRef = useRef<
-    Map<string, { requestKey: string; timeoutId: number }>
-  >(new Map());
-  const handledJukeboxRequestKeyByAgentIdRef = useRef<Record<string, string>>({});
-  const router = useRouter();
+
   const { showOnboarding, completeOnboarding, resetOnboarding } =
     useOnboardingState();
   const [forceShowOnboarding, setForceShowOnboarding] = useState(false);
@@ -1255,7 +948,7 @@ export function OfficeScreen({
   }, [status]);
 
   // Auto-navigate away from lobby when a real adapter connects.
-  // Uses a ref flag instead of previousGatewayStatusRef so the effect can
+  // Uses a ref flag so the effect can
   // re-run when detectedAdapterType arrives in a later render (after status
   // already flipped to "connected").
   useEffect(() => {
@@ -1339,32 +1032,6 @@ export function OfficeScreen({
   ]);
 
   useEffect(() => {
-    initJukeboxStore();
-  }, [initJukeboxStore]);
-  useEffect(() => {
-    const handlePlaybackStarted = () => {
-      const now = Date.now();
-      const until = now + OFFICE_DANCE_MS;
-      setDanceUntilByAgentId((previous) => {
-        const next: Record<string, number> = {};
-        for (const agent of state.agents) {
-          next[agent.agentId] = until;
-        }
-        return { ...previous, ...next };
-      });
-    };
-    window.addEventListener(
-      SOUNDCLAW_PLAYBACK_STARTED_EVENT_NAME,
-      handlePlaybackStarted,
-    );
-    return () => {
-      window.removeEventListener(
-        SOUNDCLAW_PLAYBACK_STARTED_EVENT_NAME,
-        handlePlaybackStarted,
-      );
-    };
-  }, [state.agents]);
-  useEffect(() => {
     const now = Date.now();
     setDanceUntilByAgentId((previous) =>
       Object.fromEntries(
@@ -1372,34 +1039,8 @@ export function OfficeScreen({
       ),
     );
   }, [state.agents]);
-  useEffect(() => {
-    return () => {
-      for (const pendingEntry of pendingJukeboxCommandTimeoutsRef.current.values()) {
-        window.clearTimeout(pendingEntry.timeoutId);
-      }
-      pendingJukeboxCommandTimeoutsRef.current.clear();
-    };
-  }, []);
-  const {
-    loaded: officeTitleLoaded,
-    title: officeTitle,
-    remoteOfficeEnabled,
-    remoteOfficeSourceKind,
-    remoteOfficeLabel,
-    remoteOfficePresenceUrl,
-    remoteOfficeGatewayUrl,
-    remoteOfficeTokenConfigured,
-    setTitle: setOfficeTitle,
-    setRemoteOfficeEnabled,
-    setRemoteOfficeSourceKind,
-    setRemoteOfficeLabel,
-    setRemoteOfficePresenceUrl,
-    setRemoteOfficeGatewayUrl,
-    setRemoteOfficeToken,
-  } = useStudioOfficePreference({
-    gatewayUrl,
-    settingsCoordinator,
-  });
+
+  const { loaded: officeTitleLoaded, title: officeTitle, setTitle: setOfficeTitle } = useStudioOfficePreference({ gatewayUrl, settingsCoordinator });
   useOfficeFloorRuntimePersistence({
     activeFloorId,
     gatewayUrl,
@@ -1407,20 +1048,7 @@ export function OfficeScreen({
     gatewayError,
     settingsCoordinator,
   });
-  const {
-    error: remoteOfficeError,
-    loaded: remoteOfficeLoaded,
-    snapshot: remoteOfficeSnapshot,
-  } = useRemoteOfficePresence({
-    enabled: remoteOfficeEnabled,
-    sourceKind: remoteOfficeSourceKind,
-    presenceUrl: remoteOfficePresenceUrl,
-    gatewayUrl: remoteOfficeGatewayUrl,
-  });
-  const { snapshot: remoteOfficeLayoutSnapshot } = useRemoteOfficeLayout({
-    enabled: remoteOfficeEnabled,
-    presenceUrl: remoteOfficePresenceUrl,
-  });
+
   const showOnboardingWizard = showOnboarding || forceShowOnboarding;
   const handleOpenOnboarding = useCallback(() => {
     resetOnboarding();
@@ -1565,9 +1193,8 @@ export function OfficeScreen({
     (agentId: string) => {
       setSelectedChatAgentId(agentId);
       setChatOpen(true);
-      if (!isRemoteOfficeAgentId(agentId)) {
+
         dispatch({ type: "selectAgent", agentId });
-      }
     },
     [dispatch],
   );
@@ -2154,24 +1781,7 @@ export function OfficeScreen({
         throw new Error(message);
       }
       const existingAgentIds = stateRef.current.agents.map((entry) => entry.agentId);
-      const shouldSkipWorkspaceCleanupError = (error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        return (
-          message.includes("Permission denied") ||
-          message.includes("OPENCLAW_GATEWAY_SSH_TARGET") ||
-          message.includes("Invalid gateway URL") ||
-          message.includes("Gateway URL is missing")
-        );
-      };
-      const logDeleteError = (message: string, error: unknown) => {
-        if (
-          message.startsWith("Failed to move agent workspace/state into trash.") &&
-          shouldSkipWorkspaceCleanupError(error)
-        ) {
-          return;
-        }
-        console.error(message, error);
-      };
+
       setCompanyBuilderBusy(true);
       setCompanyBuilderError(null);
       try {
@@ -2179,33 +1789,8 @@ export function OfficeScreen({
           input: params.input,
           plan: params.plan,
           existingAgentIds,
-          deleteExistingAgent: async (agentId) => {
-            try {
-              await deleteAgentViaStudio({
-                client,
-                agentId,
-                logError: logDeleteError,
-              });
-            } catch (error) {
-              if (!shouldSkipWorkspaceCleanupError(error)) {
-                throw error;
-              }
-              await deleteAgentRecordViaStudio({
-                client,
-                agentId,
-                logError: logDeleteError,
-              });
-            }
-          },
-          clearReusedAgentState: async (agentId) => {
-            try {
-              await trashAgentStateViaStudio({ agentId });
-            } catch (error) {
-              if (!shouldSkipWorkspaceCleanupError(error)) {
-                throw error;
-              }
-            }
-          },
+          deleteExistingAgent: async (agentId) => { await deleteGatewayAgent({ client, agentId }); },
+
           renameAgent: async (agentId, name) => {
             await renameGatewayAgent({ client, agentId, name });
             dispatch({ type: "updateAgent", agentId, patch: { name } });
@@ -2447,9 +2032,7 @@ export function OfficeScreen({
           hasCreateBlock: Boolean(createAgentBlock),
           hasRenameBlock: false,
           hasDeleteBlock: Boolean(hasDeleteMutationBlock),
-          cronCreateBusy: false,
-          cronRunBusyJobId: null,
-          cronDeleteBusyJobId: null,
+
         },
       );
       if (decision.kind === "deny") {
@@ -2520,10 +2103,10 @@ export function OfficeScreen({
             });
           },
           executeMutation: async () => {
-            await deleteAgentRecordViaStudio({
+            await deleteGatewayAgent({
               client,
               agentId: decision.normalizedAgentId,
-              logError: (message, error) => console.error(message, error),
+
             });
             clearDeletedAgentUiState(decision.normalizedAgentId);
             dispatch({
@@ -2571,215 +2154,6 @@ export function OfficeScreen({
       window.clearTimeout(timeoutId);
     };
   }, [createAgentBlock, loadAgents, setError]);
-
-  const requestAgentHistoryRefresh = useCallback(
-    async (params: {
-      agentId: string;
-      reason: "chat-final-no-trace" | "run-start-no-chat";
-      sessionKey?: string;
-    }) => {
-      if (status !== "connected") return;
-      const requestedSessionKey = params.sessionKey?.trim() ?? "";
-      if (requestedSessionKey) {
-        try {
-          const history = await provider.call<{
-            messages?: Record<string, unknown>[];
-          }>("chat.history", {
-            sessionKey: requestedSessionKey,
-            limit: RUNTIME_SYNC_DEFAULT_HISTORY_LIMIT,
-          });
-          const messages = Array.isArray(history.messages)
-            ? history.messages
-            : [];
-          const derived = buildHistoryLines(messages);
-          let lastUser = derived.lastUser?.trim() ?? "";
-          if (!lastUser) {
-            const previewResult = await provider.call<SummaryPreviewSnapshot>(
-              "sessions.preview",
-              {
-                keys: [requestedSessionKey],
-                limit: 12,
-                maxChars: 400,
-              },
-            );
-            lastUser =
-              resolveLatestUserTextFromPreview(
-                previewResult,
-                requestedSessionKey,
-              ) ?? "";
-          }
-          const targetAgentId =
-            parseAgentIdFromSessionKey(requestedSessionKey) ?? params.agentId;
-          const patch: Partial<AgentState> = {};
-          if (lastUser) {
-            patch.lastUserMessage = lastUser;
-          }
-          if (derived.lastAssistant) {
-            patch.latestPreview = derived.lastAssistant;
-          }
-          if (typeof derived.lastAssistantAt === "number") {
-            patch.lastAssistantMessageAt = derived.lastAssistantAt;
-          }
-          if (typeof derived.lastUserAt === "number") {
-            patch.lastActivityAt = derived.lastUserAt;
-          }
-          if (Object.keys(patch).length > 0) {
-            dispatch({
-              type: "updateAgent",
-              agentId: targetAgentId,
-              patch,
-            });
-          }
-          // Do not replay movement directives from history refresh.
-          // History can include old transport commands; replaying them causes auto-walks on load.
-          setOpenClawLogEntries((previous) => {
-            const next = [
-              ...previous,
-              createOpenClawLogEntry({
-                eventName: "history-refresh",
-                eventKind: "derived",
-                summary: `session=${requestedSessionKey} reason=${params.reason} lastUser=${formatOpenClawValue(lastUser)} lastAssistant=${formatOpenClawValue(derived.lastAssistant)}`,
-                messageText: lastUser || null,
-                streamText: derived.lastAssistant ?? null,
-                payload: {
-                  sessionKey: requestedSessionKey,
-                  reason: params.reason,
-                  historyMessageCount: messages.length,
-                  lastUser: lastUser || null,
-                  lastAssistant: derived.lastAssistant ?? null,
-                },
-              }),
-            ];
-            return next.slice(-MAX_OPENCLAW_LOG_ENTRIES);
-          });
-          if (debugEnabled) {
-            console.info(
-              "[office-debug] Refreshed transport session history.",
-              {
-                agentId: targetAgentId,
-                requestedSessionKey,
-                reason: params.reason,
-                lastUser: lastUser || null,
-              },
-            );
-          }
-        } catch (error) {
-          setOpenClawLogEntries((previous) => {
-            const next = [
-              ...previous,
-              createOpenClawLogEntry({
-                eventName: "history-refresh",
-                eventKind: "error",
-                summary: `session=${requestedSessionKey} reason=${params.reason} refresh failed`,
-                payload: {
-                  sessionKey: requestedSessionKey,
-                  reason: params.reason,
-                  error: error instanceof Error ? error.message : String(error),
-                },
-              }),
-            ];
-            return next.slice(-MAX_OPENCLAW_LOG_ENTRIES);
-          });
-          if (!isGatewayDisconnectLikeError(error)) {
-            console.error(
-              "Failed to refresh transport session history.",
-              error,
-            );
-          }
-        }
-        return;
-      }
-      const commands = await runHistorySyncOperation({
-        client: provider,
-        agentId: params.agentId,
-        getAgent: (agentId) =>
-          stateRef.current.agents.find((entry) => entry.agentId === agentId) ??
-          null,
-        inFlightSessionKeys: historyInFlightRef.current,
-        requestId: randomUUID(),
-        loadedAt: Date.now(),
-        defaultLimit: RUNTIME_SYNC_DEFAULT_HISTORY_LIMIT,
-        maxLimit: RUNTIME_SYNC_MAX_HISTORY_LIMIT,
-        transcriptV2Enabled: TRANSCRIPT_V2_ENABLED,
-      });
-      executeHistorySyncCommands({
-        commands,
-        dispatch,
-        logMetric: (metric, meta) => logTranscriptDebugMetric(metric, meta),
-        isDisconnectLikeError: isGatewayDisconnectLikeError,
-        logError: (message, error) => console.error(message, error),
-      });
-      if (debugEnabled) {
-        console.info("[office-debug] Requested agent history refresh.", {
-          agentId: params.agentId,
-          reason: params.reason,
-        });
-      }
-    },
-    [debugEnabled, dispatch, provider, status],
-  );
-
-  const refreshRecentTransportSessionHistory = useCallback(
-    (event: EventFrame) => {
-      if (event.event !== "health") return;
-      const payload =
-        event.payload as
-          | {
-              agents?: Array<{
-                agentId?: unknown;
-                sessions?: {
-                  recent?: Array<{ key?: unknown; updatedAt?: unknown }>;
-                };
-              }>;
-            }
-          | undefined;
-      const gatewayAgents = Array.isArray(payload?.agents) ? payload.agents : [];
-      if (gatewayAgents.length === 0) return;
-      for (const gatewayAgent of gatewayAgents) {
-        const agentId =
-          typeof gatewayAgent?.agentId === "string"
-            ? gatewayAgent.agentId.trim()
-            : "";
-        if (!agentId) continue;
-        const localAgent = stateRef.current.agents.find(
-          (agent) => agent.agentId === agentId,
-        );
-        if (!localAgent?.sessionKey) continue;
-        const recentSessions = Array.isArray(gatewayAgent.sessions?.recent)
-          ? gatewayAgent.sessions.recent
-          : [];
-        const latestTransportSession = recentSessions.find((entry) => {
-          const sessionKey =
-            typeof entry?.key === "string" ? entry.key.trim() : "";
-          if (!sessionKey) return false;
-          if (isSameSessionKey(sessionKey, localAgent.sessionKey)) return false;
-          return parseAgentIdFromSessionKey(sessionKey) === agentId;
-        });
-        if (!latestTransportSession) continue;
-        const sessionKey =
-          typeof latestTransportSession.key === "string"
-            ? latestTransportSession.key.trim()
-            : "";
-        if (!sessionKey) continue;
-        const updatedAt =
-          typeof latestTransportSession.updatedAt === "number" &&
-          Number.isFinite(latestTransportSession.updatedAt)
-            ? latestTransportSession.updatedAt
-            : 0;
-        const refreshKey = `${sessionKey}:${updatedAt}`;
-        if (lastTransportHistoryRefreshKeyRef.current[agentId] === refreshKey) {
-          continue;
-        }
-        lastTransportHistoryRefreshKeyRef.current[agentId] = refreshKey;
-        void requestAgentHistoryRefresh({
-          agentId,
-          reason: "run-start-no-chat",
-          sessionKey,
-        });
-      }
-    },
-    [requestAgentHistoryRefresh],
-  );
 
   useEffect(() => {
     if (status !== "connected" || agentsLoaded) return;
@@ -2875,137 +2249,6 @@ export function OfficeScreen({
     prevAssistantPreviewRef.current = nextByAgentId;
   }, [agentsLoaded, state.agents]);
 
-  useEffect(() => {
-    if (status !== "connected" || !agentsLoaded) return;
-    const runtimeHandler = createGatewayRuntimeEventHandler({
-      getStatus: () => status,
-      getAgents: () => stateRef.current.agents,
-      dispatch: (action) => {
-        dispatch(action as never);
-      },
-      queueLivePatch: (agentId, patch) => {
-        dispatch({ type: "updateAgent", agentId, patch });
-        if ("status" in patch || "runId" in patch) {
-          const agent = stateRef.current.agents.find(
-            (entry) => entry.agentId === agentId,
-          );
-          if (agent) {
-            const wasWorking = prevWorkingRef.current[agentId] ?? false;
-            const isNowWorking =
-              patch.status === "running" || Boolean(patch.runId);
-            if (isNowWorking !== wasWorking) {
-              prevWorkingRef.current[agentId] = isNowWorking;
-              const text = isNowWorking ? "started working" : "went idle";
-              setFeedEvents((prev) =>
-                [
-                  {
-                    id: agentId,
-                    name: agent.name || "Agent",
-                    text,
-                    ts: Date.now(),
-                    kind: "status" as const,
-                  },
-                  ...prev,
-                ].slice(0, 6),
-              );
-              if (isNowWorking) {
-                setRunCountByAgentId((prev) => ({
-                  ...prev,
-                  [agentId]: (prev[agentId] ?? 0) + 1,
-                }));
-              }
-            }
-          }
-        }
-      },
-      clearPendingLivePatch: () => {},
-      loadSummarySnapshot: async () => {
-        await loadAgents({
-          minIntervalMs: 3_000,
-          settingsMaxAgeMs: 60_000,
-          silent: true,
-        });
-      },
-      requestHistoryRefresh: requestAgentHistoryRefresh,
-      refreshHeartbeatLatestUpdate: () => {},
-      bumpHeartbeatTick: () => {},
-      setTimeout: (fn, delayMs) => window.setTimeout(fn, delayMs),
-      clearTimeout: (id) => window.clearTimeout(id),
-      isDisconnectLikeError: isGatewayDisconnectLikeError,
-      logWarn: (message, meta) => console.warn(message, meta),
-      updateSpecialLatestUpdate: () => {},
-    });
-
-    // Run reconciliation before subscribing to events so dedup keys are
-    // populated in the trigger state. This prevents stale gateway event
-    // replays from setting timed room holds on page load.
-    setOfficeTriggerState((previous) =>
-      reconcileOfficeAnimationTriggerState({
-        state: previous,
-        agents: stateRef.current.agents,
-      }),
-    );
-    const unsubscribeEvent = client.onEvent((event) => {
-      lastGatewayActivityAtRef.current = Date.now();
-      setOpenClawLogEntries((previous) => {
-        const next = [...previous, formatOpenClawEventLogEntry(event)];
-        return next.slice(-MAX_OPENCLAW_LOG_ENTRIES);
-      });
-      refreshRecentTransportSessionHistory(event);
-      setOfficeTriggerState((previous) =>
-        reduceOfficeAnimationTriggerEvent({
-          state: previous,
-          event,
-          agents: stateRef.current.agents,
-        }),
-      );
-      if (debugEnabled) {
-        console.info("[office-debug] Gateway event.", {
-          event: event.event,
-          seq: event.seq,
-          payload:
-            typeof event.payload === "object" && event.payload !== null
-              ? JSON.stringify(event.payload).slice(0, 220)
-              : (event.payload ?? null),
-        });
-      }
-      if (
-        shouldSuppressPhoneBoothAssistantReply({
-          event,
-          agents: stateRef.current.agents,
-          phoneCallByAgentId: officeTriggerStateRef.current.phoneCallByAgentId,
-        })
-      ) {
-        return;
-      }
-      taskBoardEventHandlerRef.current(event);
-      runtimeHandler.handleEvent(event);
-    });
-    const unsubscribeGap = client.onGap(() => {
-      void loadAgents({
-        minIntervalMs: 5_000,
-        settingsMaxAgeMs: 30_000,
-        silent: true,
-      });
-      void taskBoardRefreshRef.current();
-    });
-
-    return () => {
-      unsubscribeEvent();
-      unsubscribeGap();
-      runtimeHandler.dispose();
-    };
-  }, [
-    agentsLoaded,
-    client,
-    debugEnabled,
-    dispatch,
-    loadAgents,
-    refreshRecentTransportSessionHistory,
-    requestAgentHistoryRefresh,
-    status,
-  ]);
-
   useCompanyRosterSync(client, sessionView && status === "connected" && agentsLoaded, loadAgents);
 
   useEffect(() => {
@@ -3051,28 +2294,6 @@ export function OfficeScreen({
         agents: state.agents,
       }),
     );
-  }, [state.agents]);
-
-  useEffect(() => {
-    setMarketplaceGymHoldByAgentId((previous) => {
-      const activeAgentIds = new Set(
-        state.agents.map((agent) => agent.agentId),
-      );
-      const next = Object.fromEntries(
-        Object.entries(previous).filter(
-          ([agentId, held]) => held && activeAgentIds.has(agentId),
-        ),
-      );
-      if (
-        Object.keys(previous).length === Object.keys(next).length &&
-        Object.keys(previous).every(
-          (agentId) => previous[agentId] === next[agentId],
-        )
-      ) {
-        return previous;
-      }
-      return next;
-    });
   }, [state.agents]);
 
   useEffect(() => {
@@ -3130,11 +2351,6 @@ export function OfficeScreen({
     }
   }, [chatOpen, selectedChatAgentId, state.agents]);
 
-  const remoteChatAgentIds = useMemo(
-    () => (remoteOfficeSnapshot?.agents ?? []).map((agent) => `remote:${agent.agentId}`),
-    [remoteOfficeSnapshot],
-  );
-
   const chatController = useChatInteractionController({
     client: provider,
     status,
@@ -3154,7 +2370,7 @@ export function OfficeScreen({
     ? (state.agents.find((agent) => agent.agentId === selectedChatAgentId) ??
       null)
     : null;
-  const selectedLocalChatAgentId = focusedChatAgent?.agentId ?? null;
+
   const agentEditorAgent = agentEditorAgentId
     ? (state.agents.find((agent) => agent.agentId === agentEditorAgentId) ?? null)
     : null;
@@ -3162,9 +2378,8 @@ export function OfficeScreen({
   useEffect(() => {
     if (!selectedChatAgentId) return;
     if (state.agents.some((agent) => agent.agentId === selectedChatAgentId)) return;
-    if (remoteChatAgentIds.includes(selectedChatAgentId)) return;
     setSelectedChatAgentId(null);
-  }, [remoteChatAgentIds, selectedChatAgentId, state.agents]);
+  }, [selectedChatAgentId, state.agents]);
 
   useEffect(() => {
     if (!agentEditorAgentId) return;
@@ -3178,134 +2393,15 @@ export function OfficeScreen({
     enabled: runtimeSupportsRunLifecycle,
     agents: state.agents,
   });
-  const standupAgentSnapshots = useMemo<StandupAgentSnapshot[]>(
-    () =>
-      state.agents.map((agent) => ({
-        agentId: agent.agentId,
-        name: agent.name || agent.agentId,
-        latestPreview: agent.latestPreview,
-        lastUserMessage: agent.lastUserMessage,
-      })),
-    [state.agents],
-  );
-  const standupController = useOfficeStandupController({
-    gatewayUrl,
-    agents: standupAgentSnapshots,
-  });
-  const taskBoard = useTaskBoardController({
-    gatewayUrl,
-    settingsCoordinator,
-    client,
-    status,
-    cronEnabled: runtimeSupportsCron,
-    agents: state.agents,
-    runLog,
-    standup: standupController,
-  });
-  const ingestTaskBoardEvent = taskBoard.ingestGatewayEvent;
-  taskBoardEventHandlerRef.current = ingestTaskBoardEvent;
-  taskBoardRefreshRef.current = async () => {
-    await taskBoard.refreshSharedTasks();
-    await taskBoard.refreshRemoteTasks();
-  };
-  const handleMarketplaceGymStart = useCallback((agentId: string) => {
-    setMarketplaceGymHoldByAgentId((previous) => ({
-      ...previous,
-      [agentId]: true,
-    }));
-  }, []);
-  const handleMarketplaceGymEnd = useCallback((agentId: string) => {
-    setMarketplaceGymHoldByAgentId((previous) => {
-      if (!previous[agentId]) return previous;
-      const next = { ...previous };
-      delete next[agentId];
-      return next;
-    });
-  }, []);
-  const marketplace = useOfficeSkillsMarketplace({
-    client,
-    status,
-    enabled: runtimeSupportsSkills,
-    agents: state.agents,
-    preferredAgentId: selectedLocalChatAgentId,
-    onSkillActivityStart: handleMarketplaceGymStart,
-    onSkillActivityEnd: handleMarketplaceGymEnd,
-  });
-  const skillTriggers = useOfficeSkillTriggers({
-    client,
-    status,
-    enabled: runtimeSupportsSkills && !sessionView,
-    agents: state.agents,
-  });
-  const animationNowMs = Date.now();
-  const officeAnimationState = useMemo(() => {
-    const base = buildOfficeAnimationState({
-      state: officeTriggerState,
-      agents: state.agents,
-      marketplaceGymHoldByAgentId,
-      nowMs: animationNowMs,
-    });
-    const skillTriggerHoldMaps = buildOfficeSkillTriggerHoldMaps(
-      skillTriggers.movementTargetByAgentId,
-    );
 
-    return {
-      ...base,
-      danceUntilByAgentId: danceUntilByAgentId,
-      deskHoldByAgentId: {
-        ...base.deskHoldByAgentId,
-        ...skillTriggerHoldMaps.deskHoldByAgentId,
-      },
-      githubHoldByAgentId: {
-        ...base.githubHoldByAgentId,
-        ...skillTriggerHoldMaps.githubHoldByAgentId,
-      },
-      gymHoldByAgentId: {
-        ...base.gymHoldByAgentId,
-        ...skillTriggerHoldMaps.gymHoldByAgentId,
-      },
-      jukeboxHoldByAgentId: {
-        ...base.jukeboxHoldByAgentId,
-        ...skillTriggerHoldMaps.jukeboxHoldByAgentId,
-      },
-      qaHoldByAgentId: {
-        ...base.qaHoldByAgentId,
-        ...skillTriggerHoldMaps.qaHoldByAgentId,
-      },
-      skillGymHoldByAgentId: {
-        ...base.skillGymHoldByAgentId,
-        ...skillTriggerHoldMaps.skillGymHoldByAgentId,
-      },
-    };
-  }, [
-    animationNowMs,
+  const animationNowMs = Date.now();
+  const officeAnimationState = useMemo(() => ({
+    ...buildOfficeAnimationState({ state: officeTriggerState, agents: state.agents, nowMs: animationNowMs }),
     danceUntilByAgentId,
-    marketplaceGymHoldByAgentId,
-    officeTriggerState,
-    skillTriggers.movementTargetByAgentId,
-    state.agents,
-  ]);
-  const {
-    deskHoldByAgentId,
-    githubHoldByAgentId,
-    jukeboxHoldByAgentId,
-    manualGymUntilByAgentId,
-    pendingStandupRequest,
-    phoneBoothHoldByAgentId,
-    phoneCallByAgentId,
-    qaHoldByAgentId,
-    smsBoothHoldByAgentId,
-    skillGymHoldByAgentId,
-    textMessageByAgentId,
-    workingUntilByAgentId,
-  } = officeAnimationState;
-  const immediateGymHoldByAgentId = useMemo(
-    () => ({
-      ...marketplaceGymHoldByAgentId,
-      ...skillGymHoldByAgentId,
-    }),
-    [marketplaceGymHoldByAgentId, skillGymHoldByAgentId],
-  );
+  }), [animationNowMs, danceUntilByAgentId, officeTriggerState, state.agents]);
+
+  const { deskHoldByAgentId, githubHoldByAgentId, manualGymUntilByAgentId, phoneBoothHoldByAgentId, phoneCallByAgentId, qaHoldByAgentId, smsBoothHoldByAgentId, skillGymHoldByAgentId, textMessageByAgentId, workingUntilByAgentId, jukeboxHoldByAgentId } = officeAnimationState;
+  const immediateGymHoldByAgentId = skillGymHoldByAgentId;
 
   useEffect(() => {
     const now = Date.now();
@@ -3720,246 +2816,6 @@ export function OfficeScreen({
     },
     [focusChatTarget],
   );
-  const updateRemoteChatSession = useCallback(
-    (
-      agentId: string,
-      updater: (session: RemoteChatSessionState) => RemoteChatSessionState,
-    ) => {
-      setRemoteChatByAgentId((previous) => {
-        const current = previous[agentId] ?? EMPTY_REMOTE_CHAT_SESSION;
-        return {
-          ...previous,
-          [agentId]: updater(current),
-        };
-      });
-    },
-    [],
-  );
-  const handleRemoteAgentChatSend = useCallback(
-    async (agentId: string, message: string) => {
-      const trimmed = message.trim();
-      if (!trimmed) return;
-      if (trimmed.length > MAX_REMOTE_MESSAGE_CHARS) {
-        updateRemoteChatSession(agentId, (session) => ({
-          ...session,
-          sending: false,
-          error: `Remote message must be ${MAX_REMOTE_MESSAGE_CHARS} characters or fewer.`,
-        }));
-        return;
-      }
-      const remoteAgentId = isRemoteOfficeAgentId(agentId)
-        ? agentId.slice("remote:".length)
-        : agentId;
-      const sentAt = Date.now();
-      updateRemoteChatSession(agentId, (session) => ({
-        ...session,
-        draft: "",
-        sending: true,
-        handoffing: false,
-        error: null,
-        messages: [
-          ...session.messages,
-          {
-            id: randomUUID(),
-            role: "user",
-            text: trimmed,
-            timestampMs: sentAt,
-          },
-        ],
-      }));
-      try {
-        const deliveryMode =
-          (remoteChatByAgentId[agentId]?.mode ?? EMPTY_REMOTE_CHAT_SESSION.mode) === "interval"
-            ? "interval"
-            : "direct";
-        const response = await fetch("/api/office/remote-message", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            agentId: remoteAgentId,
-            message: trimmed,
-            mode: deliveryMode,
-          }),
-        });
-        const payload = (await response.json()) as {
-          error?: string;
-          assistantText?: string | null;
-        };
-        if (!response.ok) {
-          throw new Error(payload.error || "Failed to deliver the remote office message.");
-        }
-        const assistantText =
-          typeof payload.assistantText === "string" ? payload.assistantText.trim() : "";
-        updateRemoteChatSession(agentId, (session) => ({
-          ...session,
-          sending: false,
-          error: null,
-          messages: [
-            ...session.messages,
-            {
-              id: randomUUID(),
-              role: "system",
-              text: "Delivered to the remote agent.",
-              timestampMs: Date.now(),
-            },
-            ...(assistantText
-              ? [
-                  {
-                    id: randomUUID(),
-                    role: "assistant" as const,
-                    text: assistantText,
-                    timestampMs: Date.now(),
-                  },
-                ]
-              : []),
-          ],
-        }));
-      } catch (error) {
-        const messageText =
-          error instanceof Error
-            ? error.message
-            : "Failed to deliver the remote office message.";
-        updateRemoteChatSession(agentId, (session) => ({
-          ...session,
-          sending: false,
-          error: messageText,
-          messages: [
-            ...session.messages,
-            {
-              id: randomUUID(),
-              role: "system",
-              text: `Delivery failed: ${messageText}`,
-              timestampMs: Date.now(),
-            },
-          ],
-        }));
-      }
-    },
-    [remoteChatByAgentId, updateRemoteChatSession],
-  );
-
-  const handleRemoteAgentHandoff = useCallback(
-    async (agentId: string, task: string) => {
-      const trimmed = task.trim();
-      if (!trimmed) return;
-      if (trimmed.length > MAX_REMOTE_MESSAGE_CHARS) {
-        updateRemoteChatSession(agentId, (session) => ({
-          ...session,
-          handoffing: false,
-          error: `Remote handoff must be ${MAX_REMOTE_MESSAGE_CHARS} characters or fewer.`,
-        }));
-        return;
-      }
-      const remoteAgentId = isRemoteOfficeAgentId(agentId)
-        ? agentId.slice("remote:".length)
-        : agentId;
-      const sessionSnapshot = remoteChatByAgentId[agentId] ?? EMPTY_REMOTE_CHAT_SESSION;
-      const sentAt = Date.now();
-      updateRemoteChatSession(agentId, (session) => ({
-        ...session,
-        draft: "",
-        sending: false,
-        handoffing: true,
-        error: null,
-        messages: [
-          ...session.messages,
-          {
-            id: randomUUID(),
-            role: "system",
-            text: `Handoff queued: ${trimmed}`,
-            timestampMs: sentAt,
-          },
-        ],
-      }));
-      try {
-        const historyContext = (
-          sessionSnapshot.messages ?? []
-        )
-          .slice(-6)
-          .map((entry) => `${entry.role}: ${entry.text}`)
-          .join("\n");
-        const response = await fetch("/api/office/remote-handoff", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            agentId: remoteAgentId,
-            task: trimmed,
-            context: sessionSnapshot.handoffContext.trim() || historyContext || undefined,
-            deliverables:
-              sessionSnapshot.handoffDeliverables
-                .split(",")
-                .map((entry) => entry.trim())
-                .filter(Boolean).length > 0
-                ? sessionSnapshot.handoffDeliverables
-                    .split(",")
-                    .map((entry) => entry.trim())
-                    .filter(Boolean)
-                : ["Acknowledge ownership", "Send the next checkpoint or blocking question"],
-            acceptanceCriteria:
-              sessionSnapshot.handoffAcceptance.trim() ||
-              "Respond with an acknowledgement or the next concrete update.",
-          }),
-        });
-        const payload = (await response.json()) as { error?: string };
-        if (!response.ok) {
-          throw new Error(payload.error || "Failed to deliver the remote handoff.");
-        }
-        updateRemoteChatSession(agentId, (session) => ({
-          ...session,
-          handoffing: false,
-          error: null,
-          messages: [
-            ...session.messages,
-            {
-              id: randomUUID(),
-              role: "system",
-              text: "Handoff delivered to the remote agent.",
-              timestampMs: Date.now(),
-            },
-          ],
-        }));
-      } catch (error) {
-        const messageText =
-          error instanceof Error ? error.message : "Failed to deliver the remote handoff.";
-        updateRemoteChatSession(agentId, (session) => ({
-          ...session,
-          handoffing: false,
-          error: messageText,
-          messages: [
-            ...session.messages,
-            {
-              id: randomUUID(),
-              role: "system",
-              text: `Handoff failed: ${messageText}`,
-              timestampMs: Date.now(),
-            },
-          ],
-        }));
-      }
-    },
-    [remoteChatByAgentId, updateRemoteChatSession],
-  );
-
-  const lastStandupTriggerKeyRef = useRef<string | null>(null);
-  const triggerStandupMeeting = useCallback(
-    async (message: string) => {
-      const trimmed = message.trim();
-      if (!trimmed) return false;
-      if (
-        standupController.meeting &&
-        standupController.meeting.phase !== "complete"
-      ) {
-        return false;
-      }
-      await standupController.startMeeting("manual");
-      return true;
-    },
-    [standupController],
-  );
 
   const handleGithubReviewDismiss = useCallback(() => {
     if (!githubReviewAgentId) return;
@@ -3987,10 +2843,6 @@ export function OfficeScreen({
     async (agentId: string, sessionKey: string, message: string) => {
       const trimmed = message.trim();
       if (!trimmed) return;
-      if (isRemoteOfficeAgentId(agentId)) {
-        await handleRemoteAgentChatSend(agentId, trimmed);
-        return;
-      }
 
       const intentSnapshot = resolveOfficeIntentSnapshot(trimmed);
       setOpenClawLogEntries((previous) => {
@@ -4017,7 +2869,6 @@ export function OfficeScreen({
           intentSnapshot.github ||
           intentSnapshot.gym ||
           intentSnapshot.qa ||
-          intentSnapshot.standup ||
           intentSnapshot.text,
       );
       const isPhoneCallFollowUp =
@@ -4027,8 +2878,7 @@ export function OfficeScreen({
         !intentSnapshot.desk &&
         !intentSnapshot.github &&
         !intentSnapshot.gym &&
-        !intentSnapshot.qa &&
-        !intentSnapshot.standup;
+        !intentSnapshot.qa;
       const isTextMessageFollowUp =
         pendingTextMessage?.phase === "needs_message" &&
         !intentSnapshot.call &&
@@ -4036,8 +2886,7 @@ export function OfficeScreen({
         !intentSnapshot.desk &&
         !intentSnapshot.github &&
         !intentSnapshot.gym &&
-        !intentSnapshot.qa &&
-        !intentSnapshot.standup;
+        !intentSnapshot.qa;
 
       if (
         hasImmediateOfficeTrigger &&
@@ -4123,26 +2972,11 @@ export function OfficeScreen({
     [
       chatController,
       dispatch,
-      handleRemoteAgentChatSend,
+
       phoneCallByAgentId,
       textMessageByAgentId,
     ],
   );
-
-  useEffect(() => {
-    if (!pendingStandupRequest) return;
-    if (lastStandupTriggerKeyRef.current === pendingStandupRequest.key) return;
-    if (
-      standupController.meeting &&
-      standupController.meeting.phase !== "complete"
-    ) {
-      return;
-    }
-    lastStandupTriggerKeyRef.current = pendingStandupRequest.key;
-    void triggerStandupMeeting(pendingStandupRequest.message).catch((error) => {
-      console.error("Failed to trigger standup meeting.", error);
-    });
-  }, [pendingStandupRequest, standupController.meeting, triggerStandupMeeting]);
 
   const officeAgents = useMemo(() => {
     void clockTick;
@@ -4279,19 +3113,7 @@ export function OfficeScreen({
 
     return lines.join("\n");
   }, [state.agents]);
-  const remoteOfficeAgents = useMemo(
-    () =>
-      (remoteOfficeSnapshot?.agents ?? []).map((agent) =>
-        mapRemotePresenceAgentToOffice(agent)
-      ),
-    [remoteOfficeSnapshot]
-  );
-  const focusedRemoteChatTarget = selectedChatAgentId
-    ? (remoteOfficeAgents.find((agent) => agent.id === selectedChatAgentId) ?? null)
-    : null;
-  const focusedRemoteChatState = focusedRemoteChatTarget
-    ? (remoteChatByAgentId[focusedRemoteChatTarget.id] ?? EMPTY_REMOTE_CHAT_SESSION)
-    : null;
+
   const { readById } = useCompletionReadState(sessionView && chatOpen && focusedChatAgent?.status === "idle" && focusedChatAgent.completedResult
     ? { id: focusedChatAgent.agentId, key: focusedChatAgent.completedResult.key } : null);
   const allVisibleAgents = useMemo(
@@ -4300,46 +3122,18 @@ export function OfficeScreen({
       return [...officeAgents.map(agent => sessionView ? { ...agent,
         needsReview: agent.status === "idle" && Boolean(results.get(agent.id)?.completedResult?.unread && readById[agent.id] !== results.get(agent.id)?.completedResult?.key),
         needsInput: Boolean(results.get(agent.id)?.needsInput),
-      } : agent), ...remoteOfficeAgents];
+      } : agent)];
     },
-    [officeAgents, remoteOfficeAgents, sessionView, state.agents, readById],
+    [officeAgents, sessionView, state.agents, readById],
   );
   const chatRosterEntries = useMemo<ChatRosterEntry[]>(() => {
-    const remoteIds = new Set(remoteOfficeAgents.map(agent => agent.id));
     return allVisibleAgents.map(agent => ({
       id: agent.id, name: agent.name || agent.id,
-      kind: remoteIds.has(agent.id) ? "remote" : "local",
+
       activity: getAgentActivity(agent),
     }));
-  }, [allVisibleAgents, remoteOfficeAgents]);
-  const remoteOfficeVisible =
-    remoteOfficeEnabled &&
-    (remoteOfficeSourceKind === "presence_endpoint"
-      ? remoteOfficePresenceUrl.trim().length > 0
-      : remoteOfficeGatewayUrl.trim().length > 0);
-  const remoteOfficeStatusText = !remoteOfficeVisible
-    ? "Remote office disabled."
-    : remoteOfficeError
-      ? remoteOfficeError
-      : !remoteOfficeLoaded
-        ? "Loading remote office."
-        : remoteOfficeAgents.length > 0
-          ? `${remoteOfficeAgents.length} agents visible.`
-          : remoteOfficeSourceKind === "openclaw_gateway"
-            ? "Connected to remote gateway. No agents visible yet."
-          : remoteOfficeTokenConfigured
-            ? "Connected. No agents visible yet."
-            : "No agents visible yet.";
-  const remoteMessagingAvailable =
-    remoteOfficeSourceKind === "openclaw_gateway" &&
-    remoteOfficeGatewayUrl.trim().length > 0;
-  const remoteMessagingDisabledReason = remoteMessagingAvailable
-    ? null
-    : remoteOfficeSourceKind !== "openclaw_gateway"
-      ? "Remote messaging currently works only with the remote gateway source."
-      : remoteOfficeGatewayUrl.trim().length === 0
-      ? "Remote messaging requires a remote gateway URL in office settings."
-      : "Remote messaging is unavailable until the remote gateway is configured.";
+  }, [allVisibleAgents]);
+
   const normalizedOpenClawConsoleSearch = openClawConsoleSearch
     .trim()
     .toLowerCase();
@@ -4448,128 +3242,6 @@ export function OfficeScreen({
     },
     [state.agents],
   );
-  const githubSkill = useMemo<SkillStatusEntry | null>(
-    () =>
-      marketplace.skillsReport?.skills.find((skill) => {
-        const normalizedKey = skill.skillKey.trim().toLowerCase();
-        const normalizedName = skill.name.trim().toLowerCase();
-        return normalizedKey === "github" || normalizedName === "github";
-      }) ?? null,
-    [marketplace.skillsReport],
-  );
-  const soundclawSkill = useMemo<SkillStatusEntry | null>(
-    () =>
-      marketplace.skillsReport?.skills.find((skill) => {
-        const normalizedKey = skill.skillKey.trim().toLowerCase();
-        const normalizedName = skill.name.trim().toLowerCase();
-        return normalizedKey === "soundclaw" || normalizedName === "soundclaw";
-      }) ?? null,
-    [marketplace.skillsReport],
-  );
-  const taskManagerSkill = useMemo<SkillStatusEntry | null>(
-    () =>
-      marketplace.skillsReport?.skills.find((skill) => {
-        const normalizedKey = skill.skillKey.trim().toLowerCase();
-        const normalizedName = skill.name.trim().toLowerCase();
-        return normalizedKey === "task-manager" || normalizedName === "task-manager";
-      }) ?? null,
-    [marketplace.skillsReport],
-  );
-  const taskManagerReady = useMemo(
-    () => (taskManagerSkill ? deriveSkillReadinessState(taskManagerSkill) === "ready" : false),
-    [taskManagerSkill],
-  );
-  const soundclawReady = useMemo(
-    () => (soundclawSkill ? deriveSkillReadinessState(soundclawSkill) === "ready" : false),
-    [soundclawSkill]
-  );
-
-  useEffect(() => {
-    if (!soundclawReady || !jukeboxToken) {
-      return;
-    }
-
-    const pending = pendingJukeboxCommandTimeoutsRef.current;
-    const activeAgentIds = new Set<string>();
-
-    for (const agent of state.agents) {
-      if (skillTriggers.movementTargetByAgentId[agent.agentId] !== "jukebox") {
-        continue;
-      }
-
-      const request = getLatestUserRequestForAgent(agent);
-      if (!request) {
-        continue;
-      }
-
-      activeAgentIds.add(agent.agentId);
-      const handledKey = handledJukeboxRequestKeyByAgentIdRef.current[agent.agentId];
-      if (handledKey === request.requestKey) {
-        continue;
-      }
-
-      const existing = pending.get(agent.agentId);
-      if (existing?.requestKey === request.requestKey) {
-        continue;
-      }
-      if (existing) {
-        window.clearTimeout(existing.timeoutId);
-        pending.delete(agent.agentId);
-      }
-
-      const timeoutId = window.setTimeout(() => {
-        void executeBrowserJukeboxCommand(request.text).then((result) => {
-          if (result.ok) {
-            handledJukeboxRequestKeyByAgentIdRef.current[agent.agentId] = request.requestKey;
-            setJukeboxOpen(true);
-            dispatch({
-              type: "appendOutput",
-              agentId: agent.agentId,
-              line: result.reply,
-              transcript: {
-                role: "assistant",
-                kind: "assistant",
-                source: "legacy",
-                sessionKey: agent.sessionKey,
-                timestampMs: Date.now(),
-                confirmed: true,
-              },
-            });
-            dispatch({
-              type: "updateAgent",
-              agentId: agent.agentId,
-              patch: {
-                latestOverride: result.reply,
-                latestOverrideKind: null,
-                latestPreview: result.reply,
-                lastAssistantMessageAt: Date.now(),
-              },
-            });
-          }
-          const latest = pendingJukeboxCommandTimeoutsRef.current.get(agent.agentId);
-          if (latest?.timeoutId === timeoutId) {
-            pendingJukeboxCommandTimeoutsRef.current.delete(agent.agentId);
-          }
-        });
-      }, 1400);
-
-      pending.set(agent.agentId, {
-        requestKey: request.requestKey,
-        timeoutId,
-      });
-    }
-
-    for (const [agentId, pendingEntry] of pending.entries()) {
-      if (activeAgentIds.has(agentId)) continue;
-      window.clearTimeout(pendingEntry.timeoutId);
-      pending.delete(agentId);
-    }
-  }, [
-    jukeboxToken,
-    skillTriggers.movementTargetByAgentId,
-    soundclawReady,
-    state.agents,
-  ]);
 
   // No longer force-close the jukebox panel when skill is disabled;
   // the panel handles the disabled state itself.
@@ -4722,26 +3394,12 @@ export function OfficeScreen({
           textMessageScenario={activeTextMessageScenario}
           monitorAgentId={monitorAgentId}
           monitorByAgentId={monitorByAgentId}
-          githubSkill={githubSkill}
-          taskManagerEnabled={taskManagerReady}
-          soundclawEnabled={soundclawReady}
+
           officeTitle={officeTitle}
           officeTitleLoaded={officeTitleLoaded}
-          remoteOfficeEnabled={remoteOfficeEnabled}
-          remoteOfficeSourceKind={remoteOfficeSourceKind}
-          remoteOfficeLabel={remoteOfficeLabel}
-          remoteOfficePresenceUrl={remoteOfficePresenceUrl}
-          remoteOfficeGatewayUrl={remoteOfficeGatewayUrl}
-          remoteOfficeStatusText={remoteOfficeStatusText}
-          remoteLayoutSnapshot={remoteOfficeLayoutSnapshot}
-          remoteOfficeTokenConfigured={remoteOfficeTokenConfigured}
+
           onOfficeTitleChange={setOfficeTitle}
-          onRemoteOfficeEnabledChange={setRemoteOfficeEnabled}
-          onRemoteOfficeSourceKindChange={setRemoteOfficeSourceKind}
-          onRemoteOfficeLabelChange={setRemoteOfficeLabel}
-          onRemoteOfficePresenceUrlChange={setRemoteOfficePresenceUrl}
-          onRemoteOfficeGatewayUrlChange={setRemoteOfficeGatewayUrl}
-          onRemoteOfficeTokenChange={setRemoteOfficeToken}
+
           atmAnalytics={{
             client,
             status,
@@ -4764,22 +3422,10 @@ export function OfficeScreen({
           runCountByAgentId={runCountByAgentId}
           lastSeenByAgentId={lastSeenByAgentId}
           streamingTextByAgentId={streamingTextByAgentId}
-          standupMeeting={standupController.meeting}
-          standupAutoOpenBoard={standupController.openBoardByDefault}
-          onStandupArrivalsChange={(arrivedAgentIds) => {
-            void standupController.reportArrivals(arrivedAgentIds);
-          }}
-          onStandupStartRequested={() => {
-            if (
-              !standupController.meeting ||
-              standupController.meeting.phase === "complete"
-            ) {
-              void standupController.startMeeting("manual");
-            }
-          }}
+
           onMonitorSelect={(agentId) => {
             setMonitorAgentId(agentId);
-            if (agentId && !isRemoteOfficeAgentId(agentId)) {
+            if (agentId) {
               focusLocalAgent(agentId, { openChat: false });
             }
           }}
@@ -4808,127 +3454,10 @@ export function OfficeScreen({
           onPhoneCallSpeak={handlePhoneCallSpeak}
           onPhoneCallComplete={handlePhoneCallComplete}
           onTextMessageComplete={handleTextMessageComplete}
-          onOpenGithubSkillSetup={() => {
-            setMarketplaceOpen(true);
-          }}
-          onJukeboxInteract={() => {
-            setJukeboxOpen(true);
-          }}
-          onKanbanInteract={() => {
-            setKanbanInstallPromptOpen(true);
-          }}
-          taskBoardAgents={state.agents}
-          taskBoardCardsByStatus={taskBoard.cardsByStatus}
-          taskBoardSelectedCard={taskBoard.selectedCard}
-          taskBoardActiveRuns={taskBoard.activeRuns}
-          taskBoardCronJobs={taskBoard.cronJobs}
-          taskBoardCronLoading={taskBoard.cronLoading}
-          taskBoardCronError={
-            taskBoard.sharedTasksError ?? taskBoard.gatewayTasksError ?? taskBoard.cronError
-          }
-          taskBoardCaptureDebug={showOpenClawConsole ? taskBoard.taskCaptureDebug : undefined}
-          onTaskBoardCreateCard={() => {
-            taskBoard.createManualCard();
-          }}
-          onTaskBoardMoveCard={taskBoard.moveCard}
-          onTaskBoardSelectCard={(cardId) => {
-            taskBoard.selectCard(cardId);
-          }}
-          onTaskBoardUpdateCard={taskBoard.updateCard}
-          onTaskBoardDeleteCard={taskBoard.removeCard}
-          onTaskBoardRefreshCronJobs={() => {
-            void taskBoard.refreshSharedTasks();
-            void taskBoard.refreshRemoteTasks();
-            void taskBoard.refreshCronJobs();
-          }}
+
         />
         </OfficeSceneBoundary>
-        {jukeboxOpen ? (
-          soundclawReady ? (
-            <JukeboxPanel
-              client={client}
-              onClose={() => setJukeboxOpen(false)}
-              selectedAgentName={focusedChatAgent?.name ?? null}
-            />
-          ) : (
-            <JukeboxDisabledPanel
-              onClose={() => setJukeboxOpen(false)}
-              onInstall={() => {
-                setJukeboxOpen(false);
-                setMarketplaceOpen(true);
-              }}
-            />
-          )
-        ) : null}
-        {kanbanInstallPromptOpen ? (
-          <KanbanDisabledPanel
-            onClose={() => {
-              if (kanbanInstallProgress.active) {
-                return;
-              }
-              setKanbanInstallPromptOpen(false);
-              setKanbanInstallProgress({
-                active: false,
-                percent: 0,
-                message: "",
-                error: null,
-              });
-            }}
-            onInstall={() => {
-              const targetAgentId =
-                (selectedChatAgentId ?? state.selectedAgentId ?? state.agents[0]?.agentId ?? "")
-                  .trim() || null;
-              setKanbanInstallProgress({
-                active: true,
-                percent: 8,
-                message: "Starting task-manager installation.",
-                error: null,
-              });
-              void (async () => {
-                try {
-                  await marketplace.handleInstallPackagedSkillAndEnable({
-                    skillKey: "task-manager",
-                    agentId: targetAgentId,
-                    onProgress: ({ percent, message }) => {
-                      setKanbanInstallProgress({
-                        active: true,
-                        percent,
-                        message,
-                        error: null,
-                      });
-                    },
-                  });
-                  setKanbanInstallProgress({
-                    active: true,
-                    percent: 100,
-                    message: "Refreshing task-manager state in Claw3D.",
-                    error: null,
-                  });
-                  setKanbanInstallPromptOpen(false);
-                  setKanbanInstallProgress({
-                    active: false,
-                    percent: 0,
-                    message: "",
-                    error: null,
-                  });
-                } catch (error) {
-                  setKanbanInstallProgress((current) => ({
-                    ...current,
-                    active: false,
-                    error:
-                      error instanceof Error
-                        ? error.message
-                        : "Failed to install task-manager.",
-                  }));
-                }
-              })();
-            }}
-            installing={kanbanInstallProgress.active}
-            progressPercent={kanbanInstallProgress.percent}
-            progressMessage={kanbanInstallProgress.message}
-            errorMessage={kanbanInstallProgress.error}
-          />
-        ) : null}
+
       </section>
 
       {showEmptyFleetBanner ? (
@@ -4984,7 +3513,7 @@ export function OfficeScreen({
           inboxCount={unseenInboxCount}
           onToggle={() => setSidebarOpen((prev) => !prev)}
           onTabChange={setActiveSidebarTab}
-          onOpenMarketplace={() => setMarketplaceOpen(true)}
+
           onAddAgent={handleOpenCreateAgentWizard}
           onOpenCompanyBuilder={handleOpenCompanyBuilder}
           inboxPanel={
@@ -5006,42 +3535,7 @@ export function OfficeScreen({
               }}
             />
           }
-          kanbanPanel={
-            <TaskBoardPanel
-              agents={state.agents}
-              cardsByStatus={taskBoard.cardsByStatus}
-              selectedCard={taskBoard.selectedCard}
-              activeRuns={taskBoard.activeRuns}
-              cronJobs={taskBoard.cronJobs}
-              cronLoading={taskBoard.cronLoading}
-              cronError={
-                taskBoard.sharedTasksError ?? taskBoard.gatewayTasksError ?? taskBoard.cronError
-              }
-              taskCaptureDebug={showOpenClawConsole ? taskBoard.taskCaptureDebug : undefined}
-              onCreateCard={() => {
-                taskBoard.createManualCard();
-                setActiveSidebarTab("kanban");
-              }}
-              onMoveCard={taskBoard.moveCard}
-              onSelectCard={taskBoard.selectCard}
-              onUpdateCard={taskBoard.updateCard}
-              onDeleteCard={taskBoard.removeCard}
-              onRefreshCronJobs={() => {
-                void taskBoard.refreshSharedTasks();
-                void taskBoard.refreshRemoteTasks();
-                void taskBoard.refreshCronJobs();
-              }}
-            />
-          }
-          playbooksPanel={
-            <PlaybooksPanel
-              client={client}
-              status={status}
-              cronEnabled={runtimeSupportsCron}
-              agents={state.agents}
-              standup={standupController}
-            />
-          }
+
           analyticsPanel={
             <AnalyticsPanel
               client={client}
@@ -5060,21 +3554,6 @@ export function OfficeScreen({
         />
         </div>
       ) : null}
-
-      <SkillsMarketplaceModal
-        open={marketplaceOpen}
-        marketplace={marketplace}
-        onClose={() => setMarketplaceOpen(false)}
-        onSelectAgent={(agentId) => {
-          handleOpenAgentChat(agentId);
-          setMarketplaceOpen(false);
-        }}
-        onOpenAgentSettings={(agentId) => {
-          handleOpenAgentChat(agentId);
-          setMarketplaceOpen(false);
-          router.push("/office");
-        }}
-      />
 
       {showOnboardingWizard ? (
         <OnboardingWizard
@@ -5384,11 +3863,9 @@ export function OfficeScreen({
                         <span className="min-w-0 flex-1 truncate text-sm">
                           {agent.name}
                         </span>
-                        {agent.kind === "remote" ? (
-                          <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.14em] text-cyan-300/60">{t("Remote")}</span>
-                        ) : null}
+
                         <span className="sr-only">
-                          {agent.kind === "remote" ? "Remote agent" : "Local agent"}
+
                         </span>
                       </button>
                     );
@@ -5474,59 +3951,6 @@ export function OfficeScreen({
                   onAvatarShuffle={() =>
                     openAgentEditor(focusedChatAgent.agentId, "avatar")
                   }
-                />
-              ) : focusedRemoteChatTarget && focusedRemoteChatState ? (
-                <RemoteAgentChatPanel
-                  agentName={focusedRemoteChatTarget.name}
-                  canSend={remoteMessagingAvailable}
-                  sending={focusedRemoteChatState.sending}
-                  handoffing={focusedRemoteChatState.handoffing}
-                  draft={focusedRemoteChatState.draft}
-                  mode={focusedRemoteChatState.mode}
-                  handoffContext={focusedRemoteChatState.handoffContext}
-                  handoffDeliverables={focusedRemoteChatState.handoffDeliverables}
-                  handoffAcceptance={focusedRemoteChatState.handoffAcceptance}
-                  error={focusedRemoteChatState.error}
-                  messages={focusedRemoteChatState.messages}
-                  disabledReason={remoteMessagingDisabledReason}
-                  onDraftChange={(value) => {
-                    updateRemoteChatSession(focusedRemoteChatTarget.id, (session) => ({
-                      ...session,
-                      draft: value,
-                      error: null,
-                    }));
-                  }}
-                  onModeChange={(value) => {
-                    updateRemoteChatSession(focusedRemoteChatTarget.id, (session) => ({
-                      ...session,
-                      mode: value,
-                      error: null,
-                    }));
-                  }}
-                  onHandoffContextChange={(value) => {
-                    updateRemoteChatSession(focusedRemoteChatTarget.id, (session) => ({
-                      ...session,
-                      handoffContext: value,
-                    }));
-                  }}
-                  onHandoffDeliverablesChange={(value) => {
-                    updateRemoteChatSession(focusedRemoteChatTarget.id, (session) => ({
-                      ...session,
-                      handoffDeliverables: value,
-                    }));
-                  }}
-                  onHandoffAcceptanceChange={(value) => {
-                    updateRemoteChatSession(focusedRemoteChatTarget.id, (session) => ({
-                      ...session,
-                      handoffAcceptance: value,
-                    }));
-                  }}
-                  onSend={(message) => {
-                    void handleRemoteAgentChatSend(focusedRemoteChatTarget.id, message);
-                  }}
-                  onHandoff={(message) => {
-                    void handleRemoteAgentHandoff(focusedRemoteChatTarget.id, message);
-                  }}
                 />
               ) : (
                 <div className="flex flex-1 items-center justify-center font-mono text-[12px] text-white/30">{t("Select an agent to chat.")}</div>

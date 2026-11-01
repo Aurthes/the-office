@@ -6,7 +6,6 @@ import {
   workstationClearance,
   segmentIntersectsBounds,
   segmentIntersectsWorkstation,
-  ITEM_FOOTPRINT,
   ITEM_METADATA,
   snap,
 } from "@/features/retro-office/core/geometry";
@@ -20,25 +19,25 @@ import type {
 } from "@/features/retro-office/core/types";
 export {
   GYM_DEFAULT_TARGET,
-  resolveGymRoute,
+  resolveGymRoute
 } from "@/features/retro-office/core/navigation/gymRoute";
 export { getJanitorCleaningStops } from "@/features/retro-office/core/navigation/janitorStops";
 export {
-  resolveSmsBoothRoute,
-  SMS_BOOTH_DEFAULT_TARGET,
-} from "@/features/retro-office/core/navigation/smsBoothRoute";
-export {
   PHONE_BOOTH_DEFAULT_TARGET,
-  resolvePhoneBoothRoute,
+  resolvePhoneBoothRoute
 } from "@/features/retro-office/core/navigation/phoneBoothRoute";
 export {
   QA_LAB_DEFAULT_TARGET,
-  resolveQaLabRoute,
+  resolveQaLabRoute
 } from "@/features/retro-office/core/navigation/qaLabRoute";
 export {
   resolveServerRoomRoute,
-  SERVER_ROOM_TARGET,
+  SERVER_ROOM_TARGET
 } from "@/features/retro-office/core/navigation/serverRoomRoute";
+export {
+  resolveSmsBoothRoute,
+  SMS_BOOTH_DEFAULT_TARGET
+} from "@/features/retro-office/core/navigation/smsBoothRoute";
 
 export const resolvePingPongTargets = (
   item: FurnitureItem,
@@ -404,44 +403,6 @@ export function astar(
 }
 
 export { getDeskWorkstations as getDeskLocations } from "./workstations";
-
-export const getMeetingSeatLocations = (items: FurnitureItem[]) => {
-  // Meeting seats are inferred from chair placement in the conference area so standup
-  // gathering follows the authored layout instead of a hardcoded attendee list.
-  const chairs = items
-    .filter(
-      (item) =>
-        item.type === "chair" &&
-        item.x >= 0 &&
-        item.x <= 290 &&
-        item.y >= 0 &&
-        item.y <= 235,
-    )
-    .sort((left, right) => left.y - right.y || left.x - right.x);
-  if (chairs.length === 0) return [];
-
-  const chairCenters = chairs.map((item) => ({
-    item,
-    x: item.x + ITEM_FOOTPRINT.chair[0] / 2,
-    y: item.y + ITEM_FOOTPRINT.chair[1] / 2,
-  }));
-  const centerX =
-    chairCenters.reduce((sum, chair) => sum + chair.x, 0) / chairCenters.length;
-  const centerY =
-    chairCenters.reduce((sum, chair) => sum + chair.y, 0) / chairCenters.length;
-
-  return chairCenters.map((chair) => {
-    const offsetX = chair.x - centerX;
-    const offsetY = chair.y - centerY;
-    const distance = Math.hypot(offsetX, offsetY) || 1;
-    const seatPullback = 14;
-    return {
-      x: chair.x + (offsetX / distance) * seatPullback,
-      y: chair.y + (offsetY / distance) * seatPullback,
-      facing: Math.atan2(centerX - chair.x, centerY - chair.y),
-    };
-  });
-};
 
 export const getGymWorkoutLocations = (
   items: FurnitureItem[],

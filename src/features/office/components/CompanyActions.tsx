@@ -40,7 +40,7 @@ export function CompanyActions({ client, projects, disabled, onCreated }: {
     let saved = false;
     try {
       const result = await client.call(mode === "project" ? "project.create" : mode === "edit" ? "project.update" : "session.create", {
-        name, ...(mode === "session" ? { projectId } : { rootPaths: folders, ...(mode === "edit" ? { projectId, workspaces } : {}) }), requestId: crypto.randomUUID(),
+        name, ...(mode === "session" ? { projectId: projectId || null, ...(!projectId ? { workspace: folders[0] } : {}) } : { rootPaths: folders, ...(mode === "edit" ? { projectId, workspaces } : {}) }), requestId: crypto.randomUUID(),
       }) as { threadId?: string; warning?: string };
       saved = true; setMode(null);
       setNotice(result.warning || (mode === "project" ? "Office project created." : mode === "edit" ? "Project updated. Folder changes apply to new turns and new terminals." : "Session created. Send a message to start working."));
@@ -58,13 +58,20 @@ export function CompanyActions({ client, projects, disabled, onCreated }: {
     <div className="flex flex-wrap gap-2">
       <button disabled={disabled || busy} onClick={() => open("project")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("+ Project")}</button>
       <button disabled={disabled || busy || !projects.length} onClick={() => open("edit")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("Edit project")}</button>
-      <button disabled={disabled || busy || !projects.length} onClick={() => open("session")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("+ Recruit agent")}</button>
+      <button disabled={disabled || busy} onClick={() => open("session")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("+ Recruit agent")}</button>
     </div>
     {mode ? <form role="dialog" aria-label={t(label)} onSubmit={event => { event.preventDefault(); void submit(); }} className="mt-2 max-h-[65vh] space-y-3 overflow-y-auto rounded border border-white/15 bg-[#0d1b22] p-3">
-      {mode !== "project" ? <label className="block text-xs">{t("Project")}<select aria-label={t("Project")} required disabled={locked} value={projectId} onChange={event => mode === "edit" ? void loadProject(event.target.value) : setProjectId(event.target.value)} className={field}>
+      {mode !== "project" ? <label className="block text-xs">{t("Project")}<select aria-label={t("Project")} required={mode === "edit"} disabled={locked} value={projectId} onChange={event => { setPicker(null); if (mode === "edit") void loadProject(event.target.value); else setProjectId(event.target.value); }} className={field}>
+        {mode === "session" ? <option value="">{t("Open Space (no project)")}</option> : null}
         {projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
       </select></label> : null}
       <label className="block text-xs">{mode !== "session" ? t("Project name") : t("Agent name (session title)")}<input aria-label={t("Name")} autoFocus required maxLength={120} disabled={locked} value={name} onChange={event => setName(event.target.value)} className={field} /></label>
+      {mode === "session" && !projectId ? <>
+        <label className="block text-xs">{t("Working folder")}<input aria-label={t("Working folder")} required disabled={locked} value={folders[0]} onChange={event => setFolders([event.target.value])} className={field} /></label>
+        <p className="text-xs text-white/60">{t("Choose a working folder for this agent. No project is created.")}</p>
+        <button type="button" disabled={locked} onClick={() => setPicker(0)} className="min-h-9 text-xs">{t("Browse")}</button>
+        {picker === 0 ? <ProjectFolderPicker client={client} initialPath={folders[0]} onPick={folder => { setFolders([folder]); setPicker(null); }} onCancel={() => setPicker(null)} /> : null}
+      </> : null}
       {mode !== "session" ? <>
         <p className="text-xs text-white/60">{t("Attach existing folders. No folders are created or moved.")}</p>
         {folders.map((folder, index) => <div key={index} className="min-w-0 space-y-1 rounded border border-white/10 p-2">

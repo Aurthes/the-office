@@ -2,10 +2,8 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-
 import { WebSocket } from "ws";
 import {
-  buildCustomRuntimeWarnings,
   buildDoctorJsonReport,
   buildGatewayFailureActions,
   buildGatewayWarnings,
@@ -16,10 +14,7 @@ import {
   formatDoctorReport,
   parseDoctorArgs,
   resolveRuntimeContext,
-  isCustomRuntimeAdapter,
-  shouldRunCustomChecks,
   shouldRunDemoChecks,
-  shouldRunHermesChecks,
   shouldRunOpenClawChecks,
   summarizeChecks,
 } from "./lib/claw3doctor-core.mjs";
@@ -148,29 +143,6 @@ const probeWebSocket = async (url, timeoutMs = 3500) =>
     );
   });
 
-const probeHttpJson = async ({ url, headers = {}, timeoutMs = 3500 }) => {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, { headers, signal: controller.signal });
-    const text = await response.text();
-    let json = null;
-    try {
-      json = text ? JSON.parse(text) : null;
-    } catch {}
-    return { ok: response.ok, status: response.status, text, json };
-  } catch (error) {
-    return {
-      ok: false,
-      status: 0,
-      text: error instanceof Error ? error.message : "HTTP probe failed.",
-      json: null,
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
-};
-
 const detectOpenClawVersion = () => {
   try {
     return execFileSync("openclaw", ["--version"], {
@@ -204,57 +176,7 @@ const detectWorkspaceState = () => {
   }
 };
 
-const detectHermesModelHealth = async () => {
-  const apiUrl = (
-    trim(process.env.HERMES_API_URL) || "http://localhost:8642"
-  ).replace(/\/$/, "");
-  const apiKey = trim(process.env.HERMES_API_KEY);
-  const model = trim(process.env.HERMES_MODEL) || "hermes";
-  const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
-  const result = await probeHttpJson({ url: `${apiUrl}/v1/models`, headers });
-  return {
-    apiUrl,
-    model,
-    apiKeyConfigured: Boolean(apiKey),
-    probe: result,
-  };
-};
-
-const probeCustomRuntimeHealth = async (runtimeUrl) => {
-  const baseUrl = runtimeUrl.replace(/\/$/, "");
-  const health = await probeHttpJson({ url: `${baseUrl}/health` });
-  if (health.ok) {
-    return {
-      ok: true,
-      message: "Custom runtime /health responded successfully.",
-    };
-  }
-
-  const registry = await probeHttpJson({ url: `${baseUrl}/registry` });
-  if (registry.ok) {
-    return {
-      ok: true,
-      message: "Custom runtime /registry responded successfully.",
-    };
-  }
-
-  return {
-    ok: false,
-    message:
-      health.text ||
-      registry.text ||
-      "Custom runtime did not respond on /health or /registry.",
-  };
-};
-
-const probeProfileHealth = async ({ adapterType, url }) => {
-  if (isCustomRuntimeAdapter(adapterType)) {
-    const result = await probeCustomRuntimeHealth(url);
-    return {
-      ok: result.ok,
-      message: result.message,
-    };
-  }
+const probeProfileHealth = async ({  url }) => {
 
   const result = await probeWebSocket(url);
   return {
@@ -410,22 +332,6 @@ async function main() {
     }
   }
 
-  const customRuntimeInScope = args.allProfiles
-    ? true
-    : args.profile
-      ? isCustomRuntimeAdapter(args.profile)
-      : shouldRunCustomChecks({ runtimeContext });
-  if (customRuntimeInScope) {
-    for (const warning of buildCustomRuntimeWarnings({
-      gatewayUrl: runtimeContext.gatewayUrl,
-      allowlist:
-        trim(env.CUSTOM_RUNTIME_ALLOWLIST) || trim(env.UPSTREAM_ALLOWLIST),
-      nodeEnv: trim(env.NODE_ENV),
-    })) {
-      checks.push(checkWarn("Custom runtime", "Custom runtime hints", warning));
-    }
-  }
-
   const profileEntries = Object.entries(runtimeContext.profiles ?? {}).filter(
     ([adapterType]) => {
       if (args.allProfiles) return true;
@@ -439,7 +345,7 @@ async function main() {
     if (!url) continue;
     const isSelected = adapterType === runtimeContext.adapterType;
     const label = `${adapterType} profile${isSelected ? " (selected)" : ""}`;
-    const health = await probeProfileHealth({ adapterType, url });
+    const health = await probeProfileHealth({  url });
     checks.push(
       health.ok
         ? checkPass("Profile health", label, `${url} -> ${health.message}`)
@@ -448,15 +354,11 @@ async function main() {
             label,
             `${url} -> ${health.message}`,
             buildGatewayFailureActions({
-              adapterType,
+
               message: health.message,
               gatewayUrl: url,
             }).concat(
-              isCustomRuntimeAdapter(adapterType)
-                ? [
-                    "If this runtime sits behind the Studio custom proxy, verify CUSTOM_RUNTIME_ALLOWLIST / UPSTREAM_ALLOWLIST for the target host.",
-                  ]
-                : [
+              [
                     "Verify the configured gateway URL is correct and the backend is listening.",
                   ],
             ),
@@ -517,65 +419,6 @@ async function main() {
         ],
       ),
     );
-  }
-
-  if (
-    adapterInScope("hermes", shouldRunHermesChecks({ runtimeContext, env }))
-  ) {
-    const hermes = await detectHermesModelHealth();
-    checks.push(
-      checkPass(
-        "Hermes",
-        "Hermes adapter config",
-        `Hermes API target ${hermes.apiUrl} | model ${hermes.model} | key ${
-          hermes.apiKeyConfigured ? "configured" : "missing"
-        }`,
-      ),
-    );
-
-    if (hermes.probe.ok) {
-      const models = Array.isArray(hermes.probe.json?.data)
-        ? hermes.probe.json.data.map((entry) => trim(entry?.id)).filter(Boolean)
-        : [];
-      checks.push(
-        checkPass(
-          "Hermes",
-          "Hermes API",
-          models.length > 0
-            ? `Hermes API reachable. Reported models: ${models.join(", ")}`
-            : "Hermes API reachable.",
-        ),
-      );
-      if (models.length > 0 && !models.includes(hermes.model)) {
-        checks.push(
-          checkWarn(
-            "Hermes",
-            "Hermes model",
-            `Configured model "${hermes.model}" was not returned by /v1/models.`,
-            [
-              "Set HERMES_MODEL to one of the reported model ids or update the Hermes API configuration.",
-            ],
-          ),
-        );
-      }
-    } else if (hermes.probe.status === 401) {
-      checks.push(
-        checkFail("Hermes", "Hermes API", "Hermes API returned HTTP 401.", [
-          "Verify HERMES_API_KEY and confirm the adapter is loading the same .env values you expect.",
-        ]),
-      );
-    } else {
-      checks.push(
-        checkFail(
-          "Hermes",
-          "Hermes API",
-          hermes.probe.text || "Hermes API probe failed.",
-          [
-            "Start the Hermes API server and verify /v1/models responds before starting the adapter.",
-          ],
-        ),
-      );
-    }
   }
 
   const summary = summarizeChecks(checks);

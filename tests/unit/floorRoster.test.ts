@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-
 import type { AgentStoreSeed } from "@/features/agents/state/store";
 import {
   buildFloorRosterErrorState,
@@ -40,8 +39,8 @@ describe("floorRoster", () => {
   it("builds a roster cache for all floors", () => {
     const cache = createFloorRosterCache();
     expect(cache.lobby).toEqual(defaultFloorRosterState("lobby"));
-    expect(cache["hermes-first"]).toEqual(
-      expect.objectContaining({ floorId: "hermes-first", provider: "hermes" }),
+    expect(cache["lobby"]).toEqual(
+      expect.objectContaining({ floorId: "lobby", provider: "demo" }),
     );
   });
 
@@ -94,22 +93,22 @@ describe("floorRoster", () => {
 
   it("hydrates roster state through a runtime-neutral entry point", async () => {
     const state = await hydrateFloorRoster({
-      floorId: "hermes-first",
+      floorId: "lobby",
       now: () => 456,
       hydrate: async () => ({
-        seeds: [makeSeed({ identityName: null, sessionDisplayName: "Hermes Prime" })],
+        seeds: [makeSeed({ identityName: null, sessionDisplayName: "Demo Prime" })],
         suggestedSelectedAgentId: "agent-1",
       }),
     });
 
     expect(state).toEqual(
       expect.objectContaining({
-        floorId: "hermes-first",
-        provider: "hermes",
+        floorId: "lobby",
+        provider: "demo",
         status: "loaded",
         hydratedAt: 456,
       }),
     );
-    expect(state.entries[0]?.displayName).toBe("Hermes Prime");
+    expect(state.entries[0]?.displayName).toBe("Demo Prime");
   });
 });

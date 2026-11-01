@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-
 import {
   buildLatestUpdatePatch,
   resolveLatestUpdateIntent,
@@ -7,11 +6,11 @@ import {
 } from "@/features/agents/operations/latestUpdateWorkflow";
 
 describe("latestUpdateWorkflow", () => {
-  it("resolves latest-update kind as heartbeat, cron, or none from message content", () => {
+  it("resolves heartbeat updates or ordinary message content from message content", () => {
     expect(resolveLatestUpdateKind("")).toBeNull();
     expect(resolveLatestUpdateKind("check heartbeat status")).toBe("heartbeat");
-    expect(resolveLatestUpdateKind("cron report pending")).toBe("cron");
-    expect(resolveLatestUpdateKind("heartbeat then cron")).toBe("cron");
+    expect(resolveLatestUpdateKind("cron report pending")).toBeNull();
+    expect(resolveLatestUpdateKind("heartbeat then cron")).toBe("heartbeat");
     expect(resolveLatestUpdateKind("cron then heartbeat")).toBe("heartbeat");
   });
 

@@ -1,9 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-
 import { afterEach, describe, expect, it } from "vitest";
-
 import { GET, PUT } from "@/app/api/studio/route";
 
 const makeTempDir = (name: string) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
@@ -107,7 +105,7 @@ describe("studio settings route", () => {
     process.env.OPENCLAW_STATE_DIR = tempDir;
 
     const patch = {
-      gateway: { url: "ws://example.test:1234", token: "t", adapterType: "hermes" },
+      gateway: { url: "ws://example.test:1234", token: "t", adapterType: "demo" },
       office: {
         "ws://example.test:1234": {
           title: "Orbit Control",
@@ -132,7 +130,7 @@ describe("studio settings route", () => {
     expect(body.settings?.gateway).toEqual({
       url: "ws://example.test:1234",
       tokenConfigured: true,
-      adapterType: "hermes",
+      adapterType: "demo",
     });
     expect(body.settings?.office?.["ws://example.test:1234"]).toEqual(
       expect.objectContaining({
@@ -150,7 +148,7 @@ describe("studio settings route", () => {
     expect(parsed.gateway).toEqual({
       url: "ws://example.test:1234",
       token: "t",
-      adapterType: "hermes",
+      adapterType: "demo",
     });
     expect(parsed.office?.["ws://example.test:1234"]).toEqual(
       expect.objectContaining({

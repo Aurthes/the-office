@@ -40,6 +40,5 @@ Please report issues related to:
 ## Deployment Notes
 
 - In production, set `UPSTREAM_ALLOWLIST` for the Studio gateway proxy.
-- In production, set `CUSTOM_RUNTIME_ALLOWLIST` if you use `/api/runtime/custom`. If unset, it falls back to `UPSTREAM_ALLOWLIST`.
 - Empty allowlists are intended for local development only.
 - If you enable `STUDIO_ACCESS_TOKEN`, you must also provision the `studio_access` cookie through your deployment/auth layer.

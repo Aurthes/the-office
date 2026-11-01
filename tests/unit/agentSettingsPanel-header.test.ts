@@ -52,13 +52,7 @@ describe("AgentSettingsPanel header", () => {
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
-        cronJobs: [],
-        cronLoading: false,
-        cronError: null,
-        cronRunBusyJobId: null,
-        cronDeleteBusyJobId: null,
-        onRunCronJob: vi.fn(),
-        onDeleteCronJob: vi.fn(),
+
       })
     );
 

@@ -96,11 +96,11 @@ describe("StudioSettingsCoordinator", () => {
     coordinator.schedulePatch(
       {
         gateway: {
-          url: "http://localhost:7770",
-          adapterType: "local",
+          url: "ws://localhost:28789",
+          adapterType: "demo",
           profiles: {
-            local: {
-              url: "http://localhost:7770",
+            demo: {
+              url: "ws://localhost:28789",
               token: undefined,
             },
           },
@@ -114,11 +114,11 @@ describe("StudioSettingsCoordinator", () => {
     expect(updateSettings).toHaveBeenCalledTimes(1);
     expect(updateSettings).toHaveBeenCalledWith({
       gateway: {
-        url: "http://localhost:7770",
-        adapterType: "local",
+        url: "ws://localhost:28789",
+        adapterType: "demo",
         profiles: {
-          local: {
-            url: "http://localhost:7770",
+          demo: {
+            url: "ws://localhost:28789",
             token: undefined,
           },
         },
@@ -141,7 +141,7 @@ describe("StudioSettingsCoordinator", () => {
     coordinator.schedulePatch({
       gateway: {
         profiles: {
-          hermes: {
+          demo: {
             url: "ws://localhost:18888",
             token: undefined,
           },
@@ -155,7 +155,7 @@ describe("StudioSettingsCoordinator", () => {
     coordinator.schedulePatch({
       gateway: {
         profiles: {
-          hermes: {
+          demo: {
             token: "new-token",
           },
         },
@@ -171,7 +171,7 @@ describe("StudioSettingsCoordinator", () => {
     expect(updateSettings).toHaveBeenCalledWith({
       gateway: {
         profiles: {
-          hermes: {
+          demo: {
             url: "ws://localhost:18888",
             token: "new-token",
           },

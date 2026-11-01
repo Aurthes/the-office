@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-
 import type { TranscriptEntry } from "@/features/agents/state/transcript";
 import {
   reduceOfficeDeskHoldState,
@@ -41,10 +40,10 @@ describe("deskDirectives", () => {
     expect(resolveOfficeIntentSnapshot("Let's go to the gym.")).toMatchObject({
       gym: { directive: "gym", source: "manual" },
       desk: null,
-      standup: null,
+
     });
     expect(resolveOfficeIntentSnapshot("lets have a scrum meeting")).toMatchObject({
-      standup: "standup",
+
       gym: null,
       qa: null,
     });

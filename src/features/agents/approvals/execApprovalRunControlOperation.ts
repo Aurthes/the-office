@@ -208,7 +208,7 @@ export function executeExecApprovalIngressCommands(params: {
     preferredAgentId: string | null
   ) => Promise<void> | void;
   dispatch: RunControlDispatch;
-  recordCronDedupeKey: (dedupeKey: string) => void;
+
 }): void {
   for (const command of params.commands) {
     if (command.kind === "replacePendingState") {
@@ -226,31 +226,7 @@ export function executeExecApprovalIngressCommands(params: {
       });
       continue;
     }
-    if (command.kind === "recordCronDedupeKey") {
-      params.recordCronDedupeKey(command.dedupeKey);
-      continue;
-    }
 
-    const intent = command.intent;
-    params.dispatch({
-      type: "appendOutput",
-      agentId: intent.agentId,
-      line: intent.line,
-      transcript: {
-        source: "runtime-agent",
-        role: "assistant",
-        kind: "assistant",
-        sessionKey: intent.sessionKey,
-        timestampMs: intent.timestampMs,
-        entryId: intent.dedupeKey,
-        confirmed: true,
-      },
-    });
-    params.dispatch({
-      type: "markActivity",
-      agentId: intent.agentId,
-      at: intent.activityAtMs ?? undefined,
-    });
   }
 }
 
@@ -259,7 +235,7 @@ export function runGatewayEventIngressOperation(params: {
   getAgents: () => AgentState[];
   getPendingState: () => ExecApprovalPendingSnapshot;
   pausedRunIdByAgentId: ReadonlyMap<string, string>;
-  seenCronDedupeKeys: ReadonlySet<string>;
+
   nowMs: number;
   replacePendingState: (nextPendingState: ExecApprovalPendingSnapshot) => void;
   pauseRunForApproval: (
@@ -267,14 +243,14 @@ export function runGatewayEventIngressOperation(params: {
     preferredAgentId: string | null
   ) => Promise<void> | void;
   dispatch: RunControlDispatch;
-  recordCronDedupeKey: (dedupeKey: string) => void;
+
 }): ExecApprovalIngressCommand[] {
   const commands = planApprovalIngressRunControl({
     event: params.event,
     agents: params.getAgents(),
     pendingState: params.getPendingState(),
     pausedRunIdByAgentId: params.pausedRunIdByAgentId,
-    seenCronDedupeKeys: params.seenCronDedupeKeys,
+
     nowMs: params.nowMs,
   });
   executeExecApprovalIngressCommands({
@@ -282,7 +258,7 @@ export function runGatewayEventIngressOperation(params: {
     replacePendingState: params.replacePendingState,
     pauseRunForApproval: params.pauseRunForApproval,
     dispatch: params.dispatch,
-    recordCronDedupeKey: params.recordCronDedupeKey,
+
   });
   return commands;
 }

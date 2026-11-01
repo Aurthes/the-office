@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-
 import {
   SETTINGS_ROUTE_AGENT_ID_QUERY_PARAM,
   buildSettingsRouteHref,
@@ -105,7 +104,7 @@ describe("settingsRouteWorkflow", () => {
   it("changes from capabilities to skills without discard confirmation", () => {
     expect(
       planSettingsTabChangeCommands({
-        nextTab: "skills",
+        nextTab: "advanced",
         currentInspectSidebar: { agentId: "agent-1", tab: "capabilities" },
         settingsRouteAgentId: "agent-1",
         settingsRouteActive: true,
@@ -115,16 +114,16 @@ describe("settingsRouteWorkflow", () => {
     ).toEqual([
       {
         kind: "set-inspect-sidebar",
-        value: { agentId: "agent-1", tab: "skills" },
+        value: { agentId: "agent-1", tab: "advanced" },
       },
     ]);
   });
 
-  it("changes from skills to system without discard confirmation", () => {
+  it("changes from capabilities to advanced without discard confirmation", () => {
     expect(
       planSettingsTabChangeCommands({
-        nextTab: "system",
-        currentInspectSidebar: { agentId: "agent-1", tab: "skills" },
+        nextTab: "advanced",
+        currentInspectSidebar: { agentId: "agent-1", tab: "capabilities" },
         settingsRouteAgentId: "agent-1",
         settingsRouteActive: true,
         personalityHasUnsavedChanges: true,
@@ -133,7 +132,7 @@ describe("settingsRouteWorkflow", () => {
     ).toEqual([
       {
         kind: "set-inspect-sidebar",
-        value: { agentId: "agent-1", tab: "system" },
+        value: { agentId: "agent-1", tab: "advanced" },
       },
     ]);
   });
@@ -179,13 +178,13 @@ describe("settingsRouteWorkflow", () => {
         selectedAgentId: "agent-2",
         focusedAgentId: "agent-3",
         hasSelectedAgentInAgents: false,
-        currentInspectSidebar: { agentId: "agent-1", tab: "automations" },
+        currentInspectSidebar: { agentId: "agent-1", tab: "advanced" },
         hasInspectSidebarAgent: false,
       })
     ).toEqual([
       {
         kind: "set-inspect-sidebar",
-        value: { agentId: "agent-2", tab: "automations" },
+        value: { agentId: "agent-2", tab: "advanced" },
       },
       { kind: "set-inspect-sidebar", value: null },
       { kind: "select-agent", agentId: null },

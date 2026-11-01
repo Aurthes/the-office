@@ -1,17 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
 import {
   ExternalLink,
   Github,
   RefreshCw,
-  ShieldCheck,
-  ShieldX,
   MessageSquare,
 } from "lucide-react";
 import { RunningAvatarLoader } from "@/features/agents/components/RunningAvatarLoader";
-
 import type {
   GitHubDashboardResponse,
   GitHubDetailResponse,
@@ -20,18 +16,8 @@ import type {
   GitHubPullRequestSummary,
   GitHubReviewAction,
 } from "@/lib/office/github";
-import { resolveSkillMarketplaceMetadata } from "@/lib/skills/marketplace";
-import {
-  buildSkillMissingDetails,
-  deriveSkillReadinessState,
-  type SkillReadinessState,
-} from "@/lib/skills/presentation";
-import type { SkillStatusEntry } from "@/lib/skills/types";
-
 import { FileDiffModal } from "./github/FileDiffModal";
-import { useBrowserPreview } from "./github/useBrowserPreview";
 import {
-  GITHUB_RECORDING_PRIVACY_MASK_ACTIVE,
   formatRelativeTime,
   maskGitHubRecordingText,
   summarizeChecksTone,
@@ -39,14 +25,12 @@ import {
 
 type GithubImmersiveScreenProps = {
   agentName?: string | null;
-  githubSkill?: SkillStatusEntry | null;
-  onOpenSetup?: () => void;
+
 };
 
 export function GithubImmersiveScreen({
   agentName,
-  githubSkill = null,
-  onOpenSetup,
+
 }: GithubImmersiveScreenProps) {
   const [dashboard, setDashboard] = useState<GitHubDashboardResponse | null>(
     null,
@@ -63,25 +47,10 @@ export function GithubImmersiveScreen({
   const [reviewBusyAction, setReviewBusyAction] =
     useState<GitHubReviewAction | null>(null);
   const [reviewMessage, setReviewMessage] = useState<string | null>(null);
-  const [detailMode, setDetailMode] = useState<"summary" | "browser">(
-    "summary",
-  );
+
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const requestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
-
-  const skillReadiness = useMemo<SkillReadinessState | null>(
-    () => (githubSkill ? deriveSkillReadinessState(githubSkill) : null),
-    [githubSkill],
-  );
-  const skillMissingDetails = useMemo(
-    () => (githubSkill ? buildSkillMissingDetails(githubSkill) : []),
-    [githubSkill],
-  );
-  const skillMetadata = useMemo(
-    () => (githubSkill ? resolveSkillMarketplaceMetadata(githubSkill) : null),
-    [githubSkill],
-  );
 
   const refreshDashboard = useCallback(async () => {
     const requestId = requestIdRef.current + 1;
@@ -193,11 +162,6 @@ export function GithubImmersiveScreen({
   useEffect(() => {
     void loadDetail(selectedPr);
   }, [loadDetail, selectedPr]);
-
-  const browserPreview = useBrowserPreview(
-    detail?.url ?? null,
-    detailMode === "browser" && !GITHUB_RECORDING_PRIVACY_MASK_ACTIVE,
-  );
 
   const queueEntries = useMemo(
     () =>
@@ -329,81 +293,6 @@ export function GithubImmersiveScreen({
     },
     [],
   );
-
-  const shouldBlockForSkillSetup =
-    githubSkill !== null &&
-    skillReadiness !== null &&
-    skillReadiness !== "ready";
-
-  if (shouldBlockForSkillSetup) {
-    return (
-      <div className="flex h-full flex-col bg-[#050816] text-white">
-        <div className="border-b border-cyan-500/10 bg-[#071122] px-8 py-6">
-          <div className="flex items-center gap-3 text-cyan-200">
-            <Github className="h-6 w-6" />
-            <div>
-              <div className="text-[11px] uppercase tracking-[0.28em] text-cyan-200/70">
-                Code Review Room
-              </div>
-              <div className="text-xl font-semibold">
-                GitHub skill setup required.
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="flex flex-1 items-center justify-center px-8">
-          <div className="max-w-xl rounded-3xl border border-cyan-400/15 bg-[#081427] p-8 shadow-[0_30px_120px_rgba(0,0,0,0.55)]">
-            <div className="mb-4 flex items-center gap-3 text-cyan-100">
-              <ShieldX className="h-5 w-5 text-amber-300" />
-              <span className="text-sm uppercase tracking-[0.24em] text-cyan-100/70">
-                {skillMetadata?.tagline ??
-                  "GitHub access is not ready for this agent."}
-              </span>
-            </div>
-            <div className="text-2xl font-semibold text-white">
-              {skillReadiness === "disabled-globally"
-                ? "GitHub is disabled for this gateway."
-                : skillReadiness === "unavailable"
-                  ? "This agent cannot use the GitHub skill yet."
-                  : "The GitHub skill still needs setup."}
-            </div>
-            <p className="mt-3 text-sm leading-6 text-cyan-100/72">
-              Open the Skills panel to install or enable the bundled GitHub
-              skill so agents can walk here and review pull requests through
-              OpenClaw.
-            </p>
-            <div className="mt-5 space-y-2">
-              {skillMissingDetails.length > 0 ? (
-                skillMissingDetails.map((line) => (
-                  <div
-                    key={line}
-                    className="rounded-2xl border border-white/6 bg-black/20 px-4 py-3 text-sm text-white/72"
-                  >
-                    {line}
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-2xl border border-white/6 bg-black/20 px-4 py-3 text-sm text-white/72">
-                  Enable the GitHub skill for the selected agent, then come back
-                  to the code review room.
-                </div>
-              )}
-            </div>
-            {onOpenSetup ? (
-              <button
-                type="button"
-                onClick={onOpenSetup}
-                className="mt-6 inline-flex items-center gap-2 rounded-full border border-cyan-300/30 bg-cyan-300/10 px-5 py-2.5 text-sm font-medium text-cyan-100 transition-colors hover:border-cyan-200/50 hover:bg-cyan-300/18"
-              >
-                <ShieldCheck className="h-4 w-4" />
-                Open Skills Setup
-              </button>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-[radial-gradient(circle_at_top,#0f1b3d_0%,#060916_42%,#020409_100%)] text-white">
@@ -701,31 +590,10 @@ export function GithubImmersiveScreen({
                   </div>
 
                   <div className="mt-5 flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setDetailMode("summary")}
-                      className={`rounded-full px-3 py-1.5 text-[12px] transition-colors ${
-                        detailMode === "summary"
-                          ? "border border-white/10 bg-white/10 text-white"
-                          : "border border-white/6 bg-white/4 text-white/58 hover:text-white"
-                      }`}
-                    >
-                      Summary
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDetailMode("browser")}
-                      className={`rounded-full px-3 py-1.5 text-[12px] transition-colors ${
-                        detailMode === "browser"
-                          ? "border border-white/10 bg-white/10 text-white"
-                          : "border border-white/6 bg-white/4 text-white/58 hover:text-white"
-                      }`}
-                    >
-                      Browser Preview
-                    </button>
+
                   </div>
 
-                  {detailMode === "summary" ? (
+                  {(
                     <>
                       <div className="mt-5 rounded-3xl border border-white/6 bg-white/4 p-5">
                         <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">
@@ -755,36 +623,6 @@ export function GithubImmersiveScreen({
                         ) : null}
                       </div>
                     </>
-                  ) : (
-                    <div className="mt-5 rounded-3xl border border-white/6 bg-white/4 p-5">
-                      <div className="mb-3 text-[11px] uppercase tracking-[0.24em] text-white/45">
-                        Browser Preview
-                      </div>
-                      {GITHUB_RECORDING_PRIVACY_MASK_ACTIVE ? (
-                        <div className="rounded-2xl border border-white/6 bg-black/20 px-4 py-5 text-sm text-white/55">
-                          Browser preview is temporarily disabled so the screen
-                          recording does not reveal the real GitHub username.
-                        </div>
-                      ) : browserPreview.loading ? (
-                        <div className="rounded-2xl border border-white/6 bg-black/20 px-4 py-5 text-sm text-white/55">
-                          Capturing GitHub preview.
-                        </div>
-                      ) : browserPreview.mediaUrl ? (
-                        <Image
-                          src={browserPreview.mediaUrl}
-                          alt={`Preview of ${detail.url}`}
-                          width={1280}
-                          height={720}
-                          unoptimized
-                          className="h-auto w-full rounded-2xl border border-white/8 object-cover"
-                        />
-                      ) : (
-                        <div className="rounded-2xl border border-white/6 bg-black/20 px-4 py-5 text-sm text-white/55">
-                          {browserPreview.error ??
-                            "Browser preview unavailable on this setup."}
-                        </div>
-                      )}
-                    </div>
                   )}
                 </div>
 

@@ -29,7 +29,7 @@ Next.js App Router entry points and API routes.
 Vertical slices for UI and feature-specific state.
 
 - `src/features/agents`: fleet UI, chat, approvals, runtime event workflows, hydration, history sync, and settings-related operations.
-- `src/features/office`: office screens, panels, standup/GitHub/voice flows, and office-facing hooks.
+- `src/features/office`: office screens, panels, GitHub flows, and office-facing hooks.
 - `src/features/retro-office`: the immersive React Three Fiber office runtime, including 3D objects, navigation, persistence, scene systems, and actor behavior.
 
 When you are changing a user-facing workflow, start in `src/features` before reaching for `src/lib`.
@@ -41,7 +41,7 @@ Shared domain logic, adapters, and pure helpers.
 - `src/lib/gateway`: the browser gateway client and session-key helpers.
 - `src/lib/office`: office intent parsing, animation trigger derivation, desk monitor helpers, janitor reset logic, builder schema, and related office domain code.
 - `src/lib/studio`: local Studio settings persistence and the client coordinator.
-- Other areas such as `text`, `cron`, `skills`, `ssh`, and `avatars` hold reusable cross-feature logic.
+- Other areas such as `text` and `avatars` hold reusable cross-feature logic.
 
 If a module is reused by more than one feature or represents a stable domain contract, it probably belongs in `src/lib`.
 
@@ -120,7 +120,7 @@ use `src/features/retro-office`.
 
 Key files:
 
-- `src/features/office/screens/OfficeScreen.tsx`: office composition root. It connects gateway state, debug/export tools, standup state, desk assignment persistence, and the 3D scene.
+- `src/features/office/screens/OfficeScreen.tsx`: office composition root. It connects gateway state, debug/export tools, desk assignment persistence, and the 3D scene.
 - `src/lib/office/eventTriggers.ts`: derives office animation/interaction holds from runtime events and agent transcript state.
 - `src/lib/office/deskDirectives.ts`: parses user text into a unified office intent snapshot.
 - `src/features/retro-office/RetroOffice3D.tsx`: renders the 3D world and consumes the derived animation state.
@@ -218,12 +218,6 @@ Current `src/app/api` routes:
 - `office/github/route.ts`: GitHub-related office flow helpers.
 - `office/browser-preview/route.ts`: browser preview helpers for office experiences.
 - `office/presence/route.ts`: office presence/state helpers.
-- `office/standup/config/route.ts`: standup config persistence.
-- `office/standup/meeting/route.ts`: standup meeting state helpers.
-- `office/standup/run/route.ts`: standup run execution.
-- `gateway/media/route.ts`: gateway-backed media access.
-- `gateway/agent-state/route.ts`: gateway-backed agent state operations.
-- `gateway/skills/remove/route.ts`: gateway-backed skill removal flow.
 
 When adding a new API route, keep it narrow and put shared business logic in `src/lib` or a feature operation module instead of the route handler itself.
 

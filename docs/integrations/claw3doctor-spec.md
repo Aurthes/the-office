@@ -10,7 +10,6 @@ or "runtime support looks broken" cases.
 The intent is similar to:
 
 - `openclaw doctor`
-- `hermes doctor`
 
 but focused on Claw3D's integration points across providers.
 
@@ -70,22 +69,6 @@ Outputs:
 - version found / not found
 - device approval guidance
 - remote/Tailscale/public tunnel guidance
-
-### Hermes Checks
-
-Checks:
-
-- Hermes adapter running
-- Hermes API reachable
-- Hermes model present
-- auth key configured if required
-- adapter env loaded correctly
-
-Outputs:
-
-- adapter found / missing
-- API reachable / unreachable
-- `401` / bad model / bad URL hints
 
 ### Auth / Token Checks
 
@@ -169,24 +152,6 @@ Focus on:
 - device identity
 - remote websocket setup
 - public/tunnel secure-context issues
-
-### Hermes
-
-Focus on:
-
-- adapter process
-- Hermes API reachability
-- model/config correctness
-- auth key presence
-
-### Custom Runtime
-
-Focus on:
-
-- gateway contract compatibility
-- reachability
-- auth
-- profile configuration
 
 ## Suggested Implementation Order
 

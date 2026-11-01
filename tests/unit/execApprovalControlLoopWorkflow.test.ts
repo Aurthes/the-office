@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-
 import type { PendingExecApproval } from "@/features/agents/approvals/types";
 import {
   planAutoResumeIntent,
@@ -153,7 +152,7 @@ describe("execApprovalControlLoopWorkflow", () => {
       agents: [createAgent()],
       pendingState: createPendingState(),
       pausedRunIdByAgentId: new Map(),
-      seenCronDedupeKeys: new Set(),
+
       nowMs: 150,
     });
 
@@ -167,46 +166,6 @@ describe("execApprovalControlLoopWorkflow", () => {
         { kind: "markActivity", agentId: "agent-1" },
       ])
     );
-  });
-
-  it("plans cron ingress commands with dedupe and transcript append", () => {
-    const event: EventFrame = {
-      type: "event",
-      event: "cron",
-      payload: {
-        action: "finished",
-        sessionKey: "agent:agent-1:main",
-        jobId: "job-1",
-        sessionId: "session-1",
-        runAtMs: 123,
-        status: "ok",
-        summary: "cron summary",
-      },
-    };
-
-    const commands = planIngressCommands({
-      event,
-      agents: [createAgent()],
-      pendingState: createPendingState(),
-      pausedRunIdByAgentId: new Map(),
-      seenCronDedupeKeys: new Set(),
-      nowMs: 1000,
-    });
-
-    expect(commands).toEqual([
-      { kind: "recordCronDedupeKey", dedupeKey: "cron:job-1:session-1" },
-      {
-        kind: "appendCronTranscript",
-        intent: {
-          agentId: "agent-1",
-          sessionKey: "agent:agent-1:main",
-          dedupeKey: "cron:job-1:session-1",
-          line: "Cron finished (ok): job-1\n\ncron summary",
-          timestampMs: 123,
-          activityAtMs: 123,
-        },
-      },
-    ]);
   });
 
   it("plans prune delay, pruned state, and awaiting-user-input patches", () => {
