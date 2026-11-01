@@ -95,3 +95,6 @@ test-results
 /totp.json
 /totp-required
 /sessions.sqlite*
+
+# Public demo build
+/dist-demo/

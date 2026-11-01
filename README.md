@@ -1,214 +1,129 @@
-# The Office
+<h1 align="center">The Office</h1>
 
-A self-hosted 3D workspace for Codex-backed work. The selected architecture gives
-Office its own projects and sessions, using the documented Codex agent engine
-while preserving normal operation of the native Codex/ChatGPT App.
+<p align="center">
+  <strong>Your Codex conversations, brought to life.</strong><br>
+  A self-hosted 3D workspace where projects have rooms and conversations have crewmates.
+</p>
 
-The Codex backend uses independent Office state. The old native App-session
-adapters and standalone gateway prototype have been removed. See
-[ownership and chat-feature scope](docs/office-owned-state.md).
+<p align="center">
+  <a href="https://aurthes.github.io/the-office/"><strong>▶ Try the live demo</strong></a> ·
+  <a href="#quick-start">Run locally</a> ·
+  <a href="docs/office-owned-state.md">Connect Codex</a> ·
+  <a href="docs/operations.md">Self-hosting guide</a>
+</p>
 
-**Built on [Claw3D](https://github.com/iamlukethedev/Claw3D), originally created by
-[Luke The Dev](https://github.com/iamlukethedev), and independently maintained by
-[Aurthes](https://github.com/Aurthes).** The Office extends that codebase; it is not
-an official Claw3D or OpenAI product. The original copyright and MIT license are
-preserved in [LICENSE](LICENSE).
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-79b8a8" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/your_workspace-self_hosted-8aa6ca" alt="Self-hosted workspace">
+  <img src="https://img.shields.io/badge/built_with-React_%2B_Three.js-c9af80" alt="Built with React and Three.js">
+</p>
 
-## What this version adds
+[![The Office — an orbital workspace with projects, crewmates and live activity](docs/images/office-overview.png)](https://aurthes.github.io/the-office/)
 
-- **Conversations as people.** Each person represents a conversation. The target
-  architecture uses Office-owned records, without native App session discovery or synchronization.
-- **Project work areas and shared space.** Projectless chats live in Open Workspace;
-  idle characters can roam the shared office.
-- **Conversation-first chat.** Paginated history, direct push-streamed replies, Markdown, distinct
-  message roles and collapsed work/tool activity keep long chats readable.
-- **Codex execution.** Office runs its own Codex process and data directory,
-  with its own projects, sessions, login, model choices and access controls.
-- **Attachments and previews.** Upload files, paste images and view supported
-  images, Markdown and sandboxed HTML reports in the conversation.
-- **Optional dictation and suggestions.** Public OpenAI API adapters are wired;
-  they require a server API key and separate account/quality validation. Live
-  voice is unavailable in the independent runtime.
-- **Authenticated web access.** A separate login gateway supports password setup,
-  TOTP authenticators, recovery codes and persistent login sessions.
-- **Shared scene collisions.** Rendered solids and people use common collision
-  geometry for navigation, movement and interaction positions.
+<p align="center"><em>Real application components, fictional projects. Open the demo, drag to orbit, and click a crewmate.</em></p>
 
-The OpenClaw-compatible gateway connection and the local demo remain available.
-The Codex backend does not require installing the OpenClaw runtime.
+You have more than one conversation going. A feature to build, a change to
+review, a question waiting for an answer. **The Office gives that work a place.**
+Look around, see who needs you, and jump straight into the conversation.
 
-Legacy task boards, cron/standup automation, the skill marketplace, Spotify,
-remote offices, Hermes/custom backends and OpenClaw host-file/SSH management
-have been removed. Server monitoring and the spaceship music player are separate
-features and remain available.
+## Take a look
 
-## Try the local demo
+| Talk to your crewmates | Explore the ship |
+| --- | --- |
+| ![A conversation beside the 3D office, with clickable answer options](docs/images/office-conversation.png) | ![The ship's star chart and navigation controls](docs/images/office-navigation.png) |
+| Chat, read the work log, and answer a question with one click. | Move between decks, visit shared spaces, and plot a course. |
 
-Use Node.js 24 (tested with 24.22.1) and npm. Clone this repository:
+[See the three-deck view →](docs/images/office-whole-ship.png)
+
+**[Open the interactive demo →](https://aurthes.github.io/the-office/)** No login,
+installation, or API key. Try the scene, sample conversations, choice cards, and
+interrupted-task Play button. Responses are simulated; real model execution,
+voice and connected services require your own installation.
+
+## What makes it useful
+
+- **Conversations you can see.** Each crewmate is a conversation, grouped into
+  project work areas. Yellow **!** means input is needed; yellow **?** means a new
+  result is ready to review.
+- **A proper place to work.** Streaming chat, readable Markdown, collapsible tool
+  activity, uploads, image paste, and supported file previews.
+- **Fewer clicks to keep moving.** Click a suggested answer to send it, or write
+  your own. Stopped task? Press **▶** to continue in the same conversation.
+- **Your own Codex workspace.** Office owns its projects, sessions, login and
+  runtime. Choose models and access levels, and handle approvals in the chat.
+- **Experimental live voice.** Start a call through your Office Codex login.
+  Account support and limits apply. Optional dictation and prompt suggestions
+  use a separately configured OpenAI API key.
+- **An office worth exploring.** Three decks, duck crewmates, shared spaces, a
+  listening bar, star navigation, an AI Center and configurable monitor shortcuts.
+
+The interface supports **English and 简体中文**. Switch in Settings; your projects
+and conversation content stay as written.
+
+## Quick start
+
+Use **Node.js 24** and npm:
 
 ```sh
 git clone https://github.com/Aurthes/the-office.git
 cd the-office
 npm ci
-cp .env.example .env
+npm run demo:dev
 ```
 
-Start the demo gateway in one terminal:
+Open the URL printed in the terminal. This runs the same browser-only preview as
+the public demo, with simulated projects and conversations.
 
-```sh
-npm run demo-gateway
-```
+### Ready for real work?
 
-Start Studio in another terminal:
+Follow **[Connect Codex: setup and tested features](docs/office-owned-state.md#setup)**
+to start Office's independent Codex runtime and Studio. The pinned official
+Codex CLI is included with `npm ci`; no OpenClaw installation is required.
+Authorize your account in Office, create a project, and start a conversation.
 
-```sh
-npm run dev
-```
+Public Codex rules, standalone skills and selected ordinary defaults are
+automatically discovered. Native Codex/ChatGPT App conversations, credentials and
+private state stay separate. The [feature map](docs/office-owned-state.md#chat-feature-map)
+records tested behavior and current limits. Codex app-server and live voice are
+experimental interfaces.
 
-Open `http://localhost:3000`, select the **Demo** backend and connect to
-`ws://localhost:18789`. Demo people are simulated; they do not run Codex tasks.
+The original local demo gateway remains available with
+`npm run demo-gateway` and `npm run dev`; select **Demo** and connect to
+`ws://localhost:18789`.
 
-## Connect Codex
+## Documentation
 
-Use the independent backend for new Office work:
-
-`npm ci` includes Office's own pinned official Codex CLI. On startup, Office
-automatically discovers your public Codex rules, standalone skills and selected
-ordinary defaults. Existing Office-specific settings take priority. First-time
-account authorization is still separate; App credentials, conversations,
-databases and App-specific integrations are not imported. See
-[automatic configuration discovery](docs/office-owned-state.md#automatic-configuration-discovery)
-for the supported scope and platform requirements.
-
-Start the Office-owned runtime with `npm run codex-gateway`. It has a separate
-process, login, projects and sessions. See [setup and tested features](docs/office-owned-state.md).
-The [interoperability audit](docs/codex-interop-audit.md) records the earlier research.
-
-Office does not import native App projects, sessions or credentials. The
-[feature map](docs/office-owned-state.md#chat-feature-map) distinguishes tested
-engine behavior from optional services and features that remain unavailable.
-
-### Use the office
-
-1. Select the whole company or a project from the work-area selector.
-2. Click a person to open their conversation.
-3. Scroll upward to load older history a page at a time.
-4. Use the composer features supported by the selected backend. The demo uses
-   simulated people; optional services stay disabled until configured.
-
-Character movement is a visualization, not an additional agent or evidence that a
-model is running a task.
-
-AI Center uses a provider-neutral usage format and UI. Only the OpenAI reader
-(`server/ai-center-openai.js`) is implemented today; future readers supply provider
-names, account labels, links, and any number of quota windows in the same format.
-
-The main deck's AI Center replaces the former inner-ring server room. Click its
-floating computation core, select the area, or use the brain icon in the toolbar
-to see the signed-in Office Codex account's plan, quota windows, reset times,
-additional credits, and token activity. Data comes from the [documented Codex interfaces](https://learn.chatgpt.com/docs/app-server)
-`account/read`, `account/rateLimits/read`, and `account/usage/read` interfaces;
-unsupported or unavailable values stay unknown. Subscription percentages are
-not converted to token budgets. The panel refreshes every minute while visible.
-
-Optional OpenAI API quotas use a separate organization administrator credential.
-Set `OPENAI_ADMIN_KEY` and `OPENAI_PROJECT_ID` **on the Codex gateway service** to
-read that project's model rate limits. The key stays in the gateway and is not
-passed to the browser or Codex child process. Without these settings the panel
-offers links to OpenAI's limits and billing pages. It does not infer prepaid
-balances, spending limits, or ChatGPT web-message quotas from token counts.
-
-The spaceship uses one available reserve cabin as a monitor room. Its main screen
-opens a console of illustrated dashboard shortcuts. Configure their names, URLs,
-and illustrations in the console; settings are saved with the local Studio state
-and shared across devices. `CLAW3D_GRAFANA_URL` supplies the initial Grafana link
-at runtime; the existing build-time `NEXT_PUBLIC_CLAW3D_GRAFANA_URL` also works.
-Each shortcut opens its own reusable browser tab with the dashboard's normal
-login. Repeat clicks preserve its page for five minutes after the last click;
-after a longer gap, the next click reloads its configured URL. Studio never closes
-those tabs, copies Grafana charts, or requires Grafana embedding changes.
-
-The built-in fleet dashboard is opt-in: set `CLAW3D_SERVER_POOL_FILE` to a local
-registry containing `alias|class|params|notes` rows. Classes `online` (production)
-and `offline` (research/compute) describe purpose, separately from reachability.
-`active=no` entries remain visible without being probed. Aliases must already
-exist in SSH config with trusted host keys and noninteractive authentication.
-Studio takes read-only, one-second Linux samples over reused SSH transports,
-with at most four simultaneous probes and a shared 30-second cache. It installs
-nothing remotely. Probes run on demand while a visible fleet dashboard is open;
-failures retain clearly marked stale samples. Disks show local mounted filesystems
-only, led by the fullest partition. Credentials, registry notes, IP addresses,
-and SSH configuration are never returned by the monitoring APIs.
-
-## Remote access
-
-Keep Studio and the Codex gateway on loopback. Put the authenticated web-access
-service in front of them and point your HTTPS tunnel at that service.
-
-- [Web login and proxy setup](docs/web-access.md)
-- [Password setup, TOTP enrollment and recovery](docs/web-access-2fa.md)
-- [Security policy and deployment boundaries](SECURITY.md)
-
-`NEXT_PUBLIC_CLAW3D_WEB_ACCESS=1` adds the shared login/logout UI when building
-Studio. Secrets, authentication databases, uploads and chat state belong outside
-the source checkout. Publishing this repository does not publish a running office
-or its conversations.
-
-## Interface language
-
-English is the default. Open **Settings → Language** to switch between English
-and Simplified Chinese. The choice takes effect immediately and is saved in the
-current browser. It changes interface labels and hints only; project names,
-agent/session names, questions, and conversation content stay as written.
-
-For UI changes, keep English labels in code and render them through
-`src/lib/i18n/ui-language.ts`; keep user content outside the translator.
+| I want to… | Start here |
+| --- | --- |
+| Set up real Codex projects and chats | [Office-owned runtime](docs/office-owned-state.md) |
+| Configure AI Center, monitors or server metrics | [Self-hosted operations](docs/operations.md) |
+| Access my Office remotely | [Web access](docs/web-access.md) · [Two-factor authentication](docs/web-access-2fa.md) |
+| Understand security and integration boundaries | [Security](SECURITY.md) · [Codex integration](docs/codex-integration-boundary.md) |
+| Build or update the public preview | [Demo source and publishing](demo/README.md) |
 
 ## Development
 
 ```sh
 npm run typecheck
-npm test -- --run tests/unit/collision.test.ts tests/unit/workstations.test.ts
-npm run build
+npm test -- --run
+npm run build       # Self-hosted app
+npm run demo:build  # Public preview → dist-demo/
 ```
 
-Other focused acceptance commands live beside their setup documentation. The
-inherited codebase has existing lint findings; a full `npm run lint` is not
-currently a clean gate. Dependencies are pinned in `package-lock.json`.
+Dependencies are pinned in `package-lock.json`. The inherited test suite and full
+lint command have existing findings; focused acceptance commands are documented
+alongside their features. The public demo publishes through GitHub Actions when
+its source or assets change on `main`.
 
-Docker publication is manual through the GitHub Actions workflow and targets
-`ghcr.io/<your-account>/the-office`. The image starts Studio; deploy the Office
-gateway as a separate service. Dependencies include the pinned CLI, but the
-complete independent-backend Docker deployment has not been validated.
+## Built on Claw3D
 
-## Repository and upstream
+The Office is independently maintained by **[Aurthes](https://github.com/Aurthes)**
+and built on **[Claw3D](https://github.com/iamlukethedev/Claw3D)**, originally
+created by **[Luke The Dev](https://github.com/iamlukethedev)**. It is an unofficial
+community project, not an official OpenAI, OpenClaw or Claw3D product.
 
-- **Our stable branch:** `Aurthes/the-office:main`.
-- **Original project:** `iamlukethedev/Claw3D`, treated as read-only upstream.
-- **Initial upstream base:** `0565b7892909eca7bbc8f2d9b0fad171dd75ad7c`.
-
-To inspect upstream changes from a fresh clone:
-
-```sh
-git remote add upstream https://github.com/iamlukethedev/Claw3D.git
-git remote set-url --push upstream no_push://read-only-upstream
-git fetch upstream
-```
-
-Our `main` and upstream's `main` are separate refs in separate repositories.
-Develop changes on a topic branch and merge validated changes into our `main`.
-
-## License and credits
-
-The Office code is distributed under the **MIT license**, retaining Claw3D's
-original notice and adding attribution for our modifications. See [LICENSE](LICENSE).
-
-Bundled third-party code and assets retain their own terms. Furniture assets use
-Kenney's CC0 license; the bundled environment map is Greg Zaal's *Potsdamer Platz*
-from Poly Haven, also CC0. The adapted OpenClaw browser client retains its MIT
-notice. Full provenance and included notices are in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-The Dockerfile also copies these notices and license files into the runtime image.
-
-Claw3D, OpenClaw, Codex and other product names identify their respective projects;
-they do not imply endorsement of The Office.
+Code is **[MIT licensed](LICENSE)**, preserving the upstream copyright notice.
+Bundled assets retain their own licenses; furniture is Kenney CC0 and the
+Poly Haven environment map is CC0. See [third-party notices](THIRD_PARTY_NOTICES.md).
+Our stable branch is `Aurthes/the-office:main`; the original Claw3D repository is
+a read-only upstream. Screenshots use simulated content, not private account data.
