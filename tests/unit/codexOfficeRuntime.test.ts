@@ -93,18 +93,6 @@ describe("independent Office runtime", () => {
     const link = path.join(f.root, "alias"); symlinkSync(foreign, link); expect(() => officeEnvironment(link, environment)).toThrow("separate");
     expect(() => officeEnvironment(path.join(homedir(), ".codex", "office"), {})).toThrow("separate");
   });
-  it("persists each new recruit's appearance seed and preserves it on retries and restarts", async () => {
-    const f = fixture(), id = await session(f);
-    const seed = f.store.get(id).avatarSeed;
-    expect(seed).toEqual(expect.any(String));
-    const replay = await f.store.createSession({ name: "Own chat", projectId: f.store.projects()[0].id, requestId: "session" });
-    expect(replay.threadId).toBe(id); expect(f.store.get(id).avatarSeed).toBe(seed);
-    const another = await f.store.createSession({ name: "Another", projectId: f.store.projects()[0].id, requestId: "another" });
-    expect(f.store.get(another.threadId).avatarSeed).not.toBe(seed);
-    const restarted = new CodexOfficeStore(f.directory, f.client);
-    expect(restarted.list().find((row: { id: string }) => row.id === id).avatarSeed).toBe(seed);
-    expect(f.client.call).not.toHaveBeenCalled();
-  });
   it("persists empty Office sessions across restarts without creating or reading Codex threads", async () => {
     const f = fixture(), id = await session(f);
     const restarted = new CodexOfficeStore(f.directory, f.client);

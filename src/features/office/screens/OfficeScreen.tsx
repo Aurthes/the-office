@@ -3357,8 +3357,12 @@ export function OfficeScreen({
           animationState={officeAnimationState}
           companyRoster={companyRoster}
           companyActions={sessionView && companyRoster ? <CompanyActions client={client} projects={companyRoster.projects}
-            disabled={status !== "connected" || !companyCreationAvailable} onCreated={async threadId => {
-              await loadAgents({ silent: true });
+            disabled={status !== "connected" || !companyCreationAvailable} onCreated={async (threadId, avatarProfile) => {
+              if (threadId && avatarProfile) {
+                await settingsCoordinator.applyPatchNow({ avatars: { [gatewayUrl.trim()]: { [threadId]: avatarProfile } } });
+              }
+              await loadAgents({ silent: true, forceSettings: Boolean(avatarProfile) });
+              if (threadId && avatarProfile) dispatch({ type: "updateAgent", agentId: threadId, patch: { avatarProfile, avatarSeed: avatarProfile.seed } });
               if (threadId) handleOpenAgentChat(threadId);
             }} /> : null}
           deskAssignmentByDeskUid={deskAssignmentByDeskUid}

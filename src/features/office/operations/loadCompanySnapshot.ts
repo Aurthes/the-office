@@ -5,7 +5,7 @@ import type { StudioSettings, StudioSettingsPublic } from "@/lib/studio/settings
 export type CompanySnapshot = {
   defaultId?: string; mainKey: string; projects: CompanyRoster["projects"]; creationAvailable: boolean;
   agents: Array<CompanyRoster["members"][number] & {
-    avatarSeed?: string; name: string; role: string; status: string; model?: string | null; modelProvider?: string | null; effort?: string | null;
+    name: string; role: string; status: string; model?: string | null; modelProvider?: string | null; effort?: string | null;
     completedResult?: { key: string; unread: boolean } | null; needsInput?: boolean;
     updatedAt: number; identity?: { name?: string; emoji?: string };
   }>;

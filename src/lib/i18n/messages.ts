@@ -1,5 +1,6 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Saved, but the page could not finish updating. Check existing projects and sessions first.": "已保存，但页面未能完成更新。请先检查已有项目和会话。",
   "Character parts": "角色部位",
   "Head": "头部",
   "Body": "身体",

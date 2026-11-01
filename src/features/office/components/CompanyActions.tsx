@@ -4,12 +4,14 @@ import type { SessionClient } from "./SessionControls";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { OfficeCodexAccount } from "./OfficeCodexAccount";
 import { ProjectFolderPicker } from "./ProjectFolderPicker";
+import { createDefaultAgentAvatarProfile, type AgentAvatarProfile } from "@/lib/avatars/profile";
+import { createDuckAppearanceFromSeed } from "@/lib/avatars/duck";
 
 type Project = { id: string; name: string; rootPaths?: string[] };
 type Chat = { id: string; name: string; workspace: string };
 export function CompanyActions({ client, projects, disabled, onCreated }: {
   client: SessionClient; projects: Project[];
-  disabled: boolean; onCreated: (threadId?: string) => Promise<void>;
+  disabled: boolean; onCreated: (threadId?: string, avatarProfile?: AgentAvatarProfile) => Promise<void>;
 }) {
   const t = useUiText();
   const [mode, setMode] = useState<"project" | "edit" | "session" | null>(null);
@@ -45,9 +47,14 @@ export function CompanyActions({ client, projects, disabled, onCreated }: {
       }) as { threadId?: string; warning?: string };
       saved = true; setMode(null);
       setNotice(result.warning || (mode === "project" ? "Office project created." : mode === "edit" ? "Project updated. Folder changes apply to new turns and new terminals." : "Session created. Send a message to start working."));
-      await onCreated(result.threadId);
+      if (result.threadId) {
+        await onCreated(result.threadId, {
+          ...createDefaultAgentAvatarProfile(result.threadId),
+          duck: createDuckAppearanceFromSeed(result.threadId),
+        });
+      } else await onCreated();
     } catch (cause) {
-      setError(saved ? "Saved, but the roster could not refresh. Check existing projects and sessions first." :
+      setError(saved ? "Saved, but the page could not finish updating. Check existing projects and sessions first." :
         (cause instanceof Error ? cause.message : "Creation failed"));
     } finally { submitting.current = false; setBusy(false); }
   };
