@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ExternalLink, Play, Search } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Disc3, ExternalLink, Pause, Play, Search, Square, Volume2 } from "lucide-react";
 import { useUiText } from "@/lib/i18n/ui-language";
 
 const API = "/api/music/netease";
@@ -15,7 +16,9 @@ async function request<T>(url: string, signal: AbortSignal, method = "GET"): Pro
   return result;
 }
 
-export function NeteaseMusicPlayer() {
+export function NeteaseMusicPlayer({ controlsTarget, minimized, onOpen, onStop }: {
+  controlsTarget: HTMLElement | null; minimized: boolean; onOpen: () => void; onStop: () => void;
+}) {
   const t = useUiText();
   const audio = useRef<HTMLAudioElement>(null);
   const activeRequest = useRef<AbortController | null>(null);
@@ -28,6 +31,8 @@ export function NeteaseMusicPlayer() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [playHint, setPlayHint] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [volume, setVolume] = useState(1);
   const failed = (cause: unknown) => {
     const failure = cause as { name?: string; message?: string; code?: string };
     if (failure.name === "AbortError") return;
@@ -80,7 +85,7 @@ export function NeteaseMusicPlayer() {
     if (element.currentTime < preview.start || element.currentTime > preview.end) element.currentTime = preview.start;
   };
 
-  return <section className="music-netease-player" aria-label={t("NetEase Cloud Music")} aria-busy={busy}>
+  return <><section className="music-netease-player" aria-label={t("NetEase Cloud Music")} aria-busy={busy}>
     {error ? <p className="music-notice" role="alert">{t(error)}</p> : null}
     {!connection ? <p className="music-empty" role="status">{t("Connecting to NetEase…")}</p>
       : !connection.configured ? <p className="music-empty">{t("NetEase developer credentials are not configured.")}</p>
@@ -115,10 +120,30 @@ export function NeteaseMusicPlayer() {
       <div><strong>{selected?.name}</strong><small>{selected?.artists}{track?.preview ? " · " + t("Preview · {seconds}s", { seconds: track.preview.end - track.preview.start }) : ""}</small></div>
       <audio ref={audio} controls preload="metadata" src={track?.url} aria-label={t("Music playback")}
         onLoadedMetadata={keepPreviewRange} onSeeking={keepPreviewRange}
-        onPlay={() => { setPlayHint(false); if (track?.preview && audio.current && audio.current.currentTime >= track.preview.end) audio.current.currentTime = track.preview.start; }}
+        onPlay={() => { setPlaying(true); setPlayHint(false); if (track?.preview && audio.current && audio.current.currentTime >= track.preview.end) audio.current.currentTime = track.preview.start; }}
+        onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
+        onVolumeChange={() => { if (audio.current) setVolume(audio.current.muted ? 0 : audio.current.volume); }}
         onTimeUpdate={() => { if (track?.preview && audio.current && audio.current.currentTime >= track.preview.end) audio.current.pause(); }}
-        onError={() => { if (track) setError("This song could not be played. Select it again to retry."); }} />
+        onError={() => { setPlaying(false); if (track) setError("This song could not be played. Select it again to retry."); }} />
       {playHint ? <p role="status">{t("Press play to start listening.")}</p> : null}
     </footer>
-  </section>;
+  </section>
+    {controlsTarget && minimized && track && selected ? createPortal(<section className="music-mini" aria-label={t("Background music")}>
+      <button type="button" className="music-mini-track" onClick={onOpen} aria-label={t("Open music player")} title={t("Open music player")}>
+        <Disc3 size={22} aria-hidden="true" /><span><strong>{selected.name}</strong><small>{selected.artists}</small></span>
+      </button>
+      <button type="button" className="music-mini-button" aria-label={t(playing ? "Pause music" : "Resume music")} onClick={() => {
+        if (!audio.current) return;
+        if (audio.current.paused) void audio.current.play().catch(() => setPlayHint(true));
+        else audio.current.pause();
+      }}>{playing ? <Pause size={18} /> : <Play size={18} />}</button>
+      <button type="button" className="music-mini-button" aria-label={t("Stop music")} onClick={onStop}><Square size={15} /></button>
+      <label className="music-mini-volume"><Volume2 size={14} aria-hidden="true" /><input type="range" aria-label={t("Music volume")} min="0" max="1" step="0.01" value={volume} onChange={event => {
+        const next = Number(event.target.value);
+        if (audio.current) { audio.current.volume = next; audio.current.muted = false; }
+        setVolume(next);
+      }} /></label>
+      {playHint ? <p role="status">{t("Press play to start listening.")}</p> : null}
+    </section>, controlsTarget) : null}
+  </>;
 }
