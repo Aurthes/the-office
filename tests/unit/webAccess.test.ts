@@ -23,8 +23,8 @@ async function listen(server: ReturnType<typeof http.createServer>) {
   if (!address || typeof address === "string") throw new Error("No listener");
   return `http://127.0.0.1:${address.port}`;
 }
-async function start(secureCookies = false, requireTotp = false) {
-  gate = createWebAccessServer({ dataDir, credentials, upstream, secureCookies, requireTotp });
+async function start(secureCookies = false, requireTotp = false, options = {}) {
+  gate = createWebAccessServer({ dataDir, credentials, upstream, secureCookies, requireTotp, ...options });
   base = await listen(gate);
 }
 async function stop() { await new Promise<void>(resolve => (gate as typeof gate & { shutdown: (done: () => void) => void }).shutdown(resolve)); }
@@ -48,7 +48,7 @@ async function rejectedSocket(headers: Record<string, string> = {}, origin = bas
 
 beforeEach(async () => {
   dataDir = mkdtempSync(join(tmpdir(), "claw3d-web-access-"));
-  gateway = http.createServer((req, res) => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ path: req.url, authorization: req.headers.authorization || null, cookie: req.headers.cookie || null })); });
+  gateway = http.createServer((req, res) => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ path: req.url, authorization: req.headers.authorization || null, cookie: req.headers.cookie || null, proxyToken: req.headers["x-office-proxy-token"] || null })); });
   websocketServer = new WebSocketServer({ server: gateway });
   websocketServer.on("connection", ws => ws.send("mock connected"));
   upstream = await listen(gateway);
@@ -216,7 +216,7 @@ describe("office form login", () => {
     for (let i = 0; i < 3; i++) {
       const response = await fetch(base + "/office", { headers: { Cookie: auth.cookie, Authorization: "Basic do-not-forward" } });
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ path: "/office", authorization: null, cookie: null });
+      expect(await response.json()).toEqual({ path: "/office", authorization: null, cookie: null, proxyToken: null });
     }
     const ws = new WebSocket(base.replace("http:", "ws:") + "/api/gateway/ws", { headers: { Cookie: auth.cookie }, origin: base });
     const message = await new Promise(resolve => ws.once("message", data => resolve(String(data))));
@@ -280,5 +280,51 @@ describe("office form login", () => {
       const response = await fetch(base + "/auth/login", { method: "POST", headers: { Cookie: cookie(page), Origin: base }, body: new URLSearchParams({ username: credentials.username, password: "wrong", csrf }) });
       expect(response.status).toBe(i < 10 ? 401 : 429);
     }
+  });
+
+  it("limits an abusive client without locking another client out of password or MFA login", async () => {
+    const page = await fetch(base + "/login");
+    const csrf = (await page.text()).match(/name="csrf" value="([^"]+)"/)?.[1] || "";
+    for (let i = 0; i < 10; i++) {
+      const response = await fetch(base + "/auth/login", { method: "POST", headers: { Cookie: cookie(page), Origin: base, "X-Forwarded-For": "198.51.100.10" }, body: new URLSearchParams({ username: credentials.username, password: "wrong", csrf }) });
+      expect(response.status).toBe(401);
+    }
+    const blocked = await fetch(base + "/auth/login", { method: "POST", headers: { Cookie: cookie(page), Origin: base, "X-Forwarded-For": "198.51.100.10" }, body: new URLSearchParams({ username: credentials.username, password: credentials.password, csrf }) });
+    expect(blocked.status).toBe(429);
+    const other = await fetch(base + "/auth/login", { method: "POST", redirect: "manual", headers: { Cookie: cookie(page), Origin: base, "X-Forwarded-For": "198.51.100.11" }, body: new URLSearchParams({ username: credentials.username, password: credentials.password, csrf }) });
+    expect(other.status).toBe(303);
+  });
+
+  it("replaces client-supplied proxy credentials only after authentication, for HTTP and WebSockets", async () => {
+    const proxyToken = "fixture-server-side-proxy-key-".repeat(2);
+    await stop(); await start(false, false, { proxyToken });
+    const auth = await login();
+    const response = await fetch(base + "/office", { headers: { Cookie: auth.cookie, "x-office-proxy-token": "attacker-value" } });
+    expect((await response.json()).proxyToken).toBe(proxyToken);
+    expect((await fetch(base + "/api/health", { headers: { "x-office-proxy-token": proxyToken } })).status).toBe(401);
+    let supplied: string | string[] | undefined;
+    websocketServer.once("connection", (_socket, request) => { supplied = request.headers["x-office-proxy-token"]; });
+    const ws = new WebSocket(base.replace("http:", "ws:") + "/api/gateway/ws", { headers: { Cookie: auth.cookie, "x-office-proxy-token": "attacker-value" }, origin: base });
+    await new Promise(resolve => ws.once("message", resolve));
+    expect(supplied).toBe(proxyToken);
+    await new Promise<void>(resolve => { ws.once("close", () => resolve()); ws.close(); });
+  });
+
+  it("redirects HTTP before creating a session, blocks insecure POSTs and upgrades, and sends HSTS over HTTPS", async () => {
+    await stop(); await start(true, false, { publicOrigins: ["https://office.example"] });
+    const redirected = await fetch(base + "/login?next=office", { redirect: "manual" });
+    expect(redirected.status).toBe(308);
+    expect(redirected.headers.get("location")).toBe(base.replace("http:", "https:") + "/login?next=office");
+    expect(redirected.headers.get("set-cookie")).toBeNull();
+    const insecure = await fetch(base + "/auth/login", { method: "POST", body: new URLSearchParams({ password: credentials.password }), redirect: "manual" });
+    expect(insecure.status).toBe(403);
+    expect(await rejectedSocket()).toBe(403);
+    const secure = await fetch(base + "/login", { headers: { "X-Forwarded-Proto": "https" } });
+    expect(secure.status).toBe(200);
+    expect(secure.headers.get("strict-transport-security")).toBe("max-age=31536000");
+    const untrusted = await new Promise<number>(resolve => {
+      http.get(base + "/login", { headers: { Host: "attacker.invalid", "X-Forwarded-Proto": "https" } }, response => { response.resume(); resolve(response.statusCode || 0); });
+    });
+    expect(untrusted).toBe(403);
   });
 });

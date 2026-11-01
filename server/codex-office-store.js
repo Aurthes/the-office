@@ -78,7 +78,7 @@ class CodexOfficeStore {
   createSession(input) {
     const name = this.name(input.name), project = input.projectId ? this.project(input.projectId) : null;
     const workspace = this.directory(project ? project.rootPaths[0] : input.workspace);
-    return this.once(input, () => { const session = { id: crypto.randomUUID(), name, workspace, projectId: project?.id ?? null, updatedAt: Date.now(), status: "idle", settings: { model: null, effort: null, accessMode: ":workspace" } }; this.data.sessions.push(session); return { threadId: session.id }; });
+    return this.once(input, () => { const id = crypto.randomUUID(); const session = { id, avatarSeed: id, name, workspace, projectId: project?.id ?? null, updatedAt: Date.now(), status: "idle", settings: { model: null, effort: null, accessMode: ":workspace" } }; this.data.sessions.push(session); return { threadId: session.id }; });
   }
   renameSession(input) { const row = this.get(input.threadId), name = this.name(input.name); return this.once(input, () => { row.name = name; return { threadId: row.id, name }; }); }
   reassignSession(input) { const row = this.get(input.threadId), project = this.project(input.projectId); return this.once(input, () => { if (!project.rootPaths.includes(row.workspace)) throw new Error("Attach this chat's working folder to the destination project before moving it"); if (row.status === "running" || this.starting.has(row.id) || this.isBusy(row.id)) throw new Error("Stop this task and terminal before moving the chat"); row.projectId = project.id; return { threadId: row.id, projectId: project.id, project: project.name }; }); }

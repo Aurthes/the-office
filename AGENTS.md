@@ -35,6 +35,12 @@ Do not commit personal, environment-specific, or secret instructions to this rep
 
 ## Task cleanup
 
+For macOS Office gateway/studio deployments, use `scripts/redeploy-office.mjs`
+with prepared candidate plists; do not write ad hoc stop/start or rollback scripts.
+Build before cutover, restart only changed services, and verify the result and
+real frontend/gateway connection. See `docs/office-redeploy.md`. Keep native App
+state, schedules, auth proxies, and tunnels outside a service redeploy.
+
 After each generation, build, or validation batch, inspect the files and temporary
 processes created by that batch. Immediately remove your own intermediate files,
 superseded outputs, and temporary processes once their last use is complete. Do
