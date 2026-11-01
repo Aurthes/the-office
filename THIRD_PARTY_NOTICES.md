@@ -57,6 +57,31 @@ Geometry and authored surface maps are retained. Textures are shared, limited to
 color variant. The exact source selections, archive hashes and bundled file
 hashes are recorded in [SOURCE.json](public/office-assets/models/ship/SOURCE.json).
 
+## Ship pets and service robots
+
+The four models under `public/office-assets/models/companions/` retain their
+individual licenses:
+
+- **Cube Pets 2.0**, cat and dog, by **Kenney**:
+  [source](https://kenney.nl/assets/cube-pets), **CC0 1.0**, with the original
+  notice in [licenses/Kenney-Cube-Pets.txt](licenses/Kenney-Cube-Pets.txt).
+- **Mech Drone** by **Willy Decarpentrie**:
+  [source](https://sketchfab.com/3d-models/mech-drone-8d06874aac5246c59edb4adbe3606e0e),
+  [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+- **C.O.R.E. the Robot Bartender** by **Anthony Monteagudo**:
+  [source](https://sketchfab.com/3d-models/core-the-robot-bartender-aaea45be393045e09843afd08dac0f7d),
+  [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+The CC BY 4.0 notice is included in
+[licenses/Companion-Robots-CC-BY-4.0.txt](licenses/Companion-Robots-CC-BY-4.0.txt).
+Robot source copies came from the public [Ai2 Objaverse collection](https://huggingface.co/datasets/allenai/objaverse).
+Modifications by The Office contributors include geometry simplification and
+quantization for C.O.R.E., conversion of legacy drone materials, reduced texture
+dimensions and WebP encoding. C.O.R.E.'s transmission uses alpha blending.
+Original authors do not endorse this project. Exact source pins, hashes and
+processing details are in the [asset README](public/office-assets/models/companions/README.md)
+and [SOURCE.json](public/office-assets/models/companions/SOURCE.json).
+
 ## Environment lighting
 
 `public/environments/potsdamer_platz_1k.hdr` is **Potsdamer Platz** by **Greg Zaal**,

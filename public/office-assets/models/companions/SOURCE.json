@@ -1,0 +1,417 @@
+{
+  "tools": {
+    "gltfTransform": "4.5.1",
+    "meshoptimizer": "1.3.0"
+  },
+  "kenneyArchiveSha256": "b3bdc99a2ec92c687b875718c5d01e9231d2711ed0e2845f295b474bb42a1283",
+  "mirror": {
+    "repository": "allenai/objaverse",
+    "revision": "556637099bf4fa79ea7b239d0d9c328b8a2e9ac8",
+    "models": {
+      "aaea45be393045e09843afd08dac0f7d": "glbs/000-069/aaea45be393045e09843afd08dac0f7d.glb",
+      "8d06874aac5246c59edb4adbe3606e0e": "glbs/000-142/8d06874aac5246c59edb4adbe3606e0e.glb"
+    }
+  },
+  "assets": [
+    {
+      "file": "cat.glb",
+      "author": "Kenney",
+      "source": "https://kenney.nl/assets/cube-pets",
+      "license": "CC0-1.0",
+      "sourceSha256": "1e73aaf7d497dd7d2946badf92d189d2333f163e66dced91feb446bc9bdee850",
+      "sha256": "7a0a6bbb583da40657c2fb62fecc0657384fbebc47b3022101064e5707c26b5c",
+      "bytes": 77764,
+      "triangles": 684,
+      "materials": 1,
+      "textures": [
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 1112
+        }
+      ],
+      "animations": [
+        "static",
+        "idle",
+        "walk",
+        "run",
+        "eat",
+        "dance",
+        "gesture-positive",
+        "gesture-negative"
+      ],
+      "changes": "Texture edges capped at 128px and encoded as WebP; redundant data removed."
+    },
+    {
+      "file": "dog.glb",
+      "author": "Kenney",
+      "source": "https://kenney.nl/assets/cube-pets",
+      "license": "CC0-1.0",
+      "sourceSha256": "c127d71ac8794f9710313bbb44800ae33a79f1182cf5c523c4233cc10a93851f",
+      "sha256": "fb0d316056e5de4e70fbd284457b50aefa34a2407ec5cdc9b6a0a9e5e9097b30",
+      "bytes": 55628,
+      "triangles": 490,
+      "materials": 1,
+      "textures": [
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 1112
+        }
+      ],
+      "animations": [
+        "static",
+        "idle",
+        "walk",
+        "run",
+        "eat",
+        "dance",
+        "gesture-positive",
+        "gesture-negative"
+      ],
+      "changes": "Texture edges capped at 128px and encoded as WebP; redundant data removed."
+    },
+    {
+      "file": "mech-drone.glb",
+      "author": "Willy Decarpentrie",
+      "source": "https://sketchfab.com/3d-models/mech-drone-8d06874aac5246c59edb4adbe3606e0e",
+      "license": "CC-BY-4.0",
+      "sourceSha256": "fffa6aca21ee92efb709efe5a6452ae70421576b984bd3770d93e5a096e089d5",
+      "sha256": "efcb89681efa2f989ca00d2f998040854d46ca29fdccbdc969691dcd3809f59a",
+      "bytes": 841028,
+      "triangles": 9059,
+      "materials": 2,
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "bytes": 16510
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "bytes": 280
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "bytes": 8280
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "bytes": 20826
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "bytes": 14366
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "bytes": 7170
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "bytes": 14574
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "bytes": 18292
+        }
+      ],
+      "animations": [
+        "Take 001"
+      ],
+      "changes": "Legacy specular/glossiness materials converted to metallic/roughness; texture edges capped at 256px and encoded as WebP."
+    },
+    {
+      "file": "core-bartender.glb",
+      "author": "Anthony Monteagudo",
+      "source": "https://sketchfab.com/3d-models/core-the-robot-bartender-aaea45be393045e09843afd08dac0f7d",
+      "license": "CC-BY-4.0",
+      "sourceSha256": "f1b2d07d844c1890c2f4a8c1b2028cccca22c27256e2e3d03b42d0dd4b59c8ae",
+      "sha256": "721099ea49dedf3ac06694d00a61d1653ea5e484f997c80d3329e34bb9e3c205",
+      "bytes": 1365300,
+      "triangles": 34677,
+      "materials": 23,
+      "textures": [
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 1376
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 2354
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 300
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 520
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 206
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 3510
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 2334
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 7444
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 1236
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 2048
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 368
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 3234
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 4218
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 3404
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 274
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 174
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 1522
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 462
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 238
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 696
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 232
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 1722
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 282
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 3020
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 196
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 238
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 242
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 310
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 1192
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 1300
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 350
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 890
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 1668
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 382
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 128
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 394
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 2156
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 1906
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 400
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 3930
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 4148
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 172
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 2214
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 3030
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 4570
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 4462
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 140
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 934
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 438
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 1012
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 4348
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 118
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 3418
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "bytes": 2782
+        }
+      ],
+      "animations": [],
+      "changes": "Geometry simplified and quantized; texture edges capped at 128px and encoded as WebP; transmission replaced with alpha blending."
+    }
+  ]
+}
