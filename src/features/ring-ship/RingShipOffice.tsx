@@ -5,7 +5,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Environment, Lightformer, OrbitControls } from "@react-three/drei";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import * as THREE from "three";
-import { Monitor, Home, Layers3, Settings2, Users, X } from "lucide-react";
+import { BrainCircuit, Monitor, Home, Layers3, Settings2, Users, X } from "lucide-react";
 import type { RetroOffice3D } from "@/features/retro-office/RetroOffice3D";
 import type { OfficeAgent, RenderAgent } from "@/features/retro-office/core/types";
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
@@ -37,6 +37,8 @@ import { SpaceActivity } from "./SpaceActivity";
 import { emptySpaceMotion } from "./space-activity";
 import { ListeningBar } from "./ListeningBar";
 import { MusicPlayerDialog } from "./MusicPlayerDialog";
+import { AiComputationCore } from "./AiComputationCore";
+import { AiCenterDashboard } from "./AiCenterDashboard";
 
 type Props = ComponentProps<typeof RetroOffice3D> & { navigationPreview?: boolean; musicPreview?: boolean };
 type Controls = ComponentRef<typeof OrbitControls>;
@@ -303,6 +305,7 @@ export function RingShipOffice(props: Props) {
   const [trip, setTrip] = useState<LiftTrip | null>(null);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [musicOpen, setMusicOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const openMonitor = () => setMonitorOpen(true);
   const overlayRef = useRef<HTMLDivElement>(null);
   const pendingFocus = useRef("");
@@ -390,6 +393,7 @@ export function RingShipOffice(props: Props) {
     const cabin = layout.cabins.find(c => c.id === id || c.projectId === id);
     if (cabin && cabin.deck !== visibleDeck) { travel(cabin.deck, id); return; }
     if (cabin?.kind === "monitor") setMonitorOpen(true);
+    if (cabin?.kind === "ai") setAiOpen(true);
     setWhole(false); setLiftOpen(false); setFocus(previous => ({ id, request: previous.request + 1 }));
   }, [busy, layout, visibleDeck, travel]);
   const arrive = useCallback((destination: DeckIndex) => { setDeck(destination); setWhole(false); }, []);
@@ -419,7 +423,10 @@ export function RingShipOffice(props: Props) {
       {activityEnabled ? <SpaceActivity radius={layout.radius} seed={system.seed} paused={navigationOpen || busy} motion={spaceMotion} caption={spaceCaption} /> : null}
       <Lighting radius={layout.radius} dimmed={navigationOpen && navigation.phase !== "warp"} />
       <ShipHull layout={layout} deck={visibleDeck} whole={shipView} busy={busy} />
-      {decks.map((value, index) => <group key={index} position={[0, index * DECK_STEP, 0]} visible={shipView || busy || index === visibleDeck}><StaticShip layout={value} /><ReturnPodBay layout={value} active={!!returnFlight}/></group>)}
+      {decks.map((value, index) => <group key={index} position={[0, index * DECK_STEP, 0]} visible={shipView || busy || index === visibleDeck}>
+        <StaticShip layout={value} /><ReturnPodBay layout={value} active={!!returnFlight}/>
+        {value.cabins.filter(c => c.kind === "ai").map(cabin => <AiComputationCore key={cabin.id} layout={value} cabin={cabin} interactive={!shipView && !busy && index === visibleDeck} onOpen={() => select(cabin.id)} />)}
+      </group>)}
       {!shipView && !busy ? <group position={[0, visibleDeck * DECK_STEP, 0]}>
         <CabinTargets layout={currentLayout} focus={validFocus} onSelect={select} />
         {props.musicPreview && visibleDeck === 0 ? currentLayout.cabins.filter(c => c.kind === "lounge").map(cabin => <ListeningBar key={cabin.id} layout={currentLayout} cabin={cabin} onOpen={() => setMusicOpen(true)} />) : null}
@@ -447,6 +454,7 @@ export function RingShipOffice(props: Props) {
       <div title={`Runtime: Codex (${gatewayStatus})`} className={`rounded-lg border px-2 py-2 text-[10px] uppercase tracking-wider ${gatewayStatus === "connected" ? "border-emerald-300/25 bg-emerald-400/10 text-emerald-200" : "border-amber-300/25 bg-amber-400/10 text-amber-100"}`}><span className="max-md:hidden">CODEX · </span>{t(gatewayStatus)}</div>
       <button className={button} title={t("Deck overview")} aria-label={t("Deck overview")} onClick={() => select("")}><Home size={15} /></button>
       <button className={button} title={t("Whole ship")} aria-label={t("Whole ship")} aria-pressed={shipView} onClick={() => { setWhole(value => !value); setLiftOpen(false); setFocus(previous => ({ id: "", request: previous.request + 1 })); }}><Layers3 size={15} /></button>
+      <button className={button} title={t("Open AI Center")} aria-label={t("Open AI Center")} onClick={() => setAiOpen(true)}><BrainCircuit size={15} /></button>
       <button className={button} title={t("Voice reply settings")} aria-label={t("Settings")} onClick={() => setSettingsOpen(true)}><Settings2 size={15} /></button>
     </div>
     <div className="ship-sidebar">
@@ -470,6 +478,7 @@ export function RingShipOffice(props: Props) {
       <div className="text-xs text-[#e1cb9f]">{selected ? (selected.kind === "work" && selected.projectId !== SHARED_PROJECT_ID ? selected.name : t(selected.name)) : shipView ? t("Three-ring ship · Whole ship") : `L${visibleDeck + 1} · ${t(DECK_NAMES[visibleDeck])}`}</div>
       <div className="mt-1 text-[11px] text-[#9fb9c2]">{selected ? t(PUBLIC_DESCRIPTIONS[selected.kind]) : t("{0} projects · {1} sessions · {2} reserve cabins", { "0": roster.projects.length, "1": agents.length, "2": reserveCount })}</div>
       {selected?.kind === "monitor" ? <button type="button" onClick={openMonitor} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#71d3c8]/40 px-3 text-xs text-[#b7eee0] hover:bg-white/10">{t("Open monitoring dashboard")} <Monitor size={13} /></button> : null}
+      {selected?.kind === "ai" ? <button type="button" onClick={() => setAiOpen(true)} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#86e6de]/40 px-3 text-xs text-[#b7eee0] hover:bg-white/10">{t("Open AI Center")} <BrainCircuit size={13} /></button> : null}
       {navigationPreview && selected?.kind === "monitor" ? <button type="button" onClick={() => navigate({ type: "open" })} className="pointer-events-auto mt-2 min-h-10 rounded-lg border border-[#9dc7d3]/40 px-3 text-xs text-[#c6e0e9]">{t("Open star chart")}</button> : null}
       <div className="mt-1 text-[9px] text-[#829da9]">{t("{working} working · {idle} idle · Drag to rotate · Scroll to zoom · Use the central lift to change decks", { working: agents.filter(a => a.status === "working").length, idle: agents.filter(a => a.status === "idle").length })}</div>
     </div>
@@ -478,6 +487,7 @@ export function RingShipOffice(props: Props) {
     {navigationOpen && navigation.phase !== "warp" ? <NavigationOverlay state={navigation} onAction={navigate} /> : null}
     {navigationPreview && navigation.phase === "warp" && navigation.destination ? <WarpJourney destination={starSystem(navigation.destination)} onArrive={arriveSystem} onComplete={completeWarp} /> : null}
     <MonitorDashboard open={monitorOpen} onClose={() => setMonitorOpen(false)} />
+    <AiCenterDashboard open={aiOpen} onClose={() => setAiOpen(false)} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
     {props.musicPreview ? <MusicPlayerDialog open={musicOpen} onClose={() => setMusicOpen(false)} /> : null}
     <LiftOverlay trip={trip} overlayRef={overlayRef} />
     {returnFlight ? <div role="status" aria-live="polite" className="absolute bottom-20 sm:bottom-4 left-1/2 z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-amber-200/25 bg-[#101e29]/95 px-4 py-3 text-center shadow-xl">

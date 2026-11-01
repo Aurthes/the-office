@@ -5,6 +5,7 @@ import { cabinDeck } from "./shell-shapes";
 import { addCabinDetails } from "./interior-details";
 import { addRainforest, addMachineRoom } from "./ship-biomes";
 import { addMonitorRoom } from "./monitor-room-geometry";
+import { addAiCenter } from "./ai-center-geometry";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
 import workstationModels from "@/features/retro-office/core/workstation-models.json";
@@ -146,7 +147,7 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
     const spokeAtEnd = spokeSlots.has((cabin.slot + 1) % layout.allocation.sectors);
 
     const opening = cabin.kind === "return" ? { ...shipPoint(ring.radius + 1.8, theta), radius: 1.02 } : undefined;
-    b.add(cabinDeck(ring.radius, ring.depth/2, cabin.slot*step, (cabin.slot+1)*step, opening), reserve ? "#8fa5ac" : cabin.kind === "garden" ? "#a2b48f" : "#c7bca6");
+    b.add(cabinDeck(ring.radius, ring.depth/2, cabin.slot*step, (cabin.slot+1)*step, opening), reserve ? "#8fa5ac" : cabin.kind === "ai" ? "#456370" : cabin.kind === "garden" ? "#a2b48f" : "#c7bca6");
 
     for (const t of [-0.27, 0, 0.27]) {
       const a = theta + t * step, p = shipPoint(outer - 0.2, a);
@@ -208,7 +209,9 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
 function addAmenity(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
   const ring = layout.rings[cabin.ring], width = ring.radius * TAU / layout.allocation.sectors;
   const local = (u: number, v: number) => shipPoint(ring.radius + v, cabinAngle(layout, cabin.slot) + u / ring.radius);
-  if (cabin.kind === "monitor") {
+  if (cabin.kind === "ai") {
+    addAiCenter(b, layout, cabin);
+  } else if (cabin.kind === "monitor") {
     addMonitorRoom(b, layout, cabin);
   } else if (cabin.kind === "return") {
     // The launch collar is hollow; no solid pad may cover the boarding hole.

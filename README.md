@@ -94,6 +94,21 @@ engine behavior from optional services and features that remain unavailable.
 Character movement is a visualization, not an additional agent or evidence that a
 model is running a task.
 
+The main deck's AI Center replaces the former inner-ring server room. Click its
+floating computation core, select the area, or use the brain icon in the toolbar
+to see the signed-in Office Codex account's plan, quota windows, reset times,
+additional credits, and token activity. Data comes from the [documented Codex interfaces](https://learn.chatgpt.com/docs/app-server)
+`account/read`, `account/rateLimits/read`, and `account/usage/read` interfaces;
+unsupported or unavailable values stay unknown. Subscription percentages are
+not converted to token budgets. The panel refreshes every minute while visible.
+
+Optional OpenAI API quotas use a separate organization administrator credential.
+Set `OPENAI_ADMIN_KEY` and `OPENAI_PROJECT_ID` **on the Codex gateway service** to
+read that project's model rate limits. The key stays in the gateway and is not
+passed to the browser or Codex child process. Without these settings the panel
+offers links to OpenAI's limits and billing pages. It does not infer prepaid
+balances, spending limits, or ChatGPT web-message quotas from token counts.
+
 The spaceship uses one available reserve cabin as a monitor room. Its main screen
 opens a console of illustrated dashboard shortcuts. Configure their names, URLs,
 and illustrations in the console; settings are saved with the local Studio state
