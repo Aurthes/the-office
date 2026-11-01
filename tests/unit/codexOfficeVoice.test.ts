@@ -1,9 +1,9 @@
 import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
-const { CodexSessionVoice } = createRequire(import.meta.url)("../../server/codex-session-voice.js");
+const { CodexOfficeVoice } = createRequire(import.meta.url)("../../server/codex-office-voice.js");
 const voiceId = "11111111-1111-4111-8111-111111111111";
-const setup = () => { const client = { call: vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => ({})) }, controls = { attach: vi.fn(async () => {}) }, emit = vi.fn(); return { client, controls, emit, voice: new CodexSessionVoice(client, controls, emit) }; };
-describe("native realtime voice ownership", () => {
+const setup = () => { const client = { call: vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => ({})) }, controls = { attach: vi.fn(async () => {}) }, emit = vi.fn(); return { client, controls, emit, voice: new CodexOfficeVoice(client, controls, emit) }; };
+describe("Office realtime voice ownership", () => {
   it("starts native WebRTC on the original thread and routes SDP only to its owner", async () => {
     const { voice, client, controls, emit } = setup();
     await voice.start("tab1", "original", "v=0\no=offer", voiceId);
@@ -32,7 +32,21 @@ describe("native realtime voice ownership", () => {
     await voice.start("tab1", "original", "v=0", voiceId);
     voice.disconnected("unrelated"); expect(client.call).toHaveBeenCalledTimes(2);
     voice.disconnected("tab1");
+    await vi.waitFor(() => expect(client.call).toHaveBeenCalledTimes(3));
     expect(client.call).toHaveBeenLastCalledWith("thread/realtime/stop", { threadId: "original" });
+  });
+  it("cancels a call when its tab disconnects during native startup", async () => {
+    const { voice, client } = setup();
+    let accept!: () => void;
+    client.call.mockImplementationOnce(() => new Promise(resolve => { accept = () => resolve({}); }));
+    const starting = voice.start("tab1", "original", "v=0", voiceId);
+    const rejected = expect(starting).rejects.toThrow("取消");
+    await vi.waitFor(() => expect(client.call).toHaveBeenCalledTimes(1));
+    voice.disconnected("tab1");
+    await expect(voice.start("tab2", "other", "v=0", voiceId)).rejects.toThrow("已有");
+    accept(); await rejected;
+    await vi.waitFor(() => expect(client.call).toHaveBeenLastCalledWith("thread/realtime/stop", { threadId: "original" }));
+    expect(voice.active).toBeNull();
   });
   it("does not let another tab replace a call after an uncertain stop", async () => {
     const { voice, client } = setup();

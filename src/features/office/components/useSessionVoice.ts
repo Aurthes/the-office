@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SessionClient } from "./SessionControls";
 
-type VoiceConnection = { id: string; pc: RTCPeerConnection; audio: HTMLAudioElement; stream?: MediaStream; unsubscribe?: () => void; timer?: ReturnType<typeof setTimeout> };
+type VoiceConnection = { id: string; pc: RTCPeerConnection; audio: HTMLAudioElement; stream?: MediaStream; unsubscribe?: () => void; unsubscribeStatus?: () => void; timer?: ReturnType<typeof setTimeout> };
 export function useSessionVoice(client: SessionClient, threadId: string) {
   const connection = useRef<VoiceConnection | null>(null);
   const [status, setStatus] = useState<"off" | "connecting" | "connected">("off");
@@ -12,7 +12,7 @@ export function useSessionVoice(client: SessionClient, threadId: string) {
   const finish = useCallback((session: VoiceConnection, notify = true, reason = "") => {
     if (connection.current !== session) return;
     connection.current = null;
-    clearTimeout(session.timer); session.unsubscribe?.();
+    clearTimeout(session.timer); session.unsubscribe?.(); session.unsubscribeStatus?.();
     session.stream?.getTracks().forEach(track => track.stop());
     session.pc.close(); session.audio.pause(); session.audio.srcObject = null;
     setStatus("off"); setPlaybackBlocked(false);
@@ -68,6 +68,9 @@ export function useSessionVoice(client: SessionClient, threadId: string) {
       if (value.method === "thread/realtime/transcript/done") caption(params.role || "assistant", params.text || "");
       if (value.method === "thread/realtime/error") finish(session, true, params.message?.slice(0, 400) || "Codex voice error. Please retry.");
       if (value.method === "thread/realtime/closed") finish(session, false, params.reason && params.reason !== "requested" ? "Voice ended: " + params.reason.slice(0, 200) : "");
+    });
+    session.unsubscribeStatus = client.onStatus?.(status => {
+      if (status !== "connected") finish(session, false, "Voice disconnected. Please reconnect.");
     });
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });

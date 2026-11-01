@@ -59,9 +59,6 @@ import {
   type ConfigMutationKind,
 } from "@/features/agents/operations/useConfigMutationQueue";
 import { useGatewayConfigSyncController } from "@/features/agents/operations/useGatewayConfigSyncController";
-import { useFinalizedAssistantReplyListener } from "@/hooks/useFinalizedAssistantReplyListener";
-import { useStudioVoiceRepliesPreference } from "@/hooks/useStudioVoiceRepliesPreference";
-import { useVoiceReplyPlayback } from "@/hooks/useVoiceReplyPlayback";
 import { isLocalGatewayUrl } from "@/lib/gateway/local-gateway";
 import type { ExecApprovalDecision, PendingExecApproval } from "@/features/agents/approvals/types";
 import {
@@ -241,25 +238,6 @@ const AgentsPageScreen = () => {
   const runtimeSupportsConfig = supportsCapability("config");
   const runtimeSupportsModels = supportsCapability("models");
   const runtimeSupportsCron = supportsCapability("cron");
-  const {
-    loaded: voiceRepliesLoaded,
-    preference: voiceRepliesPreference,
-    enabled: voiceRepliesEnabled,
-    speed: voiceRepliesSpeed,
-  } = useStudioVoiceRepliesPreference({
-    gatewayUrl,
-    settingsCoordinator,
-  });
-  const {
-    enqueue: enqueueVoiceReply,
-    stop: stopVoiceReplyPlayback,
-  } = useVoiceReplyPlayback({
-    enabled: voiceRepliesEnabled,
-    provider: voiceRepliesPreference.provider,
-    voiceId: voiceRepliesPreference.voiceId,
-    speed: voiceRepliesSpeed,
-  });
-
   const { state, dispatch, hydrateAgents, setError, setLoading } = useAgentStore();
   const [showConnectionPanel, setShowConnectionPanel] = useState(false);
   const [focusFilter, setFocusFilter] = useState<FocusFilter>("all");
@@ -855,22 +833,6 @@ const AgentsPageScreen = () => {
       setMobilePane("chat");
     },
   });
-  useFinalizedAssistantReplyListener(state.agents, ({ text }) => {
-    if (!voiceRepliesLoaded || !voiceRepliesEnabled) return;
-    enqueueVoiceReply({
-      text,
-      provider: voiceRepliesPreference.provider,
-      voiceId: voiceRepliesPreference.voiceId,
-    });
-  });
-  const handleChatSend = useCallback(
-    async (agentId: string, sessionKey: string, message: string, attachments?: import("@/lib/runtime/types").RuntimeAttachment[]) => {
-      stopVoiceReplyPlayback();
-      await handleSend(agentId, sessionKey, message, attachments);
-    },
-    [handleSend, stopVoiceReplyPlayback]
-  );
-
   const handleFocusFilterChange = useCallback(
     (next: FocusFilter) => {
       flushPendingDraft(focusedAgent?.agentId ?? null);
@@ -1780,7 +1742,7 @@ const AgentsPageScreen = () => {
                         }
                         onDraftChange={(value) => handleDraftChange(focusedAgent.agentId, value)}
                         onSend={(message, attachments) =>
-                          handleChatSend(
+                          handleSend(
                             focusedAgent.agentId,
                             focusedAgent.sessionKey,
                             message,

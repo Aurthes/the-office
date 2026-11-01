@@ -12,7 +12,7 @@ afterEach(() => { roots.splice(0).forEach(root => rmSync(root, { recursive: true
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), "office-state-test-")); roots.push(root);
   const workspace = path.join(root, "workspace"); mkdirSync(workspace);
-  const client = { ready: true, respond: vi.fn(), call: vi.fn(async (method: string) => {
+  const client = { ready: true, respond: vi.fn(), call: vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async (method: string) => {
     if (method === "model/list") return { data: [{ model: "model-a", displayName: "A", supportedReasoningEfforts: [{ reasoningEffort: "high" }], defaultReasoningEffort: "high" }] };
     if (method === "permissionProfile/list") return { data: [{ id: ":workspace", allowed: true }, { id: ":read-only", allowed: true }, { id: ":danger-full-access", allowed: true }] };
     if (method === "thread/start") return { thread: { id: "native-own-thread" }, model: "model-a" };
@@ -66,6 +66,40 @@ describe("independent Office runtime", () => {
     await expect(f.store.call("thread/resume", { threadId: id })).rejects.toThrow("no rollout");
     expect(f.store.get(id).codexThreadId).toBe("uncertain");
   });
+  it("opens voice on an empty Office chat with its current folders and permissions, and maps voice events back", async () => {
+    const f = fixture(), id = await session(f), second = path.join(f.root, "second"); mkdirSync(second);
+    const row = f.store.get(id), project = f.store.projects()[0];
+    await f.store.updateProject({ projectId: project.id, name: "Voice project", rootPaths: [f.workspace, second], requestId: "voice-folders" });
+    await f.store.update(id, { model: "model-a", effort: "high", accessMode: ":read-only" });
+    const params = { threadId: id, version: "v3", outputModality: "audio", transport: { type: "webrtc", sdp: "v=0" } };
+    await f.store.call("thread/realtime/start", params);
+    expect(f.client.call).toHaveBeenCalledWith("thread/start", expect.objectContaining({ cwd: row.workspace, sandbox: "read-only", approvalPolicy: "on-request", config: { model_reasoning_effort: "high", sandbox_workspace_write: { writable_roots: [realpathSync(f.workspace), realpathSync(second)], network_access: false } } }));
+    expect(f.client.call).toHaveBeenCalledWith("thread/inject_items", expect.objectContaining({ threadId: "native-own-thread" }));
+    expect(f.client.call).toHaveBeenLastCalledWith("thread/realtime/start", { ...params, threadId: "native-own-thread", includeStartupContext: false, initialItems: [{ role: "developer", text: expect.stringContaining("Voice project") }] });
+    expect(f.store.handle({ method: "thread/realtime/sdp", params: { threadId: "native-own-thread", sdp: "v=0-answer" } })).toEqual({ method: "thread/realtime/sdp", params: { threadId: id, sdp: "v=0-answer" } });
+    await f.store.call("thread/realtime/stop", { threadId: id });
+    expect(f.client.call).toHaveBeenLastCalledWith("thread/realtime/stop", { threadId: "native-own-thread" });
+    expect(f.client.call.mock.calls.some(([method]) => method === "turn/start")).toBe(false);
+    await f.store.call("thread/realtime/start", params);
+    expect(f.client.call).toHaveBeenCalledWith("thread/resume", expect.objectContaining({ threadId: "native-own-thread", sandbox: "read-only" }));
+  });
+  it("bounds voice context to visible chat messages and preserves a running task's configuration", async () => {
+    const f = fixture(), id = await session(f), row = f.store.get(id);
+    Object.assign(row, { codexThreadId: "running-thread", hasTurns: true, status: "running" });
+    f.client.call.mockImplementation(async (method: string) => method === "thread/turns/list" ? { data: [{ id: "turn", items: [
+      { id: "user", type: "userMessage", content: [{ type: "text", text: "Current request" }] },
+      { id: "commentary", type: "agentMessage", phase: "commentary", text: "PRIVATE_WORK_LOG" },
+      { id: "answer", type: "agentMessage", phase: "final", text: "中".repeat(8000) },
+    ] }], nextCursor: null } : {});
+    await f.store.call("thread/realtime/start", { threadId: id });
+    expect(f.client.call.mock.calls.some(([method]) => method === "thread/resume")).toBe(false);
+    const params = f.client.call.mock.calls.at(-1)?.[1] as { initialItems: { role: string; text: string }[]; includeStartupContext: boolean };
+    expect(params.includeStartupContext).toBe(false);
+    expect(params.initialItems).toContainEqual({ role: "user", text: "Current request" });
+    expect(JSON.stringify(params.initialItems)).not.toContain("PRIVATE_WORK_LOG");
+    expect(params.initialItems.reduce((size, item) => size + Buffer.byteLength(item.text), 0)).toBeLessThanOrEqual(16000);
+    expect(params.initialItems.at(-1)?.text).not.toContain("�");
+  });
   it("maps live events and context usage to Office identity, never a foreign session", async () => {
     const f = fixture(), id = await session(f); f.store.get(id).codexThreadId = "native-own-thread";
     const controls = new CodexSessionControls(f.store, () => [], { settings: f.store });
@@ -80,6 +114,28 @@ describe("independent Office runtime", () => {
     await f.store.archiveSession({ threadId: id, requestId: "archive" });
     await expect(f.store.archiveSession({ threadId: id, requestId: "archive" })).resolves.toEqual({ threadId: id, archived: true });
     expect(f.store.list()).toEqual([]); expect(f.client.call).not.toHaveBeenCalled();
+  });
+  it("archives the mapped Codex thread once before removing the Office session", async () => {
+    const f = fixture(), id = await session(f);
+    Object.assign(f.store.get(id), { codexThreadId: "native-own-thread", hasTurns: true });
+    const input = { threadId: id, requestId: "archive-mapped" };
+    await expect(f.store.archiveSession(input)).resolves.toEqual({ threadId: id, archived: true });
+    await f.store.archiveSession(input);
+    expect(f.client.call.mock.calls).toEqual([["thread/archive", { threadId: "native-own-thread" }]]);
+    expect(f.store.list()).toEqual([]);
+  });
+  it("keeps a busy or uncertain archive visible and does not retry the same request", async () => {
+    const f = fixture(), id = await session(f);
+    Object.assign(f.store.get(id), { codexThreadId: "native-own-thread", hasTurns: true, status: "running" });
+    await expect(f.store.archiveSession({ threadId: id, requestId: "archive-busy" })).rejects.toThrow("Stop");
+    expect(f.client.call).not.toHaveBeenCalled();
+    f.store.get(id).status = "idle";
+    f.client.call.mockRejectedValueOnce(new Error("response lost"));
+    const input = { threadId: id, requestId: "archive-uncertain" };
+    await expect(f.store.archiveSession(input)).rejects.toThrow("response lost");
+    expect(() => f.store.archiveSession(input)).toThrow("check the result before retrying");
+    expect(f.client.call).toHaveBeenCalledTimes(1);
+    expect(f.store.list().map((row: { id: string }) => row.id)).toEqual([id]);
   });
   it("grants only the requested permissions for this turn, and grants nothing when declined", async () => {
     const f = fixture(), id = await session(f), controls = new CodexSessionControls(f.store, () => [], { settings: f.store });

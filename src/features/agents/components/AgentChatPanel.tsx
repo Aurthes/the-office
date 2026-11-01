@@ -13,13 +13,13 @@ import {
 import type { AgentState as AgentRecord } from "@/features/agents/state/store";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, ChevronRight, Clock, Mic, Paperclip, Pencil, Square, Trash2, X } from "lucide-react";
+import { markdownCodeComponents } from "@/components/markdown-code-block";
+import { Check, ChevronRight, Clock, Mic, Paperclip, Pencil, Trash2, X } from "lucide-react";
 import type { GatewayModelChoice } from "@/lib/gateway/models";
 import type { AgentAvatarProfile } from "@/lib/avatars/profile";
 import { rewriteMediaLinesToMarkdown } from "@/lib/text/media-markdown";
 import { normalizeAssistantDisplayText } from "@/lib/text/assistantText";
 import { isNearBottom } from "@/lib/dom";
-import { useVoiceRecorder, type VoiceRecorderState, type VoiceSendPayload } from "@/hooks/useVoiceRecorder";
 import { AgentAvatar } from "./AgentAvatar";
 import type {
   ExecApprovalDecision,
@@ -210,7 +210,6 @@ type AgentChatPanelProps = {
   onAvatarShuffle: () => void;
   pendingExecApprovals?: PendingExecApproval[];
   onResolveExecApproval?: (id: string, decision: ExecApprovalDecision) => void;
-  onVoiceSend?: (payload: VoiceSendPayload) => Promise<void>;
 };
 
 const formatApprovalExpiry = (timestampMs: number): string => {
@@ -317,7 +316,7 @@ const ToolCallDetails = memo(function ToolCallDetails({
       </summary>
       {open && body ? (
         <div className="agent-markdown agent-tool-markdown mt-1 text-foreground">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownCodeComponents}>
             {rewriteMediaLinesToMarkdown(body)}
           </ReactMarkdown>
         </div>
@@ -393,7 +392,7 @@ const ThinkingDetailsRow = memo(function ThinkingDetailsRow({
                 key={`thinking-event-${index}-${event.text.slice(0, 48)}`}
                 className="agent-markdown min-w-0 text-foreground/85"
               >
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{event.text}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownCodeComponents}>{event.text}</ReactMarkdown>
               </div>
             ) : (
               <ToolCallDetails
@@ -429,7 +428,7 @@ const UserMessageCard = memo(function UserMessageCard({
         ) : null}
       </div>
       <div className="agent-markdown type-body px-3 py-3 text-foreground dark:px-3.5 dark:py-3.5">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownCodeComponents}>{text}</ReactMarkdown>
       </div>
     </div>
   );
@@ -562,13 +561,13 @@ const AssistantMessageCard = memo(function AssistantMessageCard({
                     }
                     return (
                       <div className="agent-markdown text-foreground">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{rewritten}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownCodeComponents}>{rewritten}</ReactMarkdown>
                       </div>
                     );
                   })()
                 ) : (
                   <div className="agent-markdown text-foreground">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownCodeComponents}>
                       {rewriteMediaLinesToMarkdown(contentText)}
                     </ReactMarkdown>
                   </div>
@@ -956,17 +955,12 @@ const AgentChatComposer = memo(function AgentChatComposer({
   onAttachmentFiles,
   attachments,
   onRemoveAttachment,
-  onVoiceToggle,
   onStop,
   canSend,
   stopBusy,
   stopDisabledReason,
   running,
   sendDisabled,
-  voiceEnabled,
-  voiceSupported,
-  voiceState,
-  voiceError,
   attachmentStatus,
   attachmentInputRef,
   queuedMessages,
@@ -990,17 +984,12 @@ const AgentChatComposer = memo(function AgentChatComposer({
   onAttachmentFiles: (event: ChangeEvent<HTMLInputElement>) => void;
   attachments: UploadAttachment[];
   onRemoveAttachment: (id: string) => void;
-  onVoiceToggle?: () => void;
   onStop: () => void;
   canSend: boolean;
   stopBusy: boolean;
   stopDisabledReason?: string | null;
   running: boolean;
   sendDisabled: boolean;
-  voiceEnabled: boolean;
-  voiceSupported: boolean;
-  voiceState: VoiceRecorderState;
-  voiceError?: string | null;
   attachmentStatus?: string | null;
   attachmentInputRef: MutableRefObject<HTMLInputElement | null>;
   queuedMessages: string[];
@@ -1020,27 +1009,6 @@ const AgentChatComposer = memo(function AgentChatComposer({
   const stopReason = stopDisabledReason?.trim() ?? "";
   const stopDisabled = !canSend || stopBusy || Boolean(stopReason);
   const stopAriaLabel = stopReason ? `Stop unavailable: ${stopReason}` : "Stop";
-  const voiceBusy = voiceState === "requesting" || voiceState === "transcribing";
-  const voiceRecording = voiceState === "recording";
-  const voiceDisabled = voiceRecording ? false : !voiceEnabled || !voiceSupported || !canSend || voiceBusy;
-  const voiceLabel =
-    voiceState === "recording"
-      ? "Stop"
-      : voiceState === "transcribing"
-        ? "..."
-        : voiceState === "requesting"
-          ? "Mic..."
-          : "Mic";
-  const voiceStatusText =
-    voiceState === "recording"
-      ? "Recording. Tap stop to send."
-      : voiceState === "transcribing"
-        ? "Transcribing your voice note."
-        : voiceState === "requesting"
-          ? "Requesting microphone access."
-          : !voiceSupported && voiceEnabled
-            ? "This browser does not support microphone recording."
-            : null;
   const modelSelectedLabel = useMemo(() => {
     if (modelOptions.length === 0) return "No models found";
     return modelOptions.find((option) => option.value === modelValue)?.label ?? modelValue;
@@ -1242,16 +1210,12 @@ const AgentChatComposer = memo(function AgentChatComposer({
             })}
           </div>
         ) : null}
-        {voiceStatusText || voiceError || attachmentStatus ? (
+        {attachmentStatus ? (
           <div
-            className={`mb-2 rounded-md border px-2.5 py-1.5 font-mono text-[10px] tracking-[0.02em] ${
-              voiceError
-                ? "ui-badge-status-error"
-                : "ui-badge-status-approval"
-            }`}
-            data-testid="agent-voice-status"
+            className="mb-2 rounded-md border px-2.5 py-1.5 font-mono text-[10px] tracking-[0.02em] ui-badge-status-approval"
+            data-testid="agent-attachment-status"
           >
-            {voiceError ?? voiceStatusText ?? attachmentStatus}
+            {attachmentStatus}
           </div>
         ) : null}
         <div className="flex items-end gap-2">
@@ -1285,26 +1249,16 @@ const AgentChatComposer = memo(function AgentChatComposer({
               <span>Attach</span>
             </span>
           </button>
-          {voiceEnabled ? (
-            <button
-              className={`rounded-md border px-2.5 py-2 font-mono text-[11px] font-medium tracking-[0.02em] transition ${
-                voiceRecording
-                  ? "ui-btn-danger"
-                  : "border-border/70 bg-surface-3 text-white hover:bg-surface-2 hover:text-white"
-              } disabled:cursor-not-allowed disabled:border-border/30 disabled:bg-muted/20 disabled:text-muted-foreground`}
-              type="button"
-              onClick={onVoiceToggle}
-              disabled={voiceDisabled}
-              data-testid="agent-voice-toggle"
-              aria-label={voiceRecording ? "Stop voice recording" : "Start voice recording"}
-              title={voiceRecording ? "Stop voice recording" : "Start voice recording"}
-            >
-              <span className="inline-flex items-center gap-1.5">
-                {voiceRecording ? <Square className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
-                <span>{voiceLabel}</span>
-              </span>
-            </button>
-          ) : null}
+          <button
+            className="rounded-md border border-border/30 bg-muted/20 px-2.5 py-2 font-mono text-[11px] text-muted-foreground disabled:cursor-not-allowed"
+            type="button"
+            disabled
+            data-testid="agent-voice-toggle"
+            aria-label="Voice input unavailable"
+            title="Voice input is unavailable for this backend"
+          >
+            <span className="inline-flex items-center gap-1.5"><Mic className="h-3.5 w-3.5" /><span>Mic</span></span>
+          </button>
           {running ? (
             <span className="inline-flex" title={stopReason || undefined}>
               <button
@@ -1354,7 +1308,6 @@ export const AgentChatPanel = ({
   onAvatarShuffle,
   pendingExecApprovals = [],
   onResolveExecApproval,
-  onVoiceSend,
 }: AgentChatPanelProps) => {
   const [draftValue, setDraftValue] = useState(agent.draft);
   const [newSessionBusy, setNewSessionBusy] = useState(false);
@@ -1375,16 +1328,6 @@ export const AgentChatPanel = ({
     sessionKey: agent.sessionKey,
   });
   const pendingResizeFrameRef = useRef<number | null>(null);
-  const {
-    state: voiceState,
-    error: voiceError,
-    supported: voiceSupported,
-    toggle: toggleVoiceRecording,
-  } = useVoiceRecorder({
-    enabled: Boolean(onVoiceSend),
-    onVoiceSend,
-  });
-
   const resizeDraft = useCallback(() => {
     const el = draftRef.current;
     if (!el) return;
@@ -1605,15 +1548,6 @@ export const AgentChatPanel = ({
   const handleRemoveAttachment = useCallback((id: string) => {
     setAttachments((current) => current.filter((attachment) => attachment.id !== id));
   }, []);
-
-  const handleVoiceToggle = useCallback(
-    () => {
-      if (!canSend && voiceState !== "recording") return;
-      void toggleVoiceRecording();
-    },
-    [canSend, toggleVoiceRecording, voiceState],
-  );
-
   const beginRename = useCallback(() => {
     if (!onRename) return;
     setRenameEditing(true);
@@ -1861,17 +1795,12 @@ export const AgentChatPanel = ({
             onAttachmentFiles={handleAttachmentFiles}
             attachments={attachments}
             onRemoveAttachment={handleRemoveAttachment}
-            onVoiceToggle={handleVoiceToggle}
             onStop={onStopRun}
             canSend={canSend}
             stopBusy={stopBusy}
             stopDisabledReason={stopDisabledReason}
             running={running}
             sendDisabled={sendDisabled}
-            voiceEnabled={Boolean(onVoiceSend)}
-            voiceSupported={voiceSupported}
-            voiceState={voiceState}
-            voiceError={voiceError}
             attachmentStatus={attachmentStatus}
             attachmentInputRef={attachmentInputRef}
             queuedMessages={agent.queuedMessages ?? []}

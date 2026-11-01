@@ -41,7 +41,6 @@ export async function POST(request: Request) {
     const scenario = buildMockPhoneCallScenario({
       callee,
       message: message || null,
-      voiceAvailable: Boolean(process.env.ELEVENLABS_API_KEY?.trim()),
     });
 
     return NextResponse.json(

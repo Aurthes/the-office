@@ -6,7 +6,9 @@ Run this from the repository in an interactive terminal with Node.js 20 or newer
 node scripts/setup-netease-credentials.js
 ```
 
-Enter the developer application's `appId`, press Enter, then paste its `privateKey` and press Enter. Both inputs are hidden. The key can be a single-line Base64 value or the complete PEM, including its BEGIN and END lines. For multiline PEM, press Enter after the END line. The public key is not needed. Ctrl+C cancels before saving.
+Enter only the developer application's `appId` value, then press Enter. App ID input is visible, and the script displays `Using App ID: ...` so you can check what was accepted. Empty values or values containing spaces prompt you to retry before entering the private key.
+
+Then paste `privateKey` and press Enter. Only private key input is hidden. The key can be a single-line Base64 value or the complete PEM, including its BEGIN and END lines. For multiline PEM, press Enter after the END line. The public key is not needed. Ctrl+C cancels before saving.
 
 The script checks the RSA key format locally and stores JSON containing `appId` and `privateKey` at:
 

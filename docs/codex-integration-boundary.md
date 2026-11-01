@@ -5,8 +5,9 @@ independent of the native App. Do not implement App project/session sharing,
 including read-only discovery or queued messages. Reuse Codex for Office-owned
 conversations. [Office-owned state and chat features](office-owned-state.md)
 defines the current direction; the assessment below records earlier research,
-not the selected architecture. The running legacy mode has not been migrated by
-this documentation change.
+not the selected architecture. The legacy backends have since been removed;
+references below describe the implementation at the time of the assessment.
+Removing their source does not migrate or change any existing native App installation.
 
 The Office is an optional companion to an unmodified Codex/ChatGPT App. Installing,
 running, upgrading, or removing Office must not require changing the App's files,
@@ -52,7 +53,7 @@ be restored.
 | Exact live token/tool stream from the App's active owner | Unavailable through the unchanged App interface inspected here | Reading persisted records is not a substitute for access to the active owner's event stream. |
 | Rename/archive/restore saved native App chats | Published thread APIs; native fixture readback passed both directions | Disabled in the current adapter. Instant sidebar refresh is unverified; lifecycle actions must not be used as a hidden execution-takeover mechanism. |
 | Create/reassign/manage App projects in both UIs | No stable App project-sync contract established | Experimental CRUD passed in isolation. Native read-only comparison matched folders but not IDs; App management-tool IDs were rejected by protocol reads. No private database/cache writes. |
-| Native App voice calls, dictation, and grey prompt suggestions | Current implementations unavailable | These implementations use the retired owner and native context. Independent Office speech or suggestions could be designed separately, without claiming App parity. |
+| Native App voice calls, dictation, and grey prompt suggestions | Native App integration unavailable | Office has a separate experimental Codex WebRTC voice path on its own threads, plus optional public-API dictation/suggestions. None attaches to the App's calls or sessions; see `office-owned-state.md` for validation and limits. |
 | Browse workspace files or run a terminal | Current workspace controls unavailable | They currently use the shared owner. Independent, explicitly scoped file/terminal access is possible without changing the App; it is a separate implementation. |
 | Run conversations owned by Office using an installed Codex | Feasible without changing the App | The existing standalone adapter launches `codex app-server` over stdio. Own-thread text, streaming, and stop already exist. It does not inherit the desktop App's live thread ownership or App-only tools. |
 | Resume a stored thread using an Office-owned server | Documented; isolated sequential handoff retained model-visible history | Another process's loaded thread remains locked even when its turn is idle. Release is required; App-only tool/context parity is not established. |

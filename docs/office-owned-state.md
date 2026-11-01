@@ -147,9 +147,13 @@ describe these public configuration surfaces.
 | Workspace terminal | Public `command/exec` PTY, output, input, resize and terminate tested using the real engine; uses the session's sandbox policy |
 | Dictation | Optional public file-transcription API, recording/cancel/retry/Option/Enter UI. Disabled without a server API key. Mocked tests cover request/error handling and existing recording controls; real transcription, device/browser behavior and account access remain unvalidated |
 | Suggested prompts | Optional public Responses API, using recent visible messages, no tools and `store:false`. Disabled without a key. Request shape tested; quality, account access and latency not measured. Not native App prediction reuse |
-| Live voice | Unavailable. Public Realtime exists, but voice-to-Codex task/tool/approval/transcript integration needs a separate design |
+| Live voice | Experimental Codex 0.166.0 WebRTC V3 on the selected Office thread, using Office's ChatGPT login. Browser audio travels directly to the voice service; tasks and approvals use the existing Office handlers. Real-account tests cover an empty chat, generated speech triggering a completed Codex task, received audio packets, and hangup. Physical microphone behavior and subjective voice quality still need manual testing |
 
 ## Optional speech and suggestions
+
+OpenClaw transcription and ElevenLabs reply playback have been removed. Office
+keeps Codex session speech controls visible and disabled when the runtime reports
+those capabilities as unavailable. There is no fallback to an OpenClaw runtime.
 
 Configure `OPENAI_API_KEY` on the **gateway only**, then restart it. This enables
 dictation and suggested prompts. Defaults are `gpt-transcribe` for
@@ -162,9 +166,35 @@ The [file-transcription guide](https://developers.openai.com/api/docs/guides/spe
 documents the speech route. The
 [Responses API](https://developers.openai.com/api/docs/guides/text) supplies
 suggestions. No private dictation token, prediction-config endpoint,
-`thread/sample` or experimental Codex realtime method is used by this runtime.
+or `thread/sample` is used by this runtime.
 Transcription errors keep the recording; an HTML response becomes a readable
 service error rather than a JSON parse error. There is no automatic resend.
+
+## Experimental voice calls
+
+The headphones button starts `thread/realtime/start` with WebRTC V3 on the
+current Office-owned Codex thread; hangup calls `thread/realtime/stop` without
+interrupting a coding task. This uses Office's own ChatGPT login, subject to
+account voice availability and limits, and does not require the optional
+transcription API key. Codex itself performs authentication and call negotiation.
+Office enables the app-server experimental API for this version-specific path.
+
+Calls on idle chats capture the current model, reasoning effort, folder roots
+and access policy; an already running task keeps its existing configuration.
+Change settings after hanging up. Native automatic startup context
+collection stalled during the installed-version probe, so Office disables it
+and supplies only the selected project's folder context (up to 4 KB) and recent
+visible user/assistant messages (up to 12 KB, at most 12 messages). It does not
+scan other projects or the user's home for voice context. The backing Codex task
+retains its original thread and full managed history. The call panel shows live
+captions; Office does not yet render every native realtime timeline item in its
+saved chat view.
+
+Only the initiating browser tab receives call events and can hang up. Closing
+the tab or losing its gateway connection ends its call and releases browser
+audio resources. One call is admitted at a time. HTTPS (or localhost), microphone
+permission and a working WebRTC network path are required. Failure is reported
+without falling back to a paid API or attaching to the native App.
 
 ## Reproduce validation
 
@@ -184,5 +214,5 @@ and temporary state are removed on completion. Browser validation additionally
 checks Office project/chat creation, settings and unavailable feature controls.
 
 Legacy native-session gateway/index, shared-owner, private dictation and private
-prediction files remain historical implementations; they are not imported by
-the independent gateway or recommended installation paths.
+prediction implementations have been removed. The independent gateway retains
+the shared session controls, history, stream, uploads, assets and workspace modules.
