@@ -19,6 +19,7 @@ import { useSessionVoice } from "@/features/office/components/useSessionVoice";
 import { SessionVoiceCall } from "@/features/office/components/SessionVoice";
 import { SessionListDivider } from "@/features/office/components/SessionListDivider";
 import { CompanyActions } from "@/features/office/components/CompanyActions";
+import { OfficeOnboarding } from "@/features/onboarding/components/OfficeOnboarding";
 import { useCompletionReadState } from "@/features/office/hooks/useCompletionReadState";
 import { useCompanyRosterSync } from "@/features/office/hooks/useCompanyRosterSync";
 import { loadCompanySnapshot } from "@/features/office/operations/loadCompanySnapshot";
@@ -3295,6 +3296,18 @@ export function OfficeScreen({
       title={t(chatExpanded ? "Restore" : "Expand")} className="session-header-button office-chat-expand hidden md:inline-flex">{chatExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
     <button type="button" onClick={() => setChatOpen(false)} aria-label={t("Close chat and return to office")} title={t("Close chat")} className="session-header-button"><X size={18} /></button>
   </>;
+  const companyActions = sessionView && companyRoster ? <CompanyActions client={client} projects={companyRoster.projects}
+    disabled={status !== "connected" || !companyCreationAvailable} onCreated={async (threadId, avatarProfile) => {
+      if (threadId && avatarProfile) {
+        await settingsCoordinator.applyPatchNow({ avatars: { [gatewayUrl.trim()]: { [threadId]: avatarProfile } } });
+      }
+      await loadAgents({ silent: true, forceSettings: Boolean(avatarProfile) });
+      if (threadId && avatarProfile) dispatch({ type: "updateAgent", agentId: threadId, patch: { avatarProfile, avatarSeed: avatarProfile.seed } });
+      if (threadId) {
+        if (showOnboardingWizard) handleCompleteOnboarding();
+        handleOpenAgentChat(threadId);
+      }
+    }} /> : null;
 
   return (
     <main className="office-responsive relative h-full w-full overflow-hidden bg-black">
@@ -3341,15 +3354,7 @@ export function OfficeScreen({
           officeCenterSignal={officeCameraCenterSignal}
           animationState={officeAnimationState}
           companyRoster={companyRoster}
-          companyActions={sessionView && companyRoster ? <CompanyActions client={client} projects={companyRoster.projects}
-            disabled={status !== "connected" || !companyCreationAvailable} onCreated={async (threadId, avatarProfile) => {
-              if (threadId && avatarProfile) {
-                await settingsCoordinator.applyPatchNow({ avatars: { [gatewayUrl.trim()]: { [threadId]: avatarProfile } } });
-              }
-              await loadAgents({ silent: true, forceSettings: Boolean(avatarProfile) });
-              if (threadId && avatarProfile) dispatch({ type: "updateAgent", agentId: threadId, patch: { avatarProfile, avatarSeed: avatarProfile.seed } });
-              if (threadId) handleOpenAgentChat(threadId);
-            }} /> : null}
+          companyActions={showOnboardingWizard ? null : companyActions}
           deskAssignmentByDeskUid={deskAssignmentByDeskUid}
           githubReviewAgentId={githubReviewAgentId}
           qaTestingAgentId={qaTestingAgentId}
@@ -3470,7 +3475,8 @@ export function OfficeScreen({
         </div>
       ) : null}
 
-      {showOnboardingWizard ? (
+      {showOnboardingWizard && sessionView ? <OfficeOnboarding client={client} connected={status === "connected"} agentCount={state.agents.length} onComplete={handleCompleteOnboarding}>{companyActions}</OfficeOnboarding> : null}
+      {showOnboardingWizard && !sessionView ? (
         <OnboardingWizard
           key={companyCreatedSignal > 0 ? `onboarding-company-created-${companyCreatedSignal}` : "onboarding-default"}
           gatewayConnected={status === "connected"}

@@ -98,3 +98,4 @@ test-results
 
 # Public demo build
 /dist-demo/
+/dist-macos/

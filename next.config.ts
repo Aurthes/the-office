@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import path from "node:path";
 import { HTML_POLICY } from "./server/codex-session-assets";
+const localDesktop = process.env.CLAW3D_OFFICE_DESKTOP === "1" && process.env.NEXT_PUBLIC_CLAW3D_WEB_ACCESS !== "1";
 
 const securityHeaders = [
   {
@@ -26,7 +27,9 @@ const securityHeaders = [
       "frame-src 'self' https://music.163.com",
       "worker-src 'self' blob:",
       "object-src 'none'",
-      "upgrade-insecure-requests",
+      // WebKit also upgrades loopback WebSockets. The packaged app owns HTTP
+      // loopback listeners; public deployments keep their HTTPS upgrade policy.
+      ...(!localDesktop ? ["upgrade-insecure-requests"] : []),
     ].join("; "),
   },
   {
