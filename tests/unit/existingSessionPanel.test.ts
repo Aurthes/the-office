@@ -19,15 +19,41 @@ describe("existing session history pagination", () => {
     expect((screen.getByRole("button",{name:/Return to Earth/}) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button",{name:/Return to Earth/}));expect(onReturnToEarth).toHaveBeenCalledTimes(1);
   });
-  it("keeps messages received live while the latest history page is still loading", async () => {
-    const history = deferred();
-    const live = { id: "live", role: "assistant", content: "live reply" };
-    const call = vi.fn((method: string) => {
+  it("does not append old bootstrap cache after the latest page, and catches up from canonical history", async () => {
+    const second = deferred(); let listener!: (event: { event: string; payload?: unknown }) => void, subscriptionId = "", reads = 0;
+    const latest = { threadId: "original", nextCursor: "older", messages: [{ id: "apk", role: "assistant", content: "APK download is ready" }] };
+    const call = vi.fn((method: string, params: unknown) => {
       if (method === "session.inspect") return Promise.resolve({ ...metadata(), controlsAvailable: true });
-      if (method === "session.history") return history.promise;
-      return Promise.resolve({ connected: true, version: 1, activeTurnId: null, items: [live], approvals: [] });
+      if (method === "session.subscribe") { subscriptionId = (params as { subscriptionId: string }).subscriptionId; return Promise.resolve({}); }
+      if (method === "session.history") return ++reads === 1 ? Promise.resolve(latest) : second.promise;
+      return Promise.resolve({});
     });
-    render(React.createElement(ExistingSessionPanel, { client: { call }, threadId: "original" }));
+    render(React.createElement(ExistingSessionPanel, { client: { call, onEvent: h => { listener = h; return () => {}; } }, threadId: "original" }));
+    await screen.findByText("APK download is ready");
+    await act(async () => listener({ event: "session.stream", payload: { connected: true, version: 10, threadId: "original", subscriptionId, activeTurnId: null, items: [
+      { id: "old", role: "assistant", content: "Old wrapper discussion", status: "completed" },
+      { id: "start", role: "user", content: "Build it", status: "completed" },
+      { ...latest.messages[0], status: "completed" },
+    ], approvals: [] } }));
+    expect(screen.getByText("APK download is ready")).toBeTruthy();
+    expect(screen.queryByText("Old wrapper discussion")).toBeNull();
+    expect(screen.queryByText("Build it")).toBeNull();
+    expect(reads).toBe(2);
+    await act(async () => second.resolve(latest));
+    expect(screen.getAllByRole("article").at(-1)?.textContent).toContain("APK download is ready");
+  });
+  it("keeps genuinely new live messages while canonical history is still loading", async () => {
+    const history = deferred(); let listener!: (event: { event: string; payload?: unknown }) => void, subscriptionId = "";
+    const call = vi.fn((method: string, params: unknown) => {
+      if (method === "session.inspect") return Promise.resolve({ ...metadata(), controlsAvailable: true });
+      if (method === "session.subscribe") { subscriptionId = (params as { subscriptionId: string }).subscriptionId; return Promise.resolve({}); }
+      return history.promise;
+    });
+    render(React.createElement(ExistingSessionPanel, { client: { call, onEvent: h => { listener = h; return () => {}; } }, threadId: "original" }));
+    await screen.findByRole("heading", { name: "Name original" });
+    const push = (version: number, items: unknown[]) => listener({ event: "session.stream", payload: { connected: true, version, threadId: "original", subscriptionId, activeTurnId: null, approvals: [], items } });
+    await act(async () => push(1, []));
+    await act(async () => push(2, [{ id: "live", role: "assistant", content: "live reply" }]));
     await screen.findByText("live reply");
     await act(async () => history.resolve(page("earlier reply", null)));
     expect(screen.getByText("live reply")).toBeTruthy();
@@ -63,13 +89,17 @@ describe("existing session history pagination", () => {
     expect(call.mock.calls.filter(([method]) => method === "session.inspect")).toHaveLength(2);
   });
   it("keeps a shorter authoritative live completion when stale history finishes later", async () => {
-    const history = deferred();
-    const call = vi.fn((method: string) => {
+    const history = deferred(); let listener!: (event: { event: string; payload?: unknown }) => void, subscriptionId = "";
+    const call = vi.fn((method: string, params: unknown) => {
       if (method === "session.inspect") return Promise.resolve({ ...metadata(), controlsAvailable: true });
-      if (method === "session.history") return history.promise;
-      return Promise.resolve({ connected: true, version: 1, activeTurnId: null, items: [{ id: "m", role: "assistant", status: "completed", content: "final" }], approvals: [] });
+      if (method === "session.subscribe") { subscriptionId = (params as { subscriptionId: string }).subscriptionId; return Promise.resolve({}); }
+      return history.promise;
     });
-    render(React.createElement(ExistingSessionPanel, { client: { call }, threadId: "original" }));
+    render(React.createElement(ExistingSessionPanel, { client: { call, onEvent: h => { listener = h; return () => {}; } }, threadId: "original" }));
+    await screen.findByRole("heading", { name: "Name original" });
+    const push = (version: number, items: unknown[]) => listener({ event: "session.stream", payload: { connected: true, version, threadId: "original", subscriptionId, activeTurnId: null, approvals: [], items } });
+    await act(async () => push(0, []));
+    await act(async () => push(1, [{ id: "m", role: "assistant", status: "completed", content: "final" }]));
     await screen.findByText("final");
     await act(async () => history.resolve({ threadId: "original", nextCursor: null, messages: [{ id: "m", role: "assistant", content: "older longer intermediate text" }] }));
     expect(screen.getByText("final")).toBeTruthy();expect(screen.queryByText("older longer intermediate text")).toBeNull();
@@ -101,6 +131,7 @@ describe("existing session history pagination", () => {
     const client = { call, onEvent: (handler: typeof listener) => { listener = handler; return () => {}; } };
     render(React.createElement(ExistingSessionPanel, { client, threadId: "original" }));
     await screen.findByText("latest");
+    await act(async () => listener({ event: "session.stream", payload: { connected: true, version: 0, threadId: "original", subscriptionId, activeTurnId: null, approvals: [], items: [] } }));
     const scroller = screen.getByLabelText("Session history");
     Object.defineProperty(scroller, "scrollHeight", { get: () => height });Object.defineProperty(scroller, "clientHeight", { value: 400 });
     scroller.scrollTop = 400;fireEvent.scroll(scroller);

@@ -155,3 +155,22 @@ describe("shared-session composer", () => {
     expect((input as HTMLTextAreaElement).value).toBe("keep draft");
   });
 });
+
+it("uses canonical history after all bootstrap chunks and emits only subsequent live changes", async () => {
+  let listener!: (event: { event: string; payload?: unknown }) => void, subscriptionId = "";
+  const onItems = vi.fn(), onHistorySync = vi.fn();
+  const call = vi.fn(async (method: string, params: unknown) => {
+    if (method === "session.subscribe") subscriptionId = (params as { subscriptionId: string }).subscriptionId;
+    return { subscribed: true };
+  });
+  render(React.createElement(SessionControls, { client: { call, onEvent: h => { listener = h; return () => {}; } }, threadId: "bootstrap-history", onItems, onHistorySync }));
+  await act(async () => {});
+  const push = (version: number, hasMore: boolean, content: string) => listener({ event: "session.stream", payload: { ...snapshot, version, hasMore, threadId: "bootstrap-history", subscriptionId, items: [{ id: String(version), role: "assistant", content, version }] } });
+  await act(async () => push(1, true, "old cached answer"));
+  expect(onItems).not.toHaveBeenCalled(); expect(onHistorySync).not.toHaveBeenCalled();
+  await act(async () => push(2, false, "another cached answer"));
+  expect(onItems).not.toHaveBeenCalled(); expect(onHistorySync).toHaveBeenCalledTimes(1);
+  await act(async () => push(3, false, "genuinely new answer"));
+  expect(onItems).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ content: "genuinely new answer" })]);
+  expect(onHistorySync).toHaveBeenCalledTimes(1);
+});

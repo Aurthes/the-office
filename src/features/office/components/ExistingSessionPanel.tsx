@@ -65,6 +65,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
   const touchY = useRef(0);
   const anchor = useRef<{ height: number; top: number } | null>(null);
   const load = useRef<((mode: LoadMode) => Promise<void>) | null>(null);
+  const onHistorySync = useCallback(() => { void load.current?.("latest"); }, []);
   const failedMode = useRef<LoadMode>("latest");
   const liveItems = useRef(new Map<string, LiveSessionItem>());
   const onLiveItems = useCallback((items: LiveSessionItem[]) => {
@@ -124,6 +125,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
       if (stopped || (mode === "older" && !cursor)) return;
       if (busy) { if (mode === "latest") reloadLatest = true; return; }
       busy = true; setLoading(true); failedMode.current = mode;
+      const liveBeforeRead = new Set(liveItems.current.keys());
       const before = mode === "older" && scroll.current ? { height: scroll.current.scrollHeight, top: scroll.current.scrollTop } : null;
       try {
         const result = await client.call("session.history", { threadId, ...(mode === "older" ? { cursor } : {}) }) as HistoryPage;
@@ -136,7 +138,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
             return [...result.messages.map(message => {
               const live = liveItems.current.get(message.id);
               return live && (live.status === "completed" || live.content.length > message.content.length) ? { ...message, ...live } : message;
-            }), ...[...liveItems.current.values()].filter(item => !ids.has(item.id))];
+            }), ...[...liveItems.current.values()].filter(item => !ids.has(item.id) && !liveBeforeRead.has(item.id))];
           }
           const existing = new Set(previous.map(message => message.id));
           return [...result.messages.filter(message => !existing.has(message.id)), ...previous];
@@ -250,7 +252,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
     }} className="absolute bottom-3 left-1/2 z-10 min-h-10 -translate-x-1/2 rounded-full border border-white/20 bg-[#243346] px-4 text-xs text-white shadow-xl hover:bg-[#30445c]">{t("↓ Latest messages")}</button> : null}
     </div>
     {data?.runtime === "office" ? <OfficeCodexAccount client={client} /> : null}
-    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} client={client} threadId={threadId} onItems={onLiveItems} voice={voice} /> : null}
+    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} voice={voice} /> : null}
     </div>
     {workspaceOpen ? <SessionWorkspace key={threadId} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
       assets={[...new Map(messages.flatMap(message => message.assets || []).map(asset => [asset.url, asset])).values()].slice(-40)}
