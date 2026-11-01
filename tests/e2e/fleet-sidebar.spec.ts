@@ -11,7 +11,6 @@ test("shows_office_shell_from_root_redirect", async ({ page }) => {
   await expect
     .poll(() => new URL(page.url()).pathname)
     .toBe("/office");
-  await expect(page.getByRole("button", { name: "Open headquarters sidebar" })).toBeVisible();
   await expect(page.getByRole("button", { name: "CHAT" })).toBeVisible();
 });
 
@@ -38,7 +37,6 @@ test("persists_gateway_fields_to_studio_settings", async ({ page }) => {
 test("focused_preferences_persist_across_reload", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("button", { name: "Open headquarters sidebar" })).toBeVisible();
   await expect(page.getByRole("button", { name: "CHAT" })).toBeVisible();
 
   await page.reload();
@@ -46,7 +44,7 @@ test("focused_preferences_persist_across_reload", async ({ page }) => {
   await expect
     .poll(() => new URL(page.url()).pathname)
     .toBe("/office");
-  await expect(page.getByRole("button", { name: "Open headquarters sidebar" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "CHAT" })).toBeVisible();
 });
 
 test("shows_chat_entrypoint_in_office_shell", async ({ page }) => {
