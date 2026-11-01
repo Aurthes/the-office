@@ -7,6 +7,7 @@ final class VoiceCall {
     boolean ready;
     boolean connected;
     boolean muted;
+    int commandSerial;
 
     VoiceCall(String id, String threadId) {
         if (id == null || !id.matches("[a-fA-F0-9-]{36}") || threadId == null || threadId.trim().isEmpty() || threadId.length() > 200)

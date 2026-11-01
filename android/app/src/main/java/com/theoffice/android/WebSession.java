@@ -1,6 +1,7 @@
 package com.theoffice.android;
 
 import android.content.Intent;
+import android.content.MutableContextWrapper;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
@@ -25,6 +26,7 @@ import org.json.JSONObject;
 final class WebSession {
     private final OfficeApplication app;
     private final Handler main = new Handler(Looper.getMainLooper());
+    private final MutableContextWrapper webContext;
     private WeakReference<MainActivity> activity = new WeakReference<>(null);
     private JavaScriptReplyProxy reply;
     private PermissionRequest pendingAudio;
@@ -32,11 +34,11 @@ final class WebSession {
     WebView webView;
     VoiceCall call;
 
-    WebSession(OfficeApplication app) { this.app = app; }
-    void attach(MainActivity owner) { activity = new WeakReference<>(owner); }
+    WebSession(OfficeApplication app) { this.app = app; webContext = new MutableContextWrapper(app); }
+    void attach(MainActivity owner) { activity = new WeakReference<>(owner); webContext.setBaseContext(owner); }
     void detach(MainActivity owner) {
         if (activity.get() != owner) return;
-        activity.clear();
+        activity.clear(); webContext.setBaseContext(app);
         if (webView != null && webView.getParent() instanceof ViewGroup parent) parent.removeView(webView);
     }
     boolean active() { return call != null; }
@@ -47,7 +49,7 @@ final class WebSession {
         if (active()) throw new IllegalStateException("End your call before changing the Office address.");
         if (webView != null) { webView.destroy(); webView = null; }
         address = next;
-        WebView view = new WebView(app);
+        WebView view = new WebView(webContext);
         WebSettings settings = view.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
@@ -177,8 +179,13 @@ final class WebSession {
     void command(String command) {
         if (call == null) return;
         String id = call.id;
+        int serial = ++call.commandSerial;
+        boolean expectedMute = !call.muted;
         try { reply.postMessage(new JSONObject().put("type", "voice.command").put("id", id).put("command", command).toString()); }
         catch (JSONException | IllegalStateException ignored) { }
+        if ("toggleMute".equals(command)) main.postDelayed(() -> {
+            if (call != null && call.matches(id) && call.commandSerial == serial && call.muted != expectedMute) command("stop");
+        }, 2000);
         if ("stop".equals(command)) main.postDelayed(() -> {
             if (call == null || !call.matches(id)) return;
             // A non-responsive renderer must not keep recording after hangup.

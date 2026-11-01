@@ -115,13 +115,19 @@ public final class MainActivity extends Activity {
     void chooseFiles(ValueCallback<Uri[]> callback, WebChromeClient.FileChooserParams params) {
         if (fileCallback != null) fileCallback.onReceiveValue(null);
         fileCallback = callback;
-        try { startActivityForResult(params.createIntent(), FILES); }
+        try {
+            Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");
+            picker.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE);
+            startActivityForResult(picker, FILES);
+        }
         catch (RuntimeException error) { callback.onReceiveValue(null); fileCallback = null; toast("No file picker is available."); }
     }
     @Override protected void onActivityResult(int request, int result, Intent intent) {
         super.onActivityResult(request, result, intent);
         if (request == FILES && fileCallback != null) {
-            fileCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result, intent)); fileCallback = null;
+            Uri[] chosen = WebChromeClient.FileChooserParams.parseResult(result, intent);
+            Uri[] safe = chosen == null ? null : java.util.Arrays.stream(chosen).filter(uri -> "content".equals(uri.getScheme())).toArray(Uri[]::new);
+            fileCallback.onReceiveValue(safe); fileCallback = null;
         }
     }
     void browserInterrupted() { toast("Office was interrupted. Reconnect voice after the page reloads."); showOffice(getPreferences(MODE_PRIVATE).getString("officeUrl", "")); }
