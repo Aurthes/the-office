@@ -106,6 +106,7 @@ export const ZH_CN: Record<string, string> = {
   "Preview · {seconds}s": "试听 · {seconds} 秒",
   "Music playback": "音乐播放控制",
   "Press play to start listening.": "点击播放按钮开始听歌。",
+  "Tap to start music": "点击开始播放",
   "This song could not be played. Select it again to retry.": "这首歌暂时无法播放，请重新选择重试。",
   "This song is not available in this player.": "这首歌在此播放器中暂不可播。",
   "Enter a song or artist name.": "请输入歌曲名或歌手名。",
