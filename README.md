@@ -4,9 +4,9 @@ A self-hosted 3D workspace for Codex-backed work. The selected architecture give
 Office its own projects and sessions, using the documented Codex agent engine
 while preserving normal operation of the native Codex/ChatGPT App.
 
-**Migration status:** independent state is the selected direction, not a completed
-deployment migration. Existing App-session adapters are legacy, and the standalone
-gateway is a limited prototype. See [ownership and chat-feature scope](docs/office-owned-state.md).
+The Codex backend uses independent Office state. The old native App-session
+adapters and standalone gateway prototype have been removed. See
+[ownership and chat-feature scope](docs/office-owned-state.md).
 
 **Built on [Claw3D](https://github.com/iamlukethedev/Claw3D), originally created by
 [Luke The Dev](https://github.com/iamlukethedev), and independently maintained by
@@ -75,11 +75,9 @@ databases and App-specific integrations are not imported. See
 [automatic configuration discovery](docs/office-owned-state.md#automatic-configuration-discovery)
 for the supported scope and platform requirements.
 
-| Mode | Purpose | Setup |
-| --- | --- | --- |
-| Office-owned Codex runtime | Separate process, login, projects and sessions; `npm run codex-gateway` | [Setup and tested features](docs/office-owned-state.md) |
-| Standalone gateway prototype | Limited own-thread implementation; not feature-complete or install-ready under the new boundary | [Minimal Codex gateway](docs/codex-gateway.md) |
-| Existing App sessions | Legacy implementation record; do not deploy or extend this mode | [Historical session view](docs/codex-session-view.md), [audit](docs/codex-interop-audit.md) |
+Start the Office-owned runtime with `npm run codex-gateway`. It has a separate
+process, login, projects and sessions. See [setup and tested features](docs/office-owned-state.md).
+The [interoperability audit](docs/codex-interop-audit.md) records the earlier research.
 
 Office does not import native App projects, sessions or credentials. The
 [feature map](docs/office-owned-state.md#chat-feature-map) distinguishes tested
