@@ -1,19 +1,20 @@
 import { Children, type ReactElement, type ReactNode } from "react";
 import { cleanup, renderHook } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { Camera, Color, Matrix3, OrthographicCamera, Vector3 } from "three";
+import { Camera, Color, Matrix3, OrthographicCamera, Vector3, type VideoTexture } from "three";
 import { GalaxyBackdrop } from "@/features/ring-ship/GalaxyBackdrop";
 import { STAR_SYSTEMS, type StarSystem } from "@/features/ring-ship/galaxy";
 
 const viewport = vi.hoisted(() => ({ size: { width: 1600, height: 900 } }));
 vi.mock("@react-three/fiber", () => ({ useThree: (select: (state: typeof viewport) => unknown) => select(viewport) }));
 vi.mock("@react-three/drei", () => ({ Stars: () => null }));
-afterEach(() => { cleanup(); viewport.size.width = 1600; viewport.size.height = 900; });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); viewport.size.width = 1600; viewport.size.height = 900; });
 
 type SkyUniforms = {
   uCameraRotation: { value: Matrix3 }; uAspect: { value: number };
   uCloud: { value: Color }; uGlow: { value: Color }; uSeed: { value: number };
   uTime: { value: number }; uPlanetApproach: { value: number }; uPlanetPass: { value: number };
+  uBlackHole: { value: number }; uBlackHoleVideo: { value: VideoTexture | null };
 };
 function skyElements(element: ReactNode) {
   const mesh = element as ReactElement<{ children: ReactNode; onBeforeRender: (renderer: unknown, scene: unknown, camera: Camera, geometry: unknown, material: unknown) => void }>;
@@ -45,6 +46,36 @@ it("moves a fixed star with camera orbit and returns it to the same direction on
   camera.position.set(70, 73, 94); camera.lookAt(0, 0, 0); camera.updateMatrixWorld();
   backdrop.render(camera);
   backdrop.rotation.elements.forEach((value, i) => expect(value).toBeCloseTo(original.elements[i], 12));
+});
+
+it("plays a looping black hole without replacing the sky uniforms and releases it on departure", () => {
+  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  const load = vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+  const media = new EventTarget();
+  vi.stubGlobal("matchMedia", () => Object.assign(media, { matches: false }));
+  const system = STAR_SYSTEMS.find(system => system.id === "black-hole")!;
+  const hook = renderHook(({ system }: { system: StarSystem }) => GalaxyBackdrop({ system }), { initialProps: { system: system as StarSystem } });
+  const initial = skyElements(hook.result.current);
+  const camera = new OrthographicCamera();
+  initial.render(camera);
+  const texture = initial.uniforms.uBlackHoleVideo.value!;
+  const video = texture.image as HTMLVideoElement;
+  const dispose = vi.spyOn(texture, "dispose");
+  expect(video.getAttribute("src")).toBe("/environments/black-hole-accretion.webm");
+  expect(video.loop && video.muted && video.playsInline).toBe(true);
+  expect(play).toHaveBeenCalledOnce();
+  expect(initial.uniforms.uBlackHole.value).toBe(1);
+  hook.rerender({ system: STAR_SYSTEMS[1] });
+  const updated = skyElements(hook.result.current);
+  updated.render(camera);
+  expect(updated.uniforms).toBe(initial.uniforms);
+  expect(updated.uniforms.uBlackHole.value).toBe(0);
+  expect(updated.uniforms.uBlackHoleVideo.value).toBeNull();
+  expect(video.getAttribute("src")).toBeNull();
+  expect(pause).toHaveBeenCalledOnce();
+  expect(load).toHaveBeenCalledOnce();
+  expect(dispose).toHaveBeenCalledOnce();
 });
 
 it("keeps the distant sky direction fixed when panning or zooming the orthographic ship camera", () => {

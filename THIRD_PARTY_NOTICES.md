@@ -72,6 +72,15 @@ The return pod uses original procedural geometry. Its visual direction reference
 The referenced model was not offered for download or licensed for reuse when
 reviewed; its mesh and textures are not included in this repository.
 
+## Black hole background
+
+`public/environments/black-hole-accretion.webm` is the unmodified 1920×1080
+stationary looping accretion-disk visualization by **NASA’s Goddard Space Flight
+Center / Jeremy Schnittman**, from [NASA SVS 13326](https://svs.gsfc.nasa.gov/13326/).
+Original file: [BH_AccretionDisk_Sim_Stationary_1080.webm](https://svs.gsfc.nasa.gov/vis/a010000/a013300/a013326/BH_AccretionDisk_Sim_Stationary_1080.webm).
+NASA SVS identifies its visualizations as public domain unless otherwise noted:
+[usage information](https://svs.gsfc.nasa.gov/help/).
+
 ## Package dependencies
 
 Dependencies retain their individual licenses and notices as shipped with their
