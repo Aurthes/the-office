@@ -21,7 +21,8 @@ const securityHeaders = [
       // connect-src is intentionally broad: gateway URLs are user-configured
       // at runtime and cannot be enumerated at build time.
       // Restrict further when a fixed deployment target is known.
-      "connect-src 'self' ws: wss: http: https:",
+      // GLTFLoader fetches embedded textures through locally created blob URLs.
+      "connect-src 'self' blob: ws: wss: http: https:",
       "media-src 'self' blob: data: http: https:",
       "frame-src 'self' https://music.163.com",
       "worker-src 'self' blob:",
