@@ -12,7 +12,7 @@
 .agent-markdown p + p,
 .agent-markdown ul,
 .agent-markdown ol,
-.agent-markdown pre,
+.agent-markdown .markdown-code-block,
 .agent-markdown blockquote,
 .agent-markdown table {
   margin-top: 1rem;
@@ -132,6 +132,60 @@
   border-radius: 0;
 }
 
+.agent-markdown .markdown-code-block {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--surface-selected-border) 82%, transparent);
+  border-radius: 0.4rem;
+  background: color-mix(in oklch, var(--surface-2) 94%, transparent);
+}
+
+.agent-markdown .markdown-code-block > pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.markdown-code-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.1rem 0.6rem 0.1rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  font-family: var(--font-sans), sans-serif;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.markdown-code-language {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-code-copy {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 72px;
+  min-height: 36px;
+  padding: 0 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--foreground);
+}
+
+.markdown-code-copy:hover { background: var(--surface-3); }
+.markdown-code-copy:focus-visible { outline: 2px solid var(--action-bg); outline-offset: -2px; }
+@media (pointer: coarse) { .markdown-code-copy { min-height: 44px; } }
+
 .agent-tool-markdown pre {
   max-height: 70px;
   overflow: auto;
@@ -177,13 +231,13 @@
   border-color: color-mix(in oklch, var(--chat-assistant-border) 88%, var(--surface-selected-border));
 }
 
-.dark .agent-markdown pre {
+.dark .agent-markdown .markdown-code-block {
   background: color-mix(in oklch, var(--surface-0) 82%, var(--surface-1));
   border-color: color-mix(in oklch, var(--chat-assistant-border) 86%, transparent);
   box-shadow: inset 0 1px 0 var(--elev-overlay-1);
 }
 
-.dark .ui-chat-assistant-card .agent-markdown :is(p + p, ul, ol, pre, blockquote, table) {
+.dark .ui-chat-assistant-card .agent-markdown :is(p + p, ul, ol, .markdown-code-block, blockquote, table) {
   margin-top: 1.35rem;
 }
 
