@@ -33,6 +33,15 @@ If you use local private overlay instructions, keep them outside the repository 
 
 Do not commit personal, environment-specific, or secret instructions to this repository.
 
+## Task cleanup
+
+After merging a task, report any worktree retained for a live service, shared
+dependency, rollback, or local files. Run `npm run cleanup:workspace` to identify
+merged, idle worktrees; follow `docs/workspace-cleanup.md` before applying cleanup.
+Use the existing cleanup command instead of copying complete releases or leaving
+build caches in finished task directories. Preserve conversations, uploads,
+credentials, active work, and externally referenced paths.
+
 ## Cursor Cloud specific instructions
 
 ### Service overview
