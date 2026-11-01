@@ -21,8 +21,8 @@ afterEach(() => {
 });
 
 it("copies only the nested command block, keeping indentation and line breaks", async () => {
-  const command = 'cd /tmp/project\nnode scripts/setup.js\n  echo "<ready> & done"\n';
-  const content = "1. Run this:\n\n   ```sh\n" + command.split("\n").map(line => "   " + line).join("\n") + "```\n\nThen continue. Inline `appId` stays inline.";
+  const command = 'cd /tmp/project\nnode scripts/setup.js\n  echo "<ready> & done"';
+  const content = "1. Run this:\n\n   ```sh\n" + command.split("\n").map(line => "   " + line).join("\n") + "\n   ```\n\nThen continue. Inline `appId` stays inline.";
   const { container } = render(createElement(SessionMarkdown, { content }));
   expect(screen.getAllByRole("button", { name: "Copy code" })).toHaveLength(1);
   expect(container.querySelector("pre code")?.className).toBe("language-sh");
@@ -32,9 +32,10 @@ it("copies only the nested command block, keeping indentation and line breaks", 
 });
 
 it.each([
-  ["```\nplain code\n```", "plain code\n"],
-  ["~~~text\noutput\n~~~", "output\n"],
-  ["    indented code\n    second line", "indented code\nsecond line\n"],
+  ["```\nplain code\n```", "plain code"],
+  ["~~~text\noutput\n~~~", "output"],
+  ["    indented code\n    second line", "indented code\nsecond line"],
+  ["```text\n  first\n\n  last  \n\n```", "  first\n\n  last  \n"],
 ])("adds a copy button without requiring a language or backtick fence: %s", async (content, expected) => {
   render(createElement(SessionMarkdown, { content }));
   fireEvent.click(screen.getByRole("button", { name: "Copy code" }));
@@ -48,9 +49,9 @@ it("copies the current streamed block and keeps feedback separate for each block
   fireEvent.click(buttons[0]);
   await waitFor(() => expect(buttons[0]).toHaveTextContent("Copied"));
   expect(buttons[1]).toHaveTextContent("Copy");
-  expect(clipboard).toHaveBeenLastCalledWith("echo complete\n");
+  expect(clipboard).toHaveBeenLastCalledWith("echo complete");
   fireEvent.click(buttons[1]);
-  await waitFor(() => expect(clipboard).toHaveBeenLastCalledWith("{}\n"));
+  await waitFor(() => expect(clipboard).toHaveBeenLastCalledWith("{}"));
 });
 
 it("reports a clipboard rejection honestly and allows retry", async () => {
@@ -66,7 +67,7 @@ it("supports HTTP without Clipboard API and restores focus inside the chat dialo
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
   const exec = vi.fn(() => {
     const input = document.querySelector("dialog textarea") as HTMLTextAreaElement;
-    expect(input.value).toBe("npm test\n");
+    expect(input.value).toBe("npm test");
     return true;
   });
   Object.defineProperty(document, "execCommand", { configurable: true, value: exec });
@@ -89,5 +90,5 @@ it("localizes the shared renderer used by agent chat", async () => {
   render(createElement(ReactMarkdown, { remarkPlugins: [remarkGfm], components: markdownCodeComponents }, "```ts\nconst answer = 42;\n```"));
   fireEvent.click(screen.getByRole("button", { name: "复制代码" }));
   await waitFor(() => expect(screen.getByText("已复制")).toBeInTheDocument());
-  expect(clipboard).toHaveBeenCalledWith("const answer = 42;\n");
+  expect(clipboard).toHaveBeenCalledWith("const answer = 42;");
 });

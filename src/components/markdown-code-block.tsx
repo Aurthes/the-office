@@ -38,7 +38,8 @@ function MarkdownCodeBlock({ children, className }: ComponentPropsWithoutRef<"pr
   const copy = async () => {
     if (timer.current) clearTimeout(timer.current);
     try {
-      await copyText(pre.current?.textContent ?? "");
+      // Markdown adds a display newline; copying it can submit terminal input.
+      await copyText((pre.current?.textContent ?? "").replace(/\n$/, ""));
       setStatus("copied");
     } catch {
       setStatus("failed");
