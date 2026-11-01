@@ -2,10 +2,10 @@
 import { useRef, useState } from "react";
 import type { SessionClient } from "./SessionControls";
 import { useUiText } from "@/lib/i18n/ui-language";
-export type SessionQuestionRequest = { requestId: string; submitted?: boolean; questions: { id: string; header?: string; question: string; isOther?: boolean; isSecret?: boolean; options?: { label: string; description?: string }[] | null }[] };
+export type SessionQuestionRequest = { requestId: string; submitted?: boolean; questions: { id: string; header?: string; question: string; defaultAnswer?: string; isOther?: boolean; isSecret?: boolean; options?: { label: string; description?: string }[] | null }[] };
 export function SessionQuestions({ client, threadId, request }: { client: SessionClient; threadId: string; request: SessionQuestionRequest }) {
   const t = useUiText();
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [answers, setAnswers] = useState<Record<string, string>>(() => Object.fromEntries(request.questions.filter(q => q.defaultAnswer).map(q => [q.id, q.defaultAnswer!])));
   const [other, setOther] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false), [submitted, setSubmitted] = useState(false), [error, setError] = useState("");
   const sending = useRef(false), nonce = useRef(crypto.randomUUID());

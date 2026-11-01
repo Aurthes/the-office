@@ -5,6 +5,27 @@ import { SessionControls } from "../../src/features/office/components/SessionCon
 const snapshot = { connected: true, version: 1, activeTurnId: "turn", items: [], approvals: [] };
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 describe("shared-session composer", () => {
+  it("shows Play for an empty interrupted task and continues the same conversation once", async () => {
+    let resolve!: (value: unknown) => void;
+    const pending = new Promise(r => { resolve = r; });
+    const call = vi.fn((method: string) => method === "session.continue" ? pending : Promise.resolve({ ...snapshot, activeTurnId: null, turnStatus: "interrupted" }));
+    render(React.createElement(SessionControls, { client: { call }, threadId: "interrupted-play", onItems: vi.fn() }));
+    const play = await screen.findByRole("button", { name: "Continue interrupted task" });
+    expect(play.querySelector("svg")).not.toBeNull();
+    fireEvent.click(play); fireEvent.click(play);
+    expect(call.mock.calls.filter(([method]) => method === "session.continue")).toHaveLength(1);
+    expect(call).toHaveBeenCalledWith("session.continue", { threadId: "interrupted-play", requestId: expect.any(String) });
+    await act(async () => resolve({ status: "started" }));
+  });
+  it("keeps Send when an interrupted task has a typed follow-up", async () => {
+    const call = vi.fn<(method: string) => Promise<unknown>>(async () => ({ ...snapshot, activeTurnId: null, turnStatus: "interrupted" }));
+    render(React.createElement(SessionControls, { client: { call }, threadId: "interrupted-draft", onItems: vi.fn() }));
+    await screen.findByRole("button", { name: "Continue interrupted task" });
+    fireEvent.change(screen.getByLabelText("Send to session"), { target: { value: "Use this new direction" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ threadId: "interrupted-draft", message: "Use this new direction" })));
+    expect(call.mock.calls.some(([method]) => method === "session.continue")).toBe(false);
+  });
   it("keeps unavailable Codex speech buttons disabled while text chat remains usable", async () => {
     const call = vi.fn().mockResolvedValue({ ...snapshot, activeTurnId: null,
       features: { dictation: false, voice: false, prediction: false } });

@@ -5,6 +5,14 @@ import { SessionQuestions } from "@/features/office/components/SessionQuestions"
 afterEach(cleanup);
 const request = { requestId: "original-prompt", questions: [{ id: "q", question: "选择方向", isOther: true, options: [{ label: "One", description: "First direction" }, { label: "Two" }] }] };
 describe("native question form", () => {
+  it("preselects an async recommendation and waits for an explicit submission", async () => {
+    const call = vi.fn(async () => ({}));
+    render(React.createElement(SessionQuestions, { client: { call }, threadId: "async-thread", request: { ...request, questions: [{ ...request.questions[0], defaultAnswer: "One" }] } }));
+    expect(screen.getByRole("radio", { name: /One/ })).toBeChecked();
+    expect(call).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Submit answer" })); await act(async () => {});
+    expect(call).toHaveBeenCalledExactlyOnceWith("session.question.reply", expect.objectContaining({ answers: { q: "One" } }));
+  });
   it("requires an explicit choice and submits to the original thread once", async () => {
     const call = vi.fn(async () => ({}));
     render(React.createElement(SessionQuestions, { client: { call }, threadId: "original-thread", request }));

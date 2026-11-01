@@ -12,6 +12,20 @@ function setup(active = false) {
   return { client, controls: new CodexSessionControls(client) };
 }
 describe("shared App session controls", () => {
+  it("continues an interrupted task in the same thread and deduplicates a repeated click", async () => {
+    const { client, controls } = setup();
+    client.call.mockImplementation(async (method: string) => method === "thread/turns/list" ? { data: [{ id: "stopped", status: "interrupted" }] } : method === "turn/start" ? { turn: { id: "continued" } } : {});
+    const options = { resumeInterrupted: true };
+    await controls.send("original-id", "Continue where you left off.", "continue-1", [], options);
+    await controls.send("original-id", "Continue where you left off.", "continue-1", [], options);
+    expect(client.call.mock.calls.filter(([m]) => m === "turn/start")).toEqual([["turn/start", { threadId: "original-id", input: [{ type: "text", text: "Continue where you left off." }], clientUserMessageId: "continue-1" }]]);
+  });
+  it.each(["completed", "inProgress"])("rejects stale Play when the latest turn is %s", async status => {
+    const { client, controls } = setup();
+    client.call.mockImplementation(async (method: string) => method === "thread/turns/list" ? { data: [{ id: "latest", status }] } : {});
+    await expect(controls.send("id", "Continue where you left off.", "stale-continue", [], { resumeInterrupted: true })).rejects.toThrow("no longer interrupted");
+    expect(client.call.mock.calls.some(([m]) => ["turn/start", "turn/steer"].includes(m))).toBe(false);
+  });
   it("starts the original thread without overriding its model, permissions, or workspace, and deduplicates send retries", async () => {
     const { client, controls } = setup();
     await controls.send("original-id", "hello", "request-1");
