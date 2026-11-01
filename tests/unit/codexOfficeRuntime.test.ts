@@ -16,7 +16,7 @@ function fixture() {
     if (method === "model/list") return { data: [{ model: "model-a", displayName: "A", supportedReasoningEfforts: [{ reasoningEffort: "high" }], defaultReasoningEffort: "high" }] };
     if (method === "permissionProfile/list") return { data: [{ id: ":workspace", allowed: true }, { id: ":read-only", allowed: true }, { id: ":danger-full-access", allowed: true }] };
     if (method === "thread/start") return { thread: { id: "native-own-thread" }, model: "model-a" };
-    if (method === "thread/turns/list") return { data: [], nextCursor: null };
+    if (["thread/turns/list", "thread/timeline/list"].includes(method)) return { data: [], nextCursor: null };
     if (method === "turn/start") return { turn: { id: "turn-1" } };
     return {};
   }) };
@@ -121,11 +121,11 @@ describe("independent Office runtime", () => {
   it("bounds voice context to visible chat messages and preserves a running task's configuration", async () => {
     const f = fixture(), id = await session(f), row = f.store.get(id);
     Object.assign(row, { codexThreadId: "running-thread", hasTurns: true, status: "running" });
-    f.client.call.mockImplementation(async (method: string) => method === "thread/turns/list" ? { data: [{ id: "turn", items: [
+    f.client.call.mockImplementation(async (method: string) => method === "thread/timeline/list" ? { data: [
       { id: "user", type: "userMessage", content: [{ type: "text", text: "Current request" }] },
       { id: "commentary", type: "agentMessage", phase: "commentary", text: "PRIVATE_WORK_LOG" },
       { id: "answer", type: "agentMessage", phase: "final", text: "中".repeat(8000) },
-    ] }], nextCursor: null } : {});
+    ].map(item => ({ type: "item", turnId: "turn", item })), nextCursor: null } : {});
     await f.store.call("thread/realtime/start", { threadId: id });
     expect(f.client.call.mock.calls.some(([method]) => method === "thread/resume")).toBe(false);
     const params = f.client.call.mock.calls.at(-1)?.[1] as { initialItems: { role: string; text: string }[]; includeStartupContext: boolean };

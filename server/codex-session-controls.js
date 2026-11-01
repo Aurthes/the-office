@@ -1,6 +1,6 @@
 "use strict";
 const crypto = require("node:crypto");
-const { sessionItem, clipText } = require("./codex-session-items");
+const { sessionItem, realtimeSessionItem, clipText } = require("./codex-session-items");
 const { answerQuestions } = require("./codex-session-questions");
 const { messageInput } = require("./codex-session-uploads");
 const { sessionSettings, sessionChoices, settingsPatch } = require("./codex-session-settings");
@@ -80,6 +80,10 @@ class CodexSessionControls {
       const key = `${p.turnId}:${p.itemId}`, previous = state.items.get(key);
       const text = (previous?.content || "") + p.delta;
       state.items.set(key, { ...previous, id: key, turnId: p.turnId, role: "assistant", ...clipText(text, 64 * 1024), truncated: Buffer.byteLength(text) > 64 * 1024 || previous?.truncated, version: ++state.version });
+    } else if (frame.method === "thread/realtime/item/completed") {
+      const normalized = realtimeSessionItem(item);
+      if (!normalized) return;
+      state.items.set(normalized.id, { ...normalized, ...clipText(normalized.content, 64 * 1024), version: ++state.version });
     } else if (["item/started", "item/completed"].includes(frame.method) && item) {
       const normalized = sessionItem(item, p.turnId);
       if (!normalized) return;

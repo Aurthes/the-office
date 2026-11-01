@@ -75,7 +75,8 @@ const methods = {
   "session.stop": p => { store.get(p.threadId); return controls.stop(p.threadId); },
   "session.settings.choices": p => { store.get(p.threadId); return controls.choices(p.threadId); },
   "session.settings.update": p => { store.get(p.threadId); if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before changing settings"); return controls.updateSettings(p.threadId, p.settings); },
-  "session.voice.start": async (p, ws) => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before calling"); return voice.start(ws, p.threadId, p.sdp, p.voiceId); },
+  "session.voice.options": () => voice.choices(),
+  "session.voice.start": async (p, ws) => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before calling"); return voice.start(ws, p.threadId, p.sdp, p.voiceId, p.voice); },
   "session.voice.stop": (p, ws) => { store.get(p.threadId); return voice.stop(ws, p.threadId, p.voiceId); },
   "session.question.reply": async p => {
     store.get(p.threadId);

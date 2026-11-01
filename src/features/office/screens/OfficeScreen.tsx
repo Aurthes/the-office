@@ -16,6 +16,8 @@ import { getAgentActivity, type AgentActivity } from "@/features/retro-office/co
 import { AgentActivityIndicator } from "@/features/office/components/AgentActivityIndicator";
 import { RunningAvatarLoader } from "@/features/agents/components/RunningAvatarLoader";
 import { ExistingSessionPanel } from "@/features/office/components/ExistingSessionPanel";
+import { useSessionVoice } from "@/features/office/components/useSessionVoice";
+import { SessionVoiceCall } from "@/features/office/components/SessionVoice";
 import { SessionListDivider } from "@/features/office/components/SessionListDivider";
 import { CompanyActions } from "@/features/office/components/CompanyActions";
 import { useCompletionReadState } from "@/features/office/hooks/useCompletionReadState";
@@ -1017,6 +1019,7 @@ export function OfficeScreen({
     supportsCapability,
   } =
     useRuntimeConnection(settingsCoordinator);
+  const voice = useSessionVoice(client);
   const runtimeSupportsSkills = supportsCapability("skills");
   const runtimeSupportsApprovals = supportsCapability("approvals");
   const runtimeSupportsCron = supportsCapability("cron");
@@ -4647,6 +4650,9 @@ export function OfficeScreen({
 
   return (
     <main className="office-responsive relative h-full w-full overflow-hidden bg-black">
+      {voice.status !== "off" && (!chatOpen || focusedChatAgent?.agentId !== voice.threadId) ? <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-3 right-3 z-[90] mx-auto max-w-lg">
+        <SessionVoiceCall voice={voice} owner={state.agents.find(agent => agent.agentId === voice.threadId)?.name || voice.threadId || "Codex"} onReturn={() => { if (voice.threadId) handleOpenAgentChat(voice.threadId); }} />
+      </div> : null}
       {showGatewayLoadingOverlay ? (
         <div
           className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-[#120a05]/76"
@@ -5396,7 +5402,7 @@ export function OfficeScreen({
               {sessionView && !focusedChatAgent ? <header className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 p-2">{sessionListToggle}{sessionWindowActions}</header> : null}
               {focusedChatAgent ? (
                 sessionView ? <ExistingSessionPanel onOpenWorkspace={openSessionWorkspace} key={focusedChatAgent.agentId} client={client} threadId={focusedChatAgent.agentId}
-                  headerStart={sessionListToggle} headerEnd={sessionWindowActions}
+                  headerStart={sessionListToggle} headerEnd={sessionWindowActions} voice={voice}
                   projects={companyRoster?.projects}
                   agentName={focusedChatAgent.name} onSessionRenamed={name => dispatch({ type: "updateAgent", agentId: focusedChatAgent.agentId, patch: { name, sessionDisplayName: name } })}
                   avatarProfile={focusedChatAgent.avatarProfile} agentStatus={focusedChatAgent.needsInput ? "needsInput" : focusedChatAgent.status} agentModel={focusedChatAgent.model}

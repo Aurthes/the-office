@@ -20,4 +20,9 @@ function clipText(text, limit) {
   const bytes = Buffer.from(text, "utf8");
   return { content: new TextDecoder().decode(bytes.subarray(0, limit), { stream: true }), truncated: bytes.length > limit };
 }
-module.exports = { sessionItem, clipText };
+// These are committed native timeline entries, not copies of browser captions.
+function realtimeSessionItem(item) {
+  if (item?.type !== "transcriptSegment" || !["user", "assistant"].includes(item.role) || !item.text?.trim()) return null;
+  return { id: `realtime:${item.realtimeSessionId}:${item.id}`, source: "voice", role: item.role, content: item.text.trim(), status: "completed" };
+}
+module.exports = { sessionItem, realtimeSessionItem, clipText };

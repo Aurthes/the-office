@@ -116,7 +116,7 @@ class CodexOfficeStore {
     if (!params.threadId) return this.client.call(method, params);
     const row = this.get(params.threadId);
     if (method === "thread/resume" && !row.codexThreadId) return this.emptyContext(row);
-    if (method === "thread/turns/list" && !row.codexThreadId) return { data: [], nextCursor: null };
+    if (["thread/turns/list", "thread/timeline/list"].includes(method) && !row.codexThreadId) return { data: [], nextCursor: null };
     const voiceStarting = method === "thread/realtime/start";
     const starting = method === "turn/start" || voiceStarting;
     if (starting && this.starting.has(row.id)) throw new Error("A turn is being started; wait before sending again");
@@ -182,7 +182,7 @@ class CodexOfficeStore {
         return result;
       }
       catch (error) {
-        if (["thread/resume", "thread/turns/list"].includes(method) && !row.attemptedTurn && !row.hasTurns && missingRollout(error)) {
+        if (["thread/resume", "thread/turns/list", "thread/timeline/list"].includes(method) && !row.attemptedTurn && !row.hasTurns && missingRollout(error)) {
           row.codexThreadId = null; row.projectContext = null; this.save(); return method === "thread/resume" ? this.emptyContext(row) : { data: [], nextCursor: null };
         }
         if (starting && error.code !== undefined && !row.hasTurns) { row.attemptedTurn = false; this.save(); }

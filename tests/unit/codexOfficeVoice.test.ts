@@ -16,6 +16,15 @@ describe("Office realtime voice ownership", () => {
     await voice.start("tab1", "original", "v=0\no=offer", voiceId);
     expect(client.call).toHaveBeenCalledTimes(1);
   });
+  it("lists native V3 voices and validates a selection before starting", async () => {
+    const { voice, client } = setup();
+    client.call.mockImplementation(async (method: string) => method === "thread/realtime/listVoices" ? { voices: { v3: ["cove", "juniper"] } } : {});
+    expect(await voice.choices()).toEqual({ voices: ["cove", "juniper"] });
+    await expect(voice.start("tab1", "original", "v=0", voiceId, "invented")).rejects.toThrow("unavailable");
+    expect(voice.active).toBeNull();
+    await voice.start("tab1", "original", "v=0", voiceId, "cove");
+    expect(client.call).toHaveBeenLastCalledWith("thread/realtime/start", expect.objectContaining({ voice: "cove", threadId: "original" }));
+  });
   it("prevents another tab from replacing or stopping a call, and never interrupts the Codex turn", async () => {
     const { voice, client } = setup();
     await voice.start("tab1", "original", "v=0", voiceId);

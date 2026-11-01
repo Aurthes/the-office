@@ -18,10 +18,10 @@ describe("web composer media", () => {
     }
     class Audio { setAttribute = vi.fn(); pause = vi.fn(); }
     vi.stubGlobal("RTCPeerConnection", Peer); vi.stubGlobal("Audio", Audio);
-    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop: stopTrack }] }) } });
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop: stopTrack }], getAudioTracks: () => [] }) } });
     const call = vi.fn(async () => ({})), client = { call };
-    const { result } = renderHook(() => useSessionVoice(client, "voice-timer"));
-    await act(async () => result.current.start());
+    const { result } = renderHook(() => useSessionVoice(client));
+    await act(async () => result.current.start("original"));
     const change = (state: string) => act(() => { peers[0].connectionState = state; peers[0].onconnectionstatechange?.(); });
     change("connected"); change("disconnected");
     act(() => vi.advanceTimersByTime(5000));
@@ -73,7 +73,7 @@ describe("web composer media", () => {
     render(React.createElement(SessionControls, { client: { call }, threadId: "chosen-thread", onItems: vi.fn() }));
     const input = screen.getByLabelText("Send to session") as HTMLTextAreaElement;
     await waitFor(() => expect(input.disabled).toBe(false));
-    expect(screen.getByRole("button", { name: "Native dictation" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Dictation" })).not.toBeDisabled();
     const down = new KeyboardEvent("keydown", { key: "Alt", code: "AltRight", location: 2, altKey: true, bubbles: true, cancelable: true });
     const up = new KeyboardEvent("keyup", { key: "Alt", code: "AltRight", location: 2, bubbles: true, cancelable: true });
     fireEvent(window, down); fireEvent(window, up);
@@ -85,17 +85,17 @@ describe("web composer media", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ threadId: "chosen-thread", message: "Native dictation填入的草稿" })));
   });
-  it("connects native WebRTC, then releases microphone, audio and ownership on chat exit", async () => {
+  it("connects native WebRTC, then releases microphone, audio and ownership on Office exit", async () => {
     let eventHandler!: (event: { event: string; payload: unknown }) => void;
     const stopTrack = vi.fn(), close = vi.fn(), setRemoteDescription = vi.fn(async () => {});
     class Peer { connectionState = "new"; onconnectionstatechange?: () => void; ontrack?: () => void; createDataChannel = () => ({}); addTrack = vi.fn(); createOffer = async () => ({ type: "offer", sdp: "v=0\n" }); setLocalDescription = async () => {}; setRemoteDescription = setRemoteDescription; close = close; }
     class Audio { autoplay = false; srcObject: unknown; setAttribute = vi.fn(); play = async () => {}; pause = vi.fn(); }
     vi.stubGlobal("RTCPeerConnection", Peer); vi.stubGlobal("Audio", Audio);
-    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn(async () => ({ getTracks: () => [{ stop: stopTrack }] })) } });
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn(async () => ({ getTracks: () => [{ stop: stopTrack }], getAudioTracks: () => [] })) } });
     const call = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => ({})); const unsubscribe = vi.fn();
     const client = { call, onEvent: (handler: typeof eventHandler) => { eventHandler = handler; return unsubscribe; } };
-    const { result, unmount } = renderHook(() => useSessionVoice(client, "original"));
-    await act(async () => result.current.start());
+    const { result, unmount } = renderHook(() => useSessionVoice(client));
+    await act(async () => result.current.start("original"));
     const start = call.mock.calls.find(([method]) => method === "session.voice.start")!;
     expect(start[1]).toMatchObject({ threadId: "original", sdp: "v=0\n" });
     const voiceId = (start[1] as { voiceId: string }).voiceId;
@@ -110,11 +110,11 @@ describe("web composer media", () => {
     class Peer { close = vi.fn(); createDataChannel = () => ({}); addTrack = vi.fn(); createOffer = async () => ({ sdp: "v=0" }); setLocalDescription = async () => {}; }
     class Audio { setAttribute = vi.fn(); pause = vi.fn(); }
     vi.stubGlobal("RTCPeerConnection", Peer); vi.stubGlobal("Audio", Audio);
-    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop: stopTrack }] }) } });
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop: stopTrack }], getAudioTracks: () => [] }) } });
     const call = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => ({}));
     const client = { call, onEvent: (handler: typeof listener) => { listener = handler; return () => {}; } };
-    const { result } = renderHook(() => useSessionVoice(client, "original"));
-    await act(async () => result.current.start());
+    const { result } = renderHook(() => useSessionVoice(client));
+    await act(async () => result.current.start("original"));
     const request = call.mock.calls.find(([method]) => method === "session.voice.start")![1] as { voiceId: string };
     await act(async () => listener({ event: "session.voice", payload: { threadId: "original", voiceId: request.voiceId, method: "thread/realtime/error", params: { message: "account voice limit" } } }));
     expect(result.current.error).toBe("account voice limit"); expect(result.current.status).toBe("off"); expect(stopTrack).toHaveBeenCalledOnce();

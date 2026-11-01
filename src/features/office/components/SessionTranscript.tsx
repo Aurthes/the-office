@@ -39,7 +39,7 @@ export const SessionTranscript = memo(function SessionTranscript({ messages }: {
     } else blocks.push({ message });
   }
   return blocks.map(block => "group" in block ? <WorkProcess key={`process:${block.group.id}`} items={block.group.items} /> : <article key={block.message.id} aria-label={block.message.role === "user" ? t("You") : "Codex"} className={block.message.role === "user" ? "session-user-message" : "mr-2 rounded-lg border border-slate-500/40 bg-[#242932] px-3 py-2.5 text-slate-100"}>
-    {block.message.role !== "user" ? <div className="mb-1 text-[10px] font-semibold text-slate-300">Codex</div> : null}
+    {block.message.role !== "user" || block.message.source === "voice" ? <div className="mb-1 text-[10px] font-semibold text-slate-300">{block.message.role === "user" ? t("You") : "Codex"}{block.message.source === "voice" ? ` · ${t("Voice")}` : ""}</div> : null}
     <MessageBody message={block.message} truncatedLabel={t("This message is long. View the rest in the desktop app.")} />
   </article>);
 });

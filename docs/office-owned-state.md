@@ -188,9 +188,27 @@ collection stalled during the installed-version probe, so Office disables it
 and supplies only the selected project's folder context (up to 4 KB) and recent
 visible user/assistant messages (up to 12 KB, at most 12 messages). It does not
 scan other projects or the user's home for voice context. The backing Codex task
-retains its original thread and full managed history. The call panel shows live
-captions; Office does not yet render every native realtime timeline item in its
-saved chat view.
+retains its original thread and full managed history. The voice and task models
+have different prompts; native delegation can consult the original task context.
+A disposable real-WebRTC test on 0.166.0 recovered an old chat label excluded
+from the bounded startup messages, then remembered a newly spoken label in a
+normal task turn after hangup. This confirms both directions in the tested
+version, not identical context windows or a stable cross-version contract.
+
+Saved chat uses native `thread/timeline/list`, and live chat uses committed
+`thread/realtime/item/completed` entries. Spoken messages are marked Voice;
+ordinary task messages retain their native IDs. Browser captions show only the
+last four completed utterances, using V3 `turn.done`, and are not a second history
+store. History remains paginated and bounded per response.
+
+The Office screen owns the call independently of the selected chat. Switching
+workers or closing the chat pane preserves the original connection and recent
+captions. An away-from-chat control shows the call's owner and lets the user
+return, mute, or hang up. Microphone mute toggles browser audio tracks without
+ending the call. Voice choice comes from native `thread/realtime/listVoices`
+(V3 choices); voice and browser microphone processing preferences apply on the
+next call and are stored in that browser. Physical microphone behavior still
+needs device testing.
 
 Only the initiating browser tab receives call events and can hang up. Closing
 the tab or losing its gateway connection ends its call and releases browser

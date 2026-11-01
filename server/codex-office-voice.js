@@ -2,7 +2,11 @@
 // Audio travels on native Codex WebRTC. Only session control crosses the web gateway.
 class CodexOfficeVoice {
   constructor(client, controls, emit) { this.client = client; this.controls = controls; this.emit = emit; this.active = null; }
-  async start(owner, threadId, sdp, voiceId) {
+  async choices() {
+    const result = await this.client.call("thread/realtime/listVoices", {});
+    return { voices: result.voices?.v3 || [] };
+  }
+  async start(owner, threadId, sdp, voiceId, voice) {
     if (typeof sdp !== "string" || !sdp.startsWith("v=0") || sdp.length > 64000 || typeof voiceId !== "string" || !/^[a-f\d-]{36}$/i.test(voiceId)) throw new Error("语音连接参数无效");
     if (this.active) {
       if (this.active.owner === owner && this.active.voiceId === voiceId && this.active.threadId === threadId) return { status: "starting", voiceId };
@@ -11,9 +15,10 @@ class CodexOfficeVoice {
     const session = { owner, threadId, voiceId };
     this.active = session;
     session.starting = (async () => {
+      if (voice !== undefined && (typeof voice !== "string" || !(await this.choices()).voices.includes(voice))) throw new Error("This voice is unavailable. Choose another voice.");
       await this.controls.attach(threadId);
       if (this.active !== session || session.cancelled) throw new Error("语音连接已取消");
-      await this.client.call("thread/realtime/start", { threadId, version: "v3", outputModality: "audio", transport: { type: "webrtc", sdp }, voiceSessionId: voiceId, flushTranscriptTailOnSessionEnd: true });
+      await this.client.call("thread/realtime/start", { threadId, version: "v3", outputModality: "audio", transport: { type: "webrtc", sdp }, voiceSessionId: voiceId, flushTranscriptTailOnSessionEnd: true, ...(voice === undefined ? {} : { voice }) });
     })();
     try {
       await session.starting;

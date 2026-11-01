@@ -1,9 +1,10 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Headphones, Mic, Paperclip, PhoneOff, Play, Square, X } from "lucide-react";
+import { Headphones, Mic, Paperclip, Play, SlidersHorizontal, Square, X } from "lucide-react";
 import { SessionSettings, type ChatSettings } from "./SessionSettings";
 import { SessionContextUsage } from "./SessionContextUsage";
-import { useSessionVoice } from "./useSessionVoice";
+import { useSessionVoice, type SessionVoiceController } from "./useSessionVoice";
+import { SessionVoiceCall, SessionVoiceSettings } from "./SessionVoice";
 import { SessionQuestions, type SessionQuestionRequest } from "./SessionQuestions";
 import { useNativeDictation } from "./useNativeDictation";
 import { useDictationShortcut } from "./useDictationShortcut";
@@ -11,7 +12,7 @@ import { dictationShortcutLabel } from "./dictationShortcutSettings";
 import { useUiText } from "@/lib/i18n/ui-language";
 
 export type SessionAsset = { source: string; name: string; kind: "image" | "markdown" | "html" | "file"; url: string; inline?: boolean; attached?: boolean };
-export type LiveSessionItem = { id: string; turnId?: string; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number };
+export type LiveSessionItem = { id: string; turnId?: string; source?: "voice"; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number };
 export type SessionClient = {
   call: (method: string, params: unknown) => Promise<unknown>;
   onEvent?: (handler: (event: { event: string; payload?: unknown }) => void) => () => void;
@@ -27,9 +28,10 @@ type Upload = { id: string; name: string; size: number; ref?: string; error?: st
 const sessionDrafts = new Map<string, string>();
 const attachmentDrafts = new Map<string, Upload[]>();
 
-export function SessionControls({ client, threadId, onItems }: {
+export function SessionControls({ client, threadId, onItems, voice: sharedVoice }: {
   client: SessionClient;
   threadId: string; onItems: (items: LiveSessionItem[]) => void;
+  voice?: SessionVoiceController;
 }) {
   const t = useUiText();
   const [state, setState] = useState<Snapshot | null>(null);
@@ -107,7 +109,9 @@ export function SessionControls({ client, threadId, onItems }: {
     node.focus({ preventScroll: true });
     node.setSelectionRange(node.value.length, node.value.length);
   }, [dictation.transcriptionTime, dictation.busy]);
-  const voice = useSessionVoice(client, threadId);
+  const localVoice = useSessionVoice(client);
+  const voice = sharedVoice || localVoice;
+  const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false);
   const recording = dictation.phase === "starting" || dictation.phase === "recording";
   const dictatedSend = useRef<((message: string) => void) | null>(null);
   const stopDictation = async (send = false) => {
@@ -254,11 +258,8 @@ export function SessionControls({ client, threadId, onItems }: {
       <span className="min-w-0 truncate" title={file.name}>{file.name}</span><span className={file.error ? "text-rose-200" : "shrink-0 text-white/40"}>{file.error ? t(file.error) : (!file.ref ? t("Uploading…") : Math.max(1, Math.ceil(file.size / 1024)) + " KB")}</span>
       <button aria-label={t("Remove attachment {name}", { name: file.name })} disabled={busy} onClick={() => removeFile(file.id)} className="min-h-9 shrink-0 px-2 text-white/60"><X size={14} /></button>
     </div>)}</div> : null}
-    {voice.status !== "off" ? <section aria-label={t("Voice call")} className="mb-3 rounded-xl border border-cyan-300/30 bg-cyan-950/30 p-3">
-      <div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 text-cyan-100"><span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300" />{voice.status === "connecting" ? t("Connecting to Codex voice…") : t("In a call with Codex")}</span><button onClick={voice.stop} className="flex min-h-10 items-center gap-2 rounded-lg px-3 text-rose-200"><PhoneOff size={16} />{t("End call")}</button></div>
-      {voice.captions.length ? <div className="mt-2 max-h-24 space-y-1 overflow-y-auto text-xs text-white/70">{voice.captions.map((line, index) => <p key={index}><span className="text-white/40">{line.role === "user" ? t("You") : "Codex"}: </span>{line.text}</p>)}</div> : <p className="text-[11px] text-white/40">{t("Same session · Speak anytime · Leaving chat ends the call")}</p>}
-      {voice.playbackBlocked ? <button onClick={() => void voice.play()} className="mt-2 rounded border border-cyan-300/40 px-3 py-2 text-cyan-100">{t("Play audio")}</button> : null}
-    </section> : null}
+    {voiceSettingsOpen ? <SessionVoiceSettings client={client} voice={voice} onClose={() => setVoiceSettingsOpen(false)} /> : null}
+    {voice.status !== "off" && voice.threadId === threadId ? <div className="mb-3"><SessionVoiceCall voice={voice} /></div> : null}
     {state?.approvals.length ? <div className="mb-3 max-h-[32vh] space-y-3 overflow-y-auto" aria-label={t("Pending approvals")}>
       {state.approvals.map(request => <div key={request.requestId} className="rounded border border-amber-300/40 bg-amber-900/15 p-2">
         <p className="font-semibold text-amber-100">{request.method === "item/fileChange/requestApproval" ? t("File change approval") : request.method === "item/commandExecution/requestApproval" ? t("Command execution approval") : t("This session needs your input")}</p>
@@ -283,7 +284,8 @@ export function SessionControls({ client, threadId, onItems }: {
         {dictation.busy ? <button aria-label={t("Cancel recording")} title={t("Cancel recording (Esc)")} onClick={dictation.discard} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5"><X size={19} /></button> :
           <button aria-label={t("Add attachments")} title={t("Add attachments, drag files, or paste images")} disabled={busy || settingsBusy || !state?.connected} onClick={() => picker.current?.click()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Paperclip size={19} /></button>}
         <button aria-label={recording ? t("Stop recording and transcribe") : t("Dictation")} title={state?.features?.dictation === false ? t("Dictation needs an OpenAI API key on the Office server") : dictationShortcut === "off" ? t("Click to record. Enter: transcribe and send. Esc: cancel.") : t("Click to record. {shortcut}: tap to toggle, hold to dictate. Enter: transcribe and send. Esc: cancel.", { shortcut: dictationShortcutLabel(dictationShortcut) })} disabled={state?.features?.dictation === false || dictation.phase === "transcribing" || (!recording && (busy || settingsBusy || !state?.connected || voice.status !== "off"))} onClick={() => { if (recording) void stopDictation(); else void dictation.start(); }} className={"grid h-10 w-10 place-items-center rounded-lg disabled:opacity-40 " + (dictation.phase === "recording" ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65 hover:bg-white/5")}><Mic size={19} /></button>
-        {!dictation.busy ? <button aria-label={t("Voice chat")} title={state?.features?.voice === false ? t("Live voice is not connected to the Office runtime yet") : t("Start an experimental voice call in this session")} disabled={state?.features?.voice === false || busy || settingsBusy || !state?.connected || dictation.busy || voice.status !== "off"} onClick={() => void voice.start()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button> : null}
+        {!dictation.busy ? <button aria-label={t("Voice chat")} title={state?.features?.voice === false ? t("Live voice is not connected to the Office runtime yet") : t("Start an experimental voice call in this session")} disabled={state?.features?.voice === false || busy || settingsBusy || !state?.connected || dictation.busy || voice.status !== "off"} onClick={() => void voice.start(threadId)} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button> : null}
+        {state?.features?.voice !== false ? <button aria-label={t("Voice settings")} aria-expanded={voiceSettingsOpen} title={t("Voice settings")} onClick={() => setVoiceSettingsOpen(value => !value)} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5"><SlidersHorizontal size={18} /></button> : null}
       </div>
       {dictation.busy ? <span role="status" className="min-w-0 flex-1 truncate text-xs text-rose-200">
         {dictation.phase === "starting" ? t("Preparing microphone…") : dictation.phase === "transcribing" ? t("Transcribing…") : t("Recording · {time}", { time: `${Math.floor(dictation.seconds / 60)}:${String(Math.floor(dictation.seconds % 60)).padStart(2, "0")}` })}
@@ -298,7 +300,7 @@ export function SessionControls({ client, threadId, onItems }: {
     {dictation.clip && !dictation.busy ? <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] text-white/55"><span>{t("Recording: {seconds} seconds · Kept", { seconds: Math.ceil(dictation.clip.seconds) })}</span>{dictation.transcriptionTime ? <span>{t(dictation.transcriptionTime.retry ? "Retry took {seconds} seconds" : "Transcription took {seconds} seconds", { seconds: dictation.transcriptionTime.seconds.toFixed(1) })}</span> : null}{dictation.phase === "error" ? <button className="text-cyan-200 underline" onClick={() => void dictation.retry()}>{t("Retry transcription")}</button> : null}<button className="underline" onClick={dictation.download}>{t("Download recording")}</button><button className="underline" onClick={dictation.clear}>{t("Clear recording")}</button></div> : null}
     {dictation.error ? <p role="alert" className="mt-1 text-xs text-amber-100">{t(dictation.error)}</p> : null}
     {notice ? <p role="status" className="mt-2 text-[10px] text-cyan-100">{t(notice)}</p> : null}
-    {voice.error ? <p role="alert" className="mt-2 break-words text-xs text-amber-100">{t(voice.error)}</p> : null}
+    {voice.error && voice.threadId === threadId ? <p role="alert" className="mt-2 break-words text-xs text-amber-100">{t(voice.error)}</p> : null}
     {error ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{t(error)}</p> : null}
     {state?.error ? <p role="alert" className="mt-2 break-words text-xs text-rose-200">{state.error}</p> : null}
     {connectionError ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{t(connectionError)} <button className="underline" onClick={() => void refresh.current?.()}>{t("Reconnect")}</button></p> : null}

@@ -2,39 +2,71 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SessionClient } from "./SessionControls";
 
-type VoiceConnection = { id: string; pc: RTCPeerConnection; audio: HTMLAudioElement; stream?: MediaStream; unsubscribe?: () => void; unsubscribeStatus?: () => void; timer?: ReturnType<typeof setTimeout> };
-export function useSessionVoice(client: SessionClient, threadId: string) {
+export type VoiceSettings = { voice: string; echoCancellation: boolean; noiseSuppression: boolean; autoGainControl: boolean };
+const defaults: VoiceSettings = { voice: "", echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+const settingsKey = "claw3d:voice-settings";
+function readSettings(): VoiceSettings {
+  try {
+    const saved = JSON.parse(localStorage.getItem(settingsKey) || "{}");
+    return {
+      voice: typeof saved.voice === "string" ? saved.voice : "",
+      echoCancellation: typeof saved.echoCancellation === "boolean" ? saved.echoCancellation : true,
+      noiseSuppression: typeof saved.noiseSuppression === "boolean" ? saved.noiseSuppression : true,
+      autoGainControl: typeof saved.autoGainControl === "boolean" ? saved.autoGainControl : true,
+    };
+  } catch { return defaults; }
+}
+type VoiceConnection = { id: string; threadId: string; muted: boolean; pc: RTCPeerConnection; audio: HTMLAudioElement; stream?: MediaStream; unsubscribe?: () => void; unsubscribeStatus?: () => void; timer?: ReturnType<typeof setTimeout> };
+
+// Owned by the Office screen, so changing the selected conversation does not
+// dispose the call. Every request stays bound to the originating thread.
+export function useSessionVoice(client: SessionClient) {
   const connection = useRef<VoiceConnection | null>(null);
+  const [threadId, setThreadId] = useState<string | null>(null);
   const [status, setStatus] = useState<"off" | "connecting" | "connected">("off");
   const [error, setError] = useState("");
+  const [muted, setMuted] = useState(false);
   const [captions, setCaptions] = useState<{ role: string; text: string }[]>([]);
   const [playbackBlocked, setPlaybackBlocked] = useState(false);
+  const [settings, setSettings] = useState(readSettings);
+  const updateSettings = (next: VoiceSettings) => {
+    setSettings(next);
+    try { localStorage.setItem(settingsKey, JSON.stringify(next)); } catch { /* Settings still apply to this tab. */ }
+  };
   const finish = useCallback((session: VoiceConnection, notify = true, reason = "") => {
     if (connection.current !== session) return;
     connection.current = null;
     clearTimeout(session.timer); session.unsubscribe?.(); session.unsubscribeStatus?.();
     session.stream?.getTracks().forEach(track => track.stop());
     session.pc.close(); session.audio.pause(); session.audio.srcObject = null;
-    setStatus("off"); setPlaybackBlocked(false);
+    setStatus("off"); setMuted(false); setPlaybackBlocked(false);
     if (reason) setError(reason);
-    if (notify) void client.call("session.voice.stop", { threadId, voiceId: session.id }).catch(() => {});
-  }, [client, threadId]);
+    if (notify) void client.call("session.voice.stop", { threadId: session.threadId, voiceId: session.id }).catch(() => {});
+  }, [client]);
   const stop = useCallback(() => { if (connection.current) finish(connection.current); }, [finish]);
   useEffect(() => {
     window.addEventListener("pagehide", stop);
     return () => { window.removeEventListener("pagehide", stop); stop(); };
   }, [stop]);
-  const start = useCallback(async () => {
+  const toggleMute = () => {
+    const session = connection.current;
+    if (!session) return;
+    session.muted = !session.muted;
+    session.stream?.getAudioTracks().forEach(track => { track.enabled = !session.muted; });
+    setMuted(session.muted);
+  };
+  const start = useCallback(async (targetThreadId: string) => {
     if (connection.current) return;
-    setError(""); setCaptions([]);
+    setThreadId(targetThreadId); setError(""); setCaptions([]); setMuted(false);
     if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === "undefined") { setError("This browser does not support live voice. Use Chrome or Safari over HTTPS."); return; }
     let session: VoiceConnection;
-    try { session = { id: crypto.randomUUID(), pc: new RTCPeerConnection(), audio: new Audio() }; }
+    try { session = { id: crypto.randomUUID(), threadId: targetThreadId, muted: false, pc: new RTCPeerConnection(), audio: new Audio() }; }
     catch { setError("Could not create a voice connection. Check WebRTC settings or use Chrome or Safari."); return; }
     connection.current = session; setStatus("connecting");
     const caption = (role: string, text: string) => {
-      if (connection.current !== session || !text.trim()) return;
-      setCaptions(previous => previous.at(-1)?.text === text ? previous : [...previous, { role, text: text.slice(0, 2000) }].slice(-4));
+      text = text.trim();
+      if (connection.current !== session || !text) return;
+      setCaptions(previous => previous.at(-1)?.text === text && previous.at(-1)?.role === role ? previous : [...previous, { role, text: text.slice(0, 2000) }].slice(-4));
     };
     session.audio.autoplay = true; session.audio.setAttribute("playsinline", "");
     session.pc.ontrack = event => {
@@ -57,12 +89,13 @@ export function useSessionVoice(client: SessionClient, threadId: string) {
         const message = JSON.parse(event.data);
         if (message.type === "conversation.item.input_audio_transcription.completed") caption("user", message.transcript || "");
         if (["response.audio_transcript.done", "response.output_audio_transcript.done"].includes(message.type)) caption("assistant", message.transcript || "");
-        if (message.type === "turn.created") caption(message.turn?.role || "user", message.turn?.transcript || "");
+        // V3 turn.created carries only an initial fragment; turn.done is final.
+        if (message.type === "turn.done") caption(message.turn?.role || "user", message.turn?.transcript || "");
       } catch { /* Ignore media/control messages without transcript text. */ }
     };
     session.unsubscribe = client.onEvent?.(event => {
       const value = event.payload as { threadId?: string; voiceId?: string; method?: string; params?: { sdp?: string; role?: string; text?: string; message?: string; reason?: string } };
-      if (event.event !== "session.voice" || value?.threadId !== threadId || value.voiceId !== session.id || connection.current !== session) return;
+      if (event.event !== "session.voice" || value?.threadId !== session.threadId || value.voiceId !== session.id || connection.current !== session) return;
       const params = value.params || {};
       if (value.method === "thread/realtime/sdp" && params.sdp) void session.pc.setRemoteDescription({ type: "answer", sdp: params.sdp }).catch(() => finish(session, true, "Voice negotiation failed. Please retry."));
       if (value.method === "thread/realtime/transcript/done") caption(params.role || "assistant", params.text || "");
@@ -73,21 +106,24 @@ export function useSessionVoice(client: SessionClient, threadId: string) {
       if (status !== "connected") finish(session, false, "Voice disconnected. Please reconnect.");
     });
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      const { voice, ...audio } = settings;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio });
       if (connection.current !== session) { stream.getTracks().forEach(track => track.stop()); return; }
       session.stream = stream;
+      stream.getAudioTracks().forEach(track => { track.enabled = !session.muted; });
       stream.getTracks().forEach(track => session.pc.addTrack(track, stream));
       const offer = await session.pc.createOffer(); await session.pc.setLocalDescription(offer);
       if (connection.current !== session) return;
       session.timer = setTimeout(() => finish(session, true, "Voice connection timed out. Check your connection and retry."), 35000);
-      await client.call("session.voice.start", { threadId, voiceId: session.id, sdp: offer.sdp });
+      await client.call("session.voice.start", { threadId: session.threadId, voiceId: session.id, sdp: offer.sdp, ...(voice ? { voice } : {}) });
     } catch (cause) {
       finish(session, true, cause instanceof DOMException && cause.name === "NotAllowedError" ? "Allow microphone access for this page, then retry." : cause instanceof Error ? cause.message : "Could not connect voice");
     }
-  }, [client, threadId, finish]);
+  }, [client, settings, finish]);
   const play = async () => {
     try { await connection.current?.audio.play(); setPlaybackBlocked(false); }
     catch { setError("Audio playback was blocked. Click Play audio again."); }
   };
-  return { status, error, captions, playbackBlocked, start, stop, play };
+  return { threadId, status, error, captions, playbackBlocked, muted, settings, updateSettings, toggleMute, start, stop, play };
 }
+export type SessionVoiceController = ReturnType<typeof useSessionVoice>;
