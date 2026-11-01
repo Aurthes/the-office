@@ -50,7 +50,7 @@ const WORKING_LATCH_MS = 5_000;
 const GYM_WORKOUT_LATCH_MS = 60_000;
 const STREAM_ACTIVITY_LATCH_MS = 6_000;
 const THINKING_ACTIVITY_LATCH_MS = 6_000;
-const STANDUP_TRIGGER_MAX_AGE_MS = 30_000;
+
 const CLEANING_CUE_LIMIT = 24;
 const TRANSIENT_BOOTH_RESTORE_MAX_AGE_MS = 2 * 60_000;
 
@@ -80,12 +80,6 @@ type LatestDirective<TDirective> = {
   text: string;
 };
 
-export type OfficeStandupTriggerRequest = {
-  key: string;
-  message: string;
-  requestedAt: number;
-};
-
 export type OfficeAnimationTriggerState = {
   cleaningCues: OfficeCleaningCue[];
   deskDirectiveKeyByAgentId: StringByAgentId;
@@ -95,7 +89,7 @@ export type OfficeAnimationTriggerState = {
   gymCooldownUntilByAgentId: NumberByAgentId;
   lastManualGymCommandKeyByAgentId: StringByAgentId;
   manualGymUntilByAgentId: NumberByAgentId;
-  pendingStandupRequest: OfficeStandupTriggerRequest | null;
+
   phoneCallByAgentId: PhoneCallByAgentId;
   phoneCallDirectiveKeyByAgentId: StringByAgentId;
   qaDirectiveKeyByAgentId: StringByAgentId;
@@ -123,7 +117,7 @@ export type OfficeAnimationState = {
   gymHoldByAgentId: BooleanByAgentId;
   jukeboxHoldByAgentId: BooleanByAgentId;
   manualGymUntilByAgentId: NumberByAgentId;
-  pendingStandupRequest: OfficeStandupTriggerRequest | null;
+
   phoneBoothHoldByAgentId: BooleanByAgentId;
   phoneCallByAgentId: PhoneCallByAgentId;
   qaHoldByAgentId: BooleanByAgentId;
@@ -529,7 +523,6 @@ const hasOtherOfficeDirective = (
     snapshot.gym ||
     snapshot.qa ||
     snapshot.art ||
-    snapshot.standup ||
     snapshot.call ||
     snapshot.text,
   );
@@ -806,17 +799,7 @@ const applyUserMessageTriggers = (params: {
       },
     };
   }
-  if (params.agentId === "main" && intentSnapshot.standup === "standup") {
-    const requestKey = `${normalizeCommandText(params.message)}:${params.nowMs}`;
-    next = {
-      ...next,
-      pendingStandupRequest: {
-        key: requestKey,
-        message: params.message.trim(),
-        requestedAt: params.nowMs,
-      },
-    };
-  }
+
   if (intentSnapshot.call) {
     const request = createPhoneCallRequest({
       directive: intentSnapshot.call,
@@ -904,7 +887,7 @@ export const createOfficeAnimationTriggerState =
     gymCooldownUntilByAgentId: emptyObject(),
     lastManualGymCommandKeyByAgentId: emptyObject(),
     manualGymUntilByAgentId: emptyObject(),
-    pendingStandupRequest: null,
+
     phoneCallByAgentId: emptyObject(),
     phoneCallDirectiveKeyByAgentId: emptyObject(),
     qaDirectiveKeyByAgentId: emptyObject(),
@@ -1105,13 +1088,6 @@ export const reconcileOfficeAnimationTriggerState = (params: {
   const textMessageDirectiveKeyByAgentId: StringByAgentId = {};
   let workingUntilByAgentId = next.workingUntilByAgentId;
   const manualGymUntilByAgentId = next.manualGymUntilByAgentId;
-  let pendingStandupRequest = next.pendingStandupRequest;
-  if (
-    pendingStandupRequest &&
-    nowMs - pendingStandupRequest.requestedAt > STANDUP_TRIGGER_MAX_AGE_MS
-  ) {
-    pendingStandupRequest = null;
-  }
 
   for (const agent of params.agents) {
     const agentId = agent.agentId;
@@ -1253,7 +1229,7 @@ export const reconcileOfficeAnimationTriggerState = (params: {
     githubHoldByAgentId,
     lastManualGymCommandKeyByAgentId: currentImmediateGymKeys,
     manualGymUntilByAgentId,
-    pendingStandupRequest,
+
     phoneCallByAgentId,
     phoneCallDirectiveKeyByAgentId,
     qaDirectiveKeyByAgentId,
@@ -1337,14 +1313,14 @@ export const clearOfficeAnimationTriggerHold = (params: {
 
 export const buildOfficeAnimationState = (params: {
   agents: AgentState[];
-  marketplaceGymHoldByAgentId?: BooleanByAgentId;
+
   nowMs?: number;
   state: OfficeAnimationTriggerState;
 }): OfficeAnimationState => {
   // This final projection is intentionally smaller than the trigger state because the scene
   // only needs present-tense booleans and timers, not the bookkeeping used to derive them.
   const nowMs = params.nowMs ?? Date.now();
-  const marketplaceGymHoldByAgentId = params.marketplaceGymHoldByAgentId ?? {};
+
   const awaitingApprovalByAgentId: BooleanByAgentId = {};
   const deskHoldByAgentId: BooleanByAgentId = {};
   const gymHoldByAgentId: BooleanByAgentId = {};
@@ -1363,7 +1339,6 @@ export const buildOfficeAnimationState = (params: {
     }
     if (
       params.state.skillGymHoldByAgentId[agentId] ||
-      marketplaceGymHoldByAgentId[agentId] ||
       (params.state.manualGymUntilByAgentId[agentId] ?? 0) > nowMs ||
       (params.state.gymCooldownUntilByAgentId[agentId] ?? 0) > nowMs
     ) {
@@ -1403,7 +1378,7 @@ export const buildOfficeAnimationState = (params: {
     gymHoldByAgentId,
     jukeboxHoldByAgentId,
     manualGymUntilByAgentId: params.state.manualGymUntilByAgentId,
-    pendingStandupRequest: params.state.pendingStandupRequest,
+
     phoneBoothHoldByAgentId,
     phoneCallByAgentId,
     qaHoldByAgentId: params.state.qaHoldByAgentId,

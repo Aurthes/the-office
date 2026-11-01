@@ -6,8 +6,6 @@ import { useUiText } from "@/lib/i18n/ui-language";
 export type HQSidebarTab =
   | "inbox"
   | "history"
-  | "kanban"
-  | "playbooks"
   | "analytics";
 
 type HQSidebarProps = {
@@ -16,25 +14,22 @@ type HQSidebarProps = {
   inboxCount: number;
   onToggle: () => void;
   onTabChange: (tab: HQSidebarTab) => void;
-  onOpenMarketplace: () => void;
+
   onAddAgent?: () => void;
   onOpenCompanyBuilder?: () => void;
   inboxPanel: ReactNode;
   historyPanel: ReactNode;
-  kanbanPanel: ReactNode;
-  playbooksPanel: ReactNode;
+
   analyticsPanel: ReactNode;
 };
 
 const TAB_LABELS: Record<HQSidebarTab, string> = {
   inbox: "Inbox",
   history: "History",
-  kanban: "Kanban",
-  playbooks: "Playbooks",
   analytics: "Analytics",
 };
 
-const PRIMARY_TABS: HQSidebarTab[] = ["inbox", "history", "kanban", "playbooks"];
+const PRIMARY_TABS: HQSidebarTab[] = ["inbox", "history"];
 
 export function HQSidebar({
   open,
@@ -42,13 +37,12 @@ export function HQSidebar({
   inboxCount,
   onToggle,
   onTabChange,
-  onOpenMarketplace,
+
   onAddAgent,
   onOpenCompanyBuilder,
   inboxPanel,
   historyPanel,
-  kanbanPanel,
-  playbooksPanel,
+
   analyticsPanel,
 }: HQSidebarProps) {
   const t = useUiText();
@@ -59,12 +53,7 @@ export function HQSidebar({
       ? inboxPanel
       : activeTab === "history"
         ? historyPanel
-        : activeTab === "kanban"
-          ? kanbanPanel
-        : activeTab === "playbooks"
-          ? playbooksPanel
-          : analyticsPanel;
-  const boardLikeWidth = activeTab === "kanban";
+        : analyticsPanel;
 
   return (
     <aside className="pointer-events-none fixed inset-y-0 right-0 z-20 flex justify-end">
@@ -79,17 +68,6 @@ export function HQSidebar({
           <span className="block leading-none [writing-mode:vertical-rl]">
             {open ? t("COLLAPSE HQ") : t("OPEN HQ")}
           </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            onOpenMarketplace();
-          }}
-          className="rounded-l-md border border-r-0 border-fuchsia-500/25 bg-[#100611]/90 px-1.5 py-2.5 font-mono text-[10px] font-semibold tracking-[0.2em] text-fuchsia-300/80 shadow-xl backdrop-blur transition-colors hover:border-fuchsia-400/45 hover:text-fuchsia-100"
-          aria-label={t("Open marketplace")}
-        >
-          <span className="block leading-none [writing-mode:vertical-rl]">{t("MARKETPLACE")}</span>
         </button>
 
         <button
@@ -115,7 +93,7 @@ export function HQSidebar({
       {open ? (
         <div
           className={`pointer-events-auto flex h-full flex-col border-l border-cyan-500/20 bg-black/85 shadow-2xl backdrop-blur ${
-            boardLikeWidth ? "w-[min(94vw,1180px)]" : "w-56"
+            "w-56"
           }`}
         >
           <div className="border-b border-cyan-500/15 px-4 py-3">
@@ -125,7 +103,7 @@ export function HQSidebar({
             <div className="mt-1 font-mono text-[11px] text-white/45">
               {analyticsOnly
                 ? t("Cost, budgets, and performance intelligence.")
-                : t("Monitor outputs, runs, and schedules.")}
+                : t("Monitor outputs and runs.")}
             </div>
             {!railOnly && onAddAgent ? (
               <button

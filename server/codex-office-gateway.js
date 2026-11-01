@@ -13,6 +13,7 @@ const { CodexOfficeVoice } = require("./codex-office-voice");
 const { loadSessionHistoryPage } = require("./codex-session-history");
 const { createOfficeDictation, suggestNextMessage } = require("./office-model-services");
 const { readAiCenter } = require("./ai-center");
+const { questionReplyMessage } = require("./codex-session-questions");
 
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
@@ -28,15 +29,16 @@ const native = new CodexOfficeClient({ home: process.env.CLAW3D_OFFICE_CODEX_HOM
   const mapped = store?.handle(frame); if (!mapped) return;
   voice?.handle(mapped);
   controls?.handle(mapped); if (mapped.params?.threadId) stream?.changed(mapped.params.threadId);
+  if (mapped.id !== undefined || ["serverRequest/resolved", "turn/completed"].includes(mapped.method)) changed();
 } });
 store = new CodexOfficeStore(directory, native, changed, id => Boolean(voice?.active?.threadId === id || controls?.state(id).activeTurnId || workspace?.snapshot(id)?.running || workspace?.starts.has(id)));
-controls = new CodexSessionControls(store, () => [], { settings: store, features });
+controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features });
 stream = new CodexSessionStream(controls);
 workspace = new CodexSessionWorkspace(native, { commandExec: true, policy: id => store.overrides(id).sandboxPolicy, roots: row => store.sessionFolders(row) });
 voice = new CodexOfficeVoice(store, controls, (ws, payload) => {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "event", event: "session.voice", payload }));
 });
-const agents = () => store.list().map(row => ({ ...row, role: row.project, identity: { name: row.name, emoji: "💬" }, needsInput: Boolean(controls.questions(row.id).some(q => !q.submitted) || controls.snapshot(row.id).approvalCount) }));
+const agents = () => store.list().map(row => ({ ...row, role: row.project, identity: { name: row.name, emoji: "💬" }, needsInput: Boolean(store.pendingQuestions(row.id).length || controls.questions(row.id).some(q => !q.submitted) || controls.snapshot(row.id).approvalCount) }));
 const key = id => `agent:${id}:main`;
 const history = (id, cursor) => loadSessionHistoryPage(store.call.bind(store), store.get(id), cursor);
 async function account() { const status = await native.call("account/read", { refreshToken: false }); return { loggedIn: Boolean(status.account) || status.requiresOpenaiAuth === false, email: status.account?.email || null, requiresAuth: status.requiresOpenaiAuth !== false, login }; }
@@ -68,14 +70,22 @@ const methods = {
   "session.attach": async p => { store.get(p.threadId); await controls.attach(p.threadId); return controls.snapshot(p.threadId); },
   "session.subscribe": (p, ws) => { store.get(p.threadId); return stream.subscribe(ws, p.threadId, p.subscriptionId); },
   "session.unsubscribe": (p, ws) => stream.unsubscribe(ws, p.subscriptionId),
-  "session.send": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); return controls.send(p.threadId, p.message, p.requestId, p.attachments); },
+  "session.send": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, p.message, p.requestId, p.attachments); store.clearQuestions(p.threadId, pending); return result; },
+  "session.continue": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, "Continue where you left off.", p.requestId, [], { resumeInterrupted: true }); store.clearQuestions(p.threadId, pending); return result; },
   "session.stop": p => { store.get(p.threadId); return controls.stop(p.threadId); },
   "session.settings.choices": p => { store.get(p.threadId); return controls.choices(p.threadId); },
   "session.settings.update": p => { store.get(p.threadId); if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before changing settings"); return controls.updateSettings(p.threadId, p.settings); },
   "session.voice.start": async (p, ws) => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before calling"); return voice.start(ws, p.threadId, p.sdp, p.voiceId); },
   "session.voice.stop": (p, ws) => { store.get(p.threadId); return voice.stop(ws, p.threadId, p.voiceId); },
-  "session.question.reply": p => { store.get(p.threadId); return controls.replyQuestions(p.threadId, p.promptId, p.answers); },
-  "session.approval.reply": p => { store.get(p.threadId); return controls.reply(p.threadId, p.requestId, p.decision); },
+  "session.question.reply": async p => {
+    store.get(p.threadId);
+    const request = store.pendingQuestions(p.threadId).find(q => q.requestId === p.promptId);
+    if (!request) { const result = controls.replyQuestions(p.threadId, p.promptId, p.answers); changed(); return result; }
+    if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before answering");
+    const result = await controls.send(p.threadId, questionReplyMessage(request, p.answers), p.requestId);
+    store.clearQuestions(p.threadId, [request.requestId]); return result;
+  },
+  "session.approval.reply": p => { store.get(p.threadId); const result = controls.reply(p.threadId, p.requestId, p.decision); changed(); return result; },
   "session.workspace.list": p => workspace.files(store.get(p.threadId), p.path, p.root),
   "session.workspace.read": p => workspace.file(store.get(p.threadId), p.path, p.root),
   "session.terminal.subscribe": (p, ws) => workspace.subscribe(ws, store.get(p.threadId).id),

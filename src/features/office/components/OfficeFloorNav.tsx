@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-
 import {
   OFFICE_FLOORS,
   getAdjacentEnabledOfficeFloorId,
@@ -27,11 +26,7 @@ type OfficeFloorNavProps = {
 const PROVIDER_LABEL: Record<FloorProvider, string> = {
   demo: "Demo",
   openclaw: "OpenClaw",
-  hermes: "Hermes",
-  paperclip: "Paperclip",
-  custom: "Custom",
-  local: "Local",
-  claw3d: "Claw3D",
+
 };
 
 const renderFloorButton = (params: {

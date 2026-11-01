@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import type { StudioGatewayAdapterType } from "@/lib/studio/settings";
 import { useUiLanguage } from "@/lib/i18n/ui-language";
 import { useUiText } from "@/lib/i18n/ui-language";
@@ -21,18 +20,7 @@ type SettingsPanelProps = {
   officeTitle: string;
   officeTitleLoaded: boolean;
   onOfficeTitleChange: (title: string) => void;
-  remoteOfficeEnabled: boolean;
-  remoteOfficeSourceKind: "presence_endpoint" | "openclaw_gateway";
-  remoteOfficeLabel: string;
-  remoteOfficePresenceUrl: string;
-  remoteOfficeGatewayUrl: string;
-  remoteOfficeTokenConfigured: boolean;
-  onRemoteOfficeEnabledChange: (enabled: boolean) => void;
-  onRemoteOfficeSourceKindChange: (kind: "presence_endpoint" | "openclaw_gateway") => void;
-  onRemoteOfficeLabelChange: (label: string) => void;
-  onRemoteOfficePresenceUrlChange: (url: string) => void;
-  onRemoteOfficeGatewayUrlChange: (url: string) => void;
-  onRemoteOfficeTokenChange: (token: string) => void;
+
 };
 
 export function SettingsPanel({
@@ -50,18 +38,7 @@ export function SettingsPanel({
   officeTitle,
   officeTitleLoaded,
   onOfficeTitleChange,
-  remoteOfficeEnabled,
-  remoteOfficeSourceKind,
-  remoteOfficeLabel,
-  remoteOfficePresenceUrl,
-  remoteOfficeGatewayUrl,
-  remoteOfficeTokenConfigured,
-  onRemoteOfficeEnabledChange,
-  onRemoteOfficeSourceKindChange,
-  onRemoteOfficeLabelChange,
-  onRemoteOfficePresenceUrlChange,
-  onRemoteOfficeGatewayUrlChange,
-  onRemoteOfficeTokenChange,
+
 }: SettingsPanelProps) {
   const t = useUiText();
   const { language, setLanguage } = useUiLanguage();
@@ -75,12 +52,7 @@ export function SettingsPanel({
   const gatewayDisconnectDisabled = !isGatewayConnected;
   const gatewayConnectDisabled = normalizedGatewayUrl.length === 0;
   const tokenOptional =
-    selectedAdapterType === "hermes" ||
-    selectedAdapterType === "demo" ||
-    selectedAdapterType === "local" ||
-    selectedAdapterType === "claw3d" ||
-    selectedAdapterType === "custom";
-  const [remoteOfficeTokenDraft, setRemoteOfficeTokenDraft] = useState("");
+    selectedAdapterType === "demo";
 
   return (
     <div className="px-4 py-4">
@@ -141,10 +113,7 @@ export function SettingsPanel({
           {(
             [
               ["demo", "Demo"],
-              ["hermes", "Hermes"],
-              ["local", "Local"],
-              ["claw3d", "Claw3D"],
-              ["custom", "Custom"],
+
               ["openclaw", "OpenClaw"],
             ] as const
           ).map(([adapterType, label]) => {
@@ -173,12 +142,7 @@ export function SettingsPanel({
               value={gatewayUrl ?? ""}
               onChange={(event) => onGatewayUrlChange?.(event.target.value)}
               placeholder={
-                selectedAdapterType === "custom" ||
-                selectedAdapterType === "local"
-                  ? "http://localhost:7770"
-                  : selectedAdapterType === "claw3d"
-                    ? "http://localhost:3000/api/runtime/custom"
-                  : "ws://localhost:18789"
+                "ws://localhost:18789"
               }
               className="w-full rounded-md border border-cyan-500/10 bg-black/25 px-3 py-2 font-mono text-[11px] text-cyan-100 outline-none transition-colors placeholder:text-cyan-100/30 focus:border-cyan-400/30"
             />
@@ -223,157 +187,7 @@ export function SettingsPanel({
           </div>
         </div>
       </div>
-      <div className="mt-3 rounded-lg border border-cyan-500/10 bg-black/20 px-4 py-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-[11px] font-medium text-white">{t("Remote office")}</div>
-            <div className="mt-1 text-[10px] text-white/75">{t("Attach a second read-only office from either another Claw3D or a remote OpenClaw gateway.")}</div>
-          </div>
-          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-cyan-200/70">
-            {remoteOfficeEnabled ? t("Enabled") : t("Disabled")}
-          </span>
-        </div>
-        <div className="ui-settings-row mt-3 flex min-h-[72px] items-center justify-between gap-6 rounded-lg border border-cyan-500/10 bg-black/15 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              role="switch"
-              aria-label={t("Remote office")}
-              aria-checked={remoteOfficeEnabled}
-              className={`ui-switch self-center ${remoteOfficeEnabled ? "ui-switch--on" : ""}`}
-              onClick={() => onRemoteOfficeEnabledChange(!remoteOfficeEnabled)}
-            >
-              <span className="ui-switch-thumb" />
-            </button>
-            <div className="flex flex-col">
-              <span className="text-[11px] font-medium text-white">{t("Show second office")}</span>
-              <span className="text-[10px] text-white/80">{t("Remote agents stay visible but non-interactive.")}</span>
-            </div>
-          </div>
-          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-cyan-200/70">
-            {remoteOfficeTokenConfigured ? t("Token set") : t("No token")}
-          </span>
-        </div>
-        <div className="mt-3 grid gap-3">
-          <div>
-            <div className="mb-1 text-[10px] uppercase tracking-[0.14em] text-cyan-100/65">{t("Source type")}</div>
-            <select
-              value={remoteOfficeSourceKind}
-              onChange={(event) =>
-                onRemoteOfficeSourceKindChange(
-                  event.target.value as "presence_endpoint" | "openclaw_gateway"
-                )
-              }
-              className="w-full rounded-md border border-cyan-500/10 bg-black/25 px-3 py-2 text-[11px] text-cyan-100 outline-none transition-colors focus:border-cyan-400/30"
-            >
-              <option value="presence_endpoint">{t("Remote Claw3D presence endpoint")}</option>
-              <option value="openclaw_gateway">{t("Remote OpenClaw gateway")}</option>
-            </select>
-            <div className="mt-1 text-[10px] text-white/50">{t("Use a presence endpoint when the other machine runs Claw3D. Use gateway mode when the other machine only runs OpenClaw.")}</div>
-          </div>
-          <div>
-            <div className="mb-1 text-[10px] uppercase tracking-[0.14em] text-cyan-100/65">{t("Label")}</div>
-            <input
-              type="text"
-              value={remoteOfficeLabel}
-              maxLength={48}
-              onChange={(event) => onRemoteOfficeLabelChange(event.target.value)}
-              placeholder="Remote Office"
-              className="w-full rounded-md border border-cyan-500/10 bg-black/25 px-3 py-2 text-[11px] uppercase tracking-[0.14em] text-cyan-100 outline-none transition-colors placeholder:text-cyan-100/30 focus:border-cyan-400/30"
-            />
-          </div>
-          {remoteOfficeSourceKind === "presence_endpoint" ? (
-            <>
-              <div>
-                <div className="mb-1 text-[10px] uppercase tracking-[0.14em] text-cyan-100/65">{t("Presence URL")}</div>
-                <input
-                  type="url"
-                  value={remoteOfficePresenceUrl}
-                  onChange={(event) => onRemoteOfficePresenceUrlChange(event.target.value)}
-                  placeholder="https://other-office.example.com/api/office/presence"
-                  className="w-full rounded-md border border-cyan-500/10 bg-black/25 px-3 py-2 text-[11px] text-cyan-100 outline-none transition-colors placeholder:text-cyan-100/30 focus:border-cyan-400/30"
-                />
-                <div className="mt-1 text-[10px] text-white/50">{t("Studio polls this endpoint server-side when the other machine is also running Claw3D.")}</div>
-              </div>
-              <div>
-                <div className="mb-1 text-[10px] uppercase tracking-[0.14em] text-cyan-100/65">{t("Optional token")}</div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="password"
-                    value={remoteOfficeTokenDraft}
-                    onChange={(event) => setRemoteOfficeTokenDraft(event.target.value)}
-                    placeholder={remoteOfficeTokenConfigured ? t("Token configured. Enter a new one to replace it.") : t("Enter token")}
-                    className="min-w-0 flex-1 rounded-md border border-cyan-500/10 bg-black/25 px-3 py-2 text-[11px] text-cyan-100 outline-none transition-colors placeholder:text-cyan-100/30 focus:border-cyan-400/30"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onRemoteOfficeTokenChange(remoteOfficeTokenDraft);
-                      setRemoteOfficeTokenDraft("");
-                    }}
-                    className="rounded-md border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-[10px] font-medium uppercase tracking-[0.14em] text-cyan-100 transition-colors hover:border-cyan-400/40 hover:bg-cyan-500/15"
-                  >{t("Save")}</button>
-                  {remoteOfficeTokenConfigured ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onRemoteOfficeTokenChange("");
-                        setRemoteOfficeTokenDraft("");
-                      }}
-                      className="rounded-md border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-[10px] font-medium uppercase tracking-[0.14em] text-rose-100 transition-colors hover:border-rose-400/40 hover:bg-rose-500/15"
-                    >{t("Clear")}</button>
-                  ) : null}
-                </div>
-              </div>
-            </>
-          ) : (
-            <>
-              <div>
-                <div className="mb-1 text-[10px] uppercase tracking-[0.14em] text-cyan-100/65">{t("Gateway URL")}</div>
-                <input
-                  type="text"
-                  value={remoteOfficeGatewayUrl}
-                  onChange={(event) => onRemoteOfficeGatewayUrlChange(event.target.value)}
-                  placeholder="wss://remote-gateway.example.com"
-                  className="w-full rounded-md border border-cyan-500/10 bg-black/25 px-3 py-2 text-[11px] text-cyan-100 outline-none transition-colors placeholder:text-cyan-100/30 focus:border-cyan-400/30"
-                />
-                <div className="mt-1 text-[10px] text-white/50">{t("Claw3D connects from the browser directly to the remote OpenClaw gateway and derives a read-only presence snapshot.")}</div>
-              </div>
-              <div>
-                <div className="mb-1 text-[10px] uppercase tracking-[0.14em] text-cyan-100/65">{t("Shared gateway token")}</div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="password"
-                    value={remoteOfficeTokenDraft}
-                    onChange={(event) => setRemoteOfficeTokenDraft(event.target.value)}
-                    placeholder={remoteOfficeTokenConfigured ? t("Token configured. Enter a new one to replace it.") : t("Enter token")}
-                    className="min-w-0 flex-1 rounded-md border border-cyan-500/10 bg-black/25 px-3 py-2 text-[11px] text-cyan-100 outline-none transition-colors placeholder:text-cyan-100/30 focus:border-cyan-400/30"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onRemoteOfficeTokenChange(remoteOfficeTokenDraft);
-                      setRemoteOfficeTokenDraft("");
-                    }}
-                    className="rounded-md border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-[10px] font-medium uppercase tracking-[0.14em] text-cyan-100 transition-colors hover:border-cyan-400/40 hover:bg-cyan-500/15"
-                  >{t("Save")}</button>
-                  {remoteOfficeTokenConfigured ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onRemoteOfficeTokenChange("");
-                        setRemoteOfficeTokenDraft("");
-                      }}
-                      className="rounded-md border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-[10px] font-medium uppercase tracking-[0.14em] text-rose-100 transition-colors hover:border-rose-400/40 hover:bg-rose-500/15"
-                    >{t("Clear")}</button>
-                  ) : null}
-                </div>
-                <div className="mt-1 text-[10px] text-white/50">{t("Optional. Browser-based remote presence and messaging can work without it when the remote gateway already allows your Control UI origin.")}</div>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+
       <div className="mt-3 rounded-lg border border-cyan-500/10 bg-black/20 px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div>

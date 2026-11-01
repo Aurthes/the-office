@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-
 import { buildLatestUpdatePatch } from "@/features/agents/operations/latestUpdateWorkflow";
 import { createSpecialLatestUpdateOperation } from "@/features/agents/operations/specialLatestUpdateOperation";
-import { resolveLatestCronJobForAgent, type CronJobSummary } from "@/lib/cron/types";
 import type { AgentState } from "@/features/agents/state/store";
 
 const makeAgent = (overrides?: Partial<Pick<AgentState, "agentId" | "sessionKey" | "latestOverride" | "latestOverrideKind">>) => {
@@ -17,16 +15,14 @@ const makeAgent = (overrides?: Partial<Pick<AgentState, "agentId" | "sessionKey"
 
 describe("specialLatestUpdateOperation", () => {
   it("dispatches reset patch when intent resolves to reset", async () => {
-    const agent = makeAgent({ latestOverrideKind: "cron" });
+    const agent = makeAgent({ latestOverrideKind: "heartbeat" });
 
     const dispatchUpdateAgent = vi.fn();
     const operation = createSpecialLatestUpdateOperation({
       callGateway: async () => {
         throw new Error("callGateway should not be invoked for reset intent");
       },
-      listCronJobs: async () => ({ jobs: [] }),
-      resolveCronJobForAgent: () => null,
-      formatCronJobDisplay: () => "",
+
       dispatchUpdateAgent,
       isDisconnectLikeError: () => false,
       logError: () => {},
@@ -65,9 +61,7 @@ describe("specialLatestUpdateOperation", () => {
     const dispatchUpdateAgent = vi.fn();
     const operation = createSpecialLatestUpdateOperation({
       callGateway,
-      listCronJobs: async () => ({ jobs: [] }),
-      resolveCronJobForAgent: () => null,
-      formatCronJobDisplay: () => "",
+
       dispatchUpdateAgent,
       isDisconnectLikeError: () => false,
       logError: () => {},
@@ -80,57 +74,6 @@ describe("specialLatestUpdateOperation", () => {
     expect(dispatchUpdateAgent).toHaveBeenCalledWith(
       agent.agentId,
       buildLatestUpdatePatch("Second response", "heartbeat")
-    );
-  });
-
-  it("fetches cron jobs, selects latest cron for agentId, and stores formatted cron display", async () => {
-    const agent = makeAgent();
-
-    const jobs: CronJobSummary[] = [
-      {
-        id: "job-1",
-        name: "Older",
-        agentId: "agent-1",
-        enabled: true,
-        updatedAtMs: 1,
-        schedule: { kind: "every", everyMs: 60000 },
-        sessionTarget: "main",
-        wakeMode: "now",
-        payload: { kind: "systemEvent", text: "one" },
-        state: {},
-      },
-      {
-        id: "job-2",
-        name: "Newer",
-        agentId: "agent-1",
-        enabled: true,
-        updatedAtMs: 2,
-        schedule: { kind: "every", everyMs: 60000 },
-        sessionTarget: "main",
-        wakeMode: "now",
-        payload: { kind: "systemEvent", text: "two" },
-        state: {},
-      },
-    ];
-
-    const dispatchUpdateAgent = vi.fn();
-    const operation = createSpecialLatestUpdateOperation({
-      callGateway: async () => {
-        throw new Error("callGateway should not be invoked for cron intent");
-      },
-      listCronJobs: async () => ({ jobs }),
-      resolveCronJobForAgent: resolveLatestCronJobForAgent,
-      formatCronJobDisplay: (job) => `formatted:${job.id}`,
-      dispatchUpdateAgent,
-      isDisconnectLikeError: () => false,
-      logError: () => {},
-    });
-
-    await operation.update(agent.agentId, agent, "cron report pending");
-
-    expect(dispatchUpdateAgent).toHaveBeenCalledWith(
-      agent.agentId,
-      buildLatestUpdatePatch("formatted:job-2", "cron")
     );
   });
 
@@ -160,9 +103,7 @@ describe("specialLatestUpdateOperation", () => {
     const dispatchUpdateAgent = vi.fn();
     const operation = createSpecialLatestUpdateOperation({
       callGateway,
-      listCronJobs: async () => ({ jobs: [] }),
-      resolveCronJobForAgent: () => null,
-      formatCronJobDisplay: () => "",
+
       dispatchUpdateAgent,
       isDisconnectLikeError: () => false,
       logError: () => {},

@@ -449,7 +449,7 @@ export function RingShipOffice(props: Props) {
       </group>)}
       {!shipView && !busy ? <group position={[0, visibleDeck * DECK_STEP, 0]}>
         <CabinTargets layout={currentLayout} focus={validFocus} onSelect={select} />
-        {props.musicPreview && visibleDeck === 0 ? currentLayout.cabins.filter(c => c.kind === "lounge").map(cabin => <ListeningBar key={cabin.id} layout={currentLayout} cabin={cabin} onOpen={() => { closeObject(); setMusicOpen(true); }} />) : null}
+        {visibleDeck === 0 ? currentLayout.cabins.filter(c => c.kind === "lounge").map(cabin => <ListeningBar key={cabin.id} layout={currentLayout} cabin={cabin} onOpen={() => { closeObject(); setMusicOpen(true); }} />) : null}
         {currentLayout.cabins.filter(c => c.kind === "monitor").map(cabin => <group key={cabin.id}>
           {!navigationOpen ? <MonitorRoomScreen layout={currentLayout} cabin={cabin} onOpen={openMonitor} /> : null}
           {navigationPreview ? <NavigationConsole layout={currentLayout} cabin={cabin} state={navigation} onAction={action => { closeObject(); navigate(action); }} disabled={busy || !!returnFlight || !!props.activeChatAgentId || navigation.phase === "warp"} /> : null}
@@ -510,7 +510,7 @@ export function RingShipOffice(props: Props) {
     {navigationPreview && navigation.phase === "warp" && navigation.destination ? <WarpJourney destination={starSystem(navigation.destination)} onArrive={arriveSystem} onComplete={completeWarp} /> : null}
     <MonitorDashboard open={monitorOpen} onClose={() => setMonitorOpen(false)} />
     <AiCenterDashboard open={aiOpen} onClose={() => setAiOpen(false)} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
-    {props.musicPreview ? <MusicPlayerDialog open={musicOpen} onClose={() => setMusicOpen(false)} /> : null}
+    <MusicPlayerDialog open={musicOpen} onClose={() => setMusicOpen(false)} />
     <LiftOverlay trip={trip} overlayRef={overlayRef} />
     {returnFlight ? <div role="status" aria-live="polite" className="absolute bottom-20 sm:bottom-4 left-1/2 z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-amber-200/25 bg-[#101e29]/95 px-4 py-3 text-center shadow-xl">
       <div className="truncate text-xs text-amber-100">{returnFlight.name}</div>
@@ -521,11 +521,6 @@ export function RingShipOffice(props: Props) {
       <div className="w-full max-w-sm overflow-auto rounded-xl border border-white/15 bg-[#071522] shadow-2xl">
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-xs"><span>{t("Settings")}</span><button className={button} aria-label={t("Close studio settings")} onClick={() => setSettingsOpen(false)}><X size={14} /></button></div>
         <SettingsPanel {...props} officeTitle={officeTitle} officeTitleLoaded={!!props.officeTitleLoaded} onOfficeTitleChange={value => props.onOfficeTitleChange?.(value)}
-          remoteOfficeEnabled={!!props.remoteOfficeEnabled} remoteOfficeSourceKind={props.remoteOfficeSourceKind || "presence_endpoint"} remoteOfficeLabel={props.remoteOfficeLabel || "Remote Office"}
-          remoteOfficePresenceUrl={props.remoteOfficePresenceUrl || ""} remoteOfficeGatewayUrl={props.remoteOfficeGatewayUrl || ""} remoteOfficeTokenConfigured={!!props.remoteOfficeTokenConfigured}
-          onRemoteOfficeEnabledChange={v => props.onRemoteOfficeEnabledChange?.(v)} onRemoteOfficeSourceKindChange={v => props.onRemoteOfficeSourceKindChange?.(v)}
-          onRemoteOfficeLabelChange={v => props.onRemoteOfficeLabelChange?.(v)} onRemoteOfficePresenceUrlChange={v => props.onRemoteOfficePresenceUrlChange?.(v)}
-          onRemoteOfficeGatewayUrlChange={v => props.onRemoteOfficeGatewayUrlChange?.(v)} onRemoteOfficeTokenChange={v => props.onRemoteOfficeTokenChange?.(v)}
         />
       </div>
     </div> : null}

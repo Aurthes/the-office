@@ -9,8 +9,6 @@ import type {
   StudioOfficePreferencePatch,
   StudioSettingsPublic,
   StudioSettingsPatch,
-  StudioStandupPreferencePatch,
-  StudioTaskBoardPreferencePatch,
 } from "@/lib/studio/settings";
 
 export type StudioSettingsResponse = {
@@ -30,8 +28,6 @@ type AvatarsPatch = Record<string, Record<string, AgentAvatarProfile | null> | n
 type DeskAssignmentsPatch = Record<string, Record<string, string | null> | null>;
 type AnalyticsPatch = Record<string, StudioAnalyticsPreferencePatch | null>;
 type OfficePatch = Record<string, StudioOfficePreferencePatch | null>;
-type StandupPatch = Record<string, StudioStandupPreferencePatch | null>;
-type TaskBoardPatch = Record<string, StudioTaskBoardPreferencePatch | null>;
 
 export type StudioSettingsCoordinatorTransport = {
   fetchSettings: () => Promise<StudioSettingsResponse>;
@@ -150,89 +146,6 @@ const mergeOfficePatch = (
   return merged;
 };
 
-const mergeStandupPatch = (
-  current: StandupPatch | undefined,
-  next: StandupPatch | undefined
-): StandupPatch | undefined => {
-  if (!current && !next) return undefined;
-  const merged: StandupPatch = { ...(current ?? {}) };
-  for (const [gatewayKey, value] of Object.entries(next ?? {})) {
-    if (value === null) {
-      merged[gatewayKey] = null;
-      continue;
-    }
-    const existing = merged[gatewayKey];
-    if (existing && existing !== null) {
-      merged[gatewayKey] = {
-        ...existing,
-        ...value,
-        ...(value.schedule || existing.schedule
-          ? {
-              schedule: {
-                ...(existing.schedule ?? {}),
-                ...(value.schedule ?? {}),
-              },
-            }
-          : {}),
-        ...(value.jira || existing.jira
-          ? {
-              jira: {
-                ...(existing.jira ?? {}),
-                ...(value.jira ?? {}),
-              },
-            }
-          : {}),
-        ...(value.manualByAgentId || existing.manualByAgentId
-          ? {
-              manualByAgentId: {
-                ...(existing.manualByAgentId ?? {}),
-                ...(value.manualByAgentId ?? {}),
-              },
-            }
-          : {}),
-      };
-      continue;
-    }
-    merged[gatewayKey] = {
-      ...value,
-      ...(value.schedule ? { schedule: { ...value.schedule } } : {}),
-      ...(value.jira ? { jira: { ...value.jira } } : {}),
-      ...(value.manualByAgentId
-        ? { manualByAgentId: { ...value.manualByAgentId } }
-        : {}),
-    };
-  }
-  return merged;
-};
-
-const mergeTaskBoardPatch = (
-  current: TaskBoardPatch | undefined,
-  next: TaskBoardPatch | undefined
-): TaskBoardPatch | undefined => {
-  if (!current && !next) return undefined;
-  const merged: TaskBoardPatch = { ...(current ?? {}) };
-  for (const [gatewayKey, value] of Object.entries(next ?? {})) {
-    if (value === null) {
-      merged[gatewayKey] = null;
-      continue;
-    }
-    const existing = merged[gatewayKey];
-    if (existing && existing !== null) {
-      merged[gatewayKey] = {
-        ...existing,
-        ...value,
-        ...(value.cards ? { cards: [...value.cards] } : {}),
-      };
-      continue;
-    }
-    merged[gatewayKey] = {
-      ...value,
-      ...(value.cards ? { cards: [...value.cards] } : {}),
-    };
-  }
-  return merged;
-};
-
 const mergeOfficeFloorsPatch = (
   current: StudioSettingsPatch["officeFloors"],
   next: StudioSettingsPatch["officeFloors"],
@@ -325,8 +238,7 @@ const mergeStudioPatch = (
       ...(next.deskAssignments ? { deskAssignments: { ...next.deskAssignments } } : {}),
       ...(next.analytics ? { analytics: { ...next.analytics } } : {}),
       ...(next.office ? { office: { ...next.office } } : {}),
-      ...(next.standup ? { standup: { ...next.standup } } : {}),
-      ...(next.taskBoard ? { taskBoard: { ...next.taskBoard } } : {}),
+
       ...(next.officeFloors ? { officeFloors: { ...next.officeFloors } } : {}),
     };
   }
@@ -338,8 +250,7 @@ const mergeStudioPatch = (
   );
   const analytics = mergeAnalyticsPatch(current.analytics, next.analytics);
   const office = mergeOfficePatch(current.office, next.office);
-  const standup = mergeStandupPatch(current.standup, next.standup);
-  const taskBoard = mergeTaskBoardPatch(current.taskBoard, next.taskBoard);
+
   const officeFloors = mergeOfficeFloorsPatch(current.officeFloors, next.officeFloors);
   const gateway = mergeGatewayPatch(current.gateway, next.gateway);
   return {
@@ -358,8 +269,7 @@ const mergeStudioPatch = (
     ...(deskAssignments ? { deskAssignments } : {}),
     ...(analytics ? { analytics } : {}),
     ...(office ? { office } : {}),
-    ...(standup ? { standup } : {}),
-    ...(taskBoard ? { taskBoard } : {}),
+
     ...(officeFloors ? { officeFloors } : {}),
   };
 };

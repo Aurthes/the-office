@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultAgentAvatarProfile } from "@/lib/avatars/profile";
-
 import {
   defaultStudioSettings,
   defaultStudioFloorRuntimeState,
   mergeStudioSettings,
   normalizeStudioSettings,
-  resolveDefaultStudioGatewayProfile,
   resolveStudioGatewayProfiles,
   resolveStudioActiveFloorId,
   resolveStudioFloorRuntimeState,
@@ -223,8 +221,8 @@ describe("studio settings normalization", () => {
   it("normalizes and merges per-floor runtime state", () => {
     const normalized = normalizeStudioSettings({
       officeFloors: {
-        "hermes-first": {
-          runtimeProfileId: " hermes-pi ",
+        "openclaw-ground": {
+          runtimeProfileId: " demo-pi ",
           gatewayUrl: " ws://127.0.0.1:18789 ",
           status: "connected",
           lastKnownGoodAt: 1234,
@@ -234,11 +232,11 @@ describe("studio settings normalization", () => {
       },
     });
 
-    expect(normalized.officeFloors["hermes-first"]).toEqual(
+    expect(normalized.officeFloors["openclaw-ground"]).toEqual(
       expect.objectContaining({
-        floorId: "hermes-first",
-        provider: "hermes",
-        runtimeProfileId: "hermes-pi",
+        floorId: "openclaw-ground",
+        provider: "openclaw",
+        runtimeProfileId: "demo-pi",
         gatewayUrl: "ws://localhost:18789",
         status: "connected",
         lastKnownGoodAt: 1234,
@@ -249,7 +247,7 @@ describe("studio settings normalization", () => {
 
     const merged = mergeStudioSettings(normalized, {
       officeFloors: {
-        "hermes-first": {
+        "openclaw-ground": {
           status: "error",
           lastErrorCode: "connect_timeout",
           lastErrorMessage: "Timed out connecting",
@@ -257,9 +255,9 @@ describe("studio settings normalization", () => {
       },
     });
 
-    expect(merged.officeFloors["hermes-first"]).toEqual(
+    expect(merged.officeFloors["openclaw-ground"]).toEqual(
       expect.objectContaining({
-        runtimeProfileId: "hermes-pi",
+        runtimeProfileId: "demo-pi",
         gatewayUrl: "ws://localhost:18789",
         status: "error",
         lastErrorCode: "connect_timeout",
@@ -278,123 +276,14 @@ describe("studio settings normalization", () => {
 
   it("normalizes and merges active floor selection", () => {
     const normalized = normalizeStudioSettings({
-      activeFloorId: "hermes-first",
+      activeFloorId: "openclaw-ground",
     });
-    expect(resolveStudioActiveFloorId(normalized)).toBe("hermes-first");
+    expect(resolveStudioActiveFloorId(normalized)).toBe("openclaw-ground");
 
     const merged = mergeStudioSettings(normalized, {
       activeFloorId: "training",
     });
     expect(resolveStudioActiveFloorId(merged)).toBe("lobby");
-  });
-
-  it("normalizes task board cards per gateway", () => {
-    const normalized = normalizeStudioSettings({
-      taskBoard: {
-        " ws://localhost:18789 ": {
-          cards: [
-            {
-              id: " task-1 ",
-              title: "  Review kanban interaction  ",
-              status: "review",
-              source: "openclaw_event",
-              assignedAgentId: " agent-1 ",
-              createdAt: "2026-03-29T10:00:00.000Z",
-              updatedAt: "2026-03-29T10:05:00.000Z",
-              notes: [" note one ", " ", "note two"],
-            },
-          ],
-          selectedCardId: " task-1 ",
-        },
-      },
-    });
-
-    expect(normalized.taskBoard?.["ws://localhost:18789"]).toEqual(
-      expect.objectContaining({
-        selectedCardId: "task-1",
-        cards: [
-          expect.objectContaining({
-            id: "task-1",
-            title: "Review kanban interaction",
-            assignedAgentId: "agent-1",
-            notes: ["note one", "note two"],
-          }),
-        ],
-      }),
-    );
-  });
-
-  it("merges task board patches", () => {
-    const current = normalizeStudioSettings({
-      taskBoard: {
-        "ws://localhost:18789": {
-          cards: [
-            {
-              id: "task-1",
-              title: "Initial task",
-              description: "",
-              status: "todo",
-              source: "claw3d_manual",
-              sourceEventId: null,
-              assignedAgentId: null,
-              createdAt: "2026-03-29T10:00:00.000Z",
-              updatedAt: "2026-03-29T10:00:00.000Z",
-              playbookJobId: null,
-              runId: null,
-              channel: null,
-              externalThreadId: null,
-              lastActivityAt: null,
-              notes: [],
-              isArchived: false,
-              isInferred: false,
-            },
-          ],
-          selectedCardId: "task-1",
-        },
-      },
-    });
-
-    const merged = mergeStudioSettings(current, {
-      taskBoard: {
-        "ws://localhost:18789": {
-          cards: [
-            {
-              id: "task-2",
-              title: "Replacement task",
-              description: "",
-              status: "in_progress",
-              source: "claw3d_manual",
-              sourceEventId: null,
-              assignedAgentId: null,
-              createdAt: "2026-03-29T10:10:00.000Z",
-              updatedAt: "2026-03-29T10:10:00.000Z",
-              playbookJobId: null,
-              runId: null,
-              channel: null,
-              externalThreadId: null,
-              lastActivityAt: null,
-              notes: [],
-              isArchived: false,
-              isInferred: false,
-            },
-          ],
-          selectedCardId: "task-2",
-        },
-      },
-    });
-
-    expect(merged.taskBoard?.["ws://localhost:18789"]).toEqual(
-      expect.objectContaining({
-        selectedCardId: "task-2",
-        cards: [
-          expect.objectContaining({
-            id: "task-2",
-            title: "Replacement task",
-            status: "in_progress",
-          }),
-        ],
-      }),
-    );
   });
 
   it("resolves simultaneous runtime profiles without collapsing them to one active url", () => {
@@ -403,17 +292,16 @@ describe("studio settings normalization", () => {
         gateway: {
           url: "ws://localhost:28789",
           token: "",
-          adapterType: "hermes",
+          adapterType: "demo",
           profiles: {
             openclaw: { url: "ws://localhost:18789", token: "open-token" },
-            demo: { url: "ws://localhost:38789", token: "" },
-          },
+              },
         },
       }).gateway,
       localDefaults: null,
     });
 
-    expect(resolved.selectedAdapterType).toBe("hermes");
+    expect(resolved.selectedAdapterType).toBe("demo");
     expect(resolved.activeProfile).toEqual({
       url: "ws://localhost:28789",
       token: "",
@@ -421,29 +309,9 @@ describe("studio settings normalization", () => {
     expect(resolved.profiles).toEqual(
       expect.objectContaining({
         openclaw: { url: "ws://localhost:18789", token: "open-token" },
-        hermes: { url: "ws://localhost:28789", token: "" },
-        demo: { url: "ws://localhost:38789", token: "" },
+        demo: { url: "ws://localhost:28789", token: "" },
       }),
     );
-  });
-
-  it("resolves adapter-specific defaults for dormant profiles", () => {
-    expect(resolveDefaultStudioGatewayProfile("local", null)).toEqual({
-      url: "http://localhost:7770",
-      token: "",
-    });
-    expect(resolveDefaultStudioGatewayProfile("claw3d", null)).toEqual({
-      url: "http://localhost:3000/api/runtime/custom",
-      token: "",
-    });
-    expect(resolveDefaultStudioGatewayProfile("custom", null)).toEqual({
-      url: "http://localhost:7770",
-      token: "",
-    });
-    expect(resolveDefaultStudioGatewayProfile("demo", null)).toEqual({
-      url: "ws://localhost:18789",
-      token: "",
-    });
   });
 
   it("merging lastKnownGood with an empty-string token does not overwrite a stored token", () => {
@@ -521,5 +389,25 @@ describe("studio settings normalization", () => {
     });
 
     expect(merged.gateway?.lastKnownGood?.token).toBe("stored-token");
+  });
+});
+
+describe("retired feature preferences", () => {
+  it("ignores old feature settings while preserving the office title and gateway profile", () => {
+    const settings = normalizeStudioSettings({
+      standup: { "ws://localhost:18789": { enabled: true } },
+      taskBoard: { "ws://localhost:18789": { cards: [{ title: "Old task" }] } },
+      office: { "ws://localhost:18789": { title: "My office", remoteOfficeEnabled: true, remoteOfficeToken: "retired-token" } },
+      gateway: { url: "ws://localhost:18789", token: "current-token", adapterType: "openclaw", profiles: {
+        openclaw: { url: "ws://localhost:18789", token: "current-token" },
+        hermes: { url: "ws://localhost:28789", token: "retired-token" },
+      } },
+    });
+    expect(settings).not.toHaveProperty("standup");
+    expect(settings).not.toHaveProperty("taskBoard");
+    expect(settings.office["ws://localhost:18789"].title).toBe("My office");
+    expect(settings.office["ws://localhost:18789"]).not.toHaveProperty("remoteOfficeEnabled");
+    expect(settings.office["ws://localhost:18789"]).not.toHaveProperty("remoteOfficeToken");
+    expect(settings.gateway?.profiles).toEqual({ openclaw: { url: "ws://localhost:18789", token: "current-token" } });
   });
 });

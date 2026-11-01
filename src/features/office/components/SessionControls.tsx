@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Headphones, Mic, Paperclip, PhoneOff, Square, X } from "lucide-react";
+import { Headphones, Mic, Paperclip, PhoneOff, Play, Square, X } from "lucide-react";
 import { SessionSettings, type ChatSettings } from "./SessionSettings";
 import { SessionContextUsage } from "./SessionContextUsage";
 import { useSessionVoice } from "./useSessionVoice";
@@ -144,10 +144,12 @@ export function SessionControls({ client, threadId, onItems }: {
     }));
   };
   const removeFile = (id: string) => { uploadRequests.current.get(id)?.abort(); updateUploads(uploadsRef.current.filter(item => item.id !== id)); };
-  const readyToSend = Boolean((recording || text.trim() || suggestedText || uploads.length) && uploads.every(file => file.ref) && dictation.phase !== "transcribing");
+  const canContinue = Boolean(state?.turnStatus === "interrupted" && !state.activeTurnId && !text.trim() && !uploads.length && !dictation.busy && voice.status === "off");
+  const readyToSend = canContinue || Boolean((recording || text.trim() || suggestedText || uploads.length) && uploads.every(file => file.ref) && dictation.phase !== "transcribing");
   const send = () => {
     if (busy || settingsBusy || !state?.connected || !readyToSend) return;
     if (recording) { void stopDictation(true); return; }
+    if (canContinue) { void action("session.continue", { requestId: crypto.randomUUID() }); return; }
     const message = text || suggestedText;
     if (!text && suggestedText) setText(suggestedText); // Retain a draft if submission fails.
     setPrediction(null);
@@ -227,6 +229,7 @@ export function SessionControls({ client, threadId, onItems }: {
     try {
       await client.call(method, { threadId, ...params });
       if (method === "session.send") { setText(""); if (!dictation.error) dictation.clear(); updateUploads([]); setNotice("Submitted to the session"); }
+      if (method === "session.continue") setNotice("Submitted to the session");
       if (method === "session.stop") setNotice("Stop request submitted");
       if (method === "session.approval.reply") setNotice("Approval reply submitted; waiting for confirmation");
       if (!client.onEvent) await refresh.current?.();
@@ -288,7 +291,7 @@ export function SessionControls({ client, threadId, onItems }: {
       <div className="flex shrink-0 items-center gap-2">
         {!state?.settings && state?.tokenUsage ? <SessionContextUsage usage={state.tokenUsage} above /> : null}
         {state?.activeTurnId && !dictation.busy ? <button aria-label={t("Stop")} title={t("Stop")} disabled={busy || settingsBusy} onClick={() => void action("session.stop", {})} className="grid h-10 w-10 place-items-center rounded-lg text-rose-200 hover:bg-white/5 disabled:opacity-40"><Square size={15} fill="currentColor" aria-hidden="true" /></button> : null}
-        <button aria-label={recording ? t("Transcribe and send") : undefined} title={recording ? t("Transcribe and send (Enter)") : undefined} disabled={busy || settingsBusy || !state?.connected || !readyToSend} onClick={send} className="min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40">{busy ? t("Submitting…") : dictation.busy ? t("Send") : state?.activeTurnId ? t("Steer") : t("Send")}</button>
+        <button aria-label={canContinue ? t("Continue interrupted task") : recording ? t("Transcribe and send") : undefined} title={canContinue ? t("Continue interrupted task") : recording ? t("Transcribe and send (Enter)") : undefined} disabled={busy || settingsBusy || !state?.connected || !readyToSend} onClick={send} className="min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40">{busy ? t("Submitting…") : canContinue ? <Play size={18} fill="currentColor" aria-hidden="true" /> : dictation.busy ? t("Send") : state?.activeTurnId ? t("Steer") : t("Send")}</button>
       </div>
     </div>
 

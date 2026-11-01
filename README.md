@@ -34,8 +34,13 @@ preserved in [LICENSE](LICENSE).
 - **Shared scene collisions.** Rendered solids and people use common collision
   geometry for navigation, movement and interaction positions.
 
-Claw3D's OpenClaw, Hermes, custom-runtime and demo integrations remain available.
-The Codex adapters do not require installing the OpenClaw runtime.
+The OpenClaw-compatible gateway connection and the local demo remain available.
+The Codex backend does not require installing the OpenClaw runtime.
+
+Legacy task boards, cron/standup automation, the skill marketplace, Spotify,
+remote offices, Hermes/custom backends and OpenClaw host-file/SSH management
+have been removed. Server monitoring and the spaceship music player are separate
+features and remain available.
 
 ## Try the local demo
 

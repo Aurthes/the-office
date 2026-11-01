@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
-
 import type { PendingExecApproval } from "@/features/agents/approvals/types";
 import {
-  planApprovalIngressRunControl,
   planAutoResumeRunControl,
   planPauseRunControl,
 } from "@/features/agents/approvals/execApprovalRunControlWorkflow";
 import type { ExecApprovalPendingSnapshot } from "@/features/agents/approvals/execApprovalControlLoopWorkflow";
 import type { AgentState } from "@/features/agents/state/store";
-import type { EventFrame } from "@/lib/gateway/GatewayClient";
 
 const createAgent = (overrides?: Partial<AgentState>): AgentState => ({
   agentId: "agent-1",
@@ -145,43 +142,4 @@ describe("execApprovalRunControlWorkflow", () => {
     });
   });
 
-  it("plans ingress run-control commands from gateway events", () => {
-    const event: EventFrame = {
-      type: "event",
-      event: "cron",
-      payload: {
-        action: "finished",
-        sessionKey: "agent:agent-1:main",
-        jobId: "job-1",
-        sessionId: "session-1",
-        runAtMs: 123,
-        status: "ok",
-        summary: "cron summary",
-      },
-    };
-
-    const commands = planApprovalIngressRunControl({
-      event,
-      agents: [createAgent()],
-      pendingState: createPendingState(),
-      pausedRunIdByAgentId: new Map(),
-      seenCronDedupeKeys: new Set(),
-      nowMs: 1_000,
-    });
-
-    expect(commands).toEqual([
-      { kind: "recordCronDedupeKey", dedupeKey: "cron:job-1:session-1" },
-      {
-        kind: "appendCronTranscript",
-        intent: {
-          agentId: "agent-1",
-          sessionKey: "agent:agent-1:main",
-          dedupeKey: "cron:job-1:session-1",
-          line: "Cron finished (ok): job-1\n\ncron summary",
-          timestampMs: 123,
-          activityAtMs: 123,
-        },
-      },
-    ]);
-  });
 });

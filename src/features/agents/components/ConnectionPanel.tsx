@@ -39,41 +39,20 @@ export const ConnectionPanel = ({
   const isConnected = status === "connected";
   const isConnecting = status === "connecting";
   const tokenOptional =
-    selectedAdapterType === "hermes" ||
-    selectedAdapterType === "demo" ||
-    selectedAdapterType === "local" ||
-    selectedAdapterType === "claw3d" ||
-    selectedAdapterType === "custom";
+    selectedAdapterType === "demo";
   const applyDemoPreset = () => {
     onAdapterTypeChange("demo");
   };
-  const applyHermesPreset = () => {
-    onAdapterTypeChange("hermes");
-  };
-  const applyCustomPreset = () => {
-    onAdapterTypeChange("custom");
-  };
-  const applyLocalPreset = () => {
-    onAdapterTypeChange("local");
-  };
-  const applyClaw3dPreset = () => {
-    onAdapterTypeChange("claw3d");
-  };
+
   const applyOpenClawPreset = () => {
     onAdapterTypeChange("openclaw");
   };
   const selectedAdapterHint =
     selectedAdapterType === "openclaw"
       ? "OpenClaw owns provider/model routing behind the gateway."
-      : selectedAdapterType === "hermes"
-        ? "Hermes owns provider/account routing behind the gateway."
-        : selectedAdapterType === "demo"
+      : selectedAdapterType === "demo"
           ? "Demo can seed a local main agent or connect to the mock gateway."
-          : selectedAdapterType === "claw3d"
-            ? "Claw3D runtime keeps Claw3D transcript semantics over direct HTTP."
-            : selectedAdapterType === "local"
-              ? "Local runtime expects a direct orchestrator boundary."
-              : "Custom is a generic runtime endpoint, not a provider-native adapter.";
+          : "Custom is a generic runtime endpoint, not a provider-native adapter.";
 
   return (
     <div className="fade-up-delay flex flex-col gap-3">
@@ -147,34 +126,7 @@ export const ConnectionPanel = ({
         >
           Demo backend
         </button>
-        <button
-          className="ui-btn-secondary px-3 py-1.5 text-[11px] font-semibold tracking-[0.05em]"
-          type="button"
-          onClick={applyHermesPreset}
-        >
-          Hermes backend
-        </button>
-        <button
-          className="ui-btn-secondary px-3 py-1.5 text-[11px] font-semibold tracking-[0.05em]"
-          type="button"
-          onClick={applyLocalPreset}
-        >
-          Local runtime
-        </button>
-        <button
-          className="ui-btn-secondary px-3 py-1.5 text-[11px] font-semibold tracking-[0.05em]"
-          type="button"
-          onClick={applyClaw3dPreset}
-        >
-          Claw3D runtime
-        </button>
-        <button
-          className="ui-btn-secondary px-3 py-1.5 text-[11px] font-semibold tracking-[0.05em]"
-          type="button"
-          onClick={applyCustomPreset}
-        >
-          Custom backend
-        </button>
+
         <button
           className="ui-btn-secondary px-3 py-1.5 text-[11px] font-semibold tracking-[0.05em]"
           type="button"

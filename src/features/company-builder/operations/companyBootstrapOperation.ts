@@ -19,7 +19,7 @@ export async function runCompanyBootstrapOperation(params: {
   plan: CompanyBuilderPlan;
   existingAgentIds?: string[];
   deleteExistingAgent?: (agentId: string) => Promise<void>;
-  clearReusedAgentState?: (agentId: string) => Promise<void>;
+
   renameAgent?: (agentId: string, name: string) => Promise<void>;
   onExistingAgentDeleted?: (agentId: string) => void;
   createAgent: (name: string) => Promise<{ id: string }>;
@@ -63,10 +63,7 @@ export async function runCompanyBootstrapOperation(params: {
   if (reusableAgentId && remainingBlueprints[0]) {
     const firstBlueprint = remainingBlueprints.shift();
     if (firstBlueprint) {
-      if (params.clearReusedAgentState) {
-        params.setStatusLine("Clearing the previous main agent state.");
-        await params.clearReusedAgentState(reusableAgentId);
-      }
+
       params.setStatusLine(`Reconfiguring main as ${firstBlueprint.agentName}.`);
       await params.renameAgent?.(reusableAgentId, firstBlueprint.agentName);
       await params.writeAgentFiles(reusableAgentId, firstBlueprint.files);

@@ -3,9 +3,6 @@ import {
   isSameSessionKey,
 } from "@/lib/gateway/GatewayClient";
 import { type GatewayModelPolicySnapshot } from "@/lib/gateway/models";
-import {
-  isTemporarySkillAgentName,
-} from "@/lib/skills/tempAgents";
 import { type StudioSettings, type StudioSettingsPublic } from "@/lib/studio/settings";
 import {
   type SummaryPreviewSnapshot,
@@ -71,7 +68,7 @@ const parseIdentityNameFromContent = (content: string): string | null => {
     const match = /^name\s*:\s*(.+)$/i.exec(normalized);
     if (!match) continue;
     const value = match[1]?.trim().replace(/^[*_]+|[*_]+$/g, "").trim() ?? "";
-    if (!value || isTemporarySkillAgentName(value)) continue;
+    if (!value) continue;
     return value;
   }
   return null;
@@ -193,26 +190,13 @@ export async function hydrateAgentFleetFromGateway(params: {
       agentsResult.agents.map(async (agent) => {
         const identityName =
           typeof agent.identity?.name === "string" ? agent.identity.name.trim() : "";
-        const listedName = typeof agent.name === "string" ? agent.name.trim() : "";
-        const hasStableIdentityName =
-          Boolean(identityName) && !isTemporarySkillAgentName(identityName);
+
         const needsIdentityRecovery =
-          !identityName ||
-          isTemporarySkillAgentName(identityName) ||
-          isTemporarySkillAgentName(listedName);
+          !identityName;
         if (!needsIdentityRecovery) {
           return agent;
         }
-        if (isTemporarySkillAgentName(listedName) && hasStableIdentityName) {
-          return {
-            ...agent,
-            name: identityName,
-            identity: {
-              ...(agent.identity ?? {}),
-              name: identityName,
-            },
-          };
-        }
+
         try {
           const result = (await params.client.call("agents.files.get", {
             agentId: agent.id,
@@ -225,7 +209,7 @@ export async function hydrateAgentFleetFromGateway(params: {
             return agent;
           }
           const recoveredName = parseIdentityNameFromContent(record.content);
-          if (!recoveredName || isTemporarySkillAgentName(recoveredName)) {
+          if (!recoveredName) {
             return agent;
           }
           return {
@@ -240,8 +224,6 @@ export async function hydrateAgentFleetFromGateway(params: {
           return agent;
         }
       })
-    ).then((agents) =>
-      agents.filter((agent) => !isTemporarySkillAgentName(agent.name ?? agent.identity?.name))
     ),
   };
   const mainKey = agentsResult.mainKey?.trim() || "main";
