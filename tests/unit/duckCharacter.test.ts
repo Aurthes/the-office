@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { DEFAULT_DUCK_APPEARANCE, normalizeDuckAppearance } from "@/lib/avatars/duck";
+import { DEFAULT_DUCK_APPEARANCE, normalizeDuckAppearance, createDuckAppearanceFromSeed } from "@/lib/avatars/duck";
 import { createDefaultAgentAvatarProfile, normalizeAgentAvatarProfile } from "@/lib/avatars/profile";
 import { defaultStudioSettings, mergeStudioSettings, normalizeStudioSettings, resolveAgentAvatarProfile } from "@/lib/studio/settings";
 import { createDuckCrewFigure } from "@/features/ring-ship/duckCrewFigure";
@@ -48,9 +48,11 @@ it("previews a draft immediately and cancels without saving", () => {
   const onSave = vi.fn();
   render(React.createElement(Editor, { onSave }));
   fireEvent.click(screen.getByRole("button", { name: "Helmet" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Face" }));
   fireEvent.change(screen.getByRole("slider", { name: "Bill size" }), { target: { value: "130" } });
-  fireEvent.change(screen.getByRole("slider", { name: "Body height" }), { target: { value: "125" } });
   fireEvent.change(screen.getByRole("slider", { name: "Eye spacing" }), { target: { value: "120" } });
+  fireEvent.click(screen.getByRole("tab", { name: "Body" }));
+  fireEvent.change(screen.getByRole("slider", { name: "Body height" }), { target: { value: "125" } });
   expect(preview()).toMatchObject({ bodyHeight: 1.25, eyeSpacing: 1.2, headwear: "helmet", billScale: 1.3 }); expect(onSave).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   expect(preview()).toEqual(DEFAULT_DUCK_APPEARANCE); expect(onSave).not.toHaveBeenCalled();
@@ -59,6 +61,7 @@ it("retains a failed draft, retries once, and prevents duplicate saves", async (
   let resolve!: () => void;
   const onSave = vi.fn().mockRejectedValueOnce(new Error("offline")).mockImplementationOnce(() => new Promise<void>(done => { resolve = done; }));
   render(React.createElement(Editor, { onSave }));
+  fireEvent.click(screen.getByRole("tab", { name: "Gear" }));
   fireEvent.click(screen.getByRole("button", { name: "Utility vest" }));
   fireEvent.click(screen.getByRole("button", { name: "Save character" }));
   await screen.findByRole("alert"); expect(preview().outfit).toBe("vest");
@@ -176,5 +179,64 @@ it("keeps repositioned eyes on the capsule surface at the slider extremes", () =
     const surface = new THREE.Raycaster(new THREE.Vector3(center.x, center.y, 1), new THREE.Vector3(0, 0, -1)).intersectObject(torso)[0];
     expect(surface).toBeDefined(); expect(center.z).toBeGreaterThan(surface.point.z);
     figure.dispose();
+  }
+});
+
+it("keeps part edits while navigating tabs and resets only the selected part", async () => {
+  const onSave = vi.fn<(profile: ReturnType<typeof createDefaultAgentAvatarProfile>) => Promise<void>>(async () => {});
+  render(React.createElement(Editor, { onSave }));
+  expect(screen.getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Head", "Face", "Body", "Wings", "Feet", "Tail", "Gear"]);
+  fireEvent.click(screen.getByRole("button", { name: "Crown" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Wings" }));
+  fireEvent.change(screen.getByRole("slider", { name: "Wing length" }), { target: { value: "140" } });
+  fireEvent.click(screen.getByRole("button", { name: "Layered feathers" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Feet" }));
+  fireEvent.click(screen.getByRole("button", { name: "Boots" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Wings" }));
+  expect(preview()).toMatchObject({ headwear: "crown", wingLength: 1.4, wingStyle: "layered", footStyle: "boots" });
+  fireEvent.click(screen.getByRole("button", { name: "Reset part" }));
+  expect(preview()).toMatchObject({ headwear: "crown", wingLength: 1, wingStyle: "smooth", footStyle: "boots" });
+  fireEvent.click(screen.getByRole("button", { name: "Save character" }));
+  await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+  expect(onSave.mock.calls[0][0]).toMatchObject({ duck: { headwear: "crown", footStyle: "boots", wingLength: 1 } });
+});
+
+it("supports keyboard tab navigation and randomizes a part without replacing other edits", () => {
+  render(React.createElement(Editor, { onSave: vi.fn() }));
+  fireEvent.click(screen.getByRole("button", { name: "Helmet" }));
+  const head = screen.getByRole("tab", { name: "Head" }); head.focus();
+  fireEvent.keyDown(head, { key: "ArrowRight" });
+  expect(screen.getByRole("tab", { name: "Face" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByRole("tab", { name: "Face" })).toHaveFocus();
+  fireEvent.click(screen.getByRole("button", { name: "Randomize part" }));
+  expect(preview().headwear).toBe("helmet");
+  const face = preview();
+  fireEvent.click(screen.getByRole("tab", { name: "Head" }));
+  expect(preview()).toEqual(face);
+  fireEvent.click(screen.getByRole("button", { name: "Randomize character" }));
+  expect(preview()).not.toEqual(face);
+});
+
+it("generates varied but repeatable, bounded recruit styles", () => {
+  const styles = Array.from({ length: 30 }, (_, i) => createDuckAppearanceFromSeed(`recruit-${i}`));
+  expect(new Set(styles.map(style => JSON.stringify(style))).size).toBe(30);
+  expect(createDuckAppearanceFromSeed("recruit-4")).toEqual(styles[4]);
+  for (const style of styles) expect(normalizeDuckAppearance(JSON.parse(JSON.stringify(style)))).toEqual(style);
+});
+
+it("renders independent wing, foot, head and tail choices without changing animation pivots", () => {
+  const base = createDuckCrewFigure();
+  const custom = createDuckCrewFigure({ ...DEFAULT_DUCK_APPEARANCE, headColor: "#aab8d4", headScale: 1.15, wingLength: 1.45, wingWidth: 1.4, wingSpread: 40, wingStyle: "layered", footStyle: "boots", footScale: 1.4, footSpacing: 1.35, tailStyle: "fan", tailScale: 1.5, headwear: "crown", eyewear: "round", backpack: true, bellyPatch: true, outfit: "scarf" });
+  base.root.updateMatrixWorld(true); custom.root.updateMatrixWorld(true);
+  expect(custom.wings.map(wing => wing.name)).toEqual(["left-wing", "right-wing"]);
+  expect(custom.feet.map(foot => foot.name)).toEqual(["left-foot", "right-foot"]);
+  expect(custom.feet[1].position.x).toBeGreaterThan(base.feet[1].position.x);
+  expect(new THREE.Box3().setFromObject(custom.feet[0]).getSize(new THREE.Vector3()).x).toBeGreaterThan(new THREE.Box3().setFromObject(base.feet[0]).getSize(new THREE.Vector3()).x);
+  expect(new THREE.Box3().setFromObject(custom.root).min.y).toBeGreaterThanOrEqual(0);
+  for (const wing of custom.wings) expect(wing.getObjectByName("wing-shape")?.scale.y).toBe(1.45);
+  for (const figure of [base, custom]) {
+    const dispose = vi.fn(); const geometries: THREE.BufferGeometry[] = [];
+    figure.root.traverse(object => { if (object instanceof THREE.Mesh) { expect(Array.from(object.geometry.getAttribute("position").array).every(Number.isFinite)).toBe(true); geometries.push(object.geometry); object.geometry.addEventListener("dispose", dispose); } });
+    figure.dispose(); expect(dispose).toHaveBeenCalledTimes(geometries.length);
   }
 });

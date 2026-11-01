@@ -1,4 +1,5 @@
 import { buildAgentMainSessionKey } from "@/lib/gateway/GatewayClient";
+import { createDuckAppearanceFromSeed } from "@/lib/avatars/duck";
 import { createDefaultAgentAvatarProfile } from "@/lib/avatars/profile";
 import { resolveConfiguredModelKey, type GatewayModelPolicySnapshot } from "@/lib/gateway/models";
 import {
@@ -22,6 +23,7 @@ type AgentsListResult = {
   scope?: string;
   agents: Array<{
     id: string;
+    avatarSeed?: string;
     name?: string;
     role?: string;
     identity?: {
@@ -217,6 +219,7 @@ export const deriveHydrateAgentFleetResult = (
   const needsSessionSettingsSync = new Set<string>();
   const seeds: AgentStoreSeed[] = input.agentsResult.agents.map((agent) => {
     const defaultAvatarProfile = createDefaultAgentAvatarProfile(agent.id);
+    if (agent.avatarSeed) defaultAvatarProfile.duck = createDuckAppearanceFromSeed(agent.avatarSeed);
     const persistedProfile =
       input.settings && gatewayKey ? resolveAgentAvatarProfile(input.settings, gatewayKey, agent.id) : null;
     const persistedSeed =
