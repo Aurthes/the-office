@@ -244,7 +244,7 @@ export const ZH_CN: Record<string, string> = {
   "Golden dust banks and the warm rim of a desert planet.": "金色星际尘埃，沙漠行星透出温暖的弧光。",
   "An emerald cloud sea beyond a quiet ocean world.": "宁静的海洋行星之外，是翡翠色的星云之海。",
   "A dark fracture edged with violet light and a distant eclipse.": "幽暗裂隙泛着紫光，远处行星正被阴影吞没。",
-  "A colossal black hole looms nearby, its fiery accretion disk flowing against a field of distant stars.": "巨大的黑洞近在眼前，炽热吸积盘不断流动，远处依然繁星满天。",
+  "A colossal black hole looms nearby, its silver-white accretion disk flowing against a field of distant stars.": "巨大的黑洞近在眼前，银白吸积盘不断流动，远处依然繁星满天。",
   "Plot course to {system}": "规划前往{system}的航线",
   "You are here": "当前位置",
   "Star chart": "星际导航图",

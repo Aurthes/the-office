@@ -77,6 +77,7 @@ void main() {
     vec2 uv = vec2(dot(direction,holeRight),dot(direction,holeUp))/max(.0001,facing)/vec2(2.7,1.51875)+.5;
     if (facing > 0.0 && min(uv.x,uv.y) > 0.0 && max(uv.x,uv.y) < 1.0) {
       vec3 disk = sRGBTransferEOTF(texture2D(uBlackHoleVideo,uv)).rgb;
+      disk = vec3(dot(disk,vec3(.2126,.7152,.0722))*1.6);
       vec2 center = (uv-.5)*vec2(16.0/9.0,1.0);
       float shadow = 1.0-smoothstep(.16,.166,length(center));
       float coverage = max(shadow,clamp(max(disk.r,max(disk.g,disk.b))*12.0,0.0,1.0));
