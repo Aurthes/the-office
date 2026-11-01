@@ -32,3 +32,21 @@ describe("one-read company snapshot", () => {
     expect(call).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("recruit appearance", () => {
+  it("keeps creation-seeded styles stable and gives saved edits precedence without restyling older agents", async () => {
+    const { createDefaultAgentAvatarProfile } = await import("@/lib/avatars/profile");
+    const { DEFAULT_DUCK_APPEARANCE } = await import("@/lib/avatars/duck");
+    const { normalizeStudioSettings } = await import("@/lib/studio/settings");
+    const agents = [{ id: "new-a", avatarSeed: "seed-a" }, { id: "new-b", avatarSeed: "seed-b" }, { id: "old" }].map(agent => ({ ...agent, name: agent.id, role: "Project", status: "idle", updatedAt: 0 }));
+    const client = { call: async () => ({ mainKey: "main", agents, projects: [], creationAvailable: true }) };
+    const load = (settings = normalizeStudioSettings({})) => loadCompanySnapshot({ client, gatewayUrl: "ws://office", loadSettings: async () => settings });
+    const first = await load(), again = await load();
+    expect(first.hydration.seeds[0].avatarProfile?.duck).toEqual(again.hydration.seeds[0].avatarProfile?.duck);
+    expect(first.hydration.seeds[0].avatarProfile?.duck).not.toEqual(first.hydration.seeds[1].avatarProfile?.duck);
+    expect(first.hydration.seeds[2].avatarProfile?.duck).toBeUndefined();
+    const custom = { ...createDefaultAgentAvatarProfile("new-a"), duck: { ...DEFAULT_DUCK_APPEARANCE, featherColor: "#aab8d4" } };
+    const edited = await load(normalizeStudioSettings({ avatars: { "ws://office": { "new-a": custom } } }));
+    expect(edited.hydration.seeds[0].avatarProfile).toEqual(custom);
+  });
+});

@@ -62,7 +62,7 @@ it("plays a looping black hole without replacing the sky uniforms and releases i
   const texture = initial.uniforms.uBlackHoleVideo.value!;
   const video = texture.image as HTMLVideoElement;
   const dispose = vi.spyOn(texture, "dispose");
-  expect(video.getAttribute("src")).toBe("/environments/black-hole-accretion.webm");
+  expect(video.getAttribute("src")).toBe("/environments/black-hole-accretion-hq.mp4");
   expect(video.loop && video.muted && video.playsInline).toBe(true);
   expect(play).toHaveBeenCalledOnce();
   expect(initial.uniforms.uBlackHole.value).toBe(1);
