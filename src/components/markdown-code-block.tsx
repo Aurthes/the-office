@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from "react";
-import { Check, Copy } from "lucide-react";
-import type { Components, ExtraProps } from "react-markdown";
+import { Check, CircleAlert, Copy } from "lucide-react";
+import type { Components } from "react-markdown";
 import { useUiText } from "@/lib/i18n/ui-language";
 
 async function copyText(text: string) {
@@ -27,15 +27,13 @@ async function copyText(text: string) {
   }
 }
 
-function MarkdownCodeBlock({ node, children, ...props }: ComponentPropsWithoutRef<"pre"> & ExtraProps) {
+function MarkdownCodeBlock({ children, className }: ComponentPropsWithoutRef<"pre">) {
   const t = useUiText();
   const pre = useRef<HTMLPreElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-  const code = node?.children.find(child => child.type === "element" && child.tagName === "code");
-  const classes = code?.type === "element" ? code.properties.className : undefined;
-  const language = Array.isArray(classes) ? classes.find(name => typeof name === "string" && name.startsWith("language-"))?.toString().slice(9) : undefined;
+  const label = t(status === "copied" ? "Copied" : status === "failed" ? "Copy failed" : "Copy code");
 
   const copy = async () => {
     if (timer.current) clearTimeout(timer.current);
@@ -49,14 +47,11 @@ function MarkdownCodeBlock({ node, children, ...props }: ComponentPropsWithoutRe
   };
 
   return <div className="markdown-code-block">
-    <div className="markdown-code-toolbar">
-      <span className="markdown-code-language">{language || t("Code")}</span>
-      <button type="button" className="markdown-code-copy" aria-label={t("Copy code")} onClick={() => void copy()}>
-        {status === "copied" ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
-        <span role="status">{t(status === "copied" ? "Copied" : status === "failed" ? "Copy failed" : "Copy")}</span>
-      </button>
-    </div>
-    <pre {...props} ref={pre}>{children}</pre>
+    <button type="button" className="markdown-code-copy" data-status={status} aria-label={t("Copy code")} title={label} onClick={() => void copy()}>
+      {status === "copied" ? <Check size={14} aria-hidden="true" /> : status === "failed" ? <CircleAlert size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+      <span className="sr-only" role="status">{t(status === "copied" ? "Copied" : status === "failed" ? "Copy failed" : "Copy")}</span>
+    </button>
+    <pre className={className} ref={pre}>{children}</pre>
   </div>;
 }
 
