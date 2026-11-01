@@ -17,10 +17,14 @@ export async function loadCompanySnapshot({ client, gatewayUrl, loadSettings }: 
   client: { call: (method: string, params: unknown) => Promise<unknown> };
   gatewayUrl: string; loadSettings: () => Promise<StudioSettings | StudioSettingsPublic | null>;
 }) {
-  const [snapshot, settings] = await Promise.all([
+  const [received, settings] = await Promise.all([
     client.call("office.snapshot", {}).then(value => value as CompanySnapshot),
     loadSettings().catch(() => null), // Optional appearance settings must not block the live roster.
   ]);
+  // After an owner restart, "unknown" must clear the browser's previous run.
+  // A later confirmed running snapshot will turn the working marker back on.
+  const snapshot = { ...received, agents: received.agents.map(agent =>
+    agent.status === "unknown" ? { ...agent, status: "idle" } : agent) };
   const mainKey = snapshot.mainKey || "main";
   const hydration = deriveHydrateAgentFleetResult({
     gatewayUrl, settings,
