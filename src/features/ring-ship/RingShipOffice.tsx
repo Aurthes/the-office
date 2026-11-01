@@ -38,6 +38,7 @@ import { SpaceActivity } from "./SpaceActivity";
 import { SpaceTrafficNotice } from "./SpaceTrafficNotice";
 import { emptySpaceMotion } from "./space-activity";
 import { ListeningBar } from "./ListeningBar";
+import { ShipCompanions } from "./ShipCompanions";
 import { MusicPlayerDialog } from "./MusicPlayerDialog";
 import { AiComputationCore } from "./AiComputationCore";
 import { AiCenterDashboard } from "./AiCenterDashboard";
@@ -453,6 +454,7 @@ export function RingShipOffice(props: Props) {
       {!shipView && !busy ? <group position={[0, visibleDeck * DECK_STEP, 0]}>
         <CabinTargets layout={currentLayout} focus={validFocus} onSelect={select} />
         {visibleDeck === 0 ? currentLayout.cabins.filter(c => c.kind === "lounge").map(cabin => <ListeningBar key={cabin.id} layout={currentLayout} cabin={cabin} onOpen={() => { closeObject(); setMusicOpen(true); }} />) : null}
+        {visibleDeck === 0 ? <ShipCompanions layout={currentLayout} /> : null}
         {currentLayout.cabins.filter(c => c.kind === "monitor").map(cabin => <group key={cabin.id}>
           {!navigationOpen ? <MonitorRoomScreen layout={currentLayout} cabin={cabin} onOpen={openMonitor} /> : null}
           {!navigationOpen ? <TaskRoomScreen layout={currentLayout} cabin={cabin} onOpen={openTasks} /> : null}
@@ -514,9 +516,9 @@ export function RingShipOffice(props: Props) {
     </fieldset>
     <div className="ship-bottom-right">
     {objectFocus ? <ShipObjectCard object={objectFocus} customRoom={currentLayout.cabins.some(c => c.id === objectFocus.cabinId && !!c.projectId && c.projectId !== SHARED_PROJECT_ID)} onClose={closeObject} /> : null}
-    <MusicPlayerDialog autoPlay open={musicOpen} scene={system.id} sceneName={system.name} onOpen={() => setMusicOpen(true)} onClose={() => setMusicOpen(false)} />
     {navigationPreview && !navigationOpen ? <div className="star-location"><span style={{ color: system.color }}>{t(system.name)}</span><small>{t(system.description)}</small>{activityEnabled ? <small ref={spaceCaption} className="star-cruise-status">{t("Cruising")}</small> : null}</div> : null}
     </div>
+    <MusicPlayerDialog autoPlay open={musicOpen} scene={system.id} sceneName={system.name} onOpen={() => setMusicOpen(true)} onClose={() => setMusicOpen(false)} />
     </div>
     {navigationOpen && navigation.phase !== "warp" ? <NavigationOverlay state={navigation} onAction={navigate} /> : null}
     {navigationPreview && navigation.phase === "warp" && navigation.destination ? <WarpJourney destination={starSystem(navigation.destination)} onArrive={arriveSystem} onComplete={completeWarp} /> : null}
