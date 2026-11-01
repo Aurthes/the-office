@@ -121,7 +121,7 @@ export function GalaxyBackdrop({ system, motion }: { system: StarSystem; motion?
     if (system.id !== "black-hole") return;
     const video = document.createElement("video");
     video.muted = true; video.loop = true; video.playsInline = true; video.preload = "auto";
-    video.src = "/environments/black-hole-accretion.webm";
+    video.src = "/environments/black-hole-accretion-hq.mp4";
     const texture = new VideoTexture(video);
     texture.colorSpace = SRGBColorSpace;
     videoTexture.current = texture;

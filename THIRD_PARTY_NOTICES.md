@@ -74,10 +74,15 @@ reviewed; its mesh and textures are not included in this repository.
 
 ## Black hole background
 
-`public/environments/black-hole-accretion.webm` is the unmodified 1920×1080
-stationary looping accretion-disk visualization by **NASA’s Goddard Space Flight
+`public/environments/black-hole-accretion-hq.mp4` is a 2816×1584 native crop of
+the 3840×3840 accretion-disk visualization by **NASA’s Goddard Space Flight
 Center / Jeremy Schnittman**, from [NASA SVS 13326](https://svs.gsfc.nasa.gov/13326/).
-Original file: [BH_AccretionDisk_Sim_Stationary_1080.webm](https://svs.gsfc.nasa.gov/vis/a010000/a013300/a013326/BH_AccretionDisk_Sim_Stationary_1080.webm).
+Original file: [Black_Hole_Accretion_Disk_Sim_4k.mp4](https://svs.gsfc.nasa.gov/vis/a010000/a013300/a013326/Black_Hole_Accretion_Disk_Sim_4k.mp4)
+(SHA-256: `a73c701403e14348b4a97d47b85913e81d0f8fcb6c43d6e7d29662799d45bc33`).
+The fixed-view segment at 30–36 seconds is cropped at (512, 1128), without
+upscaling, and encoded as H.264 (CRF 16, 30000/1001 fps). A 0.5005-second
+crossfade joins the end to the start for a 5.5055-second loop. The app renders
+the disk in silver-white.
 NASA SVS identifies its visualizations as public domain unless otherwise noted:
 [usage information](https://svs.gsfc.nasa.gov/help/).
 
