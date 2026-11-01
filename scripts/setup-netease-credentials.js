@@ -7,11 +7,15 @@ const path = require("node:path");
 const readline = require("node:readline");
 const { Writable } = require("node:stream");
 
-function normalizeCredentials(appId, privateKey) {
+function normalizeAppId(appId) {
   appId = appId.trim();
-  if (!appId || /\s/.test(appId)) {
-    throw new Error("appId must be a non-empty identifier without spaces.");
-  }
+  if (!appId) throw new Error("App ID is empty. Paste the App ID value, then press Enter.");
+  if (/\s/.test(appId)) throw new Error("App ID contains spaces. Paste only the App ID value, without a label.");
+  return appId;
+}
+
+function normalizeCredentials(appId, privateKey) {
+  appId = normalizeAppId(appId);
   const text = privateKey.trim().replace(/\\r\\n|\\n/g, "\n");
   let key;
   try {
@@ -76,7 +80,7 @@ function saveCredentials(configRoot, appId, privateKey) {
 async function main(configRoot = path.join(os.homedir(), ".config")) {
   if (process.platform === "win32") throw new Error("Run this script on macOS or Linux.");
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error("Run in an interactive terminal so credentials can be entered without echo.");
+    throw new Error("Run in an interactive terminal so the private key can be entered without echo.");
   }
   try {
     fs.lstatSync(credentialsPath(configRoot));
@@ -84,28 +88,42 @@ async function main(configRoot = path.join(os.homedir(), ".config")) {
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
-  process.stdout.write("Save NetEase app credentials locally. Input is hidden. Ctrl+C cancels.\n");
+  process.stdout.write("Save NetEase app credentials locally. App ID is visible; privateKey is hidden. Ctrl+C cancels.\n");
   process.stdout.write("For privateKey, paste the single-line value or the complete PEM, then press Enter.\n");
-  const silentOutput = new Writable({ write(_chunk, _encoding, done) { done(); } });
+  let hidden = false;
+  const output = new Writable({ write(chunk, _encoding, done) {
+    if (!hidden) process.stdout.write(chunk);
+    done();
+  } });
   const reader = readline.createInterface({
-    input: process.stdin, output: silentOutput, terminal: true, historySize: 0,
+    input: process.stdin, output, terminal: true, historySize: 0,
   });
+  // Hide immediately after Enter, even if the same paste includes more lines.
+  reader.on("line", () => { hidden = true; });
   reader.on("SIGINT", () => reader.close());
   const lines = reader[Symbol.asyncIterator]();
-  async function hiddenLine(prompt) {
-    process.stdout.write(prompt);
+  async function readLine(prompt, hide = true) {
+    hidden = hide;
+    reader.setPrompt(hide ? "" : prompt);
+    if (hide) process.stdout.write(prompt); else reader.prompt();
     const { value, done } = await lines.next();
-    process.stdout.write("\n");
+    if (hide) process.stdout.write("\n");
     if (done) throw new Error("Cancelled. No credentials were saved.");
     return value.trim();
   }
   let credentials;
   try {
-    const appId = await hiddenLine("appId: ");
-    let privateKey = await hiddenLine("privateKey: ");
+    let appId;
+    while (!appId) {
+      const value = await readLine("appId: ", false);
+      try { appId = normalizeAppId(value); }
+      catch (error) { process.stdout.write(`${error.message}\nPlease try again.\n`); }
+    }
+    process.stdout.write(`Using App ID: ${appId}\n`);
+    let privateKey = await readLine("privateKey: ");
     if (privateKey.startsWith("-----BEGIN")) {
       while (!privateKey.includes("-----END")) {
-        privateKey += `\n${await hiddenLine("")}`;
+        privateKey += `\n${await readLine("")}`;
       }
     }
     credentials = { appId, privateKey };
@@ -118,7 +136,7 @@ async function main(configRoot = path.join(os.homedir(), ".config")) {
 
 if (require.main === module) {
   if (process.argv.length === 3 && process.argv[2] === "--help") {
-    console.log("Usage: node scripts/setup-netease-credentials.js\nEnter appId and privateKey at the hidden prompts. Do not put secrets in command arguments.");
+    console.log("Usage: node scripts/setup-netease-credentials.js\nApp ID is visible; privateKey is hidden. Do not put secrets in command arguments.");
   } else if (process.argv.length !== 2) {
     console.error("Unexpected arguments. Run with --help for usage.");
     process.exitCode = 1;
@@ -134,4 +152,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { normalizeCredentials, saveCredentials, main };
+module.exports = { normalizeAppId, normalizeCredentials, saveCredentials, main };
