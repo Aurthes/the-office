@@ -737,6 +737,8 @@ export const ZH_CN: Record<string, string> = {
   "Edit project": "编辑项目",
   "Project folder": "项目文件夹",
   "Browse": "浏览",
+  "Choose folder": "选择文件夹",
+  "Change folder": "更换文件夹",
   "Primary folder": "主文件夹",
   "Make primary": "设为主文件夹",
   "Remove folder": "移除关联",
