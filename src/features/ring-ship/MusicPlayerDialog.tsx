@@ -3,9 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Disc3, Minimize2, Music2, RotateCw, X } from "lucide-react";
 import { useUiText } from "@/lib/i18n/ui-language";
+import { NeteaseMusicPlayer } from "./NeteaseMusicPlayer";
 import "./listening-bar.css";
-
-export const NETEASE_PLAYER_URL = "https://music.163.com/st/webplayer";
 
 export function MusicPlayerDialog({ open = true, onClose }: { open?: boolean; onClose: () => void }) {
   const t = useUiText();
@@ -36,7 +35,7 @@ export function MusicPlayerDialog({ open = true, onClose }: { open?: boolean; on
           <span>{t("Minimize to keep listening. Click the turntable to return.")}</span>
           <button type="button" onClick={() => setReload(value => value + 1)} aria-label={t("Reload music player")}><RotateCw size={15} />{t("Reload")}</button>
         </div>
-        <iframe key={reload} className="music-embedded-player" title="网易云音乐" src={NETEASE_PLAYER_URL} sandbox="allow-scripts allow-same-origin allow-forms" allow="autoplay; encrypted-media; fullscreen" referrerPolicy="strict-origin-when-cross-origin" />
+        <NeteaseMusicPlayer key={reload} />
       </> : <div className="music-chooser">
         <div className="music-record-art" aria-hidden="true"><div className="music-vinyl"><span>33⅓</span></div><div className="music-arm" /></div>
         <p className="music-intro">{t("Pick a player. Set the mood.")}</p>
@@ -45,7 +44,7 @@ export function MusicPlayerDialog({ open = true, onClose }: { open?: boolean; on
           <span className="music-provider-name"><strong>网易云音乐</strong><small>{t("NetEase Cloud Music")}</small></span>
           <span className="music-provider-open">{t("Open player")}<ArrowRight size={17} /></span>
         </button>
-        <p className="music-footnote">{t("The full music player opens inside the office.")}</p>
+        <p className="music-footnote">{t("Search and listen without leaving the office.")}</p>
       </div>}
     </div>
   </dialog>;

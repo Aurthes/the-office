@@ -31,7 +31,8 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
   open: boolean; onClose: () => void; client?: Pick<GatewayClient, "call">; connected: boolean;
 }) {
   const t = useUiText(), dialog = useRef<HTMLDialogElement>(null);
-  const [data, setData] = useState<AiCenterSnapshot | null>(null), [loading, setLoading] = useState(false);
+  const [snapshot, setSnapshot] = useState<AiCenterSnapshot | null>(null), [loading, setLoading] = useState(false);
+  const [providerId, setProviderId] = useState("");
   const [error, setError] = useState(false), [refresh, setRefresh] = useState(0);
   useEffect(() => {
     const node = dialog.current;
@@ -39,15 +40,16 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
     if (!open && node?.open) node.close();
   }, [open]);
   useEffect(() => {
-    setData(null); setError(false);
+    setSnapshot(null); setError(false);
     if (!open || !client || !connected) { setLoading(false); return; }
     let stopped = false, pending = false;
     const load = async () => {
       if (pending) return;
       pending = true; setLoading(true);
       try {
-        const snapshot = await client.call<AiCenterSnapshot>("office.usage", {});
-        if (!stopped) { setData(snapshot); setError(false); }
+        const result = await client.call<AiCenterSnapshot>("office.usage", {});
+        if (!Array.isArray(result?.providers)) throw new Error("Usage unavailable");
+        if (!stopped) { setSnapshot(result); setError(false); }
       } catch { if (!stopped) setError(true); }
       finally { pending = false; if (!stopped) setLoading(false); }
     };
@@ -55,6 +57,7 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
     const timer = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 60_000);
     return () => { stopped = true; clearInterval(timer); };
   }, [open, client, connected, refresh]);
+  const data = snapshot?.providers.find(provider => provider.id === providerId) || snapshot?.providers[0];
   const plan = data?.account?.plan || data?.limits?.find(bucket => bucket.plan)?.plan;
   const daily = data?.usage?.daily, peak = Math.max(1, ...(daily?.map(day => day.tokens) || []));
   const available = !!data && !error && !!(data.account || data.limits || data.usage || data.api.status === "available");
@@ -72,28 +75,28 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
       </header>
       <div className="ai-content">
         <div className="ai-hero">
-          <div><span className="ai-eyebrow">{t("COMPUTATION CORE")}</span><h1 id="ai-center-title">{t("Your AI, at a glance.")}</h1><p>{t("Subscriptions, tokens, and API capacity.")}</p></div>
+          <div><div className="ai-provider-picker"><span className="ai-eyebrow">{t("COMPUTATION CORE")}</span>{snapshot?.providers.length ? snapshot.providers.length > 1 ? <select aria-label={t("AI provider")} value={data?.id} onChange={event => setProviderId(event.target.value)}>{snapshot.providers.map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select> : <span className="ai-provider-name">{data?.name}</span> : null}</div><h1 id="ai-center-title">{t("Your AI, at a glance.")}</h1><p>{t("Subscriptions, tokens, and API capacity.")}</p></div>
           <div className="ai-core-art" aria-hidden="true"><div className="ai-art-orbit" /><div className="ai-art-orbit ai-art-orbit-two" /><div className="ai-art-crystal"><Cpu size={34} strokeWidth={1} /></div><div className="ai-art-plinth" /></div>
         </div>
-        {!client || !connected ? <p className="ai-notice" role="status">{t("Connect to the Office Codex gateway to view your usage.")}</p> : null}
+        {!client || !connected ? <p className="ai-notice" role="status">{t("Connect your AI gateway to view usage.")}</p> : null}
         {error ? <p className="ai-notice" role="alert">{t("Usage could not be refreshed. Try again or check the provider dashboard.")}</p> : null}
         <div className="ai-stats">
-          <div><span>{t("Subscription plan")}</span><strong className="ai-plan">{plan?.replaceAll("_", " ") || "—"}</strong><small>{data?.account?.type === "apiKey" ? t("API key account") : t("ChatGPT / Codex")}</small></div>
-          <div><span>{t("Account tokens")}</span><strong>{formatNumber(data?.usage?.lifetimeTokens)}</strong><small>{t("Lifetime usage reported by Codex")}</small></div>
+          <div><span>{t("Subscription plan")}</span><strong className="ai-plan">{plan?.replaceAll("_", " ") || "—"}</strong><small>{t(data?.accountLabel || "Provider account")}</small></div>
+          <div><span>{t("Account tokens")}</span><strong>{formatNumber(data?.usage?.lifetimeTokens)}</strong><small>{t("Lifetime usage reported by provider")}</small></div>
           <div><span>{t("Additional credits")}</span><strong>{credit?.unlimited ? t("Unlimited") : credit?.balance ?? "—"}</strong><small>{t("Provider-reported balance")}</small></div>
         </div>
         <div className="ai-panels">
           <section className="ai-card ai-subscription">
-            <div className="ai-card-heading"><span><BrainCircuit size={17} />{t("Subscription limits")}</span><small>OPENAI</small></div>
-            <p className="ai-card-caption">{t("Usage and reset times for the signed-in Codex account.")}</p>
+            <div className="ai-card-heading"><span><BrainCircuit size={17} />{t("Subscription limits")}</span><small>{data?.name || "—"}</small></div>
+            <p className="ai-card-caption">{t("Usage and reset times for the selected account.")}</p>
             {data?.limits?.length ? data.limits.map(bucket => <div className="ai-bucket" key={bucket.id}>
-              <h3>{bucket.name}</h3><UsageWindow value={bucket.primary} />{bucket.secondary ? <UsageWindow value={bucket.secondary} /> : null}
+              <h3>{bucket.name}</h3>{bucket.windows.length ? bucket.windows.map((window, index) => <UsageWindow key={index} value={window} />) : <UsageWindow value={null} />}
             </div>) : <p className="ai-unavailable">{loading ? t("Loading usage…") : t("Subscription limits are not available for this account.")}</p>}
             <p className="ai-card-note">{t("Token usage and subscription limits use different units.")}</p>
           </section>
           <section className="ai-card">
             <div className="ai-card-heading"><span><Cpu size={17} />{t("Token activity")}</span><small>{t("ACCOUNT")}</small></div>
-            <p className="ai-card-caption">{t("Across the signed-in Codex account")}</p>
+            <p className="ai-card-caption">{t("Across the selected provider account")}</p>
             <div className="ai-token-peak"><span>{t("Peak daily tokens")}</span><strong>{formatNumber(data?.usage?.peakDailyTokens)}</strong></div>
             {daily?.length ? <>
               <div className="ai-token-chart" aria-label={t("Recent daily token usage")}>{daily.map(day => <div key={day.date} title={`${day.date}: ${formatNumber(day.tokens)}`}>
@@ -104,17 +107,17 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
           </section>
         </div>
         <section className="ai-card ai-api-card">
-          <div className="ai-card-heading"><span><KeyRound size={17} />{t("API quota")}</span><a href="https://platform.openai.com/settings/organization/limits" target="_blank" rel="noreferrer">{t("OpenAI limits")}<ArrowUpRight size={14} /></a></div>
-          <p className="ai-card-caption">{t("API rate limits are separate from your ChatGPT subscription.")}</p>
+          <div className="ai-card-heading"><span><KeyRound size={17} />{t("API quota")}</span>{data?.links.limits ? <a href={data.links.limits} target="_blank" rel="noreferrer">{t("{provider} limits", { provider: data.name })}<ArrowUpRight size={14} /></a> : null}</div>
+          <p className="ai-card-caption">{t("API rate limits are separate from subscription limits.")}</p>
           {data?.api.status === "available" ? data.api.models.length ? <div className="ai-table-scroll"><table>
             <thead><tr><th>{t("Model")}</th><th>{t("Requests / min")}</th><th>{t("Tokens / min")}</th><th>{t("Requests / day")}</th></tr></thead>
             <tbody>{data.api.models.map((model, index) => <tr key={`${model.model}:${index}`}><td>{model.model}</td><td>{formatNumber(model.rpm)}</td><td>{formatNumber(model.tpm)}</td><td>{formatNumber(model.rpd)}</td></tr>)}</tbody>
           </table></div> : <p className="ai-unavailable">{t("No model quotas were returned for this API project.")}</p>
-            : <div className="ai-api-empty"><KeyRound size={24} /><div><b>{loading ? t("Loading usage…") : data?.api.status === "not_configured" ? t("API quota is not connected") : t("API quota is temporarily unavailable")}</b><p>{t("Your API administrator can connect project quotas. You can also view them in OpenAI limits.")}</p></div></div>}
-          <div className="ai-api-links"><a href="https://platform.openai.com/usage" target="_blank" rel="noreferrer">{t("API usage & billing")}<ArrowUpRight size={13} /></a><span>{t("Unavailable values appear as —.")}</span></div>
+            : <div className="ai-api-empty"><KeyRound size={24} /><div><b>{loading ? t("Loading usage…") : data?.api.status === "not_configured" ? t("API quota is not connected") : t("API quota is temporarily unavailable")}</b><p>{t("Your administrator can connect API project quotas. You can also check the provider website.")}</p></div></div>}
+          <div className="ai-api-links">{data?.links.usage ? <a href={data.links.usage} target="_blank" rel="noreferrer">{t("API usage & billing")}<ArrowUpRight size={13} /></a> : null}<span>{t("Unavailable values appear as —.")}</span></div>
         </section>
       </div>
-      <footer className="ai-footer"><span>{t("AI CENTER")} / {t("RESOURCE TELEMETRY")}</span><span>{data ? t("Updated {time}", { time: new Date(data.fetchedAt).toLocaleTimeString() }) : t("Waiting for usage data")}</span><span>{t("ESC TO RETURN")}</span></footer>
+      <footer className="ai-footer"><span>{t("AI CENTER")} / {t("RESOURCE TELEMETRY")}</span><span>{snapshot ? t("Updated {time}", { time: new Date(snapshot.fetchedAt).toLocaleTimeString() }) : t("Waiting for usage data")}</span><span>{t("ESC TO RETURN")}</span></footer>
     </div>
   </dialog>, document.body);
 }

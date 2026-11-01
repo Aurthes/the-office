@@ -14,6 +14,47 @@
   line-height: 1.5;
 }
 
+/* Reserve 200px for the conversation and 12px for the touch divider. */
+.session-chat-list { width: clamp(96px, var(--session-list-width, min(240px, 40%)), min(360px, 50%, calc(100% - 212px))); }
+.session-list-divider {
+  position: relative; z-index: 1; flex: 0 0 8px; cursor: col-resize;
+  touch-action: none; user-select: none; background: #171e28;
+  border-inline: 1px solid #ffffff12;
+}
+.session-list-divider::after {
+  content: ""; position: absolute; top: 50%; left: 2px; width: 2px; height: 32px;
+  transform: translateY(-50%); border-radius: 2px; background: #ffffff45;
+}
+.session-list-divider:hover, .session-list-divider:focus-visible { background: #354855; outline: none; }
+.session-panel { container-type: inline-size; }
+.session-panel-header { padding-top: max(8px, env(safe-area-inset-top)); }
+.session-header-button {
+  align-items: center; justify-content: center; flex-shrink: 0; width: 36px; height: 36px;
+  border-radius: 6px; color: #bdcbd2; cursor: pointer;
+}
+.session-header-button:not(.hidden) { display: inline-flex; }
+.session-header-button:hover { background: #ffffff14; color: white; }
+.session-header-button:focus-visible { outline: 2px solid #c5b58c; outline-offset: 2px; }
+
+@container (max-width: 440px) {
+  .session-panel-header { gap: 4px; padding-inline: 4px; }
+  .session-workspace-toggle { width: 36px; padding-inline: 0; }
+  .session-workspace-toggle span, .session-panel-header .office-chat-expand { display: none; }
+}
+
+@container (max-width: 260px) {
+  .session-panel-header :is(.session-header-button, .session-actions-trigger, .session-workspace-toggle) { width: 32px; min-height: 36px; }
+  .session-composer-actions > div:first-child { gap: 0; }
+}
+
+.session-composer-actions { flex-wrap: wrap; }
+.session-composer-actions > div:last-child { margin-left: auto; }
+
+@media (pointer: coarse) {
+  .session-list-divider { flex-basis: 12px; }
+  .session-list-divider::after { left: 4px; }
+}
+
 .session-composer-input {
   --composer-lines: 6;
   max-height: min(calc(var(--composer-lines) * 1lh + var(--spacing) * 4 + 2px), 35dvh);

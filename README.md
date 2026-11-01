@@ -99,6 +99,10 @@ engine behavior from optional services and features that remain unavailable.
 Character movement is a visualization, not an additional agent or evidence that a
 model is running a task.
 
+AI Center uses a provider-neutral usage format and UI. Only the OpenAI reader
+(`server/ai-center-openai.js`) is implemented today; future readers supply provider
+names, account labels, links, and any number of quota windows in the same format.
+
 The main deck's AI Center replaces the former inner-ring server room. Click its
 floating computation core, select the area, or use the brain icon in the toolbar
 to see the signed-in Office Codex account's plan, quota windows, reset times,
