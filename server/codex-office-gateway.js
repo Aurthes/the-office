@@ -12,6 +12,7 @@ const { CodexSessionWorkspace } = require("./codex-session-workspace");
 const { CodexOfficeVoice } = require("./codex-office-voice");
 const { loadSessionHistoryPage } = require("./codex-session-history");
 const { createOfficeDictation, suggestNextMessage } = require("./office-model-services");
+const { readAiCenter } = require("./ai-center");
 
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
@@ -41,6 +42,7 @@ const history = (id, cursor) => loadSessionHistoryPage(store.call.bind(store), s
 async function account() { const status = await native.call("account/read", { refreshToken: false }); return { loggedIn: Boolean(status.account) || status.requiresOpenaiAuth === false, email: status.account?.email || null, requiresAuth: status.requiresOpenaiAuth !== false, login }; }
 const methods = {
   "office.account": account,
+  "office.usage": () => readAiCenter(native),
   "office.login": async () => { if ((await account()).loggedIn) return { loggedIn: true }; if (login?.loginId) await native.call("account/login/cancel", { loginId: login.loginId }); login = await native.call("account/login/start", { type: "chatgptDeviceCode" }, 30000); return login; },
   "office.snapshot": async () => { const listed = agents(); return { defaultId: listed[0]?.id, mainKey: "main", agents: listed, projects: store.projects(), creationAvailable: native.ready }; },
   "agents.list": async () => methods["office.snapshot"](),
