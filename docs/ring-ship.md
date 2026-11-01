@@ -8,7 +8,7 @@ radii start at 12, 26 and 42; depths are 5.6, 6.8 and 8. The clear gaps between
 rings start at 7.8 and 8.6. Decks are 10 units apart.
 
 The OpenClaw office remains available through its existing runtime. Session chat,
-project creation, recruitment, unread markers and voice settings use the existing
+project creation, recruitment, unread markers and studio settings use the existing
 application handlers and gateway connection.
 
 ## Allocation

@@ -151,6 +151,10 @@ describe these public configuration surfaces.
 
 ## Optional speech and suggestions
 
+OpenClaw transcription and ElevenLabs reply playback have been removed. Office
+keeps Codex session speech controls visible and disabled when the runtime reports
+those capabilities as unavailable. There is no fallback to an OpenClaw runtime.
+
 Configure `OPENAI_API_KEY` on the **gateway only**, then restart it. This enables
 dictation and suggested prompts. Defaults are `gpt-transcribe` for
 `/v1/audio/transcriptions` and `gpt-6.1-sol` for `/v1/responses`.

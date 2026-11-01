@@ -49,7 +49,7 @@ export function PhoneBoothImmersiveScreen({
             <div className="mt-8 rounded-[28px] border border-sky-300/16 bg-slate-900/90 p-6">
               <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.24em] text-sky-200/60">
                 <span>Calling from booth</span>
-                <span>{scenario.voiceAvailable ? "ElevenLabs ready" : "Text fallback"}</span>
+                <span>Text simulation</span>
               </div>
               <div className="mt-5 text-3xl font-medium tracking-[0.24em] text-sky-50">
                 {typedDigits || scenario.dialNumber}

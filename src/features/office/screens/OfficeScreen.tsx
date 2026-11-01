@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { MessageSquare, ChevronDown, ChevronLeft, ChevronRight, Mic, Maximize2, Minimize2, X } from "lucide-react";
+import { MessageSquare, ChevronDown, ChevronLeft, ChevronRight, Maximize2, Minimize2, X } from "lucide-react";
 import type { OfficeAgent } from "@/features/retro-office/core/types";
 import { getAgentActivity, type AgentActivity } from "@/features/retro-office/core/agentActivity";
 import { AgentActivityIndicator } from "@/features/office/components/AgentActivityIndicator";
@@ -188,15 +188,8 @@ import {
   OnboardingWizard,
   useOnboardingState,
 } from "@/features/onboarding";
-import { useFinalizedAssistantReplyListener } from "@/hooks/useFinalizedAssistantReplyListener";
 import { useStudioOfficePreference } from "@/hooks/useStudioOfficePreference";
 import { isRemoteOfficeAgentId } from "@/features/retro-office/core/district";
-import { useStudioVoiceRepliesPreference } from "@/hooks/useStudioVoiceRepliesPreference";
-import {
-  useVoiceRecorder,
-  type VoiceSendPayload,
-} from "@/hooks/useVoiceRecorder";
-import { useVoiceReplyPlayback } from "@/hooks/useVoiceReplyPlayback";
 import {
   buildOfficeAnimationState,
   clearOfficeAnimationTriggerHold,
@@ -1423,29 +1416,6 @@ export function OfficeScreen({
   const { snapshot: remoteOfficeLayoutSnapshot } = useRemoteOfficeLayout({
     enabled: remoteOfficeEnabled,
     presenceUrl: remoteOfficePresenceUrl,
-  });
-  const {
-    loaded: voiceRepliesLoaded,
-    preference: voiceRepliesPreference,
-    enabled: voiceRepliesEnabled,
-    voiceId: voiceRepliesVoiceId,
-    speed: voiceRepliesSpeed,
-    setEnabled: setVoiceRepliesEnabled,
-    setVoiceId: setVoiceRepliesVoiceId,
-    setSpeed: setVoiceRepliesSpeed,
-  } = useStudioVoiceRepliesPreference({
-    gatewayUrl,
-    settingsCoordinator,
-  });
-  const {
-    enqueue: enqueueVoiceReply,
-    preview: previewVoiceReply,
-    stop: stopVoiceReplyPlayback,
-  } = useVoiceReplyPlayback({
-    enabled: voiceRepliesEnabled,
-    provider: voiceRepliesPreference.provider,
-    voiceId: voiceRepliesPreference.voiceId,
-    speed: voiceRepliesPreference.speed,
   });
   const showOnboardingWizard = showOnboarding || forceShowOnboarding;
   const handleOpenOnboarding = useCallback(() => {
@@ -3184,8 +3154,6 @@ export function OfficeScreen({
   const agentEditorAgent = agentEditorAgentId
     ? (state.agents.find((agent) => agent.agentId === agentEditorAgentId) ?? null)
     : null;
-  const mainAgent =
-    state.agents.find((agent) => agent.agentId === MAIN_AGENT_ID) ?? null;
 
   useEffect(() => {
     if (!selectedChatAgentId) return;
@@ -4013,7 +3981,6 @@ export function OfficeScreen({
 
   const handleChatSend = useCallback(
     async (agentId: string, sessionKey: string, message: string) => {
-      stopVoiceReplyPlayback();
       const trimmed = message.trim();
       if (!trimmed) return;
       if (isRemoteOfficeAgentId(agentId)) {
@@ -4154,7 +4121,6 @@ export function OfficeScreen({
       dispatch,
       handleRemoteAgentChatSend,
       phoneCallByAgentId,
-      stopVoiceReplyPlayback,
       textMessageByAgentId,
     ],
   );
@@ -4173,129 +4139,6 @@ export function OfficeScreen({
       console.error("Failed to trigger standup meeting.", error);
     });
   }, [pendingStandupRequest, standupController.meeting, triggerStandupMeeting]);
-
-  const transcribeVoicePayload = useCallback(
-    async (payload: VoiceSendPayload) => {
-      const file = new File([payload.blob], payload.fileName, {
-        type: payload.mimeType,
-      });
-      const formData = new FormData();
-      formData.set("audio", file);
-      const response = await fetch("/api/office/voice/transcribe", {
-        method: "POST",
-        body: formData,
-      });
-      const result = (await response.json().catch(() => null)) as {
-        transcript?: string | null;
-        error?: string;
-        ignored?: boolean;
-      } | null;
-      if (!response.ok) {
-        throw new Error(
-          result?.error?.trim() || "Failed to transcribe voice input.",
-        );
-      }
-      if (result?.ignored) {
-        return null;
-      }
-      const transcript = result?.transcript?.trim() ?? "";
-      if (!transcript) {
-        throw new Error("OpenClaw returned an empty transcript.");
-      }
-      return transcript;
-    },
-    [],
-  );
-
-  const sendVoicePayloadToAgent = useCallback(
-    async (
-      agent: Pick<AgentState, "agentId" | "sessionKey"> | null,
-      payload: VoiceSendPayload,
-    ) => {
-      if (!agent) {
-        throw new Error("Target agent not found.");
-      }
-      const transcript = await transcribeVoicePayload(payload);
-      if (!transcript) return;
-      await handleChatSend(agent.agentId, agent.sessionKey, transcript);
-    },
-    [handleChatSend, transcribeVoicePayload],
-  );
-
-  const handleVoiceSend = useCallback(
-    async (payload: VoiceSendPayload) => {
-      if (!focusedChatAgent) {
-        throw new Error("Select an agent before using push-to-talk.");
-      }
-      await sendVoicePayloadToAgent(focusedChatAgent, payload);
-    },
-    [focusedChatAgent, sendVoicePayloadToAgent],
-  );
-
-  const {
-    state: mainVoiceState,
-    error: mainVoiceError,
-    supported: mainVoiceSupported,
-    start: startMainVoiceRecording,
-    stop: stopMainVoiceRecording,
-    clearError: clearMainVoiceError,
-  } = useVoiceRecorder({
-    enabled: status === "connected" && Boolean(mainAgent),
-    onVoiceSend: async (payload) => {
-      if (!mainAgent) {
-        throw new Error("Main agent not found.");
-      }
-      await sendVoicePayloadToAgent(mainAgent, payload);
-    },
-  });
-
-  useFinalizedAssistantReplyListener(state.agents, ({ text }) => {
-    if (!voiceRepliesLoaded || !voiceRepliesEnabled) return;
-    enqueueVoiceReply({
-      text,
-      provider: voiceRepliesPreference.provider,
-      voiceId: voiceRepliesPreference.voiceId,
-    });
-  });
-
-  useEffect(() => {
-    if (sessionView) return; // Codex composers own Option-to-dictate; never route it to the legacy main agent.
-    const optionHeldRef = { current: false };
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Alt" || event.repeat || optionHeldRef.current) return;
-      optionHeldRef.current = true;
-      event.preventDefault();
-      void startMainVoiceRecording();
-    };
-    const handleKeyUp = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Alt") return;
-      optionHeldRef.current = false;
-      event.preventDefault();
-      stopMainVoiceRecording();
-    };
-    const handleWindowBlur = () => {
-      optionHeldRef.current = false;
-      stopMainVoiceRecording();
-    };
-    window.addEventListener("keydown", handleKeyDown, true);
-    window.addEventListener("keyup", handleKeyUp, true);
-    window.addEventListener("blur", handleWindowBlur);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown, true);
-      window.removeEventListener("keyup", handleKeyUp, true);
-      window.removeEventListener("blur", handleWindowBlur);
-    };
-  }, [sessionView, startMainVoiceRecording, stopMainVoiceRecording]);
-
-  useEffect(() => {
-    if (!mainVoiceError) return;
-    const timer = window.setTimeout(() => {
-      clearMainVoiceError();
-    }, 4000);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [clearMainVoiceError, mainVoiceError]);
 
   const officeAgents = useMemo(() => {
     void clockTick;
@@ -4877,10 +4720,6 @@ export function OfficeScreen({
           remoteOfficeStatusText={remoteOfficeStatusText}
           remoteLayoutSnapshot={remoteOfficeLayoutSnapshot}
           remoteOfficeTokenConfigured={remoteOfficeTokenConfigured}
-          voiceRepliesEnabled={voiceRepliesEnabled}
-          voiceRepliesVoiceId={voiceRepliesVoiceId}
-          voiceRepliesSpeed={voiceRepliesSpeed}
-          voiceRepliesLoaded={voiceRepliesLoaded}
           onOfficeTitleChange={setOfficeTitle}
           onRemoteOfficeEnabledChange={setRemoteOfficeEnabled}
           onRemoteOfficeSourceKindChange={setRemoteOfficeSourceKind}
@@ -4888,17 +4727,6 @@ export function OfficeScreen({
           onRemoteOfficePresenceUrlChange={setRemoteOfficePresenceUrl}
           onRemoteOfficeGatewayUrlChange={setRemoteOfficeGatewayUrl}
           onRemoteOfficeTokenChange={setRemoteOfficeToken}
-          onVoiceRepliesToggle={setVoiceRepliesEnabled}
-          onVoiceRepliesVoiceChange={setVoiceRepliesVoiceId}
-          onVoiceRepliesSpeedChange={setVoiceRepliesSpeed}
-          onVoiceRepliesPreview={(voiceId, voiceName) => {
-            void previewVoiceReply({
-              text: `Hi, how can I help you? My name is ${voiceName}.`,
-              provider: voiceRepliesPreference.provider,
-              voiceId,
-              speed: voiceRepliesSpeed,
-            });
-          }}
           atmAnalytics={{
             client,
             status,
@@ -5634,7 +5462,6 @@ export function OfficeScreen({
                   onAvatarShuffle={() =>
                     openAgentEditor(focusedChatAgent.agentId, "avatar")
                   }
-                  onVoiceSend={handleVoiceSend}
                 />
               ) : focusedRemoteChatTarget && focusedRemoteChatState ? (
                 <RemoteAgentChatPanel
@@ -5719,46 +5546,6 @@ export function OfficeScreen({
           )}
         </button> : null}
       </div>
-
-      {mainVoiceState !== "idle" || mainVoiceError ? (
-        <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center">
-          <div
-            className={`flex min-w-[220px] items-center gap-3 rounded-full border px-4 py-3 font-mono text-[12px] shadow-2xl backdrop-blur ${
-              mainVoiceError
-                ? "border-red-500/45 bg-red-950/75 text-red-100"
-                : "border-cyan-400/35 bg-black/70 text-white"
-            }`}
-          >
-            <div
-              className={`flex h-10 w-10 items-center justify-center rounded-full ${
-                mainVoiceState === "recording"
-                  ? "bg-red-500/25 text-red-200"
-                  : mainVoiceState === "transcribing"
-                    ? "bg-cyan-400/20 text-cyan-100"
-                    : "bg-white/10 text-white"
-              }`}
-            >
-              <Mic className="h-5 w-5" />
-            </div>
-            <div className="flex flex-col">
-              <span className="text-[10px] uppercase tracking-[0.18em] text-white/55">{t("Main agent")}</span>
-              <span className="text-[12px] font-medium text-white">
-                {mainVoiceError
-                  ? mainVoiceError
-                  : mainVoiceState === "recording"
-                    ? "Listening. Release Option to send."
-                    : mainVoiceState === "transcribing"
-                      ? "Transcribing your voice note."
-                      : mainVoiceState === "requesting"
-                        ? "Requesting microphone access."
-                        : !mainVoiceSupported
-                          ? "Voice shortcuts are not supported in this browser."
-                          : "Voice shortcut ready."}
-              </span>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {debugEnabled ? (
         <section className="fixed bottom-3 right-3 z-50 max-h-[45vh] w-[560px] overflow-auto rounded border border-slate-700 bg-black/90 p-3 font-mono text-[11px] text-slate-100">
