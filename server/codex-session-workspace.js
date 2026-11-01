@@ -18,24 +18,26 @@ class CodexSessionWorkspace {
     this.listeners = new Map();
   }
   ready() { if (!this.client?.ready) throw new Error("Codex workspace is disconnected"); }
-  async target(row, relative = "") {
+  async target(row, relative = "", selectedRoot) {
     if (typeof relative !== "string" || relative.length > 4096 || /[\0\r\n]/.test(relative)) throw new Error("Invalid workspace path");
-    const root = await fs.realpath(row.workspace);
+    const roots = this.options.roots ? this.options.roots(row) : [row.workspace];
+    if (selectedRoot !== undefined && !roots.includes(selectedRoot)) throw new Error("Choose a folder attached to this project");
+    const root = await fs.realpath(selectedRoot ?? row.workspace);
     const requested = path.resolve(root, relative);
     const resolved = await fs.realpath(requested);
     const inside = path.relative(root, resolved);
     if (inside === ".." || inside.startsWith(".." + path.sep) || path.isAbsolute(inside)) throw new Error("File is outside this workspace");
     return { root, resolved, relative: inside.split(path.sep).join("/") };
   }
-  async files(row, relative) {
-    this.ready(); const target = await this.target(row, relative);
+  async files(row, relative, selectedRoot) {
+    this.ready(); const target = await this.target(row, relative, selectedRoot);
     const result = await this.client.call("fs/readDirectory", { path: target.resolved });
     const entries = result.entries.filter(entry => typeof entry.fileName === "string" && entry.fileName && !/[\/\\\0]/.test(entry.fileName) && ![".", "..", ".git", "node_modules", ".next"].includes(entry.fileName))
       .sort((a, b) => Number(Boolean(b.isDirectory)) - Number(Boolean(a.isDirectory)) || a.fileName.localeCompare(b.fileName));
-    return { path: target.relative, entries: entries.slice(0, 300).map(entry => ({ name: entry.fileName, directory: Boolean(entry.isDirectory) })), truncated: entries.length > 300 };
+    return { path: target.relative, ...(this.options.roots ? { root: target.root, roots: this.options.roots(row) } : {}), entries: entries.slice(0, 300).map(entry => ({ name: entry.fileName, directory: Boolean(entry.isDirectory) })), truncated: entries.length > 300 };
   }
-  async file(row, relative) {
-    this.ready(); const target = await this.target(row, relative);
+  async file(row, relative, selectedRoot) {
+    this.ready(); const target = await this.target(row, relative, selectedRoot);
     const stat = await fs.stat(target.resolved);
     if (!stat.isFile()) throw new Error("Not a regular file");
     const asset = referenceForPath(target.resolved);
@@ -66,13 +68,14 @@ class CodexSessionWorkspace {
     this.starts.set(row.id, pending); return pending;
   }
   async spawn(row) {
+    const policy = this.options.commandExec ? this.options.policy(row.id) : undefined;
     const { root } = await this.target(row);
     const terminal = { threadId: row.id, handle: crypto.randomUUID(), output: Buffer.alloc(0), pending: Buffer.alloc(0), offset: 0, running: true, exitCode: null, timer: null, reset: false };
     this.terminals.set(row.id, terminal);
     if (this.options.commandExec) {
       // Public command/exec stays pending until exit; output arrives as events.
       void this.client.call("command/exec", { processId: terminal.handle, command: [os.userInfo().shell || process.env.SHELL || "/bin/sh", "-l"], cwd: root,
-        tty: true, streamStdin: true, streamStdoutStderr: true, disableTimeout: true, disableOutputCap: true, size: { rows: 24, cols: 80 }, sandboxPolicy: this.options.policy(row.id) }, 0)
+        tty: true, streamStdin: true, streamStdoutStderr: true, disableTimeout: true, disableOutputCap: true, size: { rows: 24, cols: 80 }, sandboxPolicy: policy }, 0)
         .then(result => { terminal.running = false; terminal.exitCode = result.exitCode; this.flush(terminal); }, error => {
           terminal.running = false; terminal.exitCode = -1; terminal.pending = Buffer.from(error.message + "\r\n"); terminal.output = terminal.pending; this.flush(terminal);
         });

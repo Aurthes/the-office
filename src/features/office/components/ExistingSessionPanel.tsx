@@ -246,7 +246,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
     {data?.runtime === "office" ? <OfficeCodexAccount client={client} /> : null}
     {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} client={client} threadId={threadId} onItems={onLiveItems} /> : null}
     </div>
-    {workspaceOpen ? <SessionWorkspace client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
+    {workspaceOpen ? <SessionWorkspace key={threadId} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
       assets={[...new Map(messages.flatMap(message => message.assets || []).map(asset => [asset.url, asset])).values()].slice(-40)}
       onSelectAsset={setPreviewAsset} onClose={() => setWorkspaceOpen(false)} /> : null}
     </div>

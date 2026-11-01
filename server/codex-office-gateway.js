@@ -26,10 +26,10 @@ const native = new CodexOfficeClient({ home: process.env.CLAW3D_OFFICE_CODEX_HOM
   const mapped = store?.handle(frame); if (!mapped) return;
   controls?.handle(mapped); if (mapped.params?.threadId) stream?.changed(mapped.params.threadId);
 } });
-store = new CodexOfficeStore(directory, native, changed);
+store = new CodexOfficeStore(directory, native, changed, id => Boolean(controls?.state(id).activeTurnId || workspace?.snapshot(id)?.running || workspace?.starts.has(id)));
 controls = new CodexSessionControls(store, () => [], { settings: store, features });
 stream = new CodexSessionStream(controls);
-workspace = new CodexSessionWorkspace(native, { commandExec: true, policy: id => store.overrides(id).sandboxPolicy });
+workspace = new CodexSessionWorkspace(native, { commandExec: true, policy: id => store.overrides(id).sandboxPolicy, roots: row => store.sessionFolders(row) });
 const agents = () => store.list().map(row => ({ ...row, role: row.project, identity: { name: row.name, emoji: "💬" }, needsInput: Boolean(controls.questions(row.id).some(q => !q.submitted) || controls.snapshot(row.id).approvalCount) }));
 const key = id => `agent:${id}:main`;
 const history = (id, cursor) => loadSessionHistoryPage(store.call.bind(store), store.get(id), cursor);
@@ -40,6 +40,14 @@ const methods = {
   "office.snapshot": async () => { const listed = agents(); return { defaultId: listed[0]?.id, mainKey: "main", agents: listed, projects: store.projects(), creationAvailable: native.ready }; },
   "agents.list": async () => methods["office.snapshot"](),
   "project.create": p => store.createProject(p),
+  "project.inspect": p => store.inspectProject(p.projectId),
+  "project.update": async p => { const result = await store.updateProject(p); broadcast("project.updated", { projectId: result.project.id }); return result; },
+  "project.folders.list": async p => {
+    const directory = store.directory(p.path || os.homedir());
+    const result = await native.call("fs/readDirectory", { path: directory });
+    return { directory, parent: path.dirname(directory) === directory ? null : path.dirname(directory),
+      entries: result.entries.filter(e => e.isDirectory && typeof e.fileName === "string" && e.fileName && !/[\/\\\0\r\n]/.test(e.fileName) && !e.fileName.startsWith(".")).map(e => e.fileName).sort().slice(0, 300) };
+  },
   "session.create": p => store.createSession(p),
   "session.rename": p => store.renameSession(p),
   "session.reassign": p => store.reassignSession(p),
@@ -59,8 +67,8 @@ const methods = {
   "session.settings.update": p => { store.get(p.threadId); return controls.updateSettings(p.threadId, p.settings); },
   "session.question.reply": p => { store.get(p.threadId); return controls.replyQuestions(p.threadId, p.promptId, p.answers); },
   "session.approval.reply": p => { store.get(p.threadId); return controls.reply(p.threadId, p.requestId, p.decision); },
-  "session.workspace.list": p => workspace.files(store.get(p.threadId), p.path),
-  "session.workspace.read": p => workspace.file(store.get(p.threadId), p.path),
+  "session.workspace.list": p => workspace.files(store.get(p.threadId), p.path, p.root),
+  "session.workspace.read": p => workspace.file(store.get(p.threadId), p.path, p.root),
   "session.terminal.subscribe": (p, ws) => workspace.subscribe(ws, store.get(p.threadId).id),
   "session.terminal.unsubscribe": (_p, ws) => { workspace.disconnected(ws); return {}; },
   "session.terminal.start": p => workspace.start(store.get(p.threadId)),
@@ -98,7 +106,7 @@ wss.on("connection", ws => {
         if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) throw new Error("Invalid gateway token");
         if (!native.ready) throw new Error("Office Codex is starting");
         connected = true; clients.add(ws);
-        result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "office-codex-1", connId: crypto.randomUUID() }, features: { methods: Object.keys(methods), events: ["tick", "session.stream", "session.terminal", "roster.updated", "office.account", "session.prediction"] }, snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: store.list()[0]?.id }, sessionDefaults: { mainKey: "main" } }, auth: { role: "operator", scopes: ["operator.read", "operator.write", "operator.approvals"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
+        result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "office-codex-1", connId: crypto.randomUUID() }, features: { methods: Object.keys(methods), events: ["tick", "session.stream", "session.terminal", "roster.updated", "project.updated", "office.account", "session.prediction"] }, snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: store.list()[0]?.id }, sessionDefaults: { mainKey: "main" } }, auth: { role: "operator", scopes: ["operator.read", "operator.write", "operator.approvals"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
       } else {
         if (!connected) throw new Error("Connect first");
         if (!Object.hasOwn(methods, frame.method)) throw new Error("This feature is not available in Office");

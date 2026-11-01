@@ -7,7 +7,7 @@ import { SessionAssetPreview } from "./SessionMarkdown";
 import { useUiText } from "@/lib/i18n/ui-language";
 
 const SessionTerminal = dynamic(() => import("./SessionTerminal").then(module => module.SessionTerminal), { ssr: false });
-type Listing = { path: string; entries: { name: string; directory: boolean }[]; truncated: boolean };
+type Listing = { root?: string; roots?: string[]; path: string; entries: { name: string; directory: boolean }[]; truncated: boolean };
 type FileRead = { path: string; content?: string; asset?: SessionAsset };
 type Tab = "files" | "preview" | "terminal" | "browser";
 
@@ -24,17 +24,21 @@ export function SessionWorkspace({ client, threadId, asset, assets, onSelectAsse
   const request = useRef(0);
   useEffect(() => () => { request.current++; }, []);
   useEffect(() => { if (asset) setTab("preview"); }, [asset]);
-  const list = useCallback(async (path = "") => {
+  const [root, setRoot] = useState<string | undefined>();
+  const list = useCallback(async (path = "", selectedRoot: string | null | undefined = root) => {
     const id = ++request.current; setBusy(true); setError("");
-    try { const result = await client.call("session.workspace.list", { threadId, path }) as Listing; if (id === request.current) setListing(result); }
+    try { const result = await client.call("session.workspace.list", { threadId, path, ...(selectedRoot ? { root: selectedRoot } : {}) }) as Listing; if (id === request.current) { setListing(result); setRoot(result.root); } }
     catch (cause) { if (id === request.current) setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { if (id === request.current) setBusy(false); }
-  }, [client, threadId]);
+  }, [client, threadId, root]);
   useEffect(() => { if (tab === "files" && !listing) void list(); }, [tab, listing, list]);
+  useEffect(() => client.onEvent?.(event => {
+    if (event.event === "project.updated") { setFile(null); onSelectAsset(null); void list("", null); }
+  }), [client, list, onSelectAsset]);
   const read = async (path: string) => {
     const id = ++request.current; setBusy(true); setError("");
     try {
-      const result = await client.call("session.workspace.read", { threadId, path }) as FileRead;
+      const result = await client.call("session.workspace.read", { threadId, path, ...(root ? { root } : {}) }) as FileRead;
       if (id !== request.current) return;
       setFile(result); onSelectAsset(result.asset || null); setTab("preview");
     } catch (cause) { if (id === request.current) setError(cause instanceof Error ? cause.message : String(cause)); }
@@ -55,6 +59,9 @@ export function SessionWorkspace({ client, threadId, asset, assets, onSelectAsse
     {error ? <p role="alert" className="px-4 py-3 text-xs text-amber-200">{t(error)}</p> : null}
     <div role="tabpanel" id={`workspace-panel-${tab}`} aria-labelledby={`workspace-tab-${tab}`} className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {tab === "files" ? <>
+        {listing?.roots && listing.roots.length > 1 ? <label className="px-3 pt-2 text-xs text-white/60">{t("Project folder")}<select aria-label={t("Project folder")} className="mt-1 min-h-10 w-full min-w-0 rounded bg-[#152b35] px-2 text-xs" value={root || ""} disabled={busy} onChange={e => { setFile(null); onSelectAsset(null); void list("", e.target.value); }}>
+          {listing.roots.map(folder => <option key={folder} value={folder}>{folder}</option>)}
+        </select></label> : null}
         <div className="session-workspace-toolbar">
           <button type="button" disabled={!listing?.path || busy} aria-label={t("Parent folder")} onClick={() => void list(listing?.path.split("/").slice(0, -1).join("/"))}><ArrowUp size={15} /></button>
           <span className="min-w-0 flex-1 truncate text-xs text-white/55" title={listing?.path}>{listing?.path || t("Project files")}</span>

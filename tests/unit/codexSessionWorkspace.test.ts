@@ -79,4 +79,14 @@ describe("native Codex workspace", () => {
     }
     expect(workspace.terminals.size).toBe(16);
   });
+  it("switches between attached roots while rejecting unattached roots and escaping symlinks", async () => {
+    const f = setup(), b = path.join(f.root, "repo-b"); fs.mkdirSync(b); fs.writeFileSync(path.join(b, "a.ts"), "hello");
+    const workspace = new CodexSessionWorkspace(f.client, { roots: () => [f.root, b] });
+    expect(await workspace.files(f.row, "", b)).toMatchObject({ root: fs.realpathSync(b), roots: [f.root, b] });
+    expect(await workspace.file(f.row, "a.ts", b)).toMatchObject({ content: "const answer = 42;" });
+    await expect(workspace.files(f.row, "", os.homedir())).rejects.toThrow("attached");
+    fs.symlinkSync(os.homedir(), path.join(b, "escape"));
+    await expect(workspace.files(f.row, "escape", b)).rejects.toThrow("outside");
+  });
+
 });

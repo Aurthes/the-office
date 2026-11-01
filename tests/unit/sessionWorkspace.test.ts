@@ -17,6 +17,18 @@ describe("session side workspace", () => {
     expect(screen.getByRole("tab", { name: "Preview" })).toHaveAttribute("aria-selected", "true");
     expect(client.call.mock.calls.every(([method]) => method.startsWith("session.workspace."))).toBe(true);
   });
+  it("selects a repo and includes that root in file reads", async () => {
+    const client = { call: vi.fn(async (method: string, params: unknown) => {
+      const p = params as { root?: string };
+      return method === "session.workspace.list" ? { root: p.root || "/repo-a", roots: ["/repo-a", "/repo-b"], path: "", entries: [{ name: "file.ts", directory: false }] } : { path: "file.ts", content: "SECONDARY_CONTENT" };
+    }) };
+    render(React.createElement(SessionWorkspace, { client, threadId: "own", asset: null, assets: [], onSelectAsset: vi.fn(), onClose: vi.fn() }));
+    fireEvent.change(await screen.findByLabelText("Project folder"), { target: { value: "/repo-b" } });
+    await waitFor(() => expect(client.call).toHaveBeenCalledWith("session.workspace.list", { threadId: "own", path: "", root: "/repo-b" }));
+    fireEvent.click(await screen.findByRole("button", { name: "file.ts" }));
+    expect(await screen.findByText("SECONDARY_CONTENT")).toBeTruthy();
+    expect(client.call).toHaveBeenCalledWith("session.workspace.read", { threadId: "own", path: "file.ts", root: "/repo-b" });
+  });
   it("uses the original desktop entry for browser pages, without a replacement iframe", async () => {
     const client = { call: vi.fn(async () => ({ path: "", entries: [] })) };
     render(React.createElement(SessionWorkspace, { client, threadId: "original", asset: null, assets: [], onSelectAsset: vi.fn(), onClose: vi.fn() }));

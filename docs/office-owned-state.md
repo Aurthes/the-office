@@ -60,8 +60,32 @@ web account Security settings yourself, then request a fresh code. Native App
 sign-in remains separate. API keys for optional features below are not passed
 to the Codex child and do not replace its account login.
 
-Create a project using an existing folder on the Office host, then recruit a
-session. Office saves grouping, titles, settings and Codex thread IDs in its own
+Create a project by attaching one or more existing folders on the Office host,
+then recruit a session. No repository is created, copied, moved, or Git-initialized.
+The first folder is primary; new chats use it as their working directory. Chats
+are grouped by Office project and retain independent Codex histories. The folder
+picker browses the Office computer, including when opened from a phone.
+
+Use **Edit project** to add/remove folders or select a new primary. Changing the
+primary affects new chats only. Removing a folder used as a chat's working
+directory requires an explicit replacement for each affected chat; those tasks
+and terminals must be stopped first. Moving a chat between projects preserves
+its working directory, which must be attached to the destination project.
+
+Folder changes apply to the next turn and new terminals. Running turns and open
+terminals keep their existing scope. Workspace browsing offers the attached
+folders separately and validates containment within the selected root.
+
+Office supplies its folder context through public `thread/inject_items` developer
+messages, separate from user-visible messages, only when the context changes.
+Every new turn receives explicit `cwd` and `sandboxPolicy`; do not put mutable
+folder access into per-thread config overrides or rely on `thread/resume` to
+update loaded threads. Project folders organize context; the selected Codex
+permission mode remains authoritative (including read-only and Full access).
+Repository instructions and configuration remain Codex-managed; secondary
+repositories' `AGENTS.md` files are not concatenated by Office.
+
+ Office saves grouping, titles, settings and Codex thread IDs in its own
 `office.json`. Codex owns conversation persistence through RPC. Empty chats are
 saved without an invisible seed prompt; the first message creates their Codex
 thread. Neither product reads or writes the other's session database.

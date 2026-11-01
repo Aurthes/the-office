@@ -90,4 +90,59 @@ describe("independent Office runtime", () => {
     controls.handle({ id: 10, method: "item/permissions/requestApproval", params: { threadId: id, turnId: "turn", permissions } });
     controls.reply(id, "10", "decline"); expect(f.client.respond).toHaveBeenCalledWith(10, { permissions: {}, scope: "turn" });
   });
+  it("references canonical existing folders, groups chats and changes primary only for new chats", async () => {
+    const f = fixture(), b = path.join(f.root, "repo-b"); mkdirSync(b);
+    const alias = path.join(f.root, "alias"); symlinkSync(b, alias);
+    const { project } = await f.store.createProject({ name: "Multi", rootPaths: [f.workspace, b, alias], requestId: "multi" });
+    expect(project.rootPaths).toEqual([realpathSync(f.workspace), realpathSync(b)]);
+    const { threadId } = await f.store.createSession({ name: "First", projectId: project.id, requestId: "first" });
+    await f.store.updateProject({ projectId: project.id, name: "Multi", rootPaths: [b, f.workspace], requestId: "primary" });
+    expect(f.store.get(threadId).workspace).toBe(realpathSync(f.workspace));
+    const next = await f.store.createSession({ name: "Second", projectId: project.id, requestId: "second" });
+    expect(f.store.get(next.threadId).workspace).toBe(realpathSync(b));
+    expect(f.store.inspectProject(project.id).sessions).toHaveLength(2);
+    expect(() => f.store.createProject({ name: "Missing", rootPaths: [path.join(f.root, "missing")], requestId: "missing" })).toThrow();
+  });
+  it("changes context and permissions on the next turn without restarting or replacing the Codex chat", async () => {
+    const f = fixture(), id = await session(f), b = path.join(f.root, "repo-b"); mkdirSync(b);
+    const row = f.store.get(id), project = f.store.projects()[0];
+    row.codexThreadId = "existing"; row.hasTurns = true;
+    await f.store.call("turn/start", { threadId: id, input: [{ type: "text", text: "first" }] });
+    await f.store.updateProject({ projectId: project.id, name: project.name, rootPaths: [f.workspace, b], requestId: "add" });
+    await f.store.call("turn/start", { threadId: id, input: [{ type: "text", text: "second" }] });
+    const injections = f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+    expect(JSON.stringify(injections.at(-1))).toContain(realpathSync(b));
+    expect(f.client.call).toHaveBeenLastCalledWith("turn/start", expect.objectContaining({ threadId: "existing", cwd: realpathSync(f.workspace), sandboxPolicy: expect.objectContaining({ writableRoots: [realpathSync(f.workspace), realpathSync(b)] }) }));
+    await f.store.updateProject({ projectId: project.id, name: project.name, rootPaths: [f.workspace], requestId: "remove" });
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    expect(f.client.call).toHaveBeenLastCalledWith("turn/start", expect.objectContaining({ sandboxPolicy: expect.objectContaining({ writableRoots: [realpathSync(f.workspace)] }) }));
+    expect(f.client.call.mock.calls.some(([method]) => method === "thread/start")).toBe(false);
+  });
+  it("requires an explicit idle-chat replacement when removing its cwd and preserves history identity", async () => {
+    const f = fixture(), id = await session(f), b = path.join(f.root, "repo-b"); mkdirSync(b);
+    const row = f.store.get(id), project = f.store.projects()[0]; row.codexThreadId = "same-history";
+    await expect(f.store.updateProject({ projectId: project.id, name: "Work", rootPaths: [b], requestId: "no-choice" })).rejects.toThrow("replacement");
+    expect(project.rootPaths).toEqual([realpathSync(f.workspace)]);
+    f.store.isBusy = () => true;
+    await expect(f.store.updateProject({ projectId: project.id, name: "Work", rootPaths: [b], workspaces: { [id]: realpathSync(b) }, requestId: "busy" })).rejects.toThrow("Stop");
+    f.store.isBusy = () => false;
+    await f.store.updateProject({ projectId: project.id, name: "Work", rootPaths: [b], workspaces: { [id]: realpathSync(b) }, requestId: "replace" });
+    expect(row).toMatchObject({ workspace: realpathSync(b), codexThreadId: "same-history" });
+    expect(new CodexOfficeStore(f.directory, f.client).get(id).workspace).toBe(realpathSync(b));
+  });
+  it("keeps a dispatch's folder context and policy together across concurrent project edits", async () => {
+    const f = fixture(), id = await session(f), b = path.join(f.root, "repo-b"); mkdirSync(b);
+    const row = f.store.get(id), project = f.store.projects()[0]; row.codexThreadId = "existing";
+    await f.store.updateProject({ projectId: project.id, name: "Before", rootPaths: [f.workspace, b], requestId: "add" });
+    let release!: () => void;
+    f.client.call.mockImplementationOnce(async () => new Promise<Record<string, never>>(resolve => { release = () => resolve({}); }));
+    const pending = f.store.call("turn/start", { threadId: id, input: [] });
+    await Promise.resolve(); await Promise.resolve();
+    await f.store.updateProject({ projectId: project.id, name: "After", rootPaths: [f.workspace], requestId: "remove" });
+    release(); await pending;
+    expect(f.client.call).toHaveBeenLastCalledWith("turn/start", expect.objectContaining({ sandboxPolicy: expect.objectContaining({ writableRoots: [realpathSync(f.workspace), realpathSync(b)] }) }));
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    expect(f.client.call).toHaveBeenLastCalledWith("turn/start", expect.objectContaining({ sandboxPolicy: expect.objectContaining({ writableRoots: [realpathSync(f.workspace)] }) }));
+  });
+
 });

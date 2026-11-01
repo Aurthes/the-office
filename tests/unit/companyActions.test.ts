@@ -5,15 +5,15 @@ import { CompanyActions } from "../../src/features/office/components/CompanyActi
 afterEach(cleanup);
 const projects = [{ id: "p", name: "Native project" }];
 describe("company creation controls", () => {
-  it("creates a native Project from a name and existing directory", async () => {
+  it("creates an Office project referencing existing folders", async () => {
     const call = vi.fn(async () => ({ project: { id: "new" } })), onCreated = vi.fn(async () => {});
     render(React.createElement(CompanyActions, { client: { call }, projects, disabled: false, onCreated }));
     fireEvent.click(screen.getByRole("button", { name: "+ Project" }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "New project" } });
-    fireEvent.change(screen.getByLabelText("Project directory"), { target: { value: "/existing/repo" } });
+    fireEvent.change(screen.getByLabelText("Project folder 1"), { target: { value: "/existing/repo" } });
     fireEvent.click(screen.getByRole("button", { name: "Create project" }));
     await act(async () => {});
-    expect(call).toHaveBeenCalledWith("project.create", { name: "New project", workspace: "/existing/repo", requestId: expect.any(String) });
+    expect(call).toHaveBeenCalledWith("project.create", { name: "New project", rootPaths: ["/existing/repo"], requestId: expect.any(String) });
     expect(onCreated).toHaveBeenCalledWith(undefined);
   });
   it("recruits once, then opens the original newly created session", async () => {
@@ -39,4 +39,28 @@ describe("company creation controls", () => {
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Keep me");
     expect(call.mock.calls.filter(([method]) => method === "session.create")).toHaveLength(1);
   });
+  it("edits multiple folders and asks for a replacement when a chat's cwd is removed", async () => {
+    const call = vi.fn(async (method: string) => method === "project.inspect" ? { project: { id: "p", name: "Work", rootPaths: ["/repo-a", "/repo-b"] }, sessions: [{ id: "chat", name: "Existing chat", workspace: "/repo-a" }] } : {});
+    render(React.createElement(CompanyActions, { client: { call }, projects, disabled: false, onCreated: async () => {} }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit project" })); await act(async () => {});
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove folder" })[0]);
+    expect(screen.getByLabelText("Working folder: Existing chat")).toBeRequired();
+    fireEvent.change(screen.getByLabelText("Working folder: Existing chat"), { target: { value: "/repo-b" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save project" })); await act(async () => {});
+    expect(call).toHaveBeenCalledWith("project.update", expect.objectContaining({ projectId: "p", rootPaths: ["/repo-b"], workspaces: { chat: "/repo-b" } }));
+  });
+  it("browses folders on the Office host and can make an additional folder primary", async () => {
+    const call = vi.fn(async () => ({ directory: "/host/repo-b", parent: "/host", entries: [] }));
+    render(React.createElement(CompanyActions, { client: { call }, projects: [], disabled: false, onCreated: async () => {} }));
+    fireEvent.click(screen.getByRole("button", { name: "+ Project" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Multi repo" } });
+    fireEvent.change(screen.getByLabelText("Project folder 1"), { target: { value: "/host/repo-a" } });
+    fireEvent.click(screen.getByRole("button", { name: "+ Add folder" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Browse" })[1]); await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Use this folder" }));
+    fireEvent.click(screen.getByRole("button", { name: "Make primary" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create project" })); await act(async () => {});
+    expect(call).toHaveBeenCalledWith("project.create", expect.objectContaining({ rootPaths: ["/host/repo-b", "/host/repo-a"] }));
+  });
+
 });
