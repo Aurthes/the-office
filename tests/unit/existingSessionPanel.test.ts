@@ -59,6 +59,36 @@ describe("existing session history pagination", () => {
     expect(screen.getByText("live reply")).toBeTruthy();
     expect(screen.getByText("earlier reply")).toBeTruthy();
   });
+  it("keeps an existing live message that completes during history catch-up", async () => {
+    const catchUp = deferred(); let listener!: (event: { event: string; payload?: unknown }) => void, subscriptionId = "", reads = 0;
+    const call = vi.fn((method: string, params: unknown) => {
+      if (method === "session.inspect") return Promise.resolve({ ...metadata(), controlsAvailable: true });
+      if (method === "session.subscribe") { subscriptionId = (params as { subscriptionId: string }).subscriptionId; return Promise.resolve({}); }
+      if (method === "session.history") return ++reads === 1 ? Promise.resolve(page("earlier reply", null)) : catchUp.promise;
+      return Promise.resolve({});
+    });
+    render(React.createElement(ExistingSessionPanel, { client: { call, onEvent: h => { listener = h; return () => {}; } }, threadId: "original" }));
+    await screen.findByText("earlier reply");
+    const push = (version: number, items: unknown[]) => listener({ event: "session.stream", payload: { connected: true, version, threadId: "original", subscriptionId, activeTurnId: null, approvals: [], items } });
+    const draft = { id: "live", role: "assistant", content: "draft reply", status: "inProgress" };
+    const older = { id: "old", role: "assistant", content: "older live reply", status: "completed" };
+    await act(async () => push(0, []));
+    await act(async () => push(1, [older, draft]));
+    await screen.findByText("draft reply");
+    const previousSubscription = subscriptionId;
+    await act(async () => fireEvent(document, new Event("visibilitychange")));
+    expect(subscriptionId).not.toBe(previousSubscription);
+    await act(async () => push(2, [older, draft]));
+    expect(reads).toBe(2);
+    await act(async () => push(3, [{ ...draft, content: "final reply", status: "completed" }]));
+    expect(screen.getByText("final reply")).toBeTruthy();
+    // The read started before this reply was persisted, so its page lacks the ID.
+    await act(async () => catchUp.resolve(page("earlier reply", null)));
+    expect(screen.getAllByText("final reply")).toHaveLength(1);
+    expect(screen.getAllByRole("article").at(-1)?.textContent).toContain("final reply");
+    expect(screen.queryByText("draft reply")).toBeNull();
+    expect(screen.queryByText("older live reply")).toBeNull();
+  });
   it("shows metadata before history finishes and never polls metadata or history", async () => {
     const first = deferred();
     const call = vi.fn((method: string) => method === "session.inspect" ? Promise.resolve(metadata()) : first.promise);

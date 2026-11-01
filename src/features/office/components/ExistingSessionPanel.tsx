@@ -125,7 +125,8 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
       if (stopped || (mode === "older" && !cursor)) return;
       if (busy) { if (mode === "latest") reloadLatest = true; return; }
       busy = true; setLoading(true); failedMode.current = mode;
-      const liveBeforeRead = new Set(liveItems.current.keys());
+      // Keep changes received during the read, including updates to existing IDs.
+      const liveBeforeRead = new Map(liveItems.current);
       const before = mode === "older" && scroll.current ? { height: scroll.current.scrollHeight, top: scroll.current.scrollTop } : null;
       try {
         const result = await client.call("session.history", { threadId, ...(mode === "older" ? { cursor } : {}) }) as HistoryPage;
@@ -138,7 +139,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
             return [...result.messages.map(message => {
               const live = liveItems.current.get(message.id);
               return live && (live.status === "completed" || live.content.length > message.content.length) ? { ...message, ...live } : message;
-            }), ...[...liveItems.current.values()].filter(item => !ids.has(item.id) && !liveBeforeRead.has(item.id))];
+            }), ...[...liveItems.current.values()].filter(item => !ids.has(item.id) && liveBeforeRead.get(item.id) !== item)];
           }
           const existing = new Set(previous.map(message => message.id));
           return [...result.messages.filter(message => !existing.has(message.id)), ...previous];
