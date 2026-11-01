@@ -151,6 +151,17 @@ test("preflight rejects native/unrelated service labels", mac, async t => {
   assert.equal(await version(f.services[0].health), "old");
 });
 
+test("real LaunchAgents: external configuration change during startup is reported and preserved", mac, async t => {
+  const f = await fixture(t), entry = path.join(f.root, "new/server/codex-office-gateway.js");
+  fs.appendFileSync(entry, `\nfs.appendFileSync(${JSON.stringify(f.services[0].plist)}, '\\n');\n`);
+  const result = await f.start();
+  assert.equal(result.phase, "recovery_failed", JSON.stringify(result));
+  assert.match(result.error, /Configuration changed during startup/);
+  assert.match(result.recoveryErrors[0], /Configuration changed externally/);
+  assert.equal(await version(f.services[0].health), "new");
+  assert.notDeepEqual(fs.readFileSync(f.services[0].plist), f.oldBytes[0]);
+});
+
 test("prepared source changes and simultaneous deployments are rejected without stopping Office", mac, async t => {
   const f = await fixture(t), job = prepare(f.planFile, path.join(f.root, "jobs"));
   fs.appendFileSync(path.join(f.root, "new/server/codex-office-gateway.js"), "\n// changed after preparation\n");

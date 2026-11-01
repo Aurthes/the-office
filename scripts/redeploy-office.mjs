@@ -198,7 +198,9 @@ export async function deploy(job) {
       atomic(service.plist, bytes(service, "after"), service.mode);
       row.phase = "starting"; save();
       row.pid = await start(service, job.timeout);
-      row.unavailableMs = Date.now() - Date.parse(row.cutoverAt);
+      if (digest(fs.readFileSync(service.plist)) !== service.afterHash) throw new Error("Configuration changed during startup");
+      unchangedSource(service);
+      row.elapsedMs = Date.now() - Date.parse(row.cutoverAt);
       row.phase = "ready"; save();
     }
     result.phase = "succeeded";
@@ -218,7 +220,7 @@ export async function deploy(job) {
           row.pid = await start(service, job.timeout);
         } else row.pid = await ready(service, job.timeout);
         row.phase = "restored"; row.recoveredAt = new Date().toISOString();
-        row.unavailableMs = Date.now() - Date.parse(row.cutoverAt);
+        row.elapsedMs = Date.now() - Date.parse(row.cutoverAt);
       } catch (rollback) { row.phase = "recovery_failed"; errors.push(`${service.label}: ${rollback.message}`); }
       save();
     }
