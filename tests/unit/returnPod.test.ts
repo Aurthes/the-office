@@ -1,34 +1,11 @@
-import {describe,it,expect,vi} from "vitest";
-import {createRequire} from "node:module";
+import {describe,it,expect} from "vitest";
 import * as THREE from "three";
 import {buildShipLayout,cabinAngle,shipDeck,shipPoint} from "@/features/ring-ship/layout";
 import {returnRoute,returnStage,routePoint,returnLaunchDistance,RETURN_LAUNCH_DURATION} from "@/features/ring-ship/returnPodMotion";
 import {cabinDeck} from "@/features/ring-ship/shell-shapes";
 import {buildShell} from "@/features/ring-ship/shell";
 import {disposeShipGeometry} from "@/features/ring-ship/geometry";
-const {CodexWorkspaceActions}=createRequire(import.meta.url)("../../server/codex-workspace-actions.js");
-describe("return pod and native archive",()=>{
-  it("uses native archive for the exact original id, without a prompt, delete, or local DB writes",async()=>{
-    const client={ready:true,call:vi.fn(async(method:string)=>method==="thread/read"?{thread:{id:"original",status:{type:"idle"}}}:{})};
-    const actions=new CodexWorkspaceActions(client), input={threadId:"original",requestId:"return-1"};
-    await expect(actions.archiveSession(input)).resolves.toEqual({threadId:"original",archived:true});
-    await actions.archiveSession(input);
-    expect(client.call.mock.calls).toEqual([["thread/read",{threadId:"original",includeTurns:false}],["thread/archive",{threadId:"original"}]]);
-  });
-  it("rejects active work and never reports a failed/uncertain native archive as success",async()=>{
-    const client={ready:true,call:vi.fn(async(method:string)=>{expect(method).toBe("thread/read");return {thread:{id:"original",status:{type:"active"}}};})};
-    const actions=new CodexWorkspaceActions(client);
-    await expect(actions.archiveSession({threadId:"original",requestId:"busy"})).rejects.toThrow("还在工作");
-    expect(client.call).toHaveBeenCalledTimes(1);
-    client.call.mockImplementation(async(method?:string)=>{
-      if(method==="thread/read") return {thread:{id:"original",status:{type:"idle"}}};
-      throw new Error("response lost");
-    });
-    const uncertain={threadId:"original",requestId:"uncertain"};
-    await expect(actions.archiveSession(uncertain)).rejects.toThrow("response lost");
-    await expect(actions.archiveSession(uncertain)).rejects.toThrow("response lost");
-    expect(client.call.mock.calls.filter(c=>c[0]==="thread/archive")).toHaveLength(1);
-  });
+describe("return pod",()=>{
   it("never launches merely because walking and closing timers finished",()=>{
     expect(returnStage(60,4,{status:"pending"})).toEqual({stage:"waiting",launch:0});
     expect(returnStage(60,4,{status:"failed"})).toEqual({stage:"failed",launch:0});

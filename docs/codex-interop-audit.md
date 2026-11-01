@@ -166,18 +166,17 @@ an external integration contract for Office.
 
 ### Twenty isolated observations
 
-Reproduce from the repository root after installing its dependencies:
+The probe script was retired with the native-App backends. Its
+[original source](https://github.com/Aurthes/the-office/blob/ca30001/scripts/audit-codex-interop.mjs)
+remains in Git history. These observations record that historical experiment;
+current runtime validation uses `scripts/check-office-codex.mjs` as described in
+[Office-owned state](office-owned-state.md#reproduce-validation).
 
-```sh
-node scripts/audit-codex-interop.mjs \
-  --codex /absolute/path/to/codex \
-  --output /absolute/path/to/interop-results.json
-```
-
-The script uses private temporary Unix sockets and homes, strips inherited Codex
-settings from child environments, and simulates model responses locally. It does
-not connect to the desktop owner or open the user's session databases. Its default
-clients do not opt into experimental APIs; only the separate project fixture does.
+The original probe used private temporary Unix sockets and homes, stripped
+inherited Codex settings from child environments, and simulated model responses
+locally. It did not connect to the desktop owner or open the user's session
+databases. Its default clients did not opt into experimental APIs; only the
+separate project fixture did.
 
 | # | Observation | Result |
 | --- | --- | --- |
@@ -242,10 +241,11 @@ Do not impersonate the App to make an Office-created thread appear there.
 
 ## Voice and suggestions: interfaces, not inherited App features
 
-The existing `server/codex-dictation.js` uses a private ChatGPT backend dictation
-stream and native token access. `server/codex-composer-predictions.js` uses a
-private prediction-config endpoint plus experimental `thread/sample`.
-`server/codex-session-voice.js` uses experimental native thread-realtime methods.
+At the time of this audit, `server/codex-dictation.js` used a private ChatGPT backend
+dictation stream and native token access. `server/codex-composer-predictions.js`
+used a private prediction-config endpoint plus experimental `thread/sample`.
+`server/codex-session-voice.js` used experimental native thread-realtime methods.
+Those implementations have since been removed.
 Starting a separate Codex process does not convert those paths into stable public
 interfaces.
 

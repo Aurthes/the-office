@@ -184,5 +184,5 @@ and temporary state are removed on completion. Browser validation additionally
 checks Office project/chat creation, settings and unavailable feature controls.
 
 Legacy native-session gateway/index, shared-owner, private dictation and private
-prediction files remain historical implementations; they are not imported by
-the independent gateway or recommended installation paths.
+prediction implementations have been removed. The independent gateway retains
+the shared session controls, history, stream, uploads, assets and workspace modules.
