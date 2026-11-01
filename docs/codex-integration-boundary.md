@@ -5,8 +5,9 @@ independent of the native App. Do not implement App project/session sharing,
 including read-only discovery or queued messages. Reuse Codex for Office-owned
 conversations. [Office-owned state and chat features](office-owned-state.md)
 defines the current direction; the assessment below records earlier research,
-not the selected architecture. The running legacy mode has not been migrated by
-this documentation change.
+not the selected architecture. The legacy backends have since been removed;
+references below describe the implementation at the time of the assessment.
+Removing their source does not migrate or change any existing native App installation.
 
 The Office is an optional companion to an unmodified Codex/ChatGPT App. Installing,
 running, upgrading, or removing Office must not require changing the App's files,

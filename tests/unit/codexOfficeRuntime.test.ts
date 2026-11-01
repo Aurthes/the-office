@@ -115,6 +115,28 @@ describe("independent Office runtime", () => {
     await expect(f.store.archiveSession({ threadId: id, requestId: "archive" })).resolves.toEqual({ threadId: id, archived: true });
     expect(f.store.list()).toEqual([]); expect(f.client.call).not.toHaveBeenCalled();
   });
+  it("archives the mapped Codex thread once before removing the Office session", async () => {
+    const f = fixture(), id = await session(f);
+    Object.assign(f.store.get(id), { codexThreadId: "native-own-thread", hasTurns: true });
+    const input = { threadId: id, requestId: "archive-mapped" };
+    await expect(f.store.archiveSession(input)).resolves.toEqual({ threadId: id, archived: true });
+    await f.store.archiveSession(input);
+    expect(f.client.call.mock.calls).toEqual([["thread/archive", { threadId: "native-own-thread" }]]);
+    expect(f.store.list()).toEqual([]);
+  });
+  it("keeps a busy or uncertain archive visible and does not retry the same request", async () => {
+    const f = fixture(), id = await session(f);
+    Object.assign(f.store.get(id), { codexThreadId: "native-own-thread", hasTurns: true, status: "running" });
+    await expect(f.store.archiveSession({ threadId: id, requestId: "archive-busy" })).rejects.toThrow("Stop");
+    expect(f.client.call).not.toHaveBeenCalled();
+    f.store.get(id).status = "idle";
+    f.client.call.mockRejectedValueOnce(new Error("response lost"));
+    const input = { threadId: id, requestId: "archive-uncertain" };
+    await expect(f.store.archiveSession(input)).rejects.toThrow("response lost");
+    expect(() => f.store.archiveSession(input)).toThrow("check the result before retrying");
+    expect(f.client.call).toHaveBeenCalledTimes(1);
+    expect(f.store.list().map((row: { id: string }) => row.id)).toEqual([id]);
+  });
   it("grants only the requested permissions for this turn, and grants nothing when declined", async () => {
     const f = fixture(), id = await session(f), controls = new CodexSessionControls(f.store, () => [], { settings: f.store });
     const permissions = { network: { enabled: true } };

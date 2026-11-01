@@ -9,7 +9,7 @@ const { CodexOfficeStore } = require("./codex-office-store");
 const { CodexSessionControls } = require("./codex-session-controls");
 const { CodexSessionStream } = require("./codex-session-stream");
 const { CodexSessionWorkspace } = require("./codex-session-workspace");
-const { CodexSessionVoice } = require("./codex-session-voice");
+const { CodexOfficeVoice } = require("./codex-office-voice");
 const { loadSessionHistoryPage } = require("./codex-session-history");
 const { createOfficeDictation, suggestNextMessage } = require("./office-model-services");
 
@@ -32,7 +32,7 @@ store = new CodexOfficeStore(directory, native, changed, id => Boolean(voice?.ac
 controls = new CodexSessionControls(store, () => [], { settings: store, features });
 stream = new CodexSessionStream(controls);
 workspace = new CodexSessionWorkspace(native, { commandExec: true, policy: id => store.overrides(id).sandboxPolicy, roots: row => store.sessionFolders(row) });
-voice = new CodexSessionVoice(store, controls, (ws, payload) => {
+voice = new CodexOfficeVoice(store, controls, (ws, payload) => {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "event", event: "session.voice", payload }));
 });
 const agents = () => store.list().map(row => ({ ...row, role: row.project, identity: { name: row.name, emoji: "💬" }, needsInput: Boolean(controls.questions(row.id).some(q => !q.submitted) || controls.snapshot(row.id).approvalCount) }));

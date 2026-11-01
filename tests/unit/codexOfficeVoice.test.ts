@@ -1,9 +1,9 @@
 import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
-const { CodexSessionVoice } = createRequire(import.meta.url)("../../server/codex-session-voice.js");
+const { CodexOfficeVoice } = createRequire(import.meta.url)("../../server/codex-office-voice.js");
 const voiceId = "11111111-1111-4111-8111-111111111111";
-const setup = () => { const client = { call: vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => ({})) }, controls = { attach: vi.fn(async () => {}) }, emit = vi.fn(); return { client, controls, emit, voice: new CodexSessionVoice(client, controls, emit) }; };
-describe("native realtime voice ownership", () => {
+const setup = () => { const client = { call: vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => ({})) }, controls = { attach: vi.fn(async () => {}) }, emit = vi.fn(); return { client, controls, emit, voice: new CodexOfficeVoice(client, controls, emit) }; };
+describe("Office realtime voice ownership", () => {
   it("starts native WebRTC on the original thread and routes SDP only to its owner", async () => {
     const { voice, client, controls, emit } = setup();
     await voice.start("tab1", "original", "v=0\no=offer", voiceId);

@@ -23,7 +23,7 @@
   line-height: 1.55;
 }
 
-.office-session-chat .agent-markdown :is(p + p, ul, ol, pre, blockquote, table) {
+.office-session-chat .agent-markdown :is(p + p, ul, ol, .markdown-code-block, blockquote, table) {
   margin-top: 0.65em;
 }
 

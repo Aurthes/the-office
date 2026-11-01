@@ -1,5 +1,10 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Code": "代码",
+  "Copy code": "复制代码",
+  "Copy": "复制",
+  "Copied": "已复制",
+  "Copy failed": "复制失败",
   "Keyboard shortcuts": "快捷键",
   "Dictation shortcut": "听写快捷键",
   "Ctrl + Shift + Space (recommended)": "Ctrl + Shift + Space（推荐）",

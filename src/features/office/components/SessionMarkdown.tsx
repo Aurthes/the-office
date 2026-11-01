@@ -8,6 +8,7 @@ import type { SessionAsset } from "./SessionControls";
 import { visibleUserText } from "@/lib/text/codex-visible-text";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { SessionPreviewContext } from "./SessionPreviewContext";
+import { markdownCodeComponents } from "@/components/markdown-code-block";
 export { visibleUserText };
 
 function AssetImage({ src, name, onOpen, fullSize = false, thumbnail = false }: { src: string; name: string; onOpen: () => void; fullSize?: boolean; thumbnail?: boolean }) {
@@ -121,6 +122,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({ content, assets =
   const find = useCallback((source: string) => assets.find(asset => asset.source === source || asset.url === source), [assets]);
   const transform = useCallback((url: string) => find(url)?.url || defaultUrlTransform(url), [find]);
   const components = useMemo<Components>(() => ({
+        ...markdownCodeComponents,
         a: ({ href, children }) => {
           const asset = href ? find(href) : undefined;
           if (asset?.kind === "file") return <a href={asset.url} download={asset.name}>{children} ↓</a>;

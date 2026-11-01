@@ -1,6 +1,6 @@
 "use strict";
 // Audio travels on native Codex WebRTC. Only session control crosses the web gateway.
-class CodexSessionVoice {
+class CodexOfficeVoice {
   constructor(client, controls, emit) { this.client = client; this.controls = controls; this.emit = emit; this.active = null; }
   async start(owner, threadId, sdp, voiceId) {
     if (typeof sdp !== "string" || !sdp.startsWith("v=0") || sdp.length > 64000 || typeof voiceId !== "string" || !/^[a-f\d-]{36}$/i.test(voiceId)) throw new Error("语音连接参数无效");
@@ -43,4 +43,4 @@ class CodexSessionVoice {
     if (active?.owner === owner && !active.cancelled) void this.stop(owner, active.threadId, active.voiceId).catch(() => {});
   }
 }
-module.exports = { CodexSessionVoice };
+module.exports = { CodexOfficeVoice };
