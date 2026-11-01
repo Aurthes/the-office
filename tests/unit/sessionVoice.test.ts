@@ -28,7 +28,7 @@ beforeEach(() => {
   vi.stubGlobal("Audio", class { autoplay = false; srcObject = null; setAttribute() {} pause = vi.fn(); play = vi.fn(async () => {}); });
   Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia } });
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); delete window.OfficeAndroid; vi.unstubAllGlobals(); });
 const makeClient = () => {
   const handlers = new Set<(event: { event: string; payload?: unknown }) => void>();
   const call = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async method => method === "session.voice.options" ? { voices: ["juniper", "cove"] } : { connected: true, version: 1, items: [], approvals: [], features: { voice: true, prediction: false } });
@@ -78,6 +78,26 @@ describe("voice lifetime and original session ownership", () => {
     fireEvent.click(screen.getByRole("button", { name: "End call" }));
     expect(first.close).toHaveBeenCalledTimes(1); expect(microphone.stop).toHaveBeenCalledTimes(1);
     expect(call).toHaveBeenLastCalledWith("session.voice.stop", { threadId: "original", voiceId });
+  });
+  it("waits for the Android foreground service and handles notification mute and hangup on the original session", async () => {
+    const { client, call } = makeClient();
+    const postMessage = vi.fn();
+    window.OfficeAndroid = { postMessage, onmessage: null };
+    const { result } = renderHook(() => useSessionVoice(client));
+    let starting!: Promise<void>;
+    act(() => { starting = result.current.start("original"); });
+    expect(getUserMedia).not.toHaveBeenCalled();
+    const request = JSON.parse(postMessage.mock.calls[0][0]);
+    expect(request).toMatchObject({ type: "voice.prepare", threadId: "original" });
+    await act(async () => { window.OfficeAndroid!.onmessage?.({ data: JSON.stringify({ type: "voice.prepared", id: request.id }) }); await starting; });
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    act(() => window.OfficeAndroid!.onmessage?.({ data: JSON.stringify({ type: "voice.command", id: request.id, command: "toggleMute" }) }));
+    expect(microphone.enabled).toBe(false);
+    act(() => window.OfficeAndroid!.onmessage?.({ data: JSON.stringify({ type: "voice.command", id: request.id, command: "stop" }) }));
+    expect(result.current.status).toBe("off");
+    expect(microphone.stop).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenLastCalledWith("session.voice.stop", { threadId: "original", voiceId: request.id });
+    expect(postMessage.mock.calls.map(([text]) => JSON.parse(text).type)).toContain("voice.release");
   });
   it("applies mute while microphone permission is pending and releases late tracks after hangup", async () => {
     const { client, call } = makeClient();
