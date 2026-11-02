@@ -55,6 +55,7 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
   const uploadRequests = useRef(new Map<string, AbortController>());
   const picker = useRef<HTMLInputElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const focusPending = useRef(true);
   const suggestedText = prediction?.threadId === threadId && state?.connected && !state.activeTurnId && state.turnStatus === "completed" && !text && !uploads.length ? prediction.text : "";
   useEffect(() => {
     let stopped = false;
@@ -103,6 +104,13 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
     return () => observer.disconnect();
   }, [resizeInput]);
   const dictation = useNativeDictation(threadId, text, setText, state?.features?.dictationHTTP ? undefined : client);
+  const inputDisabled = busy || settingsBusy || !state?.connected || dictation.busy;
+  // Apply requested focus after React has re-enabled the textarea.
+  useLayoutEffect(() => {
+    if (inputDisabled || !focusPending.current) return;
+    focusPending.current = false;
+    input.current?.focus({ preventScroll: true });
+  });
   useLayoutEffect(() => {
     if (!dictation.transcriptionTime || dictation.busy) return;
     const node = input.current;
@@ -238,7 +246,7 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
     setBusy(true); setError(""); setNotice("");
     try {
       await client.call(method, { threadId, ...params });
-      if (method === "session.send") { setText(""); if (!dictation.error) dictation.clear(); updateUploads([]); setNotice("Submitted to the session"); }
+      if (method === "session.send") { focusPending.current = true; setText(""); if (!dictation.error) dictation.clear(); updateUploads([]); setNotice("Submitted to the session"); }
       if (method === "session.continue") setNotice("Submitted to the session");
       if (method === "session.stop") setNotice("Stop request submitted");
       if (method === "session.approval.reply") setNotice("Approval reply submitted; waiting for confirmation");
@@ -284,7 +292,7 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setPrediction(null); return; }
       }
       if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); }
-    }} onPaste={event => { if (event.clipboardData.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)); } }} disabled={busy || settingsBusy || !state?.connected || dictation.busy} className="session-composer-input w-full resize-none overflow-y-auto rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50" />
+    }} onPaste={event => { if (event.clipboardData.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)); } }} disabled={inputDisabled} className="session-composer-input w-full resize-none overflow-y-auto rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50" />
     <div className="session-composer-actions mt-2 flex items-center justify-between gap-2">
       <div className="flex shrink-0 items-center gap-1">
         {dictation.busy ? <button aria-label={t("Cancel recording")} title={t("Cancel recording (Esc)")} onClick={dictation.discard} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5"><X size={19} /></button> :
