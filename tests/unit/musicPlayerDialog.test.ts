@@ -9,6 +9,8 @@ const collection = { songs: [song, secondSong], playlists: [{ id: "space-mix", n
 const reply = (data: unknown, ok = true) => ({ ok, json: async () => data });
 const fetchMock = vi.fn();
 beforeEach(() => {
+  localStorage.clear();
+  vi.spyOn(Math, "random").mockReturnValue(.999);
   Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.open = true; } });
   Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.open = false; } });
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
@@ -163,6 +165,43 @@ it("automatically starts the scene mix on Office entry without opening the dialo
   expect(HTMLMediaElement.prototype.play).toHaveBeenCalledOnce();
   expect(document.querySelector("dialog")?.open).toBe(false);
   expect(screen.getByRole("region", { name: "Background music" })).toHaveTextContent("Track One");
+});
+it("starts from a shuffled song on entry and keeps every song available for the next track", async () => {
+  vi.mocked(Math.random).mockReturnValue(0);
+  render(createElement(MusicPlayerDialog, { autoPlay: true, open: false, onOpen: vi.fn(), onClose: vi.fn() }));
+  const audio = document.querySelector("audio")!;
+  await waitFor(() => expect(audio).toHaveAttribute("src", "https://audio.music.126.net/next.mp3"));
+  expect(screen.getByRole("region", { name: "Background music" })).toHaveTextContent("Track Two");
+  fireEvent.loadedMetadata(audio); fireEvent.play(audio); fireEvent.ended(audio);
+  await waitFor(() => expect(audio).toHaveAttribute("src", "https://audio.music.126.net/test.mp3"));
+  expect(collection.songs).toEqual([song, secondSong]);
+});
+it("avoids the last song heard after leaving and entering the Office again", async () => {
+  const props = { autoPlay: true, open: false, onOpen: vi.fn(), onClose: vi.fn() };
+  const firstVisit = render(createElement(MusicPlayerDialog, props));
+  const firstAudio = document.querySelector("audio")!;
+  await waitFor(() => expect(firstAudio).toHaveAttribute("src", "https://audio.music.126.net/test.mp3"));
+  fireEvent.play(firstAudio); firstVisit.unmount();
+  render(createElement(MusicPlayerDialog, props));
+  await waitFor(() => expect(document.querySelector("audio")).toHaveAttribute("src", "https://audio.music.126.net/next.mp3"));
+});
+it("can still play the previous song when it is the only playable choice", async () => {
+  localStorage.setItem("claw3d:music:last-scene-track:deep-space", song.id);
+  const normal = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((input: string) => input.includes("action=recommendations")
+    ? Promise.resolve(reply({ ...collection, songs: [song, { ...secondSong, playable: false }] })) : normal(input));
+  render(createElement(MusicPlayerDialog, { autoPlay: true, open: false, onOpen: vi.fn(), onClose: vi.fn() }));
+  await waitFor(() => expect(document.querySelector("audio")).toHaveAttribute("src", "https://audio.music.126.net/test.mp3"));
+});
+it("keeps randomized playback working when browser storage is unavailable", async () => {
+  vi.mocked(Math.random).mockReturnValue(0);
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("Storage blocked"); });
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("Storage blocked"); });
+  render(createElement(MusicPlayerDialog, { autoPlay: true, open: false, onOpen: vi.fn(), onClose: vi.fn() }));
+  const audio = document.querySelector("audio")!;
+  await waitFor(() => expect(audio).toHaveAttribute("src", "https://audio.music.126.net/next.mp3"));
+  fireEvent.play(audio);
+  expect(screen.getByRole("button", { name: "Pause music" })).toBeInTheDocument();
 });
 it("retries blocked autoplay in a page gesture, then respects Pause across scene changes", async () => {
   vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce(new DOMException("Gesture required", "NotAllowedError"));
