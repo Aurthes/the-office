@@ -3,6 +3,7 @@ import { moveCharacter, type CharacterBody } from "@/features/ring-ship/characte
 import { advanceCrew, canvasPoint, crewBodies, worldPoint, type MovingAgent } from "@/features/ring-ship/crewMotion";
 import { advanceCompanion, companionBody, createCompanionState } from "@/features/ring-ship/companionMotion";
 import { buildShipLayout, shipDeck, shipPoint, type ShipPoint } from "@/features/ring-ship/layout";
+import { footingRadius, isWalkable } from "@/features/ring-ship/walkableSurface";
 
 const distance = (a: ShipPoint, b: ShipPoint) => Math.hypot(a.x - b.x, a.z - b.z);
 function body(id: string, x: number, z: number, deck = 0): CharacterBody {
@@ -26,6 +27,21 @@ function expectSeparated(bodies: CharacterBody[]) {
 }
 
 describe("ship character collision volumes", () => {
+  it.each([["two wide employees", .524, .524], ["an employee and Kirby", .524, .8], ["two large companions", .8, .8]] as const)("lets %s pass on every actual bridge without leaving the floor", (_, firstRadius, secondRadius) => {
+    const { layout } = crewFixture(2);
+    for (const angle of layout.spokes) {
+      const start = shipPoint(16, angle), end = shipPoint(22, angle);
+      const a = { ...body("a", start.x, start.z), radius: firstRadius }, b = { ...body("b", end.x, end.z), radius: secondRadius }, bodies = [a, b];
+      for (let frame = 0; frame < 1200; frame++) {
+        a.position = moveCharacter(a, end, .035, bodies, true, layout);
+        b.position = moveCharacter(b, start, .035, bodies, true, layout);
+        expectSeparated(bodies);
+        for (const actor of bodies) expect(isWalkable(actor.position, layout, footingRadius(actor.radius))).toBe(true);
+      }
+      expect(distance(a.position, end)).toBeLessThan(.01);
+      expect(distance(b.position, start)).toBeLessThan(.01);
+    }
+  });
   it("lets head-on walkers pass with no overlap or deadlock", () => {
     const a = body("a", -3, 0), b = body("b", 3, 0), bodies = [a, b];
     for (let i = 0; i < 600; i++) {

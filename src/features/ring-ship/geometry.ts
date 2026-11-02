@@ -230,7 +230,8 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
     const start = SHIP_CORRIDOR_START, end = layout.radius, p = shipPoint((start + end) / 2, angle);
     b.box([SHIP_CORRIDOR_WIDTH, 0.22, end - start], [p.x, -0.08, p.z], HULL, angle);
     for (const side of [-1, 1]) {
-      const x = p.x + Math.cos(angle) * side * 0.59, z = p.z - Math.sin(angle) * side * 0.59;
+      const offset = side * (SHIP_CORRIDOR_WIDTH / 2 - .035);
+      const x = p.x + Math.cos(angle) * offset, z = p.z - Math.sin(angle) * offset;
       b.box([0.045, 0.05, end - start], [x, 0.08, z], "#bfe6d7", angle, true);
     }
   }

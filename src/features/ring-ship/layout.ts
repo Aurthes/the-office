@@ -5,7 +5,8 @@ export type DeckIndex = 0 | 1 | 2;
 export const DECKS = [0, 1, 2] as const;
 export const DECK_STEP = 10;
 export const SHIP_CORRIDOR_START = 3.2;
-export const SHIP_CORRIDOR_WIDTH = 1.25;
+// Leave room for opposing crew and companions to pass with collision enabled.
+export const SHIP_CORRIDOR_WIDTH = 3.2;
 export const DECK_NAMES = ["Main deck", "Expansion deck", "Reserve deck"] as const;
 export type CabinKind = "work" | "reserve" | "garden" | "hydroponics" | "canteen" | "gym" | "servers" | "ai" | "maintenance" | "lounge" | "cargo" | "observatory" | "quarters" | "return" | "monitor";
 export type ShipPoint = { x: number; z: number };

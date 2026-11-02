@@ -42,7 +42,7 @@ function renderedFloor(layout: ShipLayout) {
 describe("walking stays on the ship's actual floor", () => {
   it("respects narrow collars, bridge edges and the launch opening on its deck", () => {
     expect(isWalkable(shipPoint(14.6, Math.PI / 4), layout)).toBe(false);
-    expect(isWalkable({ x: .65, z: 19 }, layout)).toBe(false);
+    expect(isWalkable({ x: SHIP_CORRIDOR_WIDTH / 2 + .025, z: 19 }, layout)).toBe(false);
     expect(isWalkable({ x: 0, z: 19 }, layout, .4)).toBe(true);
     const cabin = layout.cabins.find(c => c.kind === "return")!;
     const opening = shipPoint(43.8, cabinAngle(layout, cabin.slot));
@@ -58,7 +58,7 @@ describe("walking stays on the ship's actual floor", () => {
   });
   it("recovers an existing space pose and keeps crowded patrols supported", () => {
     const floor = renderedFloor(layout), kirby = createKirbyState(layout, 22, .8);
-    kirby.actor.position = { x: 1.3, z: 19 };
+    kirby.actor.position = { x: SHIP_CORRIDOR_WIDTH / 2 + .7, z: 19 };
     const companions = [createCompanionState("cat", layout, 33, .4819), createCompanionState("dog", layout, 45, .5174), createCompanionState("bartender", layout, 65, 1.178)];
     try {
       for (let frame = 0; frame < 4800; frame++) {
@@ -73,7 +73,7 @@ describe("walking stays on the ship's actual floor", () => {
     const crew = syncCrew([{ id: "crew", name: "Crew", color: "#abc", item: "", status: "idle" }], layout, new Map(), 0);
     const floor = renderedFloor(layout), agent = crew[0];
     try {
-      Object.assign(agent, canvasPoint({ x: 1.4, z: 19 }));
+      Object.assign(agent, canvasPoint({ x: SHIP_CORRIDOR_WIDTH / 2 + .7, z: 19 }));
       advanceCrew(crew, layout, 0, .05, agent.id);
       expect(floor.supports(worldPoint(agent), .4)).toBe(true);
       Object.assign(agent, canvasPoint(agent.home)); agent.pauseUntil = 0;

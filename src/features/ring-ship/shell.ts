@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Builder } from './geometry';
-import { cabinAngle, shipPoint, SHIP_CORRIDOR_START, type ShipLayout } from './layout';
+import { cabinAngle, shipPoint, SHIP_CORRIDOR_START, SHIP_CORRIDOR_WIDTH, type ShipLayout } from './layout';
 import { hullProfile } from './shell-shapes';
 import { cutLaunchOpening, type LaunchOpening } from './returnPodGeometry';
 
 const TAU = Math.PI * 2;
+const CORRIDOR_HALF_WIDTH = SHIP_CORRIDOR_WIDTH / 2 + .25;
 function torusPatch(radius: number, width: number, height: number, start: number, end: number, from: number, to: number, opening?: LaunchOpening) {
   const along = Math.max(8, Math.ceil((end - start) * radius * (opening ? 4 : 1.5))), around = opening ? Math.max(8, Math.ceil((to-from)*height*4)) : 20;
   const positions: number[] = [], normals: number[] = [], uv: number[] = [], indices: number[] = [];
@@ -42,7 +43,7 @@ function beam(b: Builder, from: THREE.Vector3, to: THREE.Vector3, radius: number
 function corridor(angle: number, start: number, end: number, from: number, to: number) {
   const p: number[] = [], index: number[] = [], n = 20;
   for (let row = 0; row < 2; row++) for (let j = 0; j <= n; j++) {
-    const phi = from + (to - from) * j / n, x = .87 * Math.cos(phi), z = row ? end : start;
+    const phi = from + (to - from) * j / n, x = CORRIDOR_HALF_WIDTH * Math.cos(phi), z = row ? end : start;
     p.push(Math.cos(angle) * x + Math.sin(angle) * z, .12 + 1.18 * Math.sin(phi), -Math.sin(angle) * x + Math.cos(angle) * z);
     if (!row && j < n) { const k = j; index.push(k,k+1,k+n+1,k+1,k+n+2,k+n+1); }
   }
@@ -79,7 +80,7 @@ export function buildShell(layout: ShipLayout) {
     upper.push(corridor(angle,SHIP_CORRIDOR_START,layout.radius,0,Math.PI).toNonIndexed());
     for (let r=4;r<layout.radius;r+=3) {
       const points=Array.from({length:17},(_,j)=>{
-        const phi=j*Math.PI/16,x=.91*Math.cos(phi);
+        const phi=j*Math.PI/16,x=(CORRIDOR_HALF_WIDTH+.04)*Math.cos(phi);
         return new THREE.Vector3(Math.cos(angle)*x+Math.sin(angle)*r,.12+1.22*Math.sin(phi),-Math.sin(angle)*x+Math.cos(angle)*r);
       });
       frames.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points),16,.035,4,false).toNonIndexed());
