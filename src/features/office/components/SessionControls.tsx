@@ -296,7 +296,15 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setPrediction(null); return; }
       }
       if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); }
-    }} onPaste={event => { if (event.clipboardData.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)); } }} disabled={inputDisabled} className="session-composer-input w-full resize-none overflow-y-auto rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50" />
+    }} onPaste={event => {
+      if (event.clipboardData.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)); return; }
+      // Dictation tools can restore the clipboard before Chrome's default paste
+      // reads it again. Insert this event's text while keeping native undo/caret.
+      const pasted = event.clipboardData.getData("text/plain");
+      if (pasted && typeof document.execCommand === "function" && document.execCommand("insertText", false, pasted)) {
+        event.preventDefault(); setText(event.currentTarget.value);
+      }
+    }} disabled={inputDisabled} className="session-composer-input w-full resize-none overflow-y-auto rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50" />
     <div className="session-composer-actions mt-2 flex items-center justify-between gap-2">
       <div className="flex shrink-0 items-center gap-1">
         {dictation.busy ? <button aria-label={t("Cancel recording")} title={t("Cancel recording (Esc)")} onClick={dictation.discard} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5"><X size={19} /></button> :
