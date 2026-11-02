@@ -68,7 +68,7 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   await page.getByRole('button',{name:'+ Recruit agent',exact:true}).waitFor({timeout:30000});
   await page.getByRole('button',{name:'+ Recruit agent',exact:true}).click();
   await page.getByLabel('Name',{exact:true}).fill('Mac verification recruit');
-  await page.getByRole('button',{name:'Choose folder',exact:true}).click();
+  await page.getByRole('button',{name:'Choose a working folder',exact:true}).click();
   await page.getByRole('button',{name:'Use this folder',exact:true}).click();
   await page.getByRole('button',{name:'Recruit and create session',exact:true}).click();
   await page.getByLabel('Send to session',{exact:true}).waitFor({timeout:20000});
