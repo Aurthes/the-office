@@ -14,5 +14,5 @@ export function SessionRunTimer({ startedAt }: { startedAt: number }) {
   const hours = Math.floor(seconds / 3600);
   const time = hours ? `${hours}:${String(Math.floor(seconds / 60) % 60).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`
     : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-  return <span role="timer" aria-label={t("Elapsed time")} aria-live="off" className="tabular-nums">{t("Running · {time}", { time })}</span>;
+  return <span role="timer" aria-label={t("Elapsed time")} aria-live="off" className="tabular-nums">{time}</span>;
 }
