@@ -2,6 +2,7 @@ import React from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { OfficeOnboarding } from "@/features/onboarding/components/OfficeOnboarding";
+import { CompanyActions } from "@/features/office/components/CompanyActions";
 import { OfficeCodexAccount } from "@/features/office/components/OfficeCodexAccount";
 afterEach(cleanup);
 it("uses the Office sign-in and recruitment path without OpenClaw setup",async()=>{
@@ -25,4 +26,18 @@ it("reports an account-read failure and retries without silently treating it as 
 it("rejects an unexpected sign-in destination",async()=>{
  const call=vi.fn(async(method:string)=>method==="office.account"?{loggedIn:false}:{authUrl:"https://untrusted.example/login"});render(React.createElement(OfficeCodexAccount,{client:{call}}));
  fireEvent.click(await screen.findByRole("button",{name:"Sign in with ChatGPT"}));expect(await screen.findByRole("alert")).toHaveTextContent("Invalid sign-in URL");expect(screen.queryByRole("link")).not.toBeInTheDocument();
+});
+
+it("keeps recruitment editable after sign-in refresh with one account section",async()=>{
+ let notify!: (value:{event:string})=>void;
+ const client={call:vi.fn(async()=>({loggedIn:true})),onEvent:(listener:(value:{event:string})=>void)=>{notify=listener;return()=>{}}};
+ const done=vi.fn();
+ const view=()=>React.createElement(OfficeOnboarding,{client,connected:true,agentCount:0,onComplete:done},React.createElement(CompanyActions,{client,projects:[],showAccount:false,disabled:false,onCreated:async()=>{}}));
+ const rendered=render(view());await screen.findByText("Codex is ready.");
+ expect(screen.queryByText("Checking Codex sign-in…")).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole("button",{name:"+ Recruit agent"}));
+ fireEvent.change(screen.getByLabelText("Name",{exact:true}),{target:{value:"First recruit"}});
+ await act(async()=>notify({event:"office.account"}));rendered.rerender(view());
+ expect(screen.getByLabelText("Name",{exact:true})).toHaveValue("First recruit");
+ expect(screen.getByRole("dialog",{name:"Welcome to The Office"})).toBeInTheDocument();expect(done).not.toHaveBeenCalled();
 });
