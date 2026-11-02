@@ -16,7 +16,7 @@ export function CeoCharacter({ layout, profile, enabled, onSelect }: { layout: S
   const [hovered, setHovered] = useState(false), { gl } = useThree();
   useCursor(enabled && hovered, "pointer", "auto", gl.domElement);
   const cabin = layout.cabins.find(value => value.kind === "monitor") || layout.cabins[0];
-  const point = useMemo(() => shipPoint(layout.rings[cabin.ring].radius - 1.1, cabinAngle(layout, cabin.slot) + .06), [layout, cabin]);
+  const point = useMemo(() => shipPoint(layout.rings[cabin.ring].radius + 2.25, cabinAngle(layout, cabin.slot) - 1.45 / layout.rings[cabin.ring].radius), [layout, cabin]);
   const record = useMemo<ShipObject>(() => ({ id: CEO_ID, kind: "ceo", cabinId: cabin.id, cabinName: cabin.name, deck: 0,
     bounds: new THREE.Box3(), parts: [], npc: { name: "CEO", activity: "Overseeing department heads" } }), [cabin]);
   useLayoutEffect(() => { if (group.current) { group.current.updateMatrixWorld(true); record.bounds.setFromObject(group.current); } }, [record, figure, point]);

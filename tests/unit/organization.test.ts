@@ -50,7 +50,7 @@ describe("Office organization", () => {
     expect(loaded.office["ws://localhost:18790"].organization?.worker1.title).toBe("Worker");
   });
   it("coalesces separate position edits without dropping either person", async () => {
-    const response = { settings: sanitizeStudioSettings(defaultStudioSettings()) }, updateSettings = vi.fn(async (_patch: StudioSettingsPatch) => response);
+    const response = { settings: sanitizeStudioSettings(defaultStudioSettings()) }, updateSettings = vi.fn<(patch: StudioSettingsPatch) => Promise<typeof response>>().mockResolvedValue(response);
     const coordinator = new StudioSettingsCoordinator({ fetchSettings: async () => response, updateSettings });
     coordinator.schedulePatch({ office: { gateway: { organization: { a: { title: "Head", reportsTo: [CEO_ID] } } } } }, 10000);
     coordinator.schedulePatch({ office: { gateway: { organization: { b: { title: "Worker", reportsTo: ["a"] } } } } }, 10000);
