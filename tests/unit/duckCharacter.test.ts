@@ -22,25 +22,19 @@ it("selects and saves the complete firefighter kit through the normal character 
   fireEvent.click(screen.getByRole("tab", { name: "Gear" }));
   expect(screen.getByRole("button", { name: "Turnout coat" })).toHaveAttribute("aria-pressed", "true");
   expect(screen.getByRole("button", { name: "Air tank" })).toHaveAttribute("aria-pressed", "true");
-  expect(screen.getByRole("checkbox", { name: "Fire hose" })).toBeChecked();
+  expect(screen.queryByRole("checkbox", { name: "Fire hose" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Save character" }));
   await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
   expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ duck: FIREFIGHTER_DUCK_APPEARANCE }));
 });
 
-it("renders complete firefighter equipment and keeps the hose attached while preserving its geometry", () => {
-  const figure = createDuckCrewFigure({ ...FIREFIGHTER_DUCK_APPEARANCE });
-  for (const name of ["firefighter-helmet", "firefighter-air-tank", "fire-hose-nozzle", "dragging-fire-hose"]) expect(figure.root.getObjectByName(name)).toBeDefined();
-  const hose = figure.root.getObjectByName("dragging-fire-hose") as THREE.Mesh;
-  const geometry = hose.geometry, positions = geometry.getAttribute("position"), before = Array.from(positions.array);
-  figure.body.rotation.z = .15; figure.wings[1].rotation.x = -.8; figure.root.position.y = .2;
-  figure.updateHose!(3);
-  expect(hose.geometry).toBe(geometry); expect(Array.from(positions.array)).not.toEqual(before);
-  const grip = figure.root.getObjectByName("fire-hose-grip")!;
-  const center = new THREE.Vector3();
-  for (let j = 0; j < 6; j++) center.add(new THREE.Vector3().fromBufferAttribute(positions, j));
-  center.divideScalar(6); figure.root.localToWorld(center);
-  expect(center.distanceTo(grip.getWorldPosition(new THREE.Vector3()))).toBeLessThan(.00001);
+it("keeps the firefighter kit while dropping the hose from previously saved appearances", () => {
+  const appearance = normalizeDuckAppearance({ ...FIREFIGHTER_DUCK_APPEARANCE, hose: true });
+  expect(appearance).toEqual(FIREFIGHTER_DUCK_APPEARANCE);
+  expect(appearance).not.toHaveProperty("hose");
+  const figure = createDuckCrewFigure(appearance);
+  for (const name of ["firefighter-helmet", "firefighter-air-tank"]) expect(figure.root.getObjectByName(name)).toBeDefined();
+  for (const name of ["fire-hose-nozzle", "dragging-fire-hose"]) expect(figure.root.getObjectByName(name)).toBeUndefined();
   let calls = 0, triangles = 0;
   figure.root.traverse(node => { if (node instanceof THREE.Mesh) { calls++; triangles += (node.geometry.index?.count ?? node.geometry.getAttribute("position").count) / 3; expect(Array.from(node.geometry.getAttribute("position").array).every(Number.isFinite)).toBe(true); } });
   expect(calls).toBeLessThanOrEqual(18); expect(triangles).toBeLessThan(16000);

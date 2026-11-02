@@ -39,14 +39,12 @@ export const DuckCrewModel = memo(function DuckCrewModel({
       const side = index ? 1 : -1;
       wing.rotation.x = walking ? side * stride * 0.3 : typing ? -1.05 + Math.sin(agent.frame * 0.45 + index * Math.PI) * 0.07 : working ? -0.4 : 0;
       wing.rotation.z = side * (typing ? 0.16 : 0.03);
-      if (rig.updateHose && index === 1) { wing.rotation.x = -1.05; wing.rotation.z = .12; }
     });
     rig.feet.forEach((foot, index) => {
       const step = (index ? -1 : 1) * stride;
       foot.rotation.x = walking ? step * 0.48 : seated ? -0.45 : 0;
       foot.position.y = 0.075 + (walking ? Math.max(0, step) * 0.022 : seated ? 0.015 : 0);
     });
-    rig.updateHose?.(phase);
   });
 
   return <group ref={group} name={`duck-crew:${agentId}`} position={initialPosition} scale={AGENT_SCALE}
