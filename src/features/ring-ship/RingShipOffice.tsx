@@ -15,7 +15,7 @@ import { DuckCrewModel } from "./DuckCrewModel";
 import { CompanyWorkAreaMenu } from "@/features/office/components/CompanyWorkAreaMenu";
 import { SettingsPanel } from "@/features/office/components/panels/SettingsPanel";
 import { DECK_NAMES, DECK_STEP, DECKS, PUBLIC_DESCRIPTIONS, SHARED_PROJECT_ID, shipDeck, type DeckIndex, type ShipLayout, type ShipPoint } from "./layout";
-import { buildShipGeometry, disposeShipGeometry, SHIP_MODELS, shipModelUrl, SHIP_WORKSTATION, type ModelTemplates } from "./geometry";
+import { buildShipGeometry, disposeShipGeometry, SHIP_MODELS, shipModelUrl, type ModelTemplates } from "./geometry";
 import { useShipLayout } from "./useShipLayout";
 import { getAgentActivity, workChatter } from "@/features/retro-office/core/agentActivity";
 import { paintCrewNameplate } from "./crewNameplate";
@@ -25,7 +25,7 @@ import { buildShell } from "./shell";
 import { LiftEntry, LiftJourney, LiftOverlay, type LiftTrip } from "./ShipLift";
 import { ReturnPodBay, ReturnPodJourney, type ReturnFlight } from "./ReturnPodBay";
 import { returnRoute, RETURN_LABELS, type ArchiveResult, type ReturnStage, type ReturnTransfer } from "./returnPodMotion";
-import { advanceCrew, canvasPoint, worldPoint, hash, type MovingAgent } from "./crewMotion";
+import { advanceCrew, syncCrew, worldPoint, type MovingAgent } from "./crewMotion";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { MonitorRoomScreen, TaskRoomScreen } from "./MonitorRoom";
 import { ScheduledTasks } from "./ScheduledTasks";
@@ -206,19 +206,7 @@ function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId }: { agent
   const unhover = useCallback(() => setHovered(null), []);
   const initialPositions = useMemo(() => Object.fromEntries(Object.values(layout.seats).map(seat => [seat.agentId, [seat.x, 0, seat.z] as [number, number, number]])), [layout]);
   useEffect(() => {
-    const old = lookupRef.current, now = performance.now();
-    const values: MovingAgent[] = agents.flatMap(agent => {
-      const seat = layout.seats[agent.id]; if (!seat) return [];
-      const previous = old.get(agent.id) as MovingAgent | undefined, p = canvasPoint(seat);
-      const unchanged = previous && Math.hypot(previous.home.x - seat.x, previous.home.z - seat.z) < 0.01;
-      const keepRoute = unchanged;
-      return [{ ...agent, x: unchanged ? previous.x : p.x, y: unchanged ? previous.y : p.y, targetX: p.x, targetY: p.y,
-        path: [], facing: unchanged ? previous.facing : seat.facing, frame: previous?.frame || hash(agent.id) % 100, state: unchanged ? previous.state : "standing" as const,
-        walkSpeed: unchanged ? previous.walkSpeed : 1, phaseOffset: hash(agent.id) % 100, interactionTarget: undefined,
-        workstation: { ...p, deskUid: seat.cabinId + agent.id, facing: seat.facing, pose: "sitting" as const, seatHeight: SHIP_WORKSTATION.seatHeight, surfaceHeight: SHIP_WORKSTATION.surfaceHeight },
-        home: { x: seat.x, z: seat.z }, route: keepRoute ? previous.route : [], routeIndex: keepRoute ? previous.routeIndex : 0,
-        visiting: keepRoute ? previous.visiting : false, pauseUntil: keepRoute ? previous.pauseUntil : now + 7000 + hash(agent.id) % 18000 }];
-    });
+    const values = syncCrew(agents, layout, lookupRef.current, performance.now());
     agentsRef.current = values; lookupRef.current = new Map(values.map(a => [a.id, a]));
   }, [agents, layout, lookupRef]);
   useFrame((state, delta) => {

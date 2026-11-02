@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceCrew, canvasPoint, hash, worldPoint, type MovingAgent } from "@/features/ring-ship/crewMotion";
+import { advanceCrew, canvasPoint, hash, syncCrew, worldPoint, type MovingAgent } from "@/features/ring-ship/crewMotion";
 import { buildShipLayout, routeBetweenCabins, shipDeck, type ShipLayout, type ShipPoint } from "@/features/ring-ship/layout";
 
 const DT = 1 / 60;
@@ -39,6 +39,41 @@ function runHome(agent: MovingAgent, layout: ShipLayout) {
 }
 
 describe("crew job arrival", () => {
+  it("keeps a seated worker's typing pose through repeated two-second metadata refreshes", () => {
+    const { agent, layout } = fixture();
+    agent.status = "working";
+    let current = syncCrew([agent], layout, new Map(), 1000)[0];
+    for (let refresh = 0; refresh < 4; refresh++) {
+      step(current, layout, 120);
+      expect(current.interactionTarget).toBe("desk");
+      const before = { x: current.x, y: current.y, facing: current.facing, frame: current.frame };
+      current = syncCrew([{ ...agent, name: `Updated ${refresh}` }], layout, new Map([[agent.id, current]]), 3000 + refresh * 2000)[0];
+      // The renderer may run before advanceCrew after React commits the refresh.
+      expect(current).toMatchObject({ ...before, name: `Updated ${refresh}`, state: "sitting", interactionTarget: "desk" });
+    }
+    current = syncCrew([{ ...agent, status: "idle" }], layout, new Map([[agent.id, current]]), 11000)[0];
+    step(current, layout);
+    expect(current.state).toBe("standing");
+    expect(current.interactionTarget).toBeUndefined();
+  });
+  it("keeps a walking worker's route and position when metadata refreshes", () => {
+    const { agent, layout } = fixture(); step(agent, layout, 140);
+    const refreshed = syncCrew([{ ...agent, name: "New name" }], layout, new Map([[agent.id, agent]]), 3000)[0];
+    expect(worldPoint(refreshed)).toEqual(worldPoint(agent));
+    expect(refreshed).toMatchObject({ frame: agent.frame, facing: agent.facing, state: "walking", routeIndex: agent.routeIndex, pauseUntil: agent.pauseUntil });
+    expect(refreshed.route).toBe(agent.route);
+    step(refreshed, layout);
+    expect(distance(worldPoint(refreshed), worldPoint(agent))).toBeLessThanOrEqual(1.05 * DT + 0.000001);
+  });
+  it("clears the old desk pose when a worker moves to another seat", () => {
+    const { agent, layout } = fixture(); agent.status = "working"; step(agent, layout);
+    const moved = { ...layout, seats: { ...layout.seats, [agent.id]: { ...layout.seats[agent.id], x: layout.seats[agent.id].x + 1 } } };
+    const refreshed = syncCrew([agent], moved, new Map([[agent.id, agent]]), 3000)[0];
+    expect(refreshed.state).toBe("standing");
+    expect(refreshed.interactionTarget).toBeUndefined();
+    expect(refreshed.route).toEqual([]);
+    expect(distance(worldPoint(refreshed), refreshed.home)).toBeLessThan(0.000001);
+  });
   it("turns around mid-walk and jogs home continuously, then sits and types", () => {
     const { agent, layout } = fixture(); step(agent, layout, 140);
     const before = worldPoint(agent); expect(distance(before, agent.home)).toBeGreaterThan(1);
