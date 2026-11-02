@@ -58,6 +58,14 @@ for a live service, shared dependency, rollback, or local files. Follow
 not the primary cleanup step. Preserve conversations, uploads, credentials,
 active work, and externally referenced paths.
 
+Cleanup is a completion gate. Before the final reply, account for the task's
+dependency installations (`node_modules`), build and test output, temporary
+processes, and worktree: remove what is no longer needed, or report its exact
+retained path and reason. Check configured rollback paths as well as running
+processes and shared dependency links; a merged, clean worktree can still be a
+service dependency. Do not install dependencies for documentation-only work that
+can be validated without them.
+
 ## Cursor Cloud specific instructions
 
 ### Service overview

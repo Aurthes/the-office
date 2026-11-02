@@ -19,6 +19,26 @@ Git's clean check alone cannot detect them. Report the reason for any retained
 worktree or large artifact. The 24-hour periodic policy below is a fallback for
 abandoned leftovers, not a reason to keep your own completed temporary work.
 
+Task completion includes this cleanup check:
+
+1. Confirm the intended changes are merged and required validation has finished.
+2. Check processes, service launch configuration, shared dependency links, and
+   externally configured rollback paths. An absent process alone does not prove
+   that a dependency is unused.
+3. Remove unused task-generated dependencies, builds, test output, and temporary
+   processes; then retire the eligible worktree without force flags. Leave any
+   uncommitted work, local data, and credentials intact. If those files require
+   retaining the worktree, they do not require retaining unrelated generated
+   artifacts that have separately been verified unused.
+4. In the final reply, report the cleanup result and exact paths and reasons for
+   retained worktrees or large artifacts. If cleanup was part of a disk alert,
+   remeasure free space and distinguish removed bytes from concurrent disk use.
+
+Use the current reference branch's instructions for new tasks. Do not keep
+installing full dependencies into stale feature worktrees for unrelated tasks.
+Documentation-only changes need no dependency installation when Git and text
+checks can validate them. Keep active and rollback dependency trees unchanged.
+
 Run from a retained checkout (Node.js, Git, `find`, `ps`, and `lsof` required;
 macOS also uses `plutil`):
 
