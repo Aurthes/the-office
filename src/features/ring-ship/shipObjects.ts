@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { DECK_STEP, type DeckIndex } from "./layout";
 
 export const SHIP_OBJECT_INFO = {
-  kirby: ["Kirby", "A pink visitor with an appetite for five-second breaks. One idle crew member at a time. Poyo!"],
+  kirby: ["Kirby", "A pink visitor with an appetite for fifteen-second breaks. One idle crew member at a time. Poyo!"],
   cat: ["Ship cat", "A curious little explorer with a talent for finding the best napping spots."],
   dog: ["Ship dog", "An enthusiastic companion who considers every corridor a new adventure."],
   mechDrone: ["Maintenance robot", "A careful little mechanic keeping the ship in good working order."],

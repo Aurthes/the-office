@@ -41,3 +41,26 @@ it("uses the actual low-poly Kirby skeleton and restores copied crew colors/equi
   expect((original[0].material as THREE.MeshStandardMaterial).map).toBe(originalMap);
   const dispose = vi.spyOn(original[0].geometry, "dispose"); figure.dispose(); expect(dispose).not.toHaveBeenCalled(); dispose.mockRestore();
 });
+
+it("keeps the unchanged model inside its tighter collision circle while walking, playing and inflated", () => {
+  const figure = createKirbyFigure(source, canvas), layout = shipDeck(buildShipLayout({ projects: [], members: [] }), 0), state = createKirbyState(layout, 1);
+  expect(figure.bounds.getSize(new THREE.Vector3()).y).toBeCloseTo(1.32, 3);
+  expect(figure.radius).toBeLessThan(.85);
+  const vertex = new THREE.Vector3(); let footprint = 0;
+  for (const action of ["wander", "groom", "stretch", "holding", "inhale", "spit"] as const) {
+    state.phase = action === "holding" || action === "inhale" || action === "spit" ? action : "wander";
+    state.actor.action = action === "wander" || action === "groom" || action === "stretch" ? action : "idle";
+    state.actor.route = action === "wander" ? [{ ...state.actor.position }] : [];
+    for (let i = 0; i < 16; i++) {
+      state.actor.time = i / 4; figure.animate(state, i / 4); figure.root.updateMatrixWorld(true);
+      figure.root.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.update(); });
+      figure.root.traverse(node => {
+        if (!(node instanceof THREE.Mesh)) return;
+        for (let n = 0; n < node.geometry.getAttribute("position").count; n++) {
+          node.getVertexPosition(n, vertex); node.localToWorld(vertex); footprint = Math.max(footprint, Math.hypot(vertex.x, vertex.z));
+        }
+      });
+    }
+  }
+  expect(footprint).toBeLessThanOrEqual(figure.radius); figure.dispose();
+});

@@ -53,25 +53,33 @@ export function createCompanionState(kind: CompanionKind, layout: ShipLayout, se
     : kind === "kirby" ? companionPoint(layout, cabin, 2.1, -.35)
     : companionPoint(layout, cabin, kind === "cat" ? -.85 : kind === "dog" ? .9 : 0, kind === "drone" ? -.6 : -.15);
   return { kind, action: kind === "bartender" ? "wash" : kind === "drone" ? "scan" : "idle", time: 0,
-    duration: kind === "cat" ? 2.5 : kind === "dog" ? 4 : 8, position, facing: cabinAngle(layout, cabin.slot) + (kind === "bartender" ? Math.PI : kind === "cat" ? 1.1 : -1.1),
+    duration: kind === "kirby" ? 1.5 : kind === "cat" ? 2.5 : kind === "dog" ? 4 : 8, position, facing: cabinAngle(layout, cabin.slot) + (kind === "bartender" ? Math.PI : kind === "cat" ? 1.1 : -1.1),
     y: kind === "bartender" ? .8 : kind === "drone" ? .65 : .09, speed: .65,
     cabinId: cabin.id, destinationId: cabin.id, route: [], waypoint: 0, seed: seed >>> 0, cycles: 0, radius };
 }
 
-function nextAction(state: CompanionState, layout: ShipLayout) {
+function nextAction(state: CompanionState, layout: ShipLayout, others: readonly CharacterBody[]) {
   const previous = state.action, cabin = cabinFor(state, layout), ring = layout.rings[cabin.ring];
   state.cycles++; state.time = 0;
   if (state.kind === "cat" || state.kind === "dog" || state.kind === "kirby") {
-    state.action = previous === "sleep" ? "stretch" : pick(state, state.kind === "kirby" ? ["wander", "wander", "stretch", "sit", "groom"] : PET_ACTIONS);
+    state.action = state.kind === "kirby" ? "wander" : previous === "sleep" ? "stretch" : pick(state, PET_ACTIONS);
     if (state.action === previous) state.action = "wander";
     state.duration = state.action === "sleep" ? 16 + random(state) * 14 : 4 + random(state) * 7;
     if (state.action === "wander" || state.action === "run") {
       const roomVisit = state.action !== "run" && random(state) < .24;
       const rooms = layout.cabins.filter(c => c.deck === 0 && ["lounge", "garden", "canteen", "hydroponics"].includes(c.kind));
-      const destination = roomVisit ? pick(state, rooms.filter(c => c.id !== cabin.id)) : cabin;
+      let destination = roomVisit ? pick(state, rooms.filter(c => c.id !== cabin.id)) : cabin;
       const angle = Math.atan2(state.position.x, state.position.z);
+      const localPoint = () => companionPoint(layout, cabin, (random(state) - .5) * Math.min(state.kind === "kirby" ? 6 : 4, ring.radius * Math.PI * 2 / layout.allocation.sectors * (state.kind === "kirby" ? .6 : .45)));
+      let point = destination.id === cabin.id ? localPoint() : null;
+      if (state.kind === "kirby" && point) {
+        // Pick somewhere free to explore instead of repeatedly approaching a
+        // spot occupied by a resting pet or another crew member.
+        for (let attempt = 0; attempt < 8 && occupiedWaypoint(companionBody(state), point, others); attempt++) point = localPoint();
+        if (occupiedWaypoint(companionBody(state), point, others)) destination = pick(state, rooms.filter(c => c.id !== cabin.id));
+      }
       const route = destination.id === cabin.id
-        ? [shipPoint(ring.radius, angle), companionPoint(layout, cabin, (random(state) - .5) * Math.min(4, ring.radius * Math.PI * 2 / layout.allocation.sectors * .45))]
+        ? [shipPoint(ring.radius, angle), point!]
         : routeBetweenCabins(layout, { ring: cabin.ring, angle }, destination);
       travel(state, route, destination, state.action === "run" ? 1.65 : .6);
     }
@@ -107,7 +115,8 @@ export function advanceCompanion(state: CompanionState, layout: ShipLayout, elap
     const closeEnough = state.kind !== "bartender" && distance < body.radius * 2 + .15 && occupiedWaypoint(body, target, others);
     if ((reached || closeEnough) && ++state.waypoint >= state.route.length) {
       state.route = []; state.waypoint = 0; state.cabinId = state.destinationId; state.time = 0;
-      if (state.kind === "cat" || state.kind === "dog" || state.kind === "kirby") { state.action = "sniff"; state.duration = 2 + random(state) * 3; }
+      if (state.kind === "cat" || state.kind === "dog") { state.action = "sniff"; state.duration = 2 + random(state) * 3; }
+      if (state.kind === "kirby") { state.action = pick(state, ["stretch", "sit", "groom"]); state.duration = 1.5 + random(state) * 2; }
       if (state.kind === "drone" && state.action === "patrol") { state.action = "scan"; state.duration = 7; }
     }
   } else {
@@ -116,7 +125,7 @@ export function advanceCompanion(state: CompanionState, layout: ShipLayout, elap
       state.position.x = next.x; state.position.z = next.z;
     }
     state.time += dt;
-    if (state.time >= state.duration) nextAction(state, layout);
+    if (state.time >= state.duration) nextAction(state, layout, others);
     if (state.kind === "bartender" || state.kind === "drone") {
       const target = companionWorkPoint(state, layout);
       const facing = Math.atan2(target.x - state.position.x, target.z - state.position.z);

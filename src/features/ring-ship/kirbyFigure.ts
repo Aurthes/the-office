@@ -77,6 +77,19 @@ export function createKirbyFigure(source: GLTF, makeCanvas = () => document.crea
   });
   root.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(root).expandByScalar(.06);
+  // A box diagonal includes empty corners around the outstretched arms. Use
+  // the occupied footprint, with room for the inflated pose and clearance.
+  skeletons.forEach(skeleton => skeleton.update());
+  let footprint = 0;
+  const vertex = new THREE.Vector3();
+  scene.traverse(node => {
+    if (!(node instanceof THREE.Mesh)) return;
+    for (let i = 0; i < node.geometry.getAttribute("position").count; i++) {
+      node.getVertexPosition(i, vertex); node.localToWorld(vertex);
+      footprint = Math.max(footprint, Math.hypot(vertex.x, vertex.z));
+    }
+  });
+  const radius = footprint * 1.13 + .06;
   let equipment: ReturnType<typeof createDuckCrewFigure> | null = null, appearanceKey = "", faceTick = "";
   const setAppearance = (appearance: DuckAppearance | null) => {
     const key = appearance ? JSON.stringify(appearance) : "";
@@ -96,7 +109,7 @@ export function createKirbyFigure(source: GLTF, makeCanvas = () => document.crea
     const face = equipment.root.getObjectByName("face"); if (face) face.scale.z = .75;
     equipment.root.name = "kirby-copied-equipment"; root.add(equipment.root);
   };
-  return { root, bounds, bodyColor, copied,
+  return { root, bounds, radius, bodyColor, copied,
     animate(state: KirbyState, time: number) {
       const actor = state.actor, walking = actor.route.length > 0 || state.phase === "approach";
       const holding = state.phase === "holding", inhaling = state.phase === "inhale", spitting = state.phase === "spit";

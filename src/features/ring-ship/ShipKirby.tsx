@@ -18,9 +18,7 @@ export function ShipKirby({ layout, active, enabled, selectedId, onSelect, compa
   const figure = useMemo(() => createKirbyFigure(source), [source]);
   const [seed] = useState(() => crypto.getRandomValues(new Uint32Array(1))[0]);
   const state = useMemo(() => {
-    const bounds = figure.bounds;
-    const radius = Math.hypot(Math.max(Math.abs(bounds.min.x), Math.abs(bounds.max.x)), Math.max(Math.abs(bounds.min.z), Math.abs(bounds.max.z))) * 1.13;
-    return createKirbyState(layout, seed, radius);
+    return createKirbyState(layout, seed, figure.radius);
   }, [figure, layout, seed]);
   const record = useMemo<ShipObject>(() => {
     const cabin = layout.cabins.find(cabin => cabin.id === state.actor.cabinId)!;

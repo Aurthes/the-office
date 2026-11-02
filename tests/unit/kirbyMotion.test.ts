@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { advanceKirby, createKirbyState, KIRBY_HOLD_MS, resetKirby } from "@/features/ring-ship/kirbyMotion";
 import { advanceCrew, canvasPoint, crewBodies, syncCrew, worldPoint, type MovingAgent } from "@/features/ring-ship/crewMotion";
-import { companionBody } from "@/features/ring-ship/companionMotion";
+import { advanceCompanion, companionBody, createCompanionState } from "@/features/ring-ship/companionMotion";
 import { buildShipLayout, shipDeck } from "@/features/ring-ship/layout";
 import { createDuckAppearanceFromSeed } from "@/lib/avatars/duck";
 import { createDefaultAgentAvatarProfile } from "@/lib/avatars/profile";
@@ -16,6 +16,28 @@ function fixture(count = 3) {
   return { state, crew, layout, tick };
 }
 describe("Kirby's one-employee idle prank", () => {
+  it("starts exploring promptly instead of spending its first eight seconds standing still", () => {
+    const { state, layout } = fixture(0), start = { ...state.actor.position };
+    for (let frame = 0; frame < 60; frame++) advanceKirby(state, [], layout, frame * 50, .05, [companionBody(state.actor)]);
+    expect(Math.hypot(state.actor.position.x - start.x, state.actor.position.z - start.z)).toBeGreaterThan(.3);
+  });
+  it.each([1, 2, 13, 22])("keeps making progress among other NPCs in the previously blocked route %s", seed => {
+    const { layout } = fixture(0), state = createKirbyState(layout, seed, .8);
+    const companions = [createCompanionState("cat", layout, seed + 11, .4819), createCompanionState("dog", layout, seed + 23, .5174),
+      createCompanionState("drone", layout, seed + 31, 1.073), createCompanionState("bartender", layout, seed + 43, 1.178)];
+    const start = { ...state.actor.position }; let anchor = { ...start }, stationary = 0, longest = 0, spread = 0;
+    for (let frame = 0; frame < 3600; frame++) {
+      const bodies = () => [companionBody(state.actor), ...companions.map(companionBody)];
+      advanceKirby(state, [], layout, frame * 50, .05, bodies());
+      for (const actor of companions) advanceCompanion(actor, layout, .05, bodies());
+      const point = state.actor.position;
+      spread = Math.max(spread, Math.hypot(point.x - start.x, point.z - start.z));
+      if (Math.hypot(point.x - anchor.x, point.z - anchor.z) > .25) { anchor = { ...point }; stationary = 0; }
+      else { stationary += .05; longest = Math.max(longest, stationary); }
+      if (frame > 40) for (const other of companions) expect(Math.hypot(point.x - other.position.x, point.z - other.position.z)).toBeGreaterThanOrEqual(state.actor.radius + other.radius - 1e-6);
+    }
+    expect(spread).toBeGreaterThan(8); expect(longest).toBeLessThan(10);
+  });
   it("keeps wandering and doing its own small actions when no employee is nearby", () => {
     const { state, layout } = fixture(0), start = { ...state.actor.position }, actions = new Set<string>();
     let moved = false;
@@ -30,18 +52,18 @@ describe("Kirby's one-employee idle prank", () => {
     expect(actions.has("wander")).toBe(true); expect([...actions].filter(action => ["groom", "stretch", "sit"].includes(action)).length).toBeGreaterThan(1);
     expect(state.victim).toBeNull();
   });
-  it("locks exactly one target through inhale, five seconds of holding and spit", () => {
+  it("locks exactly one target through inhale, fifteen seconds of holding and spit", () => {
     const { state, crew, tick } = fixture(); tick(0);
     expect(state.victim?.id).toBe(crew[0].id); expect(state.phase).toBe("inhale");
     const selected = state.victim;
     tick(600); expect(crew.filter(agent => agent.kirbyPose)).toHaveLength(1);
     tick(1101); expect(state.phase).toBe("holding"); expect(crew[0].kirbyPose?.hidden).toBe(true);
-    tick(1101 + KIRBY_HOLD_MS - 1); expect(state.phase).toBe("holding"); expect(state.victim).toBe(selected);
-    tick(1101 + KIRBY_HOLD_MS); expect(state.phase).toBe("spit");
+    tick(1101 + 14999); expect(state.phase).toBe("holding"); expect(state.victim).toBe(selected);
+    tick(1101 + 15000); expect(state.phase).toBe("spit");
     expect(crew.slice(1).every(agent => !agent.kirbyPose)).toBe(true);
     tick(1101 + KIRBY_HOLD_MS + 751); expect(state.victim).toBeNull(); expect(state.phase).toBe("wander");
     expect(crew.every(agent => !agent.kirbyPose)).toBe(true);
-    tick(8000); expect(state.victim).toBeNull();
+    tick(1101 + KIRBY_HOLD_MS + 1000); expect(state.victim).toBeNull();
   });
   it.each(["working", "error", "needsInput", "chat", "otherDeck"])("does not target %s employees", exclusion => {
     const { state, crew, layout, tick } = fixture(1);
@@ -75,8 +97,8 @@ describe("Kirby's one-employee idle prank", () => {
     const next = syncCrew([{ ...crew[0], name: "New name" }], layout, new Map([[crew[0].id, crew[0]]]), 1250);
     expect(next[0].kirbyPose?.hidden).toBe(true);
     const before = worldPoint(next[0]); advanceCrew(next, layout, 1300, .016); expect(worldPoint(next[0])).toEqual(before);
-    advanceKirby(state, next, layout, 6300, .016, [companionBody(state.actor)]);
-    advanceKirby(state, next, layout, 7100, .016, [companionBody(state.actor)]);
+    advanceKirby(state, next, layout, 1200 + KIRBY_HOLD_MS + 100, .016, [companionBody(state.actor)]);
+    advanceKirby(state, next, layout, 1200 + KIRBY_HOLD_MS + 900, .016, [companionBody(state.actor)]);
     expect(next[0]).toMatchObject({ id: original.id, status: original.status, avatarProfile: original.avatarProfile });
     expect(next[0].kirbyPose).toBeUndefined(); expect(crewBodies(next, layout)).toHaveLength(1);
   });

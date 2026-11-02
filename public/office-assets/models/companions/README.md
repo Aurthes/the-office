@@ -57,12 +57,15 @@ one bartender, plus one Kirby; no external services are needed at runtime.
 
 Kirby retains the source mesh, skeleton and textures. Procedural animation adds
 walking, waving, hopping, blinking, inhaling and puffed cheeks. It selects at most
-one nearby idle main-deck employee, holds them for five seconds, then spits them
+one nearby idle main-deck employee, holds them for fifteen seconds, then spits them
 onto a clear floor position and rests before another prank. Employees who start
 work, need input or open a chat are released early. This is transient scene
 animation only: no session, task, status or saved appearance is modified. The
 copied color and equipment clear when the employee is released. Its animated
 belly portrait uses a single small canvas texture without another render pass.
+Brief gestures alternate with walks. Its collision circle follows the occupied
+mesh footprint without shrinking the model, and navigation looks ahead and can
+back out of crowded spots instead of stepping back and forth in place.
 
 License notices: `licenses/Kenney-Cube-Pets.txt` and
 `licenses/Companion-Robots-CC-BY-4.0.txt` and `licenses/Kirby-CC-BY-4.0.txt`. Changes listed above are adaptations

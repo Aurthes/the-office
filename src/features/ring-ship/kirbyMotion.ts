@@ -5,7 +5,7 @@ import { canvasPoint, worldPoint, type MovingAgent } from "./crewMotion";
 import type { ShipLayout, ShipPoint } from "./layout";
 
 export const KIRBY_RANGE = 3.5;
-export const KIRBY_HOLD_MS = 5000;
+export const KIRBY_HOLD_MS = 15000;
 const INHALE_MS = 1100, SPIT_MS = 750, COOLDOWN_MS = 14000;
 export type KirbyState = {
   actor: CompanionState;
@@ -41,6 +41,7 @@ export function resetKirby(state: KirbyState, crew: readonly MovingAgent[], now:
   for (const agent of crew) if (agent.id === state.victim?.id) delete agent.kirbyPose;
   state.victim = null; state.phase = "wander"; state.since = now; state.cooldownUntil = now + COOLDOWN_MS;
   state.actor.route = []; state.actor.action = "idle"; state.actor.time = 0;
+  state.actor.duration = 2;
 }
 function beginSpit(state: KirbyState, agent: MovingAgent, layout: ShipLayout, now: number, others: readonly CharacterBody[]) {
   const landing = landingPoint(state, agent, layout, others);
@@ -112,7 +113,7 @@ export function advanceKirby(state: KirbyState, crew: readonly MovingAgent[], la
 export function kirbyActivity(state: KirbyState) {
   if (state.phase === "approach") return "Inspecting a suspiciously idle crew member";
   if (state.phase === "inhale") return "One idle crew member, coming right up!";
-  if (state.phase === "holding") return "A five-second break in the belly. Poyo!";
+  if (state.phase === "holding") return "A fifteen-second break in the belly. Poyo!";
   if (state.phase === "spit") return "Break over! Returning the crew member";
   if (state.actor.route.length) return "Patrolling for idle crew. Poyo!";
   return "A little wiggle, a little hop. Poyo!";

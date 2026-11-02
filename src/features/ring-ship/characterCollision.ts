@@ -30,20 +30,24 @@ export function moveCharacter(body: CharacterBody, target: ShipPoint, stride: nu
   const start = body.position, dx = target.x - start.x, dz = target.z - start.z;
   const distance = Math.hypot(dx, dz), step = Math.min(stride, distance);
   if (step <= 0 || distance < 1e-8) return { ...start };
+  // Look past this frame's tiny step, so walkers choose a clear side instead
+  // of repeatedly stepping into and backing out of the same blocked gap.
+  const probe = slide ? Math.min(distance, Math.max(step, body.radius * .75)) : step;
   const nearby = others.filter(other => other.id !== body.id && other.deck === body.deck
-    && Math.hypot(start.x - other.position.x, start.z - other.position.z) < body.radius + other.radius + GAP + step);
+    && Math.hypot(start.x - other.position.x, start.z - other.position.z) < body.radius + other.radius + GAP + probe);
   const direction = Math.atan2(dx, dz);
-  const angles = slide ? [0, Math.PI / 12, -Math.PI / 12, Math.PI / 6, -Math.PI / 6, Math.PI / 4, -Math.PI / 4, Math.PI / 3, -Math.PI / 3, Math.PI / 2, -Math.PI / 2] : [0];
+  // Keep the same preferred side, including a backstep when boxed in.
+  const angles = slide ? [0, Math.PI / 12, Math.PI / 6, Math.PI / 4, Math.PI / 3, Math.PI / 2, Math.PI * 2 / 3, Math.PI * 5 / 6, Math.PI, -Math.PI / 12, -Math.PI / 6, -Math.PI / 4, -Math.PI / 3, -Math.PI / 2, -Math.PI * 2 / 3, -Math.PI * 5 / 6] : [0];
   for (const angle of angles) {
-    const x = Math.sin(direction + angle) * step, z = Math.cos(direction + angle) * step;
-    const next = { x: start.x + x, z: start.z + z };
+    const x = Math.sin(direction + angle) * probe, z = Math.cos(direction + angle) * probe;
+    const next = { x: start.x + x * step / probe, z: start.z + z * step / probe };
     if (nearby.every(other => {
       const radius = body.radius + other.radius + GAP;
       const ox = start.x - other.position.x, oz = start.z - other.position.z;
       const before = Math.hypot(ox, oz), after = Math.hypot(next.x - other.position.x, next.z - other.position.z);
       // Recover an existing overlap by moving out, never further into it.
-      if (before < radius - 1e-7) return after > before + 1e-8;
-      const t = Math.max(0, Math.min(1, -(ox * x + oz * z) / (step * step)));
+      if (before < radius - 1e-7) return ox * x + oz * z >= -1e-9 && after > before + 1e-8;
+      const t = Math.max(0, Math.min(1, -(ox * x + oz * z) / (probe * probe)));
       return Math.hypot(ox + x * t, oz + z * t) >= radius - 1e-7;
     })) return next;
   }

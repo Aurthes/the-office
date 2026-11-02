@@ -77,10 +77,10 @@ export function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number
     Object.assign(a, canvasPoint(next));
     body.position = next;
     if (Math.hypot(next.x - p.x, next.z - p.z) < 1e-6) a.state = "standing";
-    const reached = Math.hypot(next.x - target.x, next.z - target.z) < 1e-6;
+    const remaining = Math.hypot(next.x - target.x, next.z - target.z), reached = remaining < 1e-6;
     // Shared amenity waypoints can be occupied. Stop nearby, or continue to the
     // next waypoint, rather than walking into the character already there.
-    const stopped = a.state === "standing" && !needsDesk && a.routeIndex === a.route.length - 1;
+    const stopped = remaining >= distance - 1e-6 && !needsDesk && a.routeIndex === a.route.length - 1;
     const closeEnough = distance < body.radius * (stopped ? 4 : 2) + .15 && occupiedWaypoint(body, target, others)
       && !(needsDesk && a.routeIndex === a.route.length - 1);
     if (reached || closeEnough) {
