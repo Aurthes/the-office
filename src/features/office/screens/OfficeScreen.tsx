@@ -3265,7 +3265,7 @@ export function OfficeScreen({
   };
   const companyActions = sessionView && companyRoster ? (areaId: string) => {
     const projectId = areaId === SHARED_PROJECT_ID ? null : companyRoster.projects.find(project => project.id === areaId)?.id;
-    return <CompanyActions key={projectId === null ? "open-space" : projectId || "whole-company"} client={client} projects={companyRoster.projects} selectedProjectId={projectId}
+    return <CompanyActions key={projectId === null ? "open-space" : projectId || "whole-company"} client={client} projects={companyRoster.projects} selectedProjectId={projectId} showAccount={!showOnboardingWizard}
     disabled={status !== "connected" || !companyCreationAvailable} onCreated={acceptCreatedSession} />;
   } : null;
 
