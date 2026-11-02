@@ -37,8 +37,10 @@ export function CompanyActions({ client, projects, disabled, onCreated }: {
   };
   const affected = mode === "edit" ? chats.filter(chat => !folders.includes(chat.workspace)) : [];
   const needsFolder = mode !== "session" || !projectId;
+  const needsWorkingFolder = mode === "session" && !projectId && !folders.length;
   const submit = async () => {
-    if (!mode || disabled || busy || submitting.current || picker !== null || (needsFolder && !folders.length)) return;
+    if (!mode || disabled || busy || submitting.current || picker !== null) return;
+    if (needsFolder && !folders.length) { if (mode === "session") setPicker(0); return; }
     submitting.current = true; setBusy(true); setError(""); setNotice("");
     let saved = false;
     try {
@@ -91,7 +93,8 @@ export function CompanyActions({ client, projects, disabled, onCreated }: {
             </> : null}
           </div>
         </div>)}
-        {mode !== "session" || !folders.length ? <button type="button" disabled={locked} className="min-h-10 text-xs" onClick={() => setPicker(folders.length)}>{t(folders.length ? "+ Add folder" : "Choose folder")}</button> : null}
+        {needsWorkingFolder ? <p className="text-xs text-white/60">{t("Choose a working folder for this agent. No project is created.")}</p> : null}
+        {mode !== "session" ? <button type="button" disabled={locked} className="min-h-10 text-xs" onClick={() => setPicker(folders.length)}>{t(folders.length ? "+ Add folder" : "Choose folder")}</button> : null}
         {folders.length > 1 ? <p className="text-xs text-white/50">{t("The primary folder is the default for new chats. Existing chats keep their working folder.")}</p> : null}
         {affected.length ? <div className="space-y-2 rounded border border-amber-200/30 p-2">
           <p className="text-xs text-amber-100">{t("Choose a new working folder for chats using a removed folder. Stop affected tasks and terminals first.")}</p>
@@ -101,7 +104,7 @@ export function CompanyActions({ client, projects, disabled, onCreated }: {
           </select></label>)}
         </div> : null}
       </> : null}
-      <div className="flex gap-2"><button type="submit" disabled={disabled || locked || (needsFolder && !folders.length)} className="min-h-10 rounded bg-emerald-700 px-3 text-xs disabled:opacity-40">{busy ? t("Saving…") : t(mode === "project" ? "Create project" : mode === "edit" ? "Save project" : "Recruit and create session")}</button><button type="button" disabled={busy} onClick={() => { setMode(null); setPicker(null); }} className="min-h-10 px-2 text-xs">{t("Cancel")}</button></div>
+      <div className="flex gap-2"><button type={needsWorkingFolder ? "button" : "submit"} onClick={needsWorkingFolder ? () => setPicker(0) : undefined} disabled={disabled || locked || (mode !== "session" && !folders.length)} className="min-h-10 rounded bg-emerald-700 px-3 text-xs disabled:opacity-40">{busy ? t("Saving…") : needsWorkingFolder ? t("Choose a working folder") : t(mode === "project" ? "Create project" : mode === "edit" ? "Save project" : "Recruit and create session")}</button><button type="button" disabled={busy} onClick={() => { setMode(null); setPicker(null); }} className="min-h-10 px-2 text-xs">{t("Cancel")}</button></div>
       </>}
     </form> : null}
     {error ? <p role="alert" className="mt-2 break-words text-xs text-amber-100">{t(error)} {t("After a connection loss or timeout, check the result before retrying.")}</p> : null}
