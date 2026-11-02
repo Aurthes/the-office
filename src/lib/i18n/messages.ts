@@ -385,7 +385,6 @@ export const ZH_CN: Record<string, string> = {
   "Fire helmet": "消防帽",
   "Turnout coat": "消防服",
   "Air tank": "背负式气罐",
-  "Fire hose": "消防水管",
   "Choose a working folder for this agent. No project is created.": "为这个 agent 选择工作目录，不会创建项目。",
   "Planetary approach": "正在掠近行星",
   "Add a monitor": "添加监控入口",

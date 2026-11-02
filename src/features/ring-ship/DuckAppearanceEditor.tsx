@@ -15,7 +15,7 @@ const PARTS: Array<{ id: Part; label: string; fields: Array<keyof DuckAppearance
   { id: "wings", label: "Wings", fields: ["wingColor", "wingStyle", "wingWidth", "wingLength", "wingSpread"] },
   { id: "feet", label: "Feet", fields: ["footColor", "footStyle", "footScale", "footSpacing"] },
   { id: "tail", label: "Tail", fields: ["tailColor", "tailStyle", "tailScale"] },
-  { id: "gear", label: "Gear", fields: ["outfit", "outfitColor", "backpack", "backpackStyle", "hose"] },
+  { id: "gear", label: "Gear", fields: ["outfit", "outfitColor", "backpack", "backpackStyle"] },
 ];
 
 export function DuckAppearanceEditor({ value, onChange, disabled, onPartChange }: {
@@ -41,7 +41,7 @@ export function DuckAppearanceEditor({ value, onChange, disabled, onPartChange }
   </div>;
   const range = (key: NumberKey, label: string, min: number, max: number, degrees = false) => <label className="duck-character-range">{t(label)}<output>{Math.round(value[key] * (degrees ? 1 : 100))}{degrees ? "°" : "%"}</output>
     <input type="range" aria-label={t(label)} min={min} max={max} step="1" value={Math.round(value[key] * (degrees ? 1 : 100))} onChange={event => set(key, Number(event.target.value) / (degrees ? 1 : 100))} /></label>;
-  const toggle = (key: "bellyPatch" | "backpack" | "hose", label: string) => <label className="duck-character-toggle"><span>{t(label)}</span><input type="checkbox" aria-label={t(label)} checked={value[key]} onChange={event => set(key, event.target.checked)} /></label>;
+  const toggle = (key: "bellyPatch" | "backpack", label: string) => <label className="duck-character-toggle"><span>{t(label)}</span><input type="checkbox" aria-label={t(label)} checked={value[key]} onChange={event => set(key, event.target.checked)} /></label>;
   const part = PARTS.find(part => part.id === active)!;
   const replacePart = (from: Readonly<DuckAppearance>) => {
     const next = { ...value };
@@ -81,7 +81,7 @@ export function DuckAppearanceEditor({ value, onChange, disabled, onPartChange }
       </> : <>
         <fieldset disabled={disabled}><legend>{t("Outfit")}</legend>{options("outfit", [["none", "None"], ["vest", "Utility vest"], ["jacket", "Flight jacket"], ["firefighter", "Turnout coat"], ["scarf", "Scarf"]])}</fieldset>
         <fieldset disabled={disabled}><legend>{t("Equipment color")}</legend>{colors("outfitColor", "Equipment color", DUCK_EQUIPMENT_COLORS)}</fieldset>
-        <fieldset disabled={disabled}><legend>{t("Accessories")}</legend>{toggle("backpack", "Backpack")}{value.backpack ? options("backpackStyle", [["pack", "Backpack"], ["air-tank", "Air tank"]]) : null}{toggle("hose", "Fire hose")}</fieldset>
+        <fieldset disabled={disabled}><legend>{t("Accessories")}</legend>{toggle("backpack", "Backpack")}{value.backpack ? options("backpackStyle", [["pack", "Backpack"], ["air-tank", "Air tank"]]) : null}</fieldset>
       </>}
     </div>
     <div className="duck-character-part-actions"><button type="button" disabled={disabled} onClick={() => replacePart(createDuckAppearanceFromSeed(randomUUID()))}><Shuffle size={13} />{t("Randomize part")}</button>

@@ -9,9 +9,10 @@ import { createDuckAppearanceFromSeed } from "@/lib/avatars/duck";
 
 type Project = { id: string; name: string; rootPaths?: string[] };
 type Chat = { id: string; name: string; workspace: string };
-export function CompanyActions({ client, projects, selectedProjectId, disabled, onCreated }: {
+export function CompanyActions({ client, projects, selectedProjectId, showAccount = true, disabled, onCreated }: {
   client: SessionClient; projects: Project[];
   selectedProjectId?: string | null;
+  showAccount?: boolean;
   disabled: boolean; onCreated: (threadId?: string, avatarProfile?: AgentAvatarProfile) => Promise<void>;
 }) {
   const t = useUiText();
@@ -67,7 +68,7 @@ export function CompanyActions({ client, projects, selectedProjectId, disabled, 
   const label = mode === "edit" ? "Edit project" : mode === "project" ? "Create project" : "Recruit agent";
   const locked = busy || picker !== null;
   return <div className={`office-company-actions mt-2 max-w-full text-white ${mode ? "w-80" : ""}`}>
-    <OfficeCodexAccount client={client} />
+    {showAccount ? <OfficeCodexAccount client={client} /> : null}
     <div className="flex flex-wrap gap-2">
       <button disabled={disabled || busy} onClick={() => open("project")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("+ Project")}</button>
       <button disabled={disabled || busy || !projects.length || selectedProjectId === null} onClick={() => open("edit")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("Edit project")}</button>

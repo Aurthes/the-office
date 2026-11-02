@@ -41,6 +41,7 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   console.log(JSON.stringify({browser:browserName,version:browser.version()}));
   const context=await browser.newContext({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
   const origin=new URL(url).origin;
+  await context.addInitScript(()=>document.addEventListener('click',event=>{const target=event.target instanceof Element?event.target.closest('button'):null;if(target)console.info('OFFICE_CHECK_CLICK '+target.textContent?.trim());},true));
   await context.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
   // A fresh user has no music account. Do not read the test host's music credentials.
   await context.route('**/api/music/netease**',route=>{
@@ -50,7 +51,7 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   // Use the disposable folder as the file picker's initial location. All folder,
   // creation, settings, streaming and history calls go to the real bundled engine.
   await context.routeWebSocket('**/api/gateway/ws',ws=>{const server=ws.connectToServer();ws.onMessage(message=>{let frame;try{frame=JSON.parse(String(message))}catch{return server.send(message)}if(frame.method==='project.folders.list'&&!frame.params?.path)frame.params={...frame.params,path:workspace};server.send(JSON.stringify(frame))})});
-  page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));
+  page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));page.on('console',message=>{if(message.text().startsWith('OFFICE_CHECK_CLICK '))console.log(message.text());});
   await page.goto(url,{waitUntil:'domcontentloaded'});
   if(browserName!=='webkit'){
    const diagnostics=await browser.newBrowserCDPSession();
@@ -68,7 +69,7 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   provider.listen(0,'127.0.0.1');await once(provider,'listening');
   fs.writeFileSync(path.join(data,'runtime/codex/config.toml'),'model="gpt-6.1-sol"\nmodel_provider="office_check"\n[model_providers.office_check]\nname="Local fixture"\nbase_url="http://127.0.0.1:'+provider.address().port+'/v1"\nwire_api="responses"\nrequires_openai_auth=false\n');
   local=new LocalOffice({appDirectory:office,dataDirectory:data,environment:{PATH:'/usr/bin:/bin',CODEX_HOME:foreign}});await local.start();
-  page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));
+  page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));page.on('console',message=>{if(message.text().startsWith('OFFICE_CHECK_CLICK '))console.log(message.text());});
   await page.goto(url,{waitUntil:'domcontentloaded'});
   await page.getByRole('button',{name:'+ Recruit agent',exact:true}).waitFor({timeout:30000});
   await page.getByRole('button',{name:'+ Recruit agent',exact:true}).click();

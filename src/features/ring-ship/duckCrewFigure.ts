@@ -190,7 +190,6 @@ export function createDuckCrewFigure(appearance?: DuckAppearance) {
   }
 
   const wingParts: THREE.Group[] = [];
-  let hoseGrip: THREE.Group | undefined;
   const wings = [-1, 1].map(side => {
     const wing = pivot(side < 0 ? "left-wing" : "right-wing", [side * 0.158, 0.30, 0.008], body);
     const shape = pivot("wing-shape", [0, 0, 0], wing); wingParts.push(shape);
@@ -199,15 +198,6 @@ export function createDuckCrewFigure(appearance?: DuckAppearance) {
     if (style.outfit === "firefighter") {
       egg(shape, [side * .006, -.071, 0], [.037, .014, .054], "#d4df63", uniform);
       egg(shape, [side * .006, -.092, .012], [.032, .025, .04], "#283136", uniform);
-    }
-    if (style.hose && side === 1) {
-      wing.rotation.x = -1.05; wing.rotation.z = .12;
-      const nozzle = gear("fire-hose-nozzle", [.025, -.078, .025], shape);
-      add(nozzle, new THREE.CylinderGeometry(.014, .019, .1, 12), uniform, "#b8914c", [0, 0, .02], [1, 1, 1], [Math.PI / 2, 0, 0]);
-      add(nozzle, new THREE.CylinderGeometry(.017, .022, .026, 12), uniform, "#c9d0cb", [0, 0, .08], [1, 1, 1], [Math.PI / 2, 0, 0]);
-      add(nozzle, new THREE.BoxGeometry(.035, .025, .04), uniform, "#283136", [0, -.02, .01]);
-      add(nozzle, new THREE.BoxGeometry(.035, .012, .055), uniform, "#bd3e32", [0, .025, .015]);
-      hoseGrip = pivot("fire-hose-grip", [0, 0, -.03], nozzle);
     }
     if (style.wingStyle === "layered") for (const z of [-.028, 0, .028]) egg(shape, [side * .022, -.065, z], [.022, .053, .025], wingYellow);
     return wing;
@@ -250,37 +240,7 @@ export function createDuckCrewFigure(appearance?: DuckAppearance) {
     }
   }
 
-  // One small, reusable tube follows the hand and drags along the deck.
-  // Updating its vertices avoids rebuilding geometry or running rope physics.
-  let updateHose: ((time: number) => void) | undefined;
-  if (hoseGrip) {
-    const points = [new THREE.Vector3(), new THREE.Vector3(.28, .18, .06), new THREE.Vector3(.32, .018, -.08), new THREE.Vector3(.36, .018, -.3), new THREE.Vector3(.23, .018, -.53), new THREE.Vector3(.34, .018, -.76)];
-    const curve = new THREE.CatmullRomCurve3(points), segments = 24, sides = 6, radius = .012;
-    const geometry = new THREE.TubeGeometry(curve, segments, radius, sides, false);
-    add(root, geometry, uniform, "#c9b487", [0, 0, 0]).name = "dragging-fire-hose";
-    const vertex = geometry.getAttribute("position"), normal = geometry.getAttribute("normal");
-    const p = new THREE.Vector3(), tangent = new THREE.Vector3(), across = new THREE.Vector3(), binormal = new THREE.Vector3(), n = new THREE.Vector3();
-    const grip = hoseGrip;
-    updateHose = (time: number) => {
-      grip.getWorldPosition(points[0]); root.worldToLocal(points[0]);
-      points[1].copy(points[0]); points[1].x += .06; points[1].y -= .09; points[1].z -= .04;
-      const floor = (.018 - root.position.y) / style.bodyHeight;
-      for (let i = 2; i < points.length; i++) { points[i].y = floor; points[i].x = [.32, .36, .23, .34][i - 2] + Math.sin(time * .7 + i) * .012; }
-      for (let i = 0; i <= segments; i++) {
-        curve.getPoint(i / segments, p); curve.getTangent(i / segments, tangent);
-        across.set(Math.abs(tangent.y) > .95 ? 1 : 0, Math.abs(tangent.y) > .95 ? 0 : 1, 0).cross(tangent).normalize(); binormal.crossVectors(tangent, across).normalize();
-        for (let j = 0; j <= sides; j++) {
-          const angle = j / sides * Math.PI * 2, index = i * (sides + 1) + j;
-          n.copy(across).multiplyScalar(Math.cos(angle)).addScaledVector(binormal, Math.sin(angle));
-          vertex.setXYZ(index, p.x + n.x * radius, p.y + n.y * radius, p.z + n.z * radius); normal.setXYZ(index, n.x, n.y, n.z);
-        }
-      }
-      vertex.needsUpdate = normal.needsUpdate = true; geometry.computeBoundingSphere();
-    };
-    updateHose(0);
-  }
-
-  return { root, body, wings, feet, updateHose, dispose() {
+  return { root, body, wings, feet, dispose() {
     root.traverse(object => { if (object instanceof THREE.Mesh) object.geometry.dispose(); });
     for (const material of [feather, bill, eyes, uniform]) material.dispose();
   } };

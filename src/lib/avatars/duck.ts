@@ -15,7 +15,6 @@ export type DuckAppearance = {
   outfitColor: string;
   backpack: boolean;
   backpackStyle: "pack" | "air-tank";
-  hose: boolean;
   bodyWidth: number;
   bodyDepth: number;
   bodyHeight: number;
@@ -47,7 +46,7 @@ export const DUCK_BILL_COLORS = ["#f58b28", "#d5a14b", "#e4bb76", "#bd7754", "#d
 export const DEFAULT_DUCK_APPEARANCE: Readonly<DuckAppearance> = Object.freeze({
   featherColor: "#ffbb3c", headColor: null, headScale: 1, crest: "none",
   billColor: "#f58b28", billShape: "classic", billScale: 1, billWidth: 1, billLength: 1,
-  headwear: "none", headwearColor: null, eyewear: "none", outfit: "none", outfitColor: "#394b54", backpack: false, backpackStyle: "pack", hose: false,
+  headwear: "none", headwearColor: null, eyewear: "none", outfit: "none", outfitColor: "#394b54", backpack: false, backpackStyle: "pack",
   bodyWidth: 1, bodyDepth: 1, bodyHeight: 1, bellyPatch: false, bellyColor: "#ece9d8",
   eyeSpacing: 1, eyeHeight: 1, eyeScale: 1, eyeColor: "#302e28", eyeStyle: "round",
   wingColor: null, wingLength: 1, wingWidth: 1, wingSpread: 0, wingStyle: "smooth",
@@ -59,7 +58,7 @@ export const FIREFIGHTER_DUCK_APPEARANCE: Readonly<DuckAppearance> = Object.free
   ...DEFAULT_DUCK_APPEARANCE,
   featherColor: "#ece9d8", headwear: "firefighter", headwearColor: "#bd3e32",
   outfit: "firefighter", outfitColor: "#a78d62", wingColor: "#a78d62",
-  backpack: true, backpackStyle: "air-tank", hose: true, footStyle: "boots", footColor: "#283136",
+  backpack: true, backpackStyle: "air-tank", footStyle: "boots", footColor: "#283136",
 });
 
 export function normalizeDuckAppearance(value: unknown): DuckAppearance {
@@ -77,7 +76,7 @@ export function normalizeDuckAppearance(value: unknown): DuckAppearance {
     headwear: choice(raw.headwear, ["none", "cap", "helmet", "beanie", "crown", "firefighter"], "none"), headwearColor: optionalColor(raw.headwearColor),
     eyewear: choice(raw.eyewear, ["none", "round", "visor"], "none"),
     outfit: choice(raw.outfit, ["none", "vest", "jacket", "scarf", "firefighter"], "none"), outfitColor: color(raw.outfitColor, base.outfitColor), backpack: raw.backpack === true,
-    backpackStyle: choice(raw.backpackStyle, ["pack", "air-tank"], "pack"), hose: raw.hose === true,
+    backpackStyle: choice(raw.backpackStyle, ["pack", "air-tank"], "pack"),
     bodyWidth: ratio(raw.bodyWidth, .75, 1.3), bodyDepth: ratio(raw.bodyDepth, .75, 1.3), bodyHeight: ratio(raw.bodyHeight, .75, 1.3),
     bellyPatch: raw.bellyPatch === true, bellyColor: color(raw.bellyColor, base.bellyColor),
     eyeSpacing: ratio(raw.eyeSpacing, .7, 1.3), eyeHeight: ratio(raw.eyeHeight, .9, 1.1), eyeScale: ratio(raw.eyeScale, .7, 1.4),

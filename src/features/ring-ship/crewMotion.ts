@@ -1,5 +1,6 @@
 import type { OfficeAgent, RenderAgent } from "@/features/retro-office/core/types";
 import { CANVAS_W, CANVAS_H, SCALE } from "@/features/retro-office/core/constants";
+import { SHIP_WORKSTATION } from "./geometry";
 import { routeBetweenCabins, type ShipLayout, type ShipPoint } from "./layout";
 import { crewRadius, moveCharacter, occupiedWaypoint, separateCharacter, type CharacterBody } from "./characterCollision";
 
@@ -11,6 +12,22 @@ export function crewBodies(crew: readonly RenderAgent[], layout: ShipLayout): Ch
   return crew.flatMap(agent => {
     const seat = layout.seats[agent.id];
     return seat ? [{ id: agent.id, position: worldPoint(agent), radius: crewRadius("avatarProfile" in agent ? agent : {}), deck: seat.deck }] : [];
+  });
+}
+
+// Metadata refreshes must preserve the pose until the next animation frame.
+export function syncCrew(agents: OfficeAgent[], layout: ShipLayout, previousById: ReadonlyMap<string, RenderAgent>, now: number): MovingAgent[] {
+  return agents.flatMap(agent => {
+    const seat = layout.seats[agent.id]; if (!seat) return [];
+    const previous = previousById.get(agent.id) as MovingAgent | undefined, p = canvasPoint(seat);
+    const unchanged = previous && Math.hypot(previous.home.x - seat.x, previous.home.z - seat.z) < 0.01;
+    const keepRoute = unchanged;
+    return [{ ...agent, x: unchanged ? previous.x : p.x, y: unchanged ? previous.y : p.y, targetX: p.x, targetY: p.y,
+      path: [], facing: unchanged ? previous.facing : seat.facing, frame: previous?.frame || hash(agent.id) % 100, state: unchanged ? previous.state : "standing" as const,
+      walkSpeed: unchanged ? previous.walkSpeed : 1, phaseOffset: hash(agent.id) % 100, interactionTarget: unchanged ? previous.interactionTarget : undefined,
+      workstation: { ...p, deskUid: seat.cabinId + agent.id, facing: seat.facing, pose: "sitting" as const, seatHeight: SHIP_WORKSTATION.seatHeight, surfaceHeight: SHIP_WORKSTATION.surfaceHeight },
+      home: { x: seat.x, z: seat.z }, route: keepRoute ? previous.route : [], routeIndex: keepRoute ? previous.routeIndex : 0,
+      visiting: keepRoute ? previous.visiting : false, pauseUntil: keepRoute ? previous.pauseUntil : now + 7000 + hash(agent.id) % 18000 }];
   });
 }
 
