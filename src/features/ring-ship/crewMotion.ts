@@ -3,6 +3,7 @@ import { CANVAS_W, CANVAS_H, SCALE } from "@/features/retro-office/core/constant
 import { SHIP_WORKSTATION } from "./geometry";
 import { routeBetweenCabins, type ShipLayout, type ShipPoint } from "./layout";
 import { crewRadius, moveCharacter, occupiedWaypoint, separateCharacter, type CharacterBody } from "./characterCollision";
+import { footingRadius, walkableSegment } from "./walkableSurface";
 
 export type KirbyCrewPose = ShipPoint & { y: number; scale: number; tilt: number; hidden: boolean };
 export type MovingAgent = RenderAgent & OfficeAgent & { route: ShipPoint[]; routeIndex: number; pauseUntil: number; home: ShipPoint; visiting: boolean; kirbyPose?: KirbyCrewPose };
@@ -43,10 +44,12 @@ export function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number
     const seat = layout.seats[a.id]; if (!seat) continue;
     a.frame += dt * 60;
     if (a.kirbyPose) continue;
+    const body = byId.get(a.id)!;
+    body.position = moveCharacter(body, body.position, 0, others, true, layout);
+    Object.assign(a, canvasPoint(body.position));
     if (a.id === chatAgentId && a.status === "idle" && !a.needsInput) { a.state = "standing"; continue; }
     const needsDesk = a.status === "working" || a.status === "error" || a.needsInput;
-    const body = byId.get(a.id)!;
-    const p = !needsDesk && !a.route.length ? separateCharacter(body, dt * 1.05, others) : worldPoint(a);
+    const p = !needsDesk && !a.route.length ? separateCharacter(body, dt * 1.05, others, layout) : worldPoint(a);
     Object.assign(a, canvasPoint(p)); body.position = p;
     if (needsDesk && Math.hypot(p.x - a.home.x, p.z - a.home.z) < 0.02) {
       a.route = []; a.visiting = false; Object.assign(a, canvasPoint(a.home)); a.facing = seat.facing;
@@ -73,7 +76,7 @@ export function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number
     a.frame += dt * 60 * (a.walkSpeed - 1);
     const dx = target.x - p.x, dz = target.z - p.z, distance = Math.hypot(dx, dz), stride = dt * 1.05 * a.walkSpeed;
     a.state = "walking"; a.facing = Math.atan2(dx, dz);
-    const next = moveCharacter(body, target, stride, others);
+    const next = moveCharacter(body, target, stride, others, true, layout);
     Object.assign(a, canvasPoint(next));
     body.position = next;
     if (Math.hypot(next.x - p.x, next.z - p.z) < 1e-6) a.state = "standing";
@@ -82,7 +85,8 @@ export function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number
     // next waypoint, rather than walking into the character already there.
     const stopped = remaining >= distance - 1e-6 && !needsDesk && a.routeIndex === a.route.length - 1;
     const closeEnough = distance < body.radius * (stopped ? 4 : 2) + .15 && occupiedWaypoint(body, target, others)
-      && !(needsDesk && a.routeIndex === a.route.length - 1);
+      && !(needsDesk && a.routeIndex === a.route.length - 1)
+      && (!a.route[a.routeIndex + 1] || walkableSegment(next, a.route[a.routeIndex + 1], layout, footingRadius(body.radius), body.deck));
     if (reached || closeEnough) {
       a.routeIndex += 1;
       if (a.routeIndex >= a.route.length) {

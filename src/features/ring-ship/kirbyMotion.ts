@@ -3,6 +3,7 @@ import { crewRadius, moveCharacter, occupiedWaypoint, type CharacterBody } from 
 import { advanceCompanion, companionBody, createCompanionState, type CompanionState } from "./companionMotion";
 import { canvasPoint, worldPoint, type MovingAgent } from "./crewMotion";
 import type { ShipLayout, ShipPoint } from "./layout";
+import { footingRadius, isWalkable } from "./walkableSurface";
 
 export const KIRBY_RANGE = 3.5;
 export const KIRBY_HOLD_MS = 15000;
@@ -21,21 +22,16 @@ export function createKirbyState(layout: ShipLayout, seed: number, radius?: numb
 function eligible(agent: MovingAgent, layout: ShipLayout, chatId?: string | null) {
   return agent.status === "idle" && !agent.needsInput && agent.id !== chatId && layout.seats[agent.id]?.deck === 0;
 }
-function onFloor(point: ShipPoint, layout: ShipLayout) {
-  const radius = Math.hypot(point.x, point.z);
-  return layout.rings.some(ring => Math.abs(radius - ring.radius) < ring.depth / 2 - .45)
-    || layout.spokes.some(angle => radius > 3.2 && radius < layout.radius && Math.abs(point.x * Math.cos(angle) - point.z * Math.sin(angle)) < .55);
-}
 function landingPoint(state: KirbyState, agent: MovingAgent, layout: ShipLayout, others: readonly CharacterBody[]) {
   const actor = state.actor, radius = crewRadius(agent), body = { id: agent.id, position: actor.position, radius, deck: 0 };
   const obstacles = [...others.filter(other => other.id !== agent.id), companionBody(actor)];
   for (const extra of [.25, .65, 1.2, 1.8]) for (const turn of [0, .5, -.5, 1, -1, Math.PI / 2, -Math.PI / 2, Math.PI]) {
     const distance = actor.radius + radius + extra, angle = actor.facing + turn;
     const point = { x: actor.position.x + Math.sin(angle) * distance, z: actor.position.z + Math.cos(angle) * distance };
-    if (onFloor(point, layout) && !occupiedWaypoint(body, point, obstacles)) return point;
+    if (isWalkable(point, layout, footingRadius(radius)) && !occupiedWaypoint(body, point, obstacles)) return point;
   }
   const origin = state.victim!.origin;
-  return !occupiedWaypoint(body, origin, obstacles) ? origin : undefined;
+  return isWalkable(origin, layout, footingRadius(radius)) && !occupiedWaypoint(body, origin, obstacles) ? origin : undefined;
 }
 export function resetKirby(state: KirbyState, crew: readonly MovingAgent[], now: number) {
   for (const agent of crew) if (agent.id === state.victim?.id) delete agent.kirbyPose;
@@ -53,6 +49,7 @@ function beginSpit(state: KirbyState, agent: MovingAgent, layout: ShipLayout, no
 export function advanceKirby(state: KirbyState, crew: readonly MovingAgent[], layout: ShipLayout, now: number, elapsed: number, others: readonly CharacterBody[], chatId?: string | null) {
   const dt = Math.min(Math.max(elapsed, 0), .05), actor = state.actor;
   if (!dt) return;
+  Object.assign(actor.position, moveCharacter(companionBody(actor), actor.position, 0, others, true, layout));
   actor.time += dt;
   let victim = state.victim && crew.find(agent => agent.id === state.victim!.id);
   if (state.victim && (!victim || layout.seats[victim.id]?.deck !== 0)) { resetKirby(state, crew, now); return; }
@@ -77,7 +74,7 @@ export function advanceKirby(state: KirbyState, crew: readonly MovingAgent[], la
     const point = worldPoint(victim), dx = point.x - actor.position.x, dz = point.z - actor.position.z, distance = Math.hypot(dx, dz);
     if (distance > KIRBY_RANGE * 1.6 || now - state.since > 8000) { resetKirby(state, crew, now); return; }
     actor.facing = Math.atan2(dx, dz);
-    const next = moveCharacter(companionBody(actor), point, dt * .9, others);
+    const next = moveCharacter(companionBody(actor), point, dt * .9, others, true, layout);
     actor.position.x = next.x; actor.position.z = next.z;
     if (distance <= actor.radius + crewRadius(victim) + .3) {
       state.victim.origin = point; state.phase = "inhale"; state.since = now;

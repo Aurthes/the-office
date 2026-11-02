@@ -10,7 +10,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
 import workstationModels from "@/features/retro-office/core/workstation-models.json";
 import { CHAIR_SEAT, DESK_SURFACE_HEIGHT, WORKSTATION_SCALE } from "@/features/retro-office/core/geometry";
-import { cabinAngle, seatPosition, shipPoint, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
+import { cabinAngle, seatPosition, shipPoint, SHIP_CORRIDOR_START, SHIP_CORRIDOR_WIDTH, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
 import { type ShipObject, type ShipObjectKind, type ShipObjectRange } from "./shipObjects";
 
 export const FURNITURE_MODELS = ["desk", "chairDesk", "pottedPlant", "plantSmall1", "loungeSofa", "tableRound", "kitchenCoffeeMachine", "kitchenCabinet", "bookcaseClosed", "lampRoundFloor", "kitchenFridgeSmall", "chairModernCushion", "tableCoffee", "table", "loungeDesignChair"] as const;
@@ -227,8 +227,8 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
   b.cylinder(0.95, 0.15, [0, 1.59, 0], "#ffd189", 32, true);
   b.sign(t("Central lift"), "", { x: 0, z: 2.7 }, 0, 2.7, "#e3b775");
   for (const angle of layout.spokes) {
-    const start = 3.2, end = layout.radius, p = shipPoint((start + end) / 2, angle);
-    b.box([1.25, 0.22, end - start], [p.x, -0.08, p.z], HULL, angle);
+    const start = SHIP_CORRIDOR_START, end = layout.radius, p = shipPoint((start + end) / 2, angle);
+    b.box([SHIP_CORRIDOR_WIDTH, 0.22, end - start], [p.x, -0.08, p.z], HULL, angle);
     for (const side of [-1, 1]) {
       const x = p.x + Math.cos(angle) * side * 0.59, z = p.z - Math.sin(angle) * side * 0.59;
       b.box([0.045, 0.05, end - start], [x, 0.08, z], "#bfe6d7", angle, true);

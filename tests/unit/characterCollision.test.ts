@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { moveCharacter, type CharacterBody } from "@/features/ring-ship/characterCollision";
 import { advanceCrew, canvasPoint, crewBodies, worldPoint, type MovingAgent } from "@/features/ring-ship/crewMotion";
 import { advanceCompanion, companionBody, createCompanionState } from "@/features/ring-ship/companionMotion";
-import { buildShipLayout, shipDeck, type ShipPoint } from "@/features/ring-ship/layout";
+import { buildShipLayout, shipDeck, shipPoint, type ShipPoint } from "@/features/ring-ship/layout";
 
 const distance = (a: ShipPoint, b: ShipPoint) => Math.hypot(a.x - b.x, a.z - b.z);
 function body(id: string, x: number, z: number, deck = 0): CharacterBody {
@@ -50,7 +50,7 @@ describe("ship character collision volumes", () => {
   it("keeps a crowd apart when agents share an amenity destination", () => {
     const { crew, layout } = crewFixture(6);
     const target = { x: 12, z: 0 };
-    crew.forEach((agent, i) => { Object.assign(agent, canvasPoint({ x: 8 + i * 1.1, z: 2 })); agent.route = [target]; agent.visiting = true; });
+    crew.forEach((agent, i) => { Object.assign(agent, canvasPoint(shipPoint(12, Math.PI / 2 + (i - 2.5) * .12))); agent.route = [target]; agent.visiting = true; });
     for (let i = 0; i < 600; i++) { advanceCrew(crew, layout, 1000 + i * 16, .016); expectSeparated(crewBodies(crew, layout)); }
     expect(crew.every(agent => agent.route.length === 0)).toBe(true);
   });
@@ -64,8 +64,8 @@ describe("ship character collision volumes", () => {
     const { crew, layout } = crewFixture(1), agent = crew[0];
     Object.assign(agent, canvasPoint({ x: 12, z: 0 })); agent.pauseUntil = Infinity;
     const cat = createCompanionState("cat", layout, 1), dog = createCompanionState("dog", layout, 2);
-    Object.assign(cat, { position: { x: 9, z: 0 }, route: [{ x: 15, z: 0 }], waypoint: 0, duration: Infinity });
-    Object.assign(dog, { position: { x: 15, z: 0 }, route: [{ x: 9, z: 0 }], waypoint: 0, duration: Infinity });
+    Object.assign(cat, { position: { x: 12, z: -3 }, route: [{ x: 12, z: 3 }], waypoint: 0, duration: Infinity });
+    Object.assign(dog, { position: { x: 12, z: 3 }, route: [{ x: 12, z: -3 }], waypoint: 0, duration: Infinity });
     const arrived = new Set<string>();
     for (let i = 0; i < 900; i++) {
       advanceCrew(crew, layout, i * 16, .016, agent.id, [companionBody(cat), companionBody(dog)]);

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Builder } from './geometry';
-import { cabinAngle, shipPoint, type ShipLayout } from './layout';
+import { cabinAngle, shipPoint, SHIP_CORRIDOR_START, type ShipLayout } from './layout';
 import { hullProfile } from './shell-shapes';
 import { cutLaunchOpening, type LaunchOpening } from './returnPodGeometry';
 
@@ -75,8 +75,8 @@ export function buildShell(layout: ShipLayout) {
   }
   for (const angle of layout.spokes) {
     // The transit arms also have a rounded lower shell and transparent roof.
-    b.add(corridor(angle,3.2,layout.radius,Math.PI,TAU),'#d6e2e1');
-    upper.push(corridor(angle,3.2,layout.radius,0,Math.PI).toNonIndexed());
+    b.add(corridor(angle,SHIP_CORRIDOR_START,layout.radius,Math.PI,TAU),'#d6e2e1');
+    upper.push(corridor(angle,SHIP_CORRIDOR_START,layout.radius,0,Math.PI).toNonIndexed());
     for (let r=4;r<layout.radius;r+=3) {
       const points=Array.from({length:17},(_,j)=>{
         const phi=j*Math.PI/16,x=.91*Math.cos(phi);
