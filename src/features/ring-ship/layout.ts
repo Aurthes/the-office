@@ -190,8 +190,8 @@ function arc(radius: number, from: number, to: number): ShipPoint[] {
   const delta = shortestAngle(from, to), steps = Math.max(1, Math.ceil(Math.abs(delta) / 0.12));
   return Array.from({ length: steps }, (_, i) => shipPoint(radius, from + delta * (i + 1) / steps));
 }
-export function routeBetweenCabins(layout: ShipLayout, from: Pick<ShipSeat, "ring" | "angle">, destination: ShipCabin): ShipPoint[] {
-  const a = layout.rings[from.ring], b = layout.rings[destination.ring], targetAngle = cabinAngle(layout, destination.slot);
+export function routeBetweenCabins(layout: ShipLayout, from: Pick<ShipSeat, "ring" | "angle">, destination: ShipCabin, arrivalAngle = cabinAngle(layout, destination.slot)): ShipPoint[] {
+  const a = layout.rings[from.ring], b = layout.rings[destination.ring], targetAngle = arrivalAngle;
   if (a.index === b.index) return [shipPoint(a.radius, from.angle), ...arc(a.radius, from.angle, targetAngle)];
   const spoke = [...layout.spokes].sort((x, y) => Math.abs(shortestAngle(from.angle, x)) + Math.abs(shortestAngle(x, targetAngle)) - Math.abs(shortestAngle(from.angle, y)) - Math.abs(shortestAngle(y, targetAngle)))[0];
   return [shipPoint(a.radius, from.angle), ...arc(a.radius, from.angle, spoke), shipPoint(b.radius, spoke), ...arc(b.radius, spoke, targetAngle)];

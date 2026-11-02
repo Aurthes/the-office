@@ -13,7 +13,7 @@ import { paintKirbyBubble } from "./kirbyBubble";
 import type { ShipCompanionProps } from "./ShipCompanions";
 import type { ShipObject } from "./shipObjects";
 
-export function ShipKirby({ layout, active, enabled, selectedId, onSelect, companionsRef, crewRef, chatAgentId }: ShipCompanionProps) {
+export function ShipKirby({ layout, active, enabled, selectedId, onSelect, companionsRef, crewRef, chatAgentId, ceoBodyRef }: ShipCompanionProps) {
   const source = useLoader(GLTFLoader, "/office-assets/models/companions/kirby.glb");
   const figure = useMemo(() => createKirbyFigure(source), [source]);
   const [seed] = useState(() => crypto.getRandomValues(new Uint32Array(1))[0]);
@@ -42,7 +42,7 @@ export function ShipKirby({ layout, active, enabled, selectedId, onSelect, compa
   useFrame(({ clock, camera }, elapsed) => {
     if (!active || !group.current) return;
     const crew = [...(crewRef?.current.values() || [])] as MovingAgent[];
-    const others = [...crewBodies(crew, layout), ...[...companionsRef.current.values()].map(companionBody)];
+    const others = [...crewBodies(crew, layout), ...[...companionsRef.current.values()].map(companionBody), ...(ceoBodyRef?.current ? [ceoBodyRef.current] : [])];
     advanceKirby(state, crew, layout, performance.now(), elapsed, others, chatAgentId);
     const time = clock.elapsedTime, actor = group.current, object = objectRef.current;
     figure.animate(state, time);

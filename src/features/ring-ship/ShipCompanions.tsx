@@ -7,6 +7,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { advanceCompanion, companionActivity, companionBody, companionWorkPoint, COMPANION_NAMES, createCompanionState, type CompanionKind, type CompanionState } from "./companionMotion";
 import { crewBodies } from "./crewMotion";
+import type { CharacterBody } from "./characterCollision";
 import type { RenderAgent } from "@/features/retro-office/core/types";
 import { createCompanionFigure } from "./companionFigure";
 import type { ShipLayout } from "./layout";
@@ -22,7 +23,7 @@ type ModelKind = Exclude<CompanionKind, "kirby">;
 const KINDS: Record<ModelKind, ShipObjectKind> = { cat: "cat", dog: "dog", drone: "mechDrone", bartender: "robotBartender" };
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
 export type ShipCompanionProps = { layout: ShipLayout; active: boolean; enabled: boolean; selectedId?: string; onSelect: (object: ShipObject) => void;
-  companionsRef: RefObject<Map<CompanionKind, CompanionState>>; crewRef?: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null };
+  companionsRef: RefObject<Map<CompanionKind, CompanionState>>; crewRef?: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null; ceoBodyRef?: RefObject<CharacterBody | null> };
 type Props = ShipCompanionProps;
 
 function WorkProps({ cup, cloth, bottle, bubbles, beam, sparks }: {
@@ -49,7 +50,7 @@ function WorkProps({ cup, cloth, bottle, bubbles, beam, sparks }: {
 }
 
 function Companion({ kind, ...props }: Props & { kind: ModelKind }) {
-  const { layout, active, enabled, selectedId, onSelect, companionsRef, crewRef } = props;
+  const { layout, active, enabled, selectedId, onSelect, companionsRef, crewRef, ceoBodyRef } = props;
   const source = useLoader(GLTFLoader, MODELS[kind]);
   const figure = useMemo(() => createCompanionFigure(source, kind, HEIGHTS[kind]), [source, kind]);
   const [seed] = useState(() => crypto.getRandomValues(new Uint32Array(1))[0]);
@@ -84,7 +85,7 @@ function Companion({ kind, ...props }: Props & { kind: ModelKind }) {
   useFrame((_, elapsed) => {
     if (!active || !group.current) return;
     const delta = Math.min(elapsed, .05), actor = group.current, object = objectRef.current;
-    const bodies = [...crewBodies([...(crewRef?.current.values() || [])], layout), ...[...companionsRef.current.values()].map(companionBody)];
+    const bodies = [...crewBodies([...(crewRef?.current.values() || [])], layout), ...[...companionsRef.current.values()].map(companionBody), ...(ceoBodyRef?.current ? [ceoBodyRef.current] : [])];
     advanceCompanion(state, layout, delta, bodies); figure.animate(state, delta);
     actor.position.set(state.position.x, state.y + ((kind === "drone" || kind === "bartender") ? Math.sin(state.time * 1.7) * .035 : 0), state.position.z);
     actor.rotation.y = state.facing; actor.updateMatrixWorld(true);

@@ -1,5 +1,13 @@
 import { cabinAngle, shipPoint, type ShipCabin, type ShipLayout } from "./layout";
 import type { Builder } from "./geometry";
+import workstationModels from "@/features/retro-office/core/workstation-models.json";
+
+export function monitorChairPose(layout: ShipLayout, cabin: ShipCabin) {
+  const model = workstationModels.chairDesk;
+  return { point: shipPoint(layout.rings[cabin.ring].radius + .85, cabinAngle(layout, cabin.slot)),
+    facing: cabinAngle(layout, cabin.slot) + Math.PI,
+    seatHeight: .08 + (model.seat[1] - model.min[1]) * .8 / (model.max[0] - model.min[0]) };
+}
 
 export function monitorScreenPose(layout: ShipLayout, cabin: ShipCabin) {
   const ring = layout.rings[cabin.ring];
@@ -23,8 +31,8 @@ export function addMonitorRoom(b: Builder, layout: ShipLayout, cabin: ShipCabin)
       box(u, -.75, 1.19, [.6, .04, .28], "#7da6ad");
     });
   }
-  const chair = shipPoint(ring.radius + .85, main.angle);
-  b.furniture("chairDesk", .8, chair, .08, main.angle + Math.PI);
+  const chair = monitorChairPose(layout, cabin);
+  b.furniture("chairDesk", .8, chair.point, .08, chair.facing);
   box(0, edge, 1.9, [main.width + .3, 2.1, .3], "#30495b");
   box(0, edge + .18, 1.9, [main.width, 1.8, .04], "#153f4c", true);
   for (const side of [-1, 1]) for (const row of [0, 1]) for (const column of [0, 1]) {

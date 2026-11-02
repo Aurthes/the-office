@@ -17,6 +17,14 @@ needed. The CEO nameplate appears on hover or keyboard focus; the model remains
 clickable on touch devices. The CEO uses a randomized duck avatar
 saved through existing Studio avatar settings. It has no Codex session.
 
+The CEO has an independent daily routine: sitting at the monitor console,
+stretching, checking a tablet, looking out into space, sipping coffee and visiting
+departments on the main deck. Timing varies, and an occasional small celebration
+breaks up the routine. It uses the existing duck rig, supported walking routes
+and collision checks. Crew and companions also give it space. Selecting the CEO
+keeps the existing camera follow and information card, whose activity updates
+as it moves. These are scene animations; they do not run tasks or issue commands.
+
 Organization metadata lives in Office settings and does not grant execution,
 approval, delegation or filesystem permissions. New recruits inherit their
 department Head; when a Head leaves, a remaining member becomes Head.
