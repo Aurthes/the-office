@@ -35,7 +35,9 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
  try{
   local=new LocalOffice({appDirectory:office,dataDirectory:data,environment:{PATH:'/usr/bin:/bin',CODEX_HOME:foreign}});
   const url=await local.start();
-  browser=await (browserName==='webkit'?webkit:chromium).launch({headless:true,...(browserName==='chrome'?{channel:'chrome'}:{}),...(browserName==='webkit'?{}:{args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']})});
+  // Use the desktop Chromium binary and its normal graphics backend, like real Mac users.
+  // Forcing SwiftShader makes the animated scene saturate CI CPUs and stalls input.
+  browser=await (browserName==='webkit'?webkit:chromium).launch({headless:true,...(browserName==='webkit'?{}:{channel:browserName==='chrome'?'chrome':'chromium'})});
   const context=await browser.newContext({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
   const origin=new URL(url).origin;
   await context.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());

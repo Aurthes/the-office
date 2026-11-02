@@ -67,7 +67,9 @@ The browser check uses a temporary working folder and a local synthetic model,
 then exercises the real packaged startup, first-login screen, recruitment,
 appearance persistence, streaming reply and reloaded history. It redirects only
 the folder picker's initial location to its disposable workspace. `--browser chrome`
-can use an existing Google Chrome installation. WebKit is a browser-engine check,
+can use an existing Google Chrome installation. Chromium uses the full desktop
+browser in headless mode with its normal graphics backend. The check does not force
+the animated 3D scene through a CPU renderer. WebKit is a browser-engine check,
 not a claim that every Safari version or physical microphone has been tested.
 
 The manually triggered **macOS Application Preview** workflow builds Apple Silicon
