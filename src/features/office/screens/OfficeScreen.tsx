@@ -23,6 +23,7 @@ import { SHARED_PROJECT_ID } from "@/features/ring-ship/layout";
 import { OfficeOnboarding } from "@/features/onboarding/components/OfficeOnboarding";
 import { useCompletionReadState } from "@/features/office/hooks/useCompletionReadState";
 import { useCompanyRosterSync } from "@/features/office/hooks/useCompanyRosterSync";
+import { useOfficeOrganization } from "@/features/office/hooks/useOfficeOrganization";
 import { loadCompanySnapshot } from "@/features/office/operations/loadCompanySnapshot";
 import { dispatchFirefighter } from "@/features/office/operations/dispatchFirefighter";
 import { FIREFIGHTER_DUCK_APPEARANCE } from "@/lib/avatars/duck";
@@ -827,6 +828,8 @@ export function OfficeScreen({
   }, [chatOpen, sessionView]);
   const [sessionSearch, setSessionSearch] = useState("");
   const [companyRoster, setCompanyRoster] = useState<CompanyRoster | null>(null);
+  const organizationNames = useMemo(() => new Map(state.agents.map(agent => [agent.agentId, agent.name || agent.agentId])), [state.agents]);
+  const organization = useOfficeOrganization({ roster: companyRoster, names: organizationNames, coordinator: settingsCoordinator, gatewayUrl, enabled: sessionView && status === "connected" });
   const [companyCreationAvailable, setCompanyCreationAvailable] = useState(false);
   const OfficeScene = sessionView ? RingShipOffice : RetroOffice3D;
   const [selectedChatAgentId, setSelectedChatAgentId] = useState<string | null>(
@@ -3096,11 +3099,12 @@ export function OfficeScreen({
     () => {
       const results = new Map(state.agents.map(agent => [agent.agentId, agent]));
       return [...officeAgents.map(agent => sessionView ? { ...agent,
+        title: organization.people.find(person => person.id === agent.id)?.title,
         needsReview: agent.status === "idle" && Boolean(results.get(agent.id)?.completedResult?.unread && readById[agent.id] !== results.get(agent.id)?.completedResult?.key),
         needsInput: Boolean(results.get(agent.id)?.needsInput),
       } : agent)];
     },
-    [officeAgents, sessionView, state.agents, readById],
+    [officeAgents, sessionView, state.agents, readById, organization.people],
   );
   const chatRosterEntries = useMemo<ChatRosterEntry[]>(() => {
     return allVisibleAgents.map(agent => ({
@@ -3315,6 +3319,7 @@ export function OfficeScreen({
         <OfficeScene
           key={activeFloor.id}
           agents={sessionView && !companyRoster ? [] : allVisibleAgents}
+          organization={sessionView ? organization : undefined}
           storageNamespace={activeFloor.id}
           layoutPreset={activeFloor.kind === "lobby" ? "lobby" : "office"}
           officeCenterSignal={officeCameraCenterSignal}
@@ -3771,7 +3776,7 @@ export function OfficeScreen({
               {focusedChatAgent ? (
                 sessionView ? <ExistingSessionPanel onOpenWorkspace={openSessionWorkspace} key={focusedChatAgent.agentId} client={client} threadId={focusedChatAgent.agentId}
                   headerStart={sessionListToggle} headerEnd={sessionWindowActions} voice={voice}
-                  projects={companyRoster?.projects}
+                  projects={companyRoster?.projects} organization={organization}
                   agentName={focusedChatAgent.name} onSessionRenamed={name => dispatch({ type: "updateAgent", agentId: focusedChatAgent.agentId, patch: { name, sessionDisplayName: name } })}
                   avatarProfile={focusedChatAgent.avatarProfile} agentStatus={focusedChatAgent.needsInput ? "needsInput" : focusedChatAgent.status} agentModel={focusedChatAgent.model}
                   onSaveCharacter={async profile => {

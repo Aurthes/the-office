@@ -2,6 +2,7 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { ArrowRightLeft, ArrowLeft, ChevronRight, ExternalLink, LogOut, MoreHorizontal, PanelRight, SlidersHorizontal, PencilLine, UserRound } from "lucide-react";
+import type { OrganizationView } from "@/lib/office/organization";
 import type { CharacterMode } from "@/features/ring-ship/DuckCharacterPanel";
 import type { AgentAvatarProfile } from "@/lib/avatars/profile";
 import type { CompanyProject } from "@/features/retro-office/core/companyLayout";
@@ -28,7 +29,7 @@ type Message = LiveSessionItem;
 type HistoryPage = { threadId: string; messages: Message[]; nextCursor: string | null };
 type LoadMode = "latest" | "older";
 
-export function ExistingSessionPanel({ client, threadId, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, headerStart, headerEnd, projects = [], voice }: {
+export function ExistingSessionPanel({ client, threadId, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, headerStart, headerEnd, projects = [], voice, organization }: {
   client: SessionClient;
   voice?: SessionVoiceController;
   headerStart?: ReactNode;
@@ -44,6 +45,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
   onSessionRenamed?: (name: string) => void;
   onSaveCharacter?: (profile: AgentAvatarProfile) => Promise<void>;
   projects?: CompanyProject[];
+  organization?: OrganizationView;
 }) {
   const t = useUiText();
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -219,7 +221,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
         {headerEnd}
       </div>
     </header>
-    {characterOpen && data && onSaveCharacter ? <DuckCharacterPanel key={`${threadId}:${characterMode}`} mode={characterMode} onModeChange={setCharacterMode} onRename={data.controlsAvailable ? rename : undefined} onReassign={data.controlsAvailable ? reassign : undefined} projects={projects} info={{ ...data, name: sessionName }} profile={avatarProfile} status={agentStatus || data.status} model={agentModel} onSave={onSaveCharacter} /> : null}
+    {characterOpen && data && onSaveCharacter ? <DuckCharacterPanel key={`${threadId}:${characterMode}`} mode={characterMode} onModeChange={setCharacterMode} onRename={data.controlsAvailable ? rename : undefined} onReassign={data.controlsAvailable ? reassign : undefined} projects={projects} organization={organization} info={{ ...data, name: sessionName }} profile={avatarProfile} status={agentStatus || data.status} model={agentModel} onSave={onSaveCharacter} /> : null}
     <div className={characterOpen ? "hidden" : `session-workspace-layout min-h-0 flex-1${workspaceOpen ? " session-workspace-layout--open" : ""}`}>
     <div className="session-conversation flex min-h-0 min-w-0 flex-1 flex-col">
     {metadataError ? <p role="alert" className="p-3 text-xs text-amber-200">{t(metadataError)}</p> : null}

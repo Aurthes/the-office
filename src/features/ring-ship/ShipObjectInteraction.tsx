@@ -1,4 +1,5 @@
 "use client";
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useThree, type ThreeEvent } from "@react-three/fiber";
 import { useCursor } from "@react-three/drei";
@@ -36,7 +37,7 @@ export function ShipObjectScene({ group, enabled, selectedId, onSelect }: {
   </group>;
 }
 
-export function ShipObjectCard({ object, customRoom, onClose }: { object: ShipObject; customRoom: boolean; onClose: () => void }) {
+export function ShipObjectCard({ object, customRoom, onClose, children }: { object: ShipObject; customRoom: boolean; onClose: () => void; children?: ReactNode }) {
   const t = useUiText();
   const [snapshot, setSnapshot] = useState({ id: object.id, activity: object.npc?.activity || "" });
   const activity = snapshot.id === object.id ? snapshot.activity : object.npc?.activity || "";
@@ -56,6 +57,7 @@ export function ShipObjectCard({ object, customRoom, onClose }: { object: ShipOb
     <h2>{object.npc?.name || t(name)}</h2>
     <p className="ship-object-location">{object.space ? t("Nearby space") : <>L{object.deck + 1} · {customRoom ? object.cabinName : t(object.cabinName)}</>}</p>
     <p>{t(description)}</p>
+    {children}
     <div className="ship-object-note"><span>{t(object.npc ? "Current activity" : "Crew note")}</span><p>{t(object.npc ? activity : shipObjectNote(object.id))}</p></div>
   </section>;
 }

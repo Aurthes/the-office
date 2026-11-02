@@ -2,10 +2,10 @@ import type { UiTranslator } from "@/lib/i18n/messages";
 import type { OfficeAgent } from "@/features/retro-office/core/types";
 import { getAgentActivity } from "@/features/retro-office/core/agentActivity";
 
-export function paintCrewNameplate(canvas: HTMLCanvasElement, agent: Pick<OfficeAgent, "name" | "color" | "status" | "needsInput" | "needsReview">, expanded: boolean, workText: string, gearAngle = 0, t: UiTranslator = text => text) {
+export function paintCrewNameplate(canvas: HTMLCanvasElement, agent: Pick<OfficeAgent, "name" | "color" | "status" | "needsInput" | "needsReview" | "title">, expanded: boolean, workText: string, gearAngle = 0, t: UiTranslator = text => text) {
   const activity = getAgentActivity(agent);
   const speaking = activity.kind === "working" && !!workText;
-  const width = expanded ? 640 : 512, height = expanded ? 144 : 128;
+  const width = expanded ? 640 : 512, height = expanded ? 144 : agent.title ? 192 : 128;
   // Assigning even the same size reallocates and resets the canvas backing store.
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
@@ -35,5 +35,6 @@ export function paintCrewNameplate(canvas: HTMLCanvasElement, agent: Pick<Office
     } else c.fillText(marker, canvas.width - 52, expanded ? 44 : 66, 86);
     c.textAlign = "left"; c.textBaseline = "alphabetic";
   }
-  if (expanded) { c.font = "28px system-ui"; c.fillStyle = "#9cb4c3"; c.fillText(t(activity.label), 25, 110); }
+  if (!expanded && agent.title) { c.font = "42px system-ui"; c.fillStyle = "#c3d2d9"; c.fillText(agent.title === "Head" || agent.title === "Worker" ? t(agent.title) : agent.title, 25, 163, canvas.width - 45); }
+  if (expanded) { c.font = "28px system-ui"; c.fillStyle = "#9cb4c3"; c.fillText([agent.title ? t(agent.title) : "", t(activity.label)].filter(Boolean).join(" · "), 25, 110); }
 }
