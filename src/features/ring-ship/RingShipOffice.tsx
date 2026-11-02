@@ -226,6 +226,7 @@ function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId, companion
 function CrewLabel({ agent, lookupRef, placement, expanded, onOpen, deck }: { deck: DeckIndex; agent: OfficeAgent; lookupRef: RefObject<Map<string, RenderAgent>>; placement: RefObject<NameplatePlacement>; expanded: boolean; onOpen: (id: string) => void }) {
   const ref = useRef<THREE.Sprite>(null);
   const leader = useRef<THREE.BufferGeometry>(null);
+  const leaderLine = useRef<THREE.LineSegments>(null);
   const vectors = useMemo(() => ({ anchor: new THREE.Vector3(), up: new THREE.Vector3(), projected: new THREE.Vector3(), bottom: new THREE.Vector3() }), []);
   const t = useUiText();
   const activity = getAgentActivity(agent);
@@ -244,8 +245,9 @@ function CrewLabel({ agent, lookupRef, placement, expanded, onOpen, deck }: { de
     const value = lookupRef.current.get(agent.id); if (!ref.current) return;
     // Identity is always shown for every placed crew member. Alert state only
     // adds a marker/details; it must never decide whether a name exists.
-    ref.current.visible = !!value;
-    if (!value) return;
+    ref.current.visible = !!value && !(value as MovingAgent).kirbyPose;
+    if (leaderLine.current) leaderLine.current.visible = ref.current.visible;
+    if (!value || !ref.current.visible) return;
     if (activity.kind === "working") {
       const bubble = t(workChatter(agent.id, state.clock.elapsedTime * 1000));
       const currentTexture = textureRef.current, tick = Math.floor(state.clock.elapsedTime * 10);
@@ -276,7 +278,7 @@ function CrewLabel({ agent, lookupRef, placement, expanded, onOpen, deck }: { de
     onPointerOut={event => { const canvas = event.nativeEvent.target; if (canvas instanceof HTMLCanvasElement) canvas.removeAttribute("title"); }}
     onClick={event => { event.stopPropagation(); onOpen(agent.id); }}>
     <spriteMaterial map={texture} depthTest={false} depthWrite={false} toneMapped={false} />
-  </sprite><lineSegments frustumCulled={false} renderOrder={99}>
+  </sprite><lineSegments ref={leaderLine} frustumCulled={false} renderOrder={99}>
     <bufferGeometry ref={leader}><bufferAttribute attach="attributes-position" args={[new Float32Array(6), 3]} /></bufferGeometry>
     <lineBasicMaterial color={agent.color} transparent opacity={0.6} depthTest={false} depthWrite={false} />
   </lineSegments></>;
@@ -441,7 +443,7 @@ export function RingShipOffice(props: Props) {
       <ShipHull layout={layout} deck={visibleDeck} whole={shipView} busy={busy} />
       {decks.map((value, index) => <group key={index} position={[0, index * DECK_STEP, 0]} visible={shipView || busy || index === visibleDeck}>
         <StaticShip layout={value} enabled={objectEnabled && (shipView || index === visibleDeck)} selectedId={objectFocus?.id} onSelect={inspectObject} /><ReturnPodBay layout={value} active={!!returnFlight}/>
-        {index === 0 ? <ShipCompanions layout={value} active={!busy && (shipView || visibleDeck === 0)} enabled={objectEnabled && (shipView || visibleDeck === 0)} selectedId={objectFocus?.id} onSelect={inspectObject} companionsRef={companionsRef} crewRef={shipView ? undefined : crewLookupRef} /> : null}
+        {index === 0 ? <ShipCompanions layout={value} active={!busy && (shipView || visibleDeck === 0)} enabled={objectEnabled && (shipView || visibleDeck === 0)} selectedId={objectFocus?.id} onSelect={inspectObject} companionsRef={companionsRef} crewRef={shipView ? undefined : crewLookupRef} chatAgentId={props.activeChatAgentId} /> : null}
         {value.cabins.filter(c => c.kind === "ai").map(cabin => <AiComputationCore key={cabin.id} layout={value} cabin={cabin} interactive={objectEnabled && !shipView && index === visibleDeck} onOpen={() => select(cabin.id)} />)}
       </group>)}
       {!shipView && !busy ? <group position={[0, visibleDeck * DECK_STEP, 0]}>

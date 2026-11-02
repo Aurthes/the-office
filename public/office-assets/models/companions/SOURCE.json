@@ -9,7 +9,8 @@
     "revision": "556637099bf4fa79ea7b239d0d9c328b8a2e9ac8",
     "models": {
       "aaea45be393045e09843afd08dac0f7d": "glbs/000-069/aaea45be393045e09843afd08dac0f7d.glb",
-      "8d06874aac5246c59edb4adbe3606e0e": "glbs/000-142/8d06874aac5246c59edb4adbe3606e0e.glb"
+      "8d06874aac5246c59edb4adbe3606e0e": "glbs/000-142/8d06874aac5246c59edb4adbe3606e0e.glb",
+      "feeec0f123924c2a99f6505a30b66043": "glbs/000-032/feeec0f123924c2a99f6505a30b66043.glb"
     }
   },
   "assets": [
@@ -412,6 +413,19 @@
       ],
       "animations": [],
       "changes": "Geometry simplified and quantized; texture edges capped at 128px and encoded as WebP; transmission replaced with alpha blending."
+    },
+    {
+      "file": "kirby.glb",
+      "author": "Miaru3d",
+      "source": "https://sketchfab.com/3d-models/kirby-feeec0f123924c2a99f6505a30b66043",
+      "license": "CC-BY-4.0",
+      "sourceSha256": "11a42caa7606cfd5bf3cfb31fe5b768915f4ccf220b8349d648b636dd62dedb5",
+      "sha256": "11a42caa7606cfd5bf3cfb31fe5b768915f4ccf220b8349d648b636dd62dedb5",
+      "bytes": 537620,
+      "triangles": 5440,
+      "materials": 2,
+      "animations": [],
+      "changes": "Source geometry and texture files retained unchanged. The app adds procedural poses, expressions and temporary crew appearance copying at runtime."
     }
   ]
 }

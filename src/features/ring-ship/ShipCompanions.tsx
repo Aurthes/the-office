@@ -11,16 +11,19 @@ import type { RenderAgent } from "@/features/retro-office/core/types";
 import { createCompanionFigure } from "./companionFigure";
 import type { ShipLayout } from "./layout";
 import type { ShipObject, ShipObjectKind } from "./shipObjects";
+import { ShipKirby } from "./ShipKirby";
 
 const MODELS = {
   cat: "/office-assets/models/companions/cat.glb", dog: "/office-assets/models/companions/dog.glb",
   drone: "/office-assets/models/companions/mech-drone.glb", bartender: "/office-assets/models/companions/core-bartender.glb",
 };
 const HEIGHTS = { cat: .62, dog: .7, drone: 1.05, bartender: 1.35 };
-const KINDS: Record<CompanionKind, ShipObjectKind> = { cat: "cat", dog: "dog", drone: "mechDrone", bartender: "robotBartender" };
+type ModelKind = Exclude<CompanionKind, "kirby">;
+const KINDS: Record<ModelKind, ShipObjectKind> = { cat: "cat", dog: "dog", drone: "mechDrone", bartender: "robotBartender" };
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
-type Props = { layout: ShipLayout; active: boolean; enabled: boolean; selectedId?: string; onSelect: (object: ShipObject) => void;
-  companionsRef: RefObject<Map<CompanionKind, CompanionState>>; crewRef?: RefObject<Map<string, RenderAgent>> };
+export type ShipCompanionProps = { layout: ShipLayout; active: boolean; enabled: boolean; selectedId?: string; onSelect: (object: ShipObject) => void;
+  companionsRef: RefObject<Map<CompanionKind, CompanionState>>; crewRef?: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null };
+type Props = ShipCompanionProps;
 
 function WorkProps({ cup, cloth, bottle, bubbles, beam, sparks }: {
   cup: RefObject<THREE.Group | null>; cloth: RefObject<THREE.Mesh | null>; bottle: RefObject<THREE.Group | null>;
@@ -45,7 +48,7 @@ function WorkProps({ cup, cloth, bottle, bubbles, beam, sparks }: {
   </>;
 }
 
-function Companion({ kind, ...props }: Props & { kind: CompanionKind }) {
+function Companion({ kind, ...props }: Props & { kind: ModelKind }) {
   const { layout, active, enabled, selectedId, onSelect, companionsRef, crewRef } = props;
   const source = useLoader(GLTFLoader, MODELS[kind]);
   const figure = useMemo(() => createCompanionFigure(source, kind, HEIGHTS[kind]), [source, kind]);
@@ -141,5 +144,5 @@ function Companion({ kind, ...props }: Props & { kind: CompanionKind }) {
 }
 
 export function ShipCompanions(props: Props) {
-  return <>{(["cat", "dog", "drone", "bartender"] as const).map(kind => <Suspense key={kind} fallback={null}><Companion kind={kind} {...props} /></Suspense>)}</>;
+  return <>{(["cat", "dog", "drone", "bartender"] as const).map(kind => <Suspense key={kind} fallback={null}><Companion kind={kind} {...props} /></Suspense>)}<Suspense fallback={null}><ShipKirby {...props} /></Suspense></>;
 }

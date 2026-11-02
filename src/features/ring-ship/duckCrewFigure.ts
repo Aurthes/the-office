@@ -44,6 +44,7 @@ export function createDuckCrewFigure(appearance?: DuckAppearance) {
   const bill = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.84, metalness: 0 });
   const eyes = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0 });
   const uniform = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .88, metalness: .08 });
+  uniform.name = "crew-equipment";
   const yellow = style.featherColor, orange = style.billColor, dark = style.eyeColor;
   const wingYellow = style.outfit === "firefighter" ? style.outfitColor : style.wingColor ?? (yellow === "#ffbb3c" ? "#e6a82f" : "#" + new THREE.Color(yellow).multiplyScalar(.87).getHexString());
   const footColor = style.footColor ?? orange, hatColor = style.headwearColor ?? style.outfitColor;

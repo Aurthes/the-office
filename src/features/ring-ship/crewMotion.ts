@@ -4,14 +4,16 @@ import { SHIP_WORKSTATION } from "./geometry";
 import { routeBetweenCabins, type ShipLayout, type ShipPoint } from "./layout";
 import { crewRadius, moveCharacter, occupiedWaypoint, separateCharacter, type CharacterBody } from "./characterCollision";
 
-export type MovingAgent = RenderAgent & OfficeAgent & { route: ShipPoint[]; routeIndex: number; pauseUntil: number; home: ShipPoint; visiting: boolean };
+export type KirbyCrewPose = ShipPoint & { y: number; scale: number; tilt: number; hidden: boolean };
+export type MovingAgent = RenderAgent & OfficeAgent & { route: ShipPoint[]; routeIndex: number; pauseUntil: number; home: ShipPoint; visiting: boolean; kirbyPose?: KirbyCrewPose };
 export function canvasPoint(point: ShipPoint) { return { x: point.x / SCALE + CANVAS_W / 2, y: point.z / SCALE + CANVAS_H / 2 }; }
 export function worldPoint(agent: RenderAgent): ShipPoint { return { x: (agent.x - CANVAS_W / 2) * SCALE, z: (agent.y - CANVAS_H / 2) * SCALE }; }
 export function hash(value: string) { let result = 0; for (const char of value) result = (result * 31 + char.charCodeAt(0)) >>> 0; return result; }
 export function crewBodies(crew: readonly RenderAgent[], layout: ShipLayout): CharacterBody[] {
   return crew.flatMap(agent => {
     const seat = layout.seats[agent.id];
-    return seat ? [{ id: agent.id, position: worldPoint(agent), radius: crewRadius("avatarProfile" in agent ? agent : {}), deck: seat.deck }] : [];
+    const pose = (agent as MovingAgent).kirbyPose;
+    return seat && !pose?.hidden ? [{ id: agent.id, position: pose || worldPoint(agent), radius: crewRadius("avatarProfile" in agent ? agent : {}) * (pose?.scale ?? 1), deck: seat.deck }] : [];
   });
 }
 
@@ -27,7 +29,8 @@ export function syncCrew(agents: OfficeAgent[], layout: ShipLayout, previousById
       walkSpeed: unchanged ? previous.walkSpeed : 1, phaseOffset: hash(agent.id) % 100, interactionTarget: unchanged ? previous.interactionTarget : undefined,
       workstation: { ...p, deskUid: seat.cabinId + agent.id, facing: seat.facing, pose: "sitting" as const, seatHeight: SHIP_WORKSTATION.seatHeight, surfaceHeight: SHIP_WORKSTATION.surfaceHeight },
       home: { x: seat.x, z: seat.z }, route: keepRoute ? previous.route : [], routeIndex: keepRoute ? previous.routeIndex : 0,
-      visiting: keepRoute ? previous.visiting : false, pauseUntil: keepRoute ? previous.pauseUntil : now + 7000 + hash(agent.id) % 18000 }];
+      visiting: keepRoute ? previous.visiting : false, pauseUntil: keepRoute ? previous.pauseUntil : now + 7000 + hash(agent.id) % 18000,
+      kirbyPose: unchanged ? previous.kirbyPose : undefined }];
   });
 }
 
@@ -39,6 +42,7 @@ export function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number
   for (const a of crew) {
     const seat = layout.seats[a.id]; if (!seat) continue;
     a.frame += dt * 60;
+    if (a.kirbyPose) continue;
     if (a.id === chatAgentId && a.status === "idle" && !a.needsInput) { a.state = "standing"; continue; }
     const needsDesk = a.status === "working" || a.status === "error" || a.needsInput;
     const body = byId.get(a.id)!;

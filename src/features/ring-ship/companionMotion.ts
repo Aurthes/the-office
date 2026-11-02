@@ -2,7 +2,7 @@ import { cabinAngle, routeBetweenCabins, shipPoint, type ShipCabin, type ShipLay
 import { BAR_LAYOUT, barPoint } from "./barLayout";
 import { moveCharacter, occupiedWaypoint, separateCharacter, type CharacterBody } from "./characterCollision";
 
-export type CompanionKind = "cat" | "dog" | "drone" | "bartender";
+export type CompanionKind = "cat" | "dog" | "drone" | "bartender" | "kirby";
 export type CompanionAction = "idle" | "wander" | "run" | "sniff" | "sit" | "sleep" | "stretch" | "groom" | "patrol" | "scan" | "repair" | "charge" | "wash" | "inventory" | "pour" | "wipe";
 export type CompanionState = {
   kind: CompanionKind; action: CompanionAction; time: number; duration: number;
@@ -10,8 +10,8 @@ export type CompanionState = {
   cabinId: string; destinationId: string; route: ShipPoint[]; waypoint: number;
   seed: number; cycles: number; radius: number;
 };
-export const COMPANION_NAMES: Record<CompanionKind, string> = { cat: "MOCHI", dog: "BISCUIT", drone: "PATCH-7", bartender: "C.O.R.E." };
-const RADII: Record<CompanionKind, number> = { cat: .42, dog: .5, drone: .62, bartender: .55 };
+export const COMPANION_NAMES: Record<CompanionKind, string> = { cat: "MOCHI", dog: "BISCUIT", drone: "PATCH-7", bartender: "C.O.R.E.", kirby: "Kirby" };
+const RADII: Record<CompanionKind, number> = { cat: .42, dog: .5, drone: .62, bartender: .55, kirby: .78 };
 export function companionBody(state: CompanionState): CharacterBody {
   return { id: `npc:${state.kind}`, position: state.position, radius: state.radius, deck: 0 };
 }
@@ -50,6 +50,7 @@ export function createCompanionState(kind: CompanionKind, layout: ShipLayout, se
   const cabin = layout.cabins.find(c => c.deck === 0 && c.kind === (kind === "drone" ? "maintenance" : "lounge"));
   if (!cabin) throw new Error(`Missing companion cabin: ${kind}`);
   const position = kind === "bartender" ? barPoint(layout, cabin, -.7, .42)
+    : kind === "kirby" ? companionPoint(layout, cabin, 2.1, -.35)
     : companionPoint(layout, cabin, kind === "cat" ? -.85 : kind === "dog" ? .9 : 0, kind === "drone" ? -.6 : -.15);
   return { kind, action: kind === "bartender" ? "wash" : kind === "drone" ? "scan" : "idle", time: 0,
     duration: kind === "cat" ? 2.5 : kind === "dog" ? 4 : 8, position, facing: cabinAngle(layout, cabin.slot) + (kind === "bartender" ? Math.PI : kind === "cat" ? 1.1 : -1.1),
@@ -60,8 +61,8 @@ export function createCompanionState(kind: CompanionKind, layout: ShipLayout, se
 function nextAction(state: CompanionState, layout: ShipLayout) {
   const previous = state.action, cabin = cabinFor(state, layout), ring = layout.rings[cabin.ring];
   state.cycles++; state.time = 0;
-  if (state.kind === "cat" || state.kind === "dog") {
-    state.action = previous === "sleep" ? "stretch" : pick(state, PET_ACTIONS);
+  if (state.kind === "cat" || state.kind === "dog" || state.kind === "kirby") {
+    state.action = previous === "sleep" ? "stretch" : pick(state, state.kind === "kirby" ? ["wander", "wander", "stretch", "sit", "groom"] : PET_ACTIONS);
     if (state.action === previous) state.action = "wander";
     state.duration = state.action === "sleep" ? 16 + random(state) * 14 : 4 + random(state) * 7;
     if (state.action === "wander" || state.action === "run") {
@@ -106,7 +107,7 @@ export function advanceCompanion(state: CompanionState, layout: ShipLayout, elap
     const closeEnough = state.kind !== "bartender" && distance < body.radius * 2 + .15 && occupiedWaypoint(body, target, others);
     if ((reached || closeEnough) && ++state.waypoint >= state.route.length) {
       state.route = []; state.waypoint = 0; state.cabinId = state.destinationId; state.time = 0;
-      if (state.kind === "cat" || state.kind === "dog") { state.action = "sniff"; state.duration = 2 + random(state) * 3; }
+      if (state.kind === "cat" || state.kind === "dog" || state.kind === "kirby") { state.action = "sniff"; state.duration = 2 + random(state) * 3; }
       if (state.kind === "drone" && state.action === "patrol") { state.action = "scan"; state.duration = 7; }
     }
   } else {

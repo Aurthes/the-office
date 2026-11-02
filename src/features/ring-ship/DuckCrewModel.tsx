@@ -6,6 +6,7 @@ import { toWorld } from "@/features/retro-office/core/geometry";
 import type { AgentModelProps } from "@/features/retro-office/objects/types";
 import type { DuckAppearance } from "@/lib/avatars/duck";
 import { useDuckFigure } from "./useDuckFigure";
+import type { MovingAgent } from "./crewMotion";
 
 export const DuckCrewModel = memo(function DuckCrewModel({
   agentId, agentsRef, agentLookupRef, initialPosition, onHover, onUnhover, onClick, appearance,
@@ -19,13 +20,15 @@ export const DuckCrewModel = memo(function DuckCrewModel({
   useFrame((_, delta) => {
     const agent = agentLookupRef?.current.get(agentId) ?? agentsRef.current.find(value => value.id === agentId);
     if (!group.current) return;
-    group.current.visible = !!agent;
-    if (!agent) return;
+    const prank = (agent as MovingAgent | undefined)?.kirbyPose;
+    group.current.visible = !!agent && !prank?.hidden;
+    if (!agent || prank?.hidden) return;
     const rig = animation.current;
     const [x, , z] = toWorld(agent.x, agent.y), rate = 1 - Math.exp(-Math.min(delta, 0.1) * 12);
     // Motion already advances continuously; a second positional lerp could cut
     // across the collision-safe route and visually pass through another actor.
-    target.set(x, 0.08, z); group.current.position.copy(target);
+    target.set(prank?.x ?? x, prank?.y ?? .08, prank?.z ?? z); group.current.position.copy(target);
+    group.current.scale.setScalar(AGENT_SCALE * (prank?.scale ?? 1)); group.current.rotation.z = prank?.tilt ?? 0;
     group.current.rotation.y += Math.atan2(Math.sin(agent.facing - group.current.rotation.y), Math.cos(agent.facing - group.current.rotation.y)) * rate;
     const walking = agent.state === "walking", seated = agent.state === "sitting";
     const jogging = walking && agent.walkSpeed > 1;
