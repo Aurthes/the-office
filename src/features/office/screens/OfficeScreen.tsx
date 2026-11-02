@@ -232,9 +232,6 @@ const createDemoMainAgentSeed = (): {
 const MAX_OPENCLAW_LOG_ENTRIES = 200;
 const MAX_OPENCLAW_AGENT_OUTPUT_LINES = 12;
 
-const GATEWAY_LOADING_OVERLAY_DELAY_MS = 1_200;
-const GATEWAY_CONNECT_OVERLAY_DELAY_MS = 1_500;
-
 type OpenClawLogEntry = {
   id: string;
   timestamp: string;
@@ -742,10 +739,6 @@ export function OfficeScreen({
     useAgentStore();
   const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [didAttemptGatewayConnect, setDidAttemptGatewayConnect] = useState(false);
-  const [showDelayedGatewayLoadingOverlay, setShowDelayedGatewayLoadingOverlay] =
-    useState(false);
-  const [showDelayedGatewayConnectOverlay, setShowDelayedGatewayConnectOverlay] =
-    useState(false);
   const [clockTick, setClockTick] = useState(0);
   const [debugRows, setDebugRows] = useState<OfficeDebugRow[]>([]);
   const [feedEvents, setFeedEvents] = useState<OfficeFeedEvent[]>([]);
@@ -3227,52 +3220,12 @@ export function OfficeScreen({
   // No longer force-close the jukebox panel when skill is disabled;
   // the panel handles the disabled state itself.
 
-  useEffect(() => {
-    if (
-      status === "connecting" &&
-      !agentsLoaded &&
-      gatewayUrl.trim().length > 0 &&
-      !shouldPromptForConnect
-    ) {
-      const timeoutId = window.setTimeout(() => {
-        setShowDelayedGatewayLoadingOverlay(true);
-      }, GATEWAY_LOADING_OVERLAY_DELAY_MS);
-      return () => {
-        window.clearTimeout(timeoutId);
-      };
-    }
-    setShowDelayedGatewayLoadingOverlay(false);
-  }, [agentsLoaded, gatewayUrl, shouldPromptForConnect, status]);
-
-  useEffect(() => {
-    if (
-      status === "disconnected" &&
-      !agentsLoaded &&
-      didAttemptGatewayConnect &&
-      !shouldPromptForConnect
-    ) {
-      const timeoutId = window.setTimeout(() => {
-        setShowDelayedGatewayConnectOverlay(true);
-      }, GATEWAY_CONNECT_OVERLAY_DELAY_MS);
-      return () => {
-        window.clearTimeout(timeoutId);
-      };
-    }
-    setShowDelayedGatewayConnectOverlay(false);
-  }, [agentsLoaded, didAttemptGatewayConnect, shouldPromptForConnect, status]);
-
-  const showGatewayLoadingOverlay =
-    !agentsLoaded &&
-    (!connectPromptReady ||
-      (gatewayUrl.trim().length > 0 &&
-        !shouldPromptForConnect &&
-        ((!didAttemptGatewayConnect && showDelayedGatewayLoadingOverlay) ||
-          (status === "connecting" && showDelayedGatewayLoadingOverlay))));
   const showGatewayConnectOverlay =
     connectPromptReady &&
     status === "disconnected" &&
     !agentsLoaded &&
-    (shouldPromptForConnect || showDelayedGatewayConnectOverlay);
+    shouldPromptForConnect;
+  const showGatewayLoadingOverlay = !agentsLoaded && !showGatewayConnectOverlay;
 
   const runningCount = state.agents.filter(
     (agent) =>
@@ -3313,12 +3266,10 @@ export function OfficeScreen({
     }} />;
   } : null;
 
-  return (
+  // Connect before mounting WebGL, video and model downloads. Covering the scene
+  // with a loading overlay still makes those requests compete with the handshake.
+  if (showGatewayLoadingOverlay || showGatewayConnectOverlay) return (
     <main className="office-responsive relative h-full w-full overflow-hidden bg-black">
-      {voice.status !== "off" && (!chatOpen || focusedChatAgent?.agentId !== voice.threadId) ? <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-3 right-3 z-[90] mx-auto max-w-lg">
-        <SessionVoiceCall voice={voice} owner={state.agents.find(agent => agent.agentId === voice.threadId)?.name || voice.threadId || "Codex"} onReturn={() => { if (voice.threadId) handleOpenAgentChat(voice.threadId); }} />
-      </div> : null}
-      {showGatewayLoadingOverlay ? <OfficeConnectionScreen connecting /> : null}
       {showGatewayConnectOverlay ? (
         <div className="pointer-events-auto absolute inset-0 z-50 flex items-start justify-center bg-[#120a05]/76 px-4 py-10">
           <div className="w-full max-w-[860px] rounded-2xl border border-amber-900/55 bg-[#120a05]/98 p-3 shadow-2xl">
@@ -3339,7 +3290,15 @@ export function OfficeScreen({
             />
           </div>
         </div>
-      ) : null}
+      ) : <OfficeConnectionScreen connecting />}
+    </main>
+  );
+
+  return (
+    <main className="office-responsive relative h-full w-full overflow-hidden bg-black">
+      {voice.status !== "off" && (!chatOpen || focusedChatAgent?.agentId !== voice.threadId) ? <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-3 right-3 z-[90] mx-auto max-w-lg">
+        <SessionVoiceCall voice={voice} owner={state.agents.find(agent => agent.agentId === voice.threadId)?.name || voice.threadId || "Codex"} onReturn={() => { if (voice.threadId) handleOpenAgentChat(voice.threadId); }} />
+      </div> : null}
       {!sessionView ? <OfficeFloorNav
         activeFloorId={activeFloor.id}
         floorRosterCache={floorRosterCache}

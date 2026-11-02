@@ -22,6 +22,30 @@ vi.mock("@/lib/gateway/openclaw/GatewayBrowserClient", () => {
 });
 
 describe("GatewayClient connect failures", () => {
+  it("allows a slow public WebSocket upgrade but still bounds connection attempts", async () => {
+    vi.useFakeTimers();
+    const client = new GatewayClient();
+    try {
+      const connected = client.connect({ gatewayUrl: "wss://example.invalid" });
+      const rejected = vi.fn();
+      void connected.catch(rejected);
+      await vi.advanceTimersByTimeAsync(21_000);
+      expect(rejected).not.toHaveBeenCalled();
+      const hello = lastOpts?.onHello as (value: unknown) => void;
+      hello({ type: "hello-ok", protocol: 3 });
+      await connected;
+      client.disconnect();
+
+      const failed = client.connect({ gatewayUrl: "wss://example.invalid" });
+      const assertion = expect(failed).rejects.toThrow("Timed out connecting to the gateway");
+      await vi.advanceTimersByTimeAsync(30_000);
+      await assertion;
+    } finally {
+      client.disconnect();
+      vi.useRealTimers();
+    }
+  });
+
   it("rejects connect with GatewayResponseError when close reason encodes connect failed", async () => {
     const client = new GatewayClient();
 
