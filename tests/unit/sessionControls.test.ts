@@ -22,9 +22,11 @@ describe("shared-session composer", () => {
     render(React.createElement(SessionControls, { client: { call }, threadId: "interrupted-draft", onItems: vi.fn() }));
     await screen.findByRole("button", { name: "Continue interrupted task" });
     fireEvent.change(screen.getByLabelText("Send to session"), { target: { value: "Use this new direction" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const send = screen.getByRole("button", { name: "Send" });
+    send.focus(); fireEvent.click(send);
     await waitFor(() => expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ threadId: "interrupted-draft", message: "Use this new direction" })));
     expect(call.mock.calls.some(([method]) => method === "session.continue")).toBe(false);
+    await waitFor(() => expect(screen.getByLabelText("Send to session")).toHaveFocus());
   });
   it("keeps unavailable Codex speech buttons disabled while text chat remains usable", async () => {
     const call = vi.fn().mockResolvedValue({ ...snapshot, activeTurnId: null,
@@ -125,13 +127,16 @@ describe("shared-session composer", () => {
     render(React.createElement(SessionControls, { client: { call }, threadId: "original", onItems: vi.fn() }));
     const input = screen.getByLabelText("Send to session");
     await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false));
+    expect(input).toHaveFocus();
     fireEvent.change(input, { target: { value: "hello" } });
     const button = screen.getByRole("button", { name: "Steer" });
+    button.focus();
     fireEvent.click(button); fireEvent.click(button);
     expect(call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(1);
     expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ threadId: "original", message: "hello", requestId: expect.any(String) }));
     await act(async () => resolve({ status: "steered" }));
     expect((input as HTMLTextAreaElement).value).toBe("");
+    expect(input).toHaveFocus();
   });
   it("uses the exact cancel decision offered by the original server", async () => {
     const call = vi.fn(async () => ({ ...snapshot, approvals: [{ requestId: "approval", method: "item/commandExecution/requestApproval", params: { command: "echo fixture" }, decisions: ["accept", "cancel"], supported: true }] }));
