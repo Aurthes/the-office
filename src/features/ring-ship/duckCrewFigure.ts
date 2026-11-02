@@ -45,7 +45,7 @@ export function createDuckCrewFigure(appearance?: DuckAppearance) {
   const eyes = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0 });
   const uniform = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .88, metalness: .08 });
   const yellow = style.featherColor, orange = style.billColor, dark = style.eyeColor;
-  const wingYellow = style.wingColor ?? (yellow === "#ffbb3c" ? "#e6a82f" : "#" + new THREE.Color(yellow).multiplyScalar(.87).getHexString());
+  const wingYellow = style.outfit === "firefighter" ? style.outfitColor : style.wingColor ?? (yellow === "#ffbb3c" ? "#e6a82f" : "#" + new THREE.Color(yellow).multiplyScalar(.87).getHexString());
   const footColor = style.footColor ?? orange, hatColor = style.headwearColor ?? style.outfitColor;
   const tailColor = style.tailColor ?? (yellow === "#ffbb3c" ? "#e6a82f" : "#" + new THREE.Color(yellow).multiplyScalar(.87).getHexString());
   const billShade = "#" + new THREE.Color(orange).multiplyScalar(.68).getHexString();
@@ -68,6 +68,10 @@ export function createDuckCrewFigure(appearance?: DuckAppearance) {
   }
 
   const body = pivot("body", [0, 0, 0]);
+  const equipment: THREE.Group[] = [];
+  const gear = (name: string, position: [number, number, number], parent = body) => {
+    const group = pivot(name, position, parent); equipment.push(group); return group;
+  };
   // One continuous barrel, with parallel sides and rounded ends: no head/neck seam.
   const torso = add(body, new THREE.CapsuleGeometry(0.14, 0.32, 8, 24), feather, yellow, [0, 0.345, 0], [1.14, 1, 0.93]);
   const positions = torso.geometry.getAttribute("position"), colors = torso.geometry.getAttribute("color");
@@ -124,20 +128,34 @@ export function createDuckCrewFigure(appearance?: DuckAppearance) {
   if (style.eyewear === "round") add(face, new THREE.BoxGeometry(eyeX * 1.35, .005, .005), uniform, hatColor, [0, eyeY, eyeZ + .023]);
   if (style.eyewear === "visor") egg(face, [0, eyeY, eyeZ + .005], [.13 * style.headScale, .035 * style.eyeScale, .024], "#476f82", uniform);
 
-  if (style.outfit === "vest" || style.outfit === "jacket") {
-    const height = style.outfit === "jacket" ? .25 : .19;
+  if (style.outfit === "vest" || style.outfit === "jacket" || style.outfit === "firefighter") {
+    const height = style.outfit === "firefighter" ? .28 : style.outfit === "jacket" ? .25 : .19;
     add(body, new THREE.CylinderGeometry(1, 1, height, 32).scale(.166, 1, .137), uniform, style.outfitColor, [0, .292, 0]);
     for (const side of [-1, 1]) {
       add(body, new THREE.BoxGeometry(.018, height, .018), uniform, "#26333a", [side * .095, .292, .12]);
       for (const y of [.25, .33]) add(body, new THREE.BoxGeometry(.058, .045, .023), uniform, style.outfitColor, [side * .045, y, .139]);
     }
     add(body, new THREE.BoxGeometry(.012, height - .02, .012), uniform, "#b8b6a5", [0, .292, .145]);
+    if (style.outfit === "firefighter") {
+      for (const y of [.19, .355]) {
+        add(body, new THREE.CylinderGeometry(.169, .169, .025, 24).scale(1, 1, .84), uniform, "#d4df63", [0, y, 0]);
+        add(body, new THREE.CylinderGeometry(.17, .17, .01, 24).scale(1, 1, .84), uniform, "#e9e7c6", [0, y, 0]);
+      }
+      for (const side of [-1, 1]) add(body, new THREE.BoxGeometry(.018, .18, .014), uniform, "#d4df63", [side * .081, .285, .124]);
+    }
   }
   if (style.outfit === "scarf") {
     add(body, new THREE.TorusGeometry(.153, .016, 8, 32), uniform, style.outfitColor, [0, .405, 0], [1.08, .9, 1], [Math.PI / 2, 0, 0]);
     add(body, new THREE.BoxGeometry(.047, .15, .018), uniform, style.outfitColor, [.055, .33, .14], [1, 1, 1], [0, 0, -.16]);
   }
-  if (style.backpack) {
+  if (style.backpack && style.backpackStyle === "air-tank") {
+    const tank = gear("firefighter-air-tank", [0, .29, -.175]);
+    add(tank, new THREE.BoxGeometry(.13, .235, .025), uniform, "#283136", [0, 0, .025]);
+    add(tank, new THREE.CapsuleGeometry(.052, .14, 5, 14), uniform, "#d1bd69", [0, 0, -.022]);
+    for (const y of [-.065, .065]) add(tank, new THREE.CylinderGeometry(.054, .054, .016, 14), uniform, "#303b40", [0, y, -.022]);
+    add(tank, new THREE.CylinderGeometry(.014, .014, .03, 10), uniform, "#c09c51", [0, .135, -.022]);
+    for (const side of [-1, 1]) add(body, new THREE.BoxGeometry(.022, .22, .018), uniform, "#303b40", [side * .115, .3, .098], [1, 1, 1], [0, side * .45, side * .1]);
+  } else if (style.backpack) {
     egg(body, [0, .29, -.147], [.095, .11, .045], style.outfitColor, uniform);
     for (const side of [-1, 1]) add(body, new THREE.BoxGeometry(.018, .2, .024), uniform, "#394047", [side * .1, .3, -.075]);
   }
@@ -146,7 +164,8 @@ export function createDuckCrewFigure(appearance?: DuckAppearance) {
     for (const z of tufts) egg(body, [0, .648, z], [.024, .05, .025], style.headColor ?? yellow, feather, [.2, 0, .2]);
   }
   if (style.headwear !== "none") {
-    const helmet = style.headwear === "helmet";
+    const helmet = style.headwear === "helmet" || style.headwear === "firefighter";
+    const headgear = style.headwear === "firefighter" ? gear("firefighter-helmet", [0, 0, 0]) : body;
     const eyeLift = Math.max(0, style.eyeHeight - 1) * .3;
     if (style.headwear === "crown") {
       add(body, new THREE.CylinderGeometry(.13, .14, .065, 24, 1, true), uniform, hatColor, [0, .63 + eyeLift, 0], [style.headScale, 1, style.headScale]);
@@ -155,20 +174,41 @@ export function createDuckCrewFigure(appearance?: DuckAppearance) {
         add(body, new THREE.ConeGeometry(.023, .058, 4), uniform, hatColor, [Math.sin(angle) * .13 * style.headScale, .689 + eyeLift, Math.cos(angle) * .13 * style.headScale]);
       }
     } else {
-    add(body, new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), uniform, hatColor,
+    add(headgear, new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), uniform, hatColor,
       [0, (helmet ? .566 : .565) + eyeLift, 0], [.173 * style.headScale, helmet ? .15 : .118, .148 * style.headScale]);
-    add(body, new THREE.TorusGeometry(1, .025, 6, 36), uniform, "#25333a", [0, (helmet ? .566 : .565) + eyeLift, 0], [.174 * style.headScale, .15 * style.headScale, .149], [Math.PI / 2, 0, 0]);
+    add(headgear, new THREE.TorusGeometry(1, .025, 6, 36), uniform, "#25333a", [0, (helmet ? .566 : .565) + eyeLift, 0], [.174 * style.headScale, .15 * style.headScale, .149], [Math.PI / 2, 0, 0]);
+    if (style.headwear === "firefighter") {
+      add(headgear, new THREE.CylinderGeometry(.21, .215, .014, 28), uniform, hatColor, [0, .565 + eyeLift, -.025], [style.headScale, 1, .84 * style.headScale]);
+      add(headgear, new THREE.BoxGeometry(.014, .06, .18), uniform, hatColor, [0, .694 + eyeLift, 0]);
+      add(headgear, new THREE.CircleGeometry(.032, 5), uniform, "#e8ca72", [0, .628 + eyeLift, .15 * style.headScale]);
+      add(headgear, new THREE.BoxGeometry(.006, .03, .004), uniform, "#993b31", [-.006, .627 + eyeLift, .155 * style.headScale]);
+      for (const y of [.638, .627]) add(headgear, new THREE.BoxGeometry(.018, .005, .004), uniform, "#993b31", [0, y + eyeLift, .155 * style.headScale]);
+    }
     if (style.headwear === "cap") egg(body, [0, .563 + eyeLift, .123], [.126 * style.headScale, .012, .103 * style.headScale], hatColor, uniform);
     if (style.headwear === "beanie") egg(body, [0, .7 + eyeLift, 0], [.035, .035, .035], hatColor, uniform);
     }
   }
 
   const wingParts: THREE.Group[] = [];
+  let hoseGrip: THREE.Group | undefined;
   const wings = [-1, 1].map(side => {
     const wing = pivot(side < 0 ? "left-wing" : "right-wing", [side * 0.158, 0.30, 0.008], body);
     const shape = pivot("wing-shape", [0, 0, 0], wing); wingParts.push(shape);
     shape.scale.set(style.wingWidth, style.wingLength, 1); shape.rotation.z = side * style.wingSpread * Math.PI / 180;
     egg(shape, [side * .006, -.032, 0], [.035, .077, .052], wingYellow, feather, [0, 0, side * .12]);
+    if (style.outfit === "firefighter") {
+      egg(shape, [side * .006, -.071, 0], [.037, .014, .054], "#d4df63", uniform);
+      egg(shape, [side * .006, -.092, .012], [.032, .025, .04], "#283136", uniform);
+    }
+    if (style.hose && side === 1) {
+      wing.rotation.x = -1.05; wing.rotation.z = .12;
+      const nozzle = gear("fire-hose-nozzle", [.025, -.078, .025], shape);
+      add(nozzle, new THREE.CylinderGeometry(.014, .019, .1, 12), uniform, "#b8914c", [0, 0, .02], [1, 1, 1], [Math.PI / 2, 0, 0]);
+      add(nozzle, new THREE.CylinderGeometry(.017, .022, .026, 12), uniform, "#c9d0cb", [0, 0, .08], [1, 1, 1], [Math.PI / 2, 0, 0]);
+      add(nozzle, new THREE.BoxGeometry(.035, .025, .04), uniform, "#283136", [0, -.02, .01]);
+      add(nozzle, new THREE.BoxGeometry(.035, .012, .055), uniform, "#bd3e32", [0, .025, .015]);
+      hoseGrip = pivot("fire-hose-grip", [0, 0, -.03], nozzle);
+    }
     if (style.wingStyle === "layered") for (const z of [-.028, 0, .028]) egg(shape, [side * .022, -.065, z], [.022, .053, .025], wingYellow);
     return wing;
   });
@@ -193,7 +233,7 @@ export function createDuckCrewFigure(appearance?: DuckAppearance) {
   });
 
   // Merge fixed parts by material, while retaining the animated pivots.
-  for (const group of [body, face, ...wingParts, ...feet]) {
+  for (const group of [body, face, ...wingParts, ...feet, ...equipment]) {
     const batches = new Map<THREE.Material, THREE.BufferGeometry[]>();
     for (const child of [...group.children]) {
       if (!(child instanceof THREE.Mesh)) continue;
@@ -210,7 +250,37 @@ export function createDuckCrewFigure(appearance?: DuckAppearance) {
     }
   }
 
-  return { root, body, wings, feet, dispose() {
+  // One small, reusable tube follows the hand and drags along the deck.
+  // Updating its vertices avoids rebuilding geometry or running rope physics.
+  let updateHose: ((time: number) => void) | undefined;
+  if (hoseGrip) {
+    const points = [new THREE.Vector3(), new THREE.Vector3(.28, .18, .06), new THREE.Vector3(.32, .018, -.08), new THREE.Vector3(.36, .018, -.3), new THREE.Vector3(.23, .018, -.53), new THREE.Vector3(.34, .018, -.76)];
+    const curve = new THREE.CatmullRomCurve3(points), segments = 24, sides = 6, radius = .012;
+    const geometry = new THREE.TubeGeometry(curve, segments, radius, sides, false);
+    add(root, geometry, uniform, "#c9b487", [0, 0, 0]).name = "dragging-fire-hose";
+    const vertex = geometry.getAttribute("position"), normal = geometry.getAttribute("normal");
+    const p = new THREE.Vector3(), tangent = new THREE.Vector3(), across = new THREE.Vector3(), binormal = new THREE.Vector3(), n = new THREE.Vector3();
+    const grip = hoseGrip;
+    updateHose = (time: number) => {
+      grip.getWorldPosition(points[0]); root.worldToLocal(points[0]);
+      points[1].copy(points[0]); points[1].x += .06; points[1].y -= .09; points[1].z -= .04;
+      const floor = (.018 - root.position.y) / style.bodyHeight;
+      for (let i = 2; i < points.length; i++) { points[i].y = floor; points[i].x = [.32, .36, .23, .34][i - 2] + Math.sin(time * .7 + i) * .012; }
+      for (let i = 0; i <= segments; i++) {
+        curve.getPoint(i / segments, p); curve.getTangent(i / segments, tangent);
+        across.set(Math.abs(tangent.y) > .95 ? 1 : 0, Math.abs(tangent.y) > .95 ? 0 : 1, 0).cross(tangent).normalize(); binormal.crossVectors(tangent, across).normalize();
+        for (let j = 0; j <= sides; j++) {
+          const angle = j / sides * Math.PI * 2, index = i * (sides + 1) + j;
+          n.copy(across).multiplyScalar(Math.cos(angle)).addScaledVector(binormal, Math.sin(angle));
+          vertex.setXYZ(index, p.x + n.x * radius, p.y + n.y * radius, p.z + n.z * radius); normal.setXYZ(index, n.x, n.y, n.z);
+        }
+      }
+      vertex.needsUpdate = normal.needsUpdate = true; geometry.computeBoundingSphere();
+    };
+    updateHose(0);
+  }
+
+  return { root, body, wings, feet, updateHose, dispose() {
     root.traverse(object => { if (object instanceof THREE.Mesh) object.geometry.dispose(); });
     for (const material of [feather, bill, eyes, uniform]) material.dispose();
   } };

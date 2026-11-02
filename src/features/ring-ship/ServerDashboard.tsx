@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, Cpu, HardDrive, MemoryStick, RefreshCw } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ArrowDown, ArrowUp, Cpu, Flame, HardDrive, MemoryStick, RefreshCw } from "lucide-react";
 import { useUiText } from "@/lib/i18n/ui-language";
 import type { ServerRow, ServerSnapshot } from "@/lib/monitoring/types";
+import { HOT_THRESHOLD, firefighterAlerts, type FirefightHandler, type FirefighterAlert } from "@/lib/monitoring/firefighter";
 
 const groups = { local: "Local machine", online: "Production servers", offline: "Research and compute servers" };
 
@@ -13,33 +14,51 @@ export function formatBytes(value: number | null) {
   return `${(value / 1024 ** power).toFixed(power ? 1 : 0)} ${["B", "KiB", "MiB", "GiB", "TiB"][power]}`;
 }
 
-function Meter({ percent, text, detail, stale }: { percent: number | null; text: string; detail: string; stale: boolean }) {
-  const tone = percent === null ? "unknown" : percent >= 90 ? "hot" : percent >= 70 ? "warm" : "good";
+function Meter({ percent, text, detail, stale, action }: { percent: number | null; text: string; detail: string; stale: boolean; action?: ReactNode }) {
+  const tone = percent === null ? "unknown" : percent >= HOT_THRESHOLD ? "hot" : percent >= 70 ? "warm" : "good";
   return <div className={`monitor-meter ${stale ? "stale" : ""}`} data-tone={tone}>
-    <div className="monitor-meter-value"><span>{text}</span><b>{percent === null ? "—" : `${percent.toFixed(1)}%`}</b></div>
+    <div className="monitor-meter-value"><span>{text}</span><span className="monitor-meter-alert"><b>{percent === null ? "—" : `${percent.toFixed(1)}%`}</b>{action}</span></div>
     <div className="monitor-meter-track"><span style={{ width: `${Math.max(0, Math.min(100, percent ?? 0))}%` }} /></div>
     <small>{detail}</small>
   </div>;
 }
 
-function HostRow({ row }: { row: ServerRow }) {
+function HostRow({ row, onFirefight, busy }: { row: ServerRow; onFirefight?: (alert: FirefighterAlert) => void; busy: boolean }) {
   const t = useUiText(), m = row.metrics, stale = row.status !== "ready";
+  const alerts = firefighterAlerts(row);
+  const rescue = (metric: FirefighterAlert["metric"]) => {
+    const alert = alerts.find(alert => alert.metric === metric);
+    const label = metric === "cpu" ? "CPU" : metric === "memory" ? t("Memory") : t("Disk");
+    return onFirefight && alert ? <button type="button" className="monitor-firefight" disabled={busy} onClick={() => onFirefight(alert)}
+      aria-label={t("Firefight {host}: {metric}", { host: row.alias, metric: label })} title={t("Send this alert to firefighter")}><Flame size={12} /><span>{t("Firefight")}</span></button> : null;
+  };
   const disk = m?.disks.reduce<typeof m.disks[number] | undefined>((best, value) => !best || value.percent > best.percent ? value : best, undefined);
   const status = { ready: "Reachable", pending: "Sampling", unreachable: "Unreachable", disabled: "Registration disabled" }[row.status];
   return <div className="monitor-host-row" data-status={row.status}>
     <div className="monitor-host-name"><span className="monitor-host-dot" /><div><b>{row.alias}</b><small title={row.error ? t(row.error) : undefined}>{t(status)}{stale && m ? ` · ${t("Stale sample")}` : ""}</small></div></div>
-    <div><span className="monitor-mobile-label">CPU</span><Meter percent={m?.cpuPercent ?? null} text={m && m.cpuPercent !== null ? `${(m.cores * m.cpuPercent / 100).toFixed(1)} / ${m.cores}` : "—"} detail={t("Used / total cores")} stale={stale} /></div>
-    <div><span className="monitor-mobile-label">{t("Memory")}</span><Meter percent={m && m.memoryTotal && m.memoryUsed !== null ? m.memoryUsed / m.memoryTotal * 100 : null} text={m ? `${formatBytes(m.memoryUsed)} / ${formatBytes(m.memoryTotal)}` : "—"} detail={t("Used / total RAM")} stale={stale} /></div>
-    <div><span className="monitor-mobile-label">{t("Disk")}</span><Meter percent={disk?.percent ?? null} text={disk ? `${formatBytes(disk.used)} / ${formatBytes(disk.total)}` : "—"} detail={disk?.mount ?? t("Local filesystems")} stale={stale} />{m && m.disks.length > 1 ? <details className="monitor-disks"><summary>{t("{count} local filesystems", { count: m.disks.length })}</summary>{m.disks.map(d => <p key={d.mount}>{d.mount} · {formatBytes(d.used)} / {formatBytes(d.total)} · {d.percent}%</p>)}</details> : null}</div>
+    <div><span className="monitor-mobile-label">CPU</span><Meter percent={m?.cpuPercent ?? null} text={m && m.cpuPercent !== null ? `${(m.cores * m.cpuPercent / 100).toFixed(1)} / ${m.cores}` : "—"} detail={t("Used / total cores")} stale={stale} action={rescue("cpu")} /></div>
+    <div><span className="monitor-mobile-label">{t("Memory")}</span><Meter percent={m && m.memoryTotal && m.memoryUsed !== null ? m.memoryUsed / m.memoryTotal * 100 : null} text={m ? `${formatBytes(m.memoryUsed)} / ${formatBytes(m.memoryTotal)}` : "—"} detail={t("Used / total RAM")} stale={stale} action={rescue("memory")} /></div>
+    <div><span className="monitor-mobile-label">{t("Disk")}</span><Meter percent={disk?.percent ?? null} text={disk ? `${formatBytes(disk.used)} / ${formatBytes(disk.total)}` : "—"} detail={disk?.mount ?? t("Local filesystems")} stale={stale} action={rescue("disk")} />{m && m.disks.length > 1 ? <details className="monitor-disks"><summary>{t("{count} local filesystems", { count: m.disks.length })}</summary>{m.disks.map(d => <p key={d.mount}>{d.mount} · {formatBytes(d.used)} / {formatBytes(d.total)} · {d.percent}%</p>)}</details> : null}</div>
     <div className="monitor-host-network"><span className="monitor-mobile-label">{t("Network")}</span><span><ArrowDown size={11} />{formatBytes(m?.rxBytesPerSecond ?? null)}/s</span><span><ArrowUp size={11} />{formatBytes(m?.txBytesPerSecond ?? null)}/s</span></div>
     <div className="monitor-host-time" title={row.sampledAt ? new Date(row.sampledAt).toLocaleString() : undefined}>{row.sampledAt ? new Date(row.sampledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}</div>
   </div>;
 }
 
-export function ServerDashboard({ active }: { active: boolean }) {
+export function ServerDashboard({ active, onFirefight }: { active: boolean; onFirefight?: FirefightHandler }) {
   const t = useUiText();
   const [snapshot, setSnapshot] = useState<ServerSnapshot | null>(null), [error, setError] = useState("");
   const [request, setRequest] = useState(0);
+  const [dispatching, setDispatching] = useState(false), [dispatchError, setDispatchError] = useState("");
+  const sending = useRef(false), operation = useRef<{ key: string; id: string } | null>(null);
+  const rescue = async (alert: FirefighterAlert) => {
+    if (!onFirefight || sending.current) return;
+    sending.current = true; setDispatching(true); setDispatchError("");
+    const key = JSON.stringify(alert);
+    if (operation.current?.key !== key) operation.current = { key, id: crypto.randomUUID() };
+    try { await onFirefight(alert, operation.current.id); operation.current = null; }
+    catch (cause) { setDispatchError(`${cause instanceof Error ? t(cause.message) : t("Could not dispatch firefighter.")} ${t("Check the firefighter conversation before retrying.")}`); }
+    finally { sending.current = false; setDispatching(false); }
+  };
   useEffect(() => {
     if (!active) return;
     const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>, live = true, running = false;
@@ -68,6 +87,8 @@ export function ServerDashboard({ active }: { active: boolean }) {
   return <section className="monitor-fleet" aria-label={t("Server fleet status")}>
     <div className="monitor-fleet-heading"><div><h2>{t("Server fleet")}</h2><p>{t("Read-only host samples · Updates every 30 seconds while visible")}</p></div><button className="monitor-icon-button" type="button" disabled={snapshot?.refreshing} onClick={() => setRequest(n => n + 1)} aria-label={t("Refresh server status")}><RefreshCw size={16} className={snapshot?.refreshing ? "animate-spin" : ""} /></button></div>
     {error ? <p role="alert" className="monitor-error">{t(error)}{snapshot ? ` · ${t("Showing the last received snapshot.")}` : ""}</p> : null}
+    {dispatchError ? <p role="alert" className="monitor-error">{dispatchError}</p> : null}
+    {dispatching ? <p role="status" className="monitor-dispatching">{t("Dispatching firefighter…")}</p> : null}
     {snapshot?.configured === false ? <div className="monitor-empty">{t("Server monitoring has not been connected yet.")}</div> : <>
       <div className="monitor-fleet-totals">
         <div><span>{t("Reporting hosts")}</span><b>{snapshot ? `${reporting.length} / ${rows.filter(row => row.active).length}` : "—"}</b><small>{snapshot?.refreshing ? t("Sampling registered servers…") : t("Reachability is separate from server purpose.")}</small></div>
@@ -78,9 +99,9 @@ export function ServerDashboard({ active }: { active: boolean }) {
         <div className="monitor-host-columns" aria-hidden="true"><span>{t("Server")}</span><span>CPU</span><span>{t("Memory")}</span><span><HardDrive size={12} />{t("Most-used local disk")}</span><span>{t("Network")}</span><span>{t("Sampled")}</span></div>
         {Object.entries(groups).filter(([group]) => group !== "local" || rows.some(row => row.group === "local")).map(([group, label]) => <section key={group} className="monitor-host-group" aria-label={t(label)}>
           <h3><span>{t(label)}</span><small>{rows.filter(row => row.group === group && row.active).length} {t("registered")}</small></h3>
-          {rows.filter(row => row.group === group && row.active).sort((a, b) => a.alias.localeCompare(b.alias, undefined, { numeric: true })).map(row => <HostRow key={row.alias} row={row} />)}
+          {rows.filter(row => row.group === group && row.active).sort((a, b) => a.alias.localeCompare(b.alias, undefined, { numeric: true })).map(row => <HostRow key={row.alias} row={row} onFirefight={onFirefight ? alert => void rescue(alert) : undefined} busy={dispatching} />)}
         </section>)}
-        {rows.some(row => !row.active) ? <details className="monitor-disabled"><summary>{t("Disabled registrations")} · {rows.filter(row => !row.active).length}</summary>{rows.filter(row => !row.active).map(row => <HostRow key={row.alias} row={row} />)}</details> : null}
+        {rows.some(row => !row.active) ? <details className="monitor-disabled"><summary>{t("Disabled registrations")} · {rows.filter(row => !row.active).length}</summary>{rows.filter(row => !row.active).map(row => <HostRow key={row.alias} row={row} busy={false} />)}</details> : null}
         <p className="monitor-fleet-note">{t("Disk shows the fullest local filesystem. Expand a row to see its other local disks. Network filesystems are excluded.")}</p>
       </>}
     </>}

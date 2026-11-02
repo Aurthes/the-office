@@ -24,6 +24,8 @@ import { OfficeOnboarding } from "@/features/onboarding/components/OfficeOnboard
 import { useCompletionReadState } from "@/features/office/hooks/useCompletionReadState";
 import { useCompanyRosterSync } from "@/features/office/hooks/useCompanyRosterSync";
 import { loadCompanySnapshot } from "@/features/office/operations/loadCompanySnapshot";
+import { dispatchFirefighter } from "@/features/office/operations/dispatchFirefighter";
+import { FIREFIGHTER_DUCK_APPEARANCE } from "@/lib/avatars/duck";
 import { GatewayConnectScreen } from "@/features/agents/components/GatewayConnectScreen";
 import { useAgentStore, type AgentState } from "@/features/agents/state/store";
 import {
@@ -3297,20 +3299,21 @@ export function OfficeScreen({
       title={t(chatExpanded ? "Restore" : "Expand")} className="session-header-button office-chat-expand hidden md:inline-flex">{chatExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
     <button type="button" onClick={() => setChatOpen(false)} aria-label={t("Close chat and return to office")} title={t("Close chat")} className="session-header-button"><X size={18} /></button>
   </>;
+  const acceptCreatedSession = async (threadId?: string, avatarProfile?: AgentAvatarProfile) => {
+    if (threadId && avatarProfile) {
+      await settingsCoordinator.applyPatchNow({ avatars: { [gatewayUrl.trim()]: { [threadId]: avatarProfile } } });
+    }
+    await loadAgents({ silent: true, forceSettings: Boolean(avatarProfile) });
+    if (threadId && avatarProfile) dispatch({ type: "updateAgent", agentId: threadId, patch: { avatarProfile, avatarSeed: avatarProfile.seed } });
+    if (threadId) {
+      if (showOnboardingWizard) handleCompleteOnboarding();
+      handleOpenAgentChat(threadId);
+    }
+  };
   const companyActions = sessionView && companyRoster ? (areaId: string) => {
     const projectId = areaId === SHARED_PROJECT_ID ? null : companyRoster.projects.find(project => project.id === areaId)?.id;
     return <CompanyActions key={projectId === null ? "open-space" : projectId || "whole-company"} client={client} projects={companyRoster.projects} selectedProjectId={projectId}
-    disabled={status !== "connected" || !companyCreationAvailable} onCreated={async (threadId, avatarProfile) => {
-      if (threadId && avatarProfile) {
-        await settingsCoordinator.applyPatchNow({ avatars: { [gatewayUrl.trim()]: { [threadId]: avatarProfile } } });
-      }
-      await loadAgents({ silent: true, forceSettings: Boolean(avatarProfile) });
-      if (threadId && avatarProfile) dispatch({ type: "updateAgent", agentId: threadId, patch: { avatarProfile, avatarSeed: avatarProfile.seed } });
-      if (threadId) {
-        if (showOnboardingWizard) handleCompleteOnboarding();
-        handleOpenAgentChat(threadId);
-      }
-    }} />;
+    disabled={status !== "connected" || !companyCreationAvailable} onCreated={acceptCreatedSession} />;
   } : null;
 
   return (
@@ -3359,6 +3362,10 @@ export function OfficeScreen({
           animationState={officeAnimationState}
           companyRoster={companyRoster}
           companyActions={showOnboardingWizard ? null : companyActions}
+          onFirefight={sessionView && status === "connected" && companyCreationAvailable ? async (alert, requestId) => {
+            const result = await dispatchFirefighter(client, alert, requestId);
+            await acceptCreatedSession(result.threadId, result.created ? { ...createDefaultAgentAvatarProfile(result.threadId), duck: { ...FIREFIGHTER_DUCK_APPEARANCE } } : undefined);
+          } : undefined}
           deskAssignmentByDeskUid={deskAssignmentByDeskUid}
           githubReviewAgentId={githubReviewAgentId}
           qaTestingAgentId={qaTestingAgentId}

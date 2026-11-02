@@ -1,8 +1,8 @@
 "use client";
 import { useRef, useState } from "react";
-import { ArrowLeft, ArrowRightLeft, Check, RotateCcw, Shuffle } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, Check, Flame, RotateCcw, Shuffle } from "lucide-react";
 import { createDefaultAgentAvatarProfile, type AgentAvatarProfile } from "@/lib/avatars/profile";
-import { DEFAULT_DUCK_APPEARANCE, normalizeDuckAppearance, createDuckAppearanceFromSeed } from "@/lib/avatars/duck";
+import { DEFAULT_DUCK_APPEARANCE, FIREFIGHTER_DUCK_APPEARANCE, normalizeDuckAppearance, createDuckAppearanceFromSeed } from "@/lib/avatars/duck";
 import { useUiText } from "@/lib/i18n/ui-language";
 import type { SessionInspection } from "@/features/office/components/ExistingSessionPanel";
 import { randomUUID } from "@/lib/uuid";
@@ -91,6 +91,7 @@ export function DuckCharacterPanel({ info, profile, status, model, onSave, mode,
       <h3>{info.name}</h3>
       <div className="duck-character-status"><span data-working={status === "running"} />{t(status === "running" ? "Working" : status === "error" ? "Error" : status === "needsInput" ? "Needs your input" : "Idle")}</div>
       {editing ? <>
+        <button type="button" className="duck-character-shuffle" disabled={saving} onClick={() => { setDraft({ ...FIREFIGHTER_DUCK_APPEARANCE }); setView("body"); }}><Flame size={14} />{t("Firefighter kit")}</button>
         <button type="button" className="duck-character-shuffle" disabled={saving} onClick={() => setDraft(createDuckAppearanceFromSeed(randomUUID()))}><Shuffle size={14} />{t("Randomize character")}</button>
         <DuckAppearanceEditor value={draft} onChange={setDraft} disabled={saving} onPartChange={part => setView(part === "head" || part === "face" ? "face" : part === "tail" ? "back" : "body")} />
         {error ? <p role="alert" className="duck-character-error">{error}</p> : null}

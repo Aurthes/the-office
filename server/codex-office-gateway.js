@@ -75,6 +75,7 @@ const methods = {
       entries: result.entries.filter(e => e.isDirectory && typeof e.fileName === "string" && e.fileName && !/[\/\\\0\r\n]/.test(e.fileName) && !e.fileName.startsWith(".")).map(e => e.fileName).sort().slice(0, 300) };
   },
   "session.create": p => store.createSession(p),
+  "session.firefighter": () => store.firefighter(),
   "session.rename": p => store.renameSession(p),
   "session.reassign": p => store.reassignSession(p),
   "session.archive": p => { if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before archiving"); if (controls.state(p.threadId).activeTurnId) throw new Error("Stop the active task before archiving"); return store.archiveSession(p); },

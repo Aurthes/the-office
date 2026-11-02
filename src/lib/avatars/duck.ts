@@ -8,12 +8,14 @@ export type DuckAppearance = {
   billScale: number;
   billWidth: number;
   billLength: number;
-  headwear: "none" | "cap" | "helmet" | "beanie" | "crown";
+  headwear: "none" | "cap" | "helmet" | "beanie" | "crown" | "firefighter";
   headwearColor: string | null;
   eyewear: "none" | "round" | "visor";
-  outfit: "none" | "vest" | "jacket" | "scarf";
+  outfit: "none" | "vest" | "jacket" | "scarf" | "firefighter";
   outfitColor: string;
   backpack: boolean;
+  backpackStyle: "pack" | "air-tank";
+  hose: boolean;
   bodyWidth: number;
   bodyDepth: number;
   bodyHeight: number;
@@ -45,12 +47,19 @@ export const DUCK_BILL_COLORS = ["#f58b28", "#d5a14b", "#e4bb76", "#bd7754", "#d
 export const DEFAULT_DUCK_APPEARANCE: Readonly<DuckAppearance> = Object.freeze({
   featherColor: "#ffbb3c", headColor: null, headScale: 1, crest: "none",
   billColor: "#f58b28", billShape: "classic", billScale: 1, billWidth: 1, billLength: 1,
-  headwear: "none", headwearColor: null, eyewear: "none", outfit: "none", outfitColor: "#394b54", backpack: false,
+  headwear: "none", headwearColor: null, eyewear: "none", outfit: "none", outfitColor: "#394b54", backpack: false, backpackStyle: "pack", hose: false,
   bodyWidth: 1, bodyDepth: 1, bodyHeight: 1, bellyPatch: false, bellyColor: "#ece9d8",
   eyeSpacing: 1, eyeHeight: 1, eyeScale: 1, eyeColor: "#302e28", eyeStyle: "round",
   wingColor: null, wingLength: 1, wingWidth: 1, wingSpread: 0, wingStyle: "smooth",
   footColor: null, footScale: 1, footSpacing: 1, footStyle: "webbed",
   tailColor: null, tailScale: 1, tailStyle: "round",
+});
+
+export const FIREFIGHTER_DUCK_APPEARANCE: Readonly<DuckAppearance> = Object.freeze({
+  ...DEFAULT_DUCK_APPEARANCE,
+  featherColor: "#ece9d8", headwear: "firefighter", headwearColor: "#bd3e32",
+  outfit: "firefighter", outfitColor: "#a78d62", wingColor: "#a78d62",
+  backpack: true, backpackStyle: "air-tank", hose: true, footStyle: "boots", footColor: "#283136",
 });
 
 export function normalizeDuckAppearance(value: unknown): DuckAppearance {
@@ -65,9 +74,10 @@ export function normalizeDuckAppearance(value: unknown): DuckAppearance {
     crest: choice(raw.crest, ["none", "tuft", "mohawk"], "none"),
     billColor: color(raw.billColor, base.billColor), billShape: choice(raw.billShape, ["classic", "sculpted"], "classic"),
     billScale: ratio(raw.billScale, .7, 1.4), billWidth: ratio(raw.billWidth, .75, 1.35), billLength: ratio(raw.billLength, .75, 1.35),
-    headwear: choice(raw.headwear, ["none", "cap", "helmet", "beanie", "crown"], "none"), headwearColor: optionalColor(raw.headwearColor),
+    headwear: choice(raw.headwear, ["none", "cap", "helmet", "beanie", "crown", "firefighter"], "none"), headwearColor: optionalColor(raw.headwearColor),
     eyewear: choice(raw.eyewear, ["none", "round", "visor"], "none"),
-    outfit: choice(raw.outfit, ["none", "vest", "jacket", "scarf"], "none"), outfitColor: color(raw.outfitColor, base.outfitColor), backpack: raw.backpack === true,
+    outfit: choice(raw.outfit, ["none", "vest", "jacket", "scarf", "firefighter"], "none"), outfitColor: color(raw.outfitColor, base.outfitColor), backpack: raw.backpack === true,
+    backpackStyle: choice(raw.backpackStyle, ["pack", "air-tank"], "pack"), hose: raw.hose === true,
     bodyWidth: ratio(raw.bodyWidth, .75, 1.3), bodyDepth: ratio(raw.bodyDepth, .75, 1.3), bodyHeight: ratio(raw.bodyHeight, .75, 1.3),
     bellyPatch: raw.bellyPatch === true, bellyColor: color(raw.bellyColor, base.bellyColor),
     eyeSpacing: ratio(raw.eyeSpacing, .7, 1.3), eyeHeight: ratio(raw.eyeHeight, .9, 1.1), eyeScale: ratio(raw.eyeScale, .7, 1.4),

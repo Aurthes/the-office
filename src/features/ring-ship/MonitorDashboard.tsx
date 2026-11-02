@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { ArrowLeft, ArrowUpRight, Check, Monitor, Plus, Settings2, Trash2, X } from "lucide-react";
 import { useUiText } from "@/lib/i18n/ui-language";
 import type { MonitorLink } from "@/lib/monitoring/types";
+import type { FirefightHandler } from "@/lib/monitoring/firefighter";
 import { openStrategyMonitor, strategyMonitorUrl } from "./strategyMonitor";
 import { MonitorIllustration } from "./MonitorIllustration";
 import { ServerDashboard } from "./ServerDashboard";
@@ -12,7 +13,7 @@ import "./monitor-dashboard.css";
 
 const embedsAccountHistory = (link: MonitorLink) => link.url === "/account-history/";
 
-export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function MonitorDashboard({ open, onClose, onFirefight }: { open: boolean; onClose: () => void; onFirefight?: FirefightHandler }) {
   const t = useUiText(), dialog = useRef<HTMLDialogElement>(null);
   const [view, setView] = useState<"hub" | "servers" | "configure" | "account-history">("hub");
   const [embedded, setEmbedded] = useState<MonitorLink | null>(null);
@@ -84,7 +85,7 @@ export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: ()
           </div>
           <p className="monitor-footnote">{t("The illustrations are shortcuts. Live data appears in the dashboards you open.")}</p>
         </> : null}
-        <div hidden={view !== "servers"}><ServerDashboard active={open && view === "servers"} /></div>
+        <div hidden={view !== "servers"}><ServerDashboard active={open && view === "servers"} onFirefight={onFirefight ? async (alert, id) => { await onFirefight(alert, id); close(); } : undefined} /></div>
         {open && view === "account-history" && embedded ? <iframe className="monitor-embedded-frame" src={embedded.url} title={embedded.label} referrerPolicy="same-origin" onLoad={event => {
           try {
             event.currentTarget.contentWindow?.addEventListener("keydown", key => {
