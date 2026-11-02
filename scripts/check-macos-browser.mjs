@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Real packaged runtime and browser; only the model and initial folder are fixtures.
+// Real runtime and browser; model, initial folder and unconnected optional music are fixtures.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -42,6 +42,11 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   const context=await browser.newContext({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
   const origin=new URL(url).origin;
   await context.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
+  // A fresh user has no music account. Do not read the test host's music credentials.
+  await context.route('**/api/music/netease**',route=>{
+   const action=new URL(route.request().url()).searchParams.get('action');
+   return route.fulfill({status:action?503:200,json:action?{error:'Music is not configured in this clean-user fixture.',code:'SETUP_REQUIRED'}:{configured:false,authorized:false}});
+  });
   // Use the disposable folder as the file picker's initial location. All folder,
   // creation, settings, streaming and history calls go to the real bundled engine.
   await context.routeWebSocket('**/api/gateway/ws',ws=>{const server=ws.connectToServer();ws.onMessage(message=>{let frame;try{frame=JSON.parse(String(message))}catch{return server.send(message)}if(frame.method==='project.folders.list'&&!frame.params?.path)frame.params={...frame.params,path:workspace};server.send(JSON.stringify(frame))})});

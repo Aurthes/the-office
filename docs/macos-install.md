@@ -26,12 +26,13 @@ Closing the browser leaves Office running. Reopen it from the Dock or the app's
 Office tasks; conversations remain saved and can be continued after reopening.
 The launcher also cleans up its own children if the native wrapper disappears.
 
-All mutable data is under `~/Library/Application Support/The Office/`: independent
+Office core data is under `~/Library/Application Support/The Office/`: independent
 Codex state in `runtime/`, settings in `state/`, uploads, local startup settings,
 versioned web caches and service logs. App resources stay immutable. Ports and
 the private gateway token are generated automatically and retained across starts.
 The app listens only on loopback and does not install login items, tunnels or
-system services. Optional remote hosting keeps its separate deployment workflow.
+system services. Optional integrations keep their existing configuration locations.
+Optional remote hosting keeps its separate deployment workflow.
 
 ## Build and validate
 
@@ -66,7 +67,10 @@ quality or account entitlement.
 The browser check uses a temporary working folder and a local synthetic model,
 then exercises the real packaged startup, first-login screen, recruitment,
 appearance persistence, streaming reply and reloaded history. It redirects only
-the folder picker's initial location to its disposable workspace. `--browser chrome`
+the folder picker's initial location to its disposable workspace and represents
+optional music as unconfigured, so a test never uses the host's music account.
+Core creation, settings, chat and history requests still reach the real runtime.
+`--browser chrome`
 can use an existing Google Chrome installation. Chromium uses the full desktop
 browser in headless mode with its normal graphics backend. The check does not force
 the animated 3D scene through a CPU renderer. WebKit is a browser-engine check,
