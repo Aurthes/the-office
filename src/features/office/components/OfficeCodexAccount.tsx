@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import type { SessionClient } from "./SessionControls";
 import { useUiText } from "@/lib/i18n/ui-language";
 
-export function OfficeCodexAccount({ client, onAccountChange }: { client: SessionClient; onAccountChange?: (loggedIn: boolean) => void }) {
+export function OfficeCodexAccount({ client, onAccountChange, quiet = false }: { client: SessionClient; onAccountChange?: (loggedIn: boolean) => void; quiet?: boolean }) {
   const t = useUiText();
   const [required, setRequired] = useState(false), [busy, setBusy] = useState(false);
   const [url, setUrl] = useState(""), [error, setError] = useState("");
@@ -18,9 +18,11 @@ export function OfficeCodexAccount({ client, onAccountChange }: { client: Sessio
         onAccountChange?.(account.loggedIn);
       }
     }).catch(() => { if (!stopped) { setError(t("Could not check Codex sign-in. Please retry.")); setChecked(true); onAccountChange?.(false); } }); };
-    refresh();
     const off = client.onEvent?.(event => { if (event.event === "office.account") refresh(); });
+    // The gateway subscription immediately reports its current status, so it
+    // also owns the initial read. Avoid a second parallel read on every mount.
     const status = client.onStatus?.(value => { if (value === "connected") refresh(); });
+    if (!client.onStatus) refresh();
     return () => { stopped = true; off?.(); status?.(); };
   }, [client, onAccountChange, retry, t]);
   const signIn = (device = false) => {
@@ -33,7 +35,9 @@ export function OfficeCodexAccount({ client, onAccountChange }: { client: Sessio
       setUrl(target.href); setCode(result.userCode || "");
     }).catch(cause => setError(cause instanceof Error ? cause.message : "Sign-in failed")).finally(() => setBusy(false));
   };
-  if (!checked) return <p role="status" className="my-2 text-xs text-white/60">{t("Checking Codex sign-in…")}</p>;
+  // Opening a chat only reads the shared account; keep that routine check
+  // quiet. Explicit retries and actual sign-in requirements remain visible.
+  if (!checked) return quiet && !retry ? null : <p role="status" className="my-2 text-xs text-white/60">{t("Checking Codex sign-in…")}</p>;
   if (!required && !error) return null;
   if (!required) return <div className="my-2 text-xs text-amber-100"><p role="alert">{error}</p><button className="mt-2 min-h-10 underline" onClick={() => { setChecked(false); setRetry(value => value + 1); }}>{t("Retry")}</button></div>;
   return <div className="my-2 rounded-lg border border-cyan-300/25 bg-[#11212c] p-2 text-xs text-white/80">

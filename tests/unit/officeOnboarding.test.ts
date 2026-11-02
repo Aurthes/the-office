@@ -5,6 +5,45 @@ import { OfficeOnboarding } from "@/features/onboarding/components/OfficeOnboard
 import { CompanyActions } from "@/features/office/components/CompanyActions";
 import { OfficeCodexAccount } from "@/features/office/components/OfficeCodexAccount";
 afterEach(cleanup);
+it("reads the shared account once on mount and checks again on reconnect or account changes",async()=>{
+ let status!: (value:"connected"|"disconnected")=>void,notify!: (value:{event:string})=>void;
+ const call=vi.fn(async()=>({loggedIn:true}));
+ const client={call,onStatus:(listener:typeof status)=>{status=listener;listener("connected");return()=>{};},onEvent:(listener:typeof notify)=>{notify=listener;return()=>{};}};
+ render(React.createElement(OfficeCodexAccount,{client,quiet:true}));await act(async()=>{});
+ expect(call).toHaveBeenCalledExactlyOnceWith("office.account",{});
+ await act(async()=>{status("disconnected");status("connected");});expect(call).toHaveBeenCalledTimes(2);
+ await act(async()=>notify({event:"office.account"}));expect(call).toHaveBeenCalledTimes(3);
+ expect(screen.queryByText("Checking Codex sign-in…")).not.toBeInTheDocument();
+});
+it("checks each chat quietly without starting another login",async()=>{
+ const call=vi.fn(async()=>({loggedIn:true}));
+ for(let opened=0;opened<2;opened++){
+  const view=render(React.createElement(OfficeCodexAccount,{client:{call},quiet:true}));
+  expect(screen.queryByText("Checking Codex sign-in…")).not.toBeInTheDocument();
+  await act(async()=>{});
+  expect(screen.queryByRole("button",{name:"Sign in with ChatGPT"})).not.toBeInTheDocument();view.unmount();
+ }
+ expect(call.mock.calls).toEqual([["office.account",{}],["office.account",{}]]);
+});
+it("still shows a real sign-in requirement after a quiet account check",async()=>{
+ let finish!: (value:{loggedIn:boolean})=>void;
+ const pending=new Promise(resolve=>{finish=resolve;});
+ const call=vi.fn(async()=>pending);
+ render(React.createElement(OfficeCodexAccount,{client:{call},quiet:true}));
+ expect(screen.queryByText("Checking Codex sign-in…")).not.toBeInTheDocument();
+ await act(async()=>finish({loggedIn:false}));
+ expect(screen.getByRole("button",{name:"Sign in with ChatGPT"})).toBeInTheDocument();
+ expect(call).toHaveBeenCalledExactlyOnceWith("office.account",{});
+});
+it("keeps account-check failures visible in quiet chats and reports deliberate retry progress",async()=>{
+ let finish!: (value:{loggedIn:boolean})=>void;
+ const call=vi.fn().mockRejectedValueOnce(new Error("offline")).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+ render(React.createElement(OfficeCodexAccount,{client:{call},quiet:true}));
+ await screen.findByRole("alert");fireEvent.click(screen.getByRole("button",{name:"Retry"}));
+ expect(screen.getByText("Checking Codex sign-in…")).toBeInTheDocument();
+ await act(async()=>finish({loggedIn:true}));
+ expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
 it("uses the Office sign-in and recruitment path without OpenClaw setup",async()=>{
  let notify!: (value: {event:string})=>void;let signedIn=false;
  const call=vi.fn(async(method:string)=>method==="office.account"?{loggedIn:signedIn,loginFlow:"browser"}:{authUrl:"https://auth.openai.com/authorize"});

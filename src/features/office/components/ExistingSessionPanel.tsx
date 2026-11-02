@@ -252,7 +252,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
       lastTop.current = node.scrollTop; setShowLatest(false);
     }} className="absolute bottom-3 left-1/2 z-10 min-h-10 -translate-x-1/2 rounded-full border border-white/20 bg-[#243346] px-4 text-xs text-white shadow-xl hover:bg-[#30445c]">{t("↓ Latest messages")}</button> : null}
     </div>
-    {data?.runtime === "office" ? <OfficeCodexAccount client={client} /> : null}
+    {data?.runtime === "office" ? <OfficeCodexAccount client={client} quiet /> : null}
     {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} voice={voice} /> : null}
     </div>
     {workspaceOpen ? <SessionWorkspace key={threadId} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
