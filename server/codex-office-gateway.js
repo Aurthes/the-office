@@ -15,18 +15,20 @@ const { createOfficeDictation, suggestNextMessage } = require("./office-model-se
 const { readAiCenter } = require("./ai-center");
 const { questionReplyMessage } = require("./codex-session-questions");
 const { OfficeSchedules } = require("./office-schedules");
+const { CodexSessionComposer } = require("./codex-session-composer");
 
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
 const directory = officeEnvironment(path.resolve(process.env.CLAW3D_OFFICE_DATA_DIR || path.join(process.env.CLAW3D_DATA_DIR || path.join(os.homedir(), ".local/share/claw3d"), "office-runtime"))).home;
-const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules;
-const features = { dictation: Boolean(process.env.OPENAI_API_KEY), dictationHTTP: true, voice: true, prediction: Boolean(process.env.OPENAI_API_KEY), terminal: true, schedules: true, accountVersion: 0 };
+const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer;
+const features = { dictation: Boolean(process.env.OPENAI_API_KEY), dictationHTTP: true, voice: true, prediction: Boolean(process.env.OPENAI_API_KEY), terminal: true, schedules: true, composer: true, accountVersion: 0 };
 const broadcast = (event, payload) => { const frame = JSON.stringify({ type: "event", event, seq: seq++, payload }); for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame); };
 function changed() { if (!rosterTimer) rosterTimer = setTimeout(() => { rosterTimer = null; broadcast("roster.updated", { ts: Date.now() }); }, 150); }
 const native = new CodexOfficeClient({ home: process.env.CLAW3D_OFFICE_CODEX_HOME || path.join(directory, "codex"), onFrame(frame) {
   if (frame.method === "connection/closed") { if (!stopping) { console.error("Office Codex exited"); void close(1); } return; }
   if (frame.method === "account/login/completed") { login = null; features.accountVersion++; store.defaultModel = null; for (const state of controls.states.values()) state.version++; stream.refresh(); broadcast("office.account", { changed: true, success: frame.params.success, error: frame.params.error }); }
   workspace?.handle(frame);
+  if (composer?.handleToolCall(frame)) return;
   const mapped = store?.handle(frame); if (!mapped) return;
   voice?.handle(mapped);
   controls?.handle(mapped); if (mapped.params?.threadId) stream?.changed(mapped.params.threadId);
@@ -42,6 +44,7 @@ controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { s
 });
 stream = new CodexSessionStream(controls);
 workspace = new CodexSessionWorkspace(native, { commandExec: true, policy: id => store.overrides(id).sandboxPolicy, roots: row => store.sessionFolders(row) });
+composer = new CodexSessionComposer(store, workspace); controls.options.composer = composer;
 voice = new CodexOfficeVoice(store, controls, (ws, payload) => {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "event", event: "session.voice", payload }));
 });
@@ -80,6 +83,8 @@ const methods = {
       entries: result.entries.filter(e => e.isDirectory && typeof e.fileName === "string" && e.fileName && !/[\/\\\0\r\n]/.test(e.fileName) && !e.fileName.startsWith(".")).map(e => e.fileName).sort().slice(0, 300) };
   },
   "session.create": p => store.createSession(p),
+  "session.fork": p => store.forkSession(p),
+  "session.new": p => { const row = store.get(p.threadId); return store.createSession({ name: p.name || "New chat", projectId: row.projectId, workspace: row.workspace, requestId: p.requestId }); },
   "session.firefighter": () => store.firefighter(),
   "session.rename": p => store.renameSession(p),
   "session.reassign": p => store.reassignSession(p),
@@ -93,7 +98,10 @@ const methods = {
   "session.attach": async p => { store.get(p.threadId); await controls.attach(p.threadId); return controls.snapshot(p.threadId); },
   "session.subscribe": (p, ws) => { store.get(p.threadId); return stream.subscribe(ws, p.threadId, p.subscriptionId); },
   "session.unsubscribe": (p, ws) => stream.unsubscribe(ws, p.subscriptionId),
-  "session.send": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, p.message, p.requestId, p.attachments); store.clearQuestions(p.threadId, pending); return result; },
+  "session.send": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, p.message, p.requestId, p.attachments, { references: p.references || [] }); store.clearQuestions(p.threadId, pending); return result; },
+  "session.composer.options": p => composer.options(p.threadId, p.kind, p.query),
+  "session.compact": p => { store.get(p.threadId); if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before compacting"); return store.once(p, () => controls.compact(p.threadId)); },
+  "session.mcp": async p => { store.get(p.threadId); const result = await native.call("mcpServerStatus/list", { limit: 50 }); return { servers: result.data.map(server => ({ name: server.name, status: server.runtimeStatus || server.authStatus, tools: Object.keys(server.tools || {}).length })) }; },
   "session.continue": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, "Continue where you left off.", p.requestId, [], { resumeInterrupted: true }); store.clearQuestions(p.threadId, pending); return result; },
   "session.stop": p => { store.get(p.threadId); return controls.stop(p.threadId); },
   "session.settings.choices": p => { store.get(p.threadId); return controls.choices(p.threadId); },

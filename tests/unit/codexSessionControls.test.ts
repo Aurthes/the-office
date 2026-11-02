@@ -12,6 +12,17 @@ function setup(active = false) {
   return { client, controls: new CodexSessionControls(client) };
 }
 describe("shared App session controls", () => {
+  it("uses native compaction without submitting a new user prompt", async () => {
+    const { client, controls } = setup();
+    await expect(controls.compact("id")).resolves.toEqual({ status: "compactionRequested" });
+    expect(client.call).toHaveBeenCalledWith("thread/compact/start", { threadId: "id" });
+    expect(client.call.mock.calls.some(([method]) => method === "turn/start" || method === "turn/steer")).toBe(false);
+  });
+  it("rejects compaction while the original task is running", async () => {
+    const { client, controls } = setup(true);
+    await expect(controls.compact("id")).rejects.toThrow("current task");
+    expect(client.call.mock.calls.some(([method]) => method === "thread/compact/start")).toBe(false);
+  });
   it("defers scheduled input rather than steering an active user turn, and can send that occurrence later", async () => {
     const { client, controls } = setup(true);
     expect(await controls.send("id", "scheduled report", "schedule-one", [], { onlyIfIdle: true })).toEqual({ status: "busy" });

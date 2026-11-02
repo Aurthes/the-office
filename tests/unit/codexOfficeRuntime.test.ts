@@ -106,7 +106,7 @@ describe("independent Office runtime", () => {
     await controls.updateSettings(id, { model: "model-a", effort: "high", accessMode: ":read-only" });
     expect(f.client.call.mock.calls.some(([m]) => m === "thread/settings/update")).toBe(false);
     await controls.send(id, "hello", "send-1");
-    expect(f.client.call).toHaveBeenCalledWith("thread/start", { cwd: realpathSync(f.workspace), sandbox: "read-only", approvalPolicy: "on-request", model: "model-a" });
+    expect(f.client.call).toHaveBeenCalledWith("thread/start", expect.objectContaining({ cwd: realpathSync(f.workspace), sandbox: "read-only", approvalPolicy: "on-request", model: "model-a", dynamicTools: [expect.objectContaining({ name: "office" })] }));
     expect(f.client.call).toHaveBeenCalledWith("turn/start", expect.objectContaining({ threadId: "native-own-thread", model: "model-a", effort: "high", sandboxPolicy: { type: "readOnly", networkAccess: false } }));
     expect(f.store.get(id).codexThreadId).toBe("native-own-thread");
     const restarted = new CodexOfficeStore(f.directory, f.client); expect(restarted.current(id)).toMatchObject({ model: "model-a", effort: "high", accessMode: ":read-only" });

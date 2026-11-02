@@ -31,7 +31,7 @@ function sourceSnapshot(directory = foreign) {
   return fs.readdirSync(directory).sort().flatMap(name => { const file = path.join(directory, name); return fs.statSync(file).isDirectory() ? sourceSnapshot(file) : [[path.relative(foreign, file), crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")]]; });
 }
 let sourceBefore = JSON.stringify(sourceSnapshot());
-const payloads = [], checks = []; let gateway, socket;
+const payloads = [], checks = []; let gateway, socket, referenceTargetId;
 let diagnosticClient, gatewayErrors = "";
 const provider = http.createServer((request, response) => {
   let body = ""; request.on("data", data => { body += data; }); request.on("end", () => {
@@ -45,6 +45,13 @@ const provider = http.createServer((request, response) => {
     const id = `resp_${payloads.length}`, emit = value => response.write(`data: ${JSON.stringify(value)}\n\n`);
     emit({ type: "response.created", response: { id } });
     if (JSON.stringify(last).includes("OFFICE_HOLD")) return;
+    const referenceMarker = JSON.stringify(last).match(/OFFICE_READ_REFERENCE(?:_RESTART|_FORK)?/)?.[0];
+    const referenceCallId = referenceMarker && "read-" + referenceMarker;
+    if (referenceCallId && !payload.input.some(item => item.type === "function_call_output" && item.call_id === referenceCallId)) {
+      const item = { id: "reference-call-" + payloads.length, type: "function_call", namespace: "office", name: "read_thread", call_id: referenceCallId, arguments: JSON.stringify({ threadId: referenceTargetId }) };
+      emit({ type: "response.output_item.done", output_index: 0, item });
+      emit({ type: "response.completed", response: { id, output: [item] } }); response.end(); return;
+    }
     if (JSON.stringify(last).includes("OFFICE_QUESTION") && !payload.input.some(i => i.type === "function_call_output" && i.call_id === "async-question-1")) {
       const item = { id: "fc_question", type: "function_call", namespace: "functions", name: "request_user_input_async", call_id: "async-question-1", arguments: JSON.stringify({ questions: [{ title: "Choose a test route", options: ["First route", "Second route"] }] }) };
       emit({ type: "response.output_item.done", output_index: 0, item });
@@ -101,6 +108,7 @@ try {
   await client.call("session.settings.update", { threadId, settings: { accessMode: ":read-only", model: choices.models[0].id } });
   fs.writeFileSync(path.join(workspace, "check.txt"), "OFFICE_FILE_OK");
   check("public workspace listing and file read", (await client.call("session.workspace.list", { threadId, path: "" })).entries.some(e => e.name === "check.txt") && (await client.call("session.workspace.read", { threadId, path: "check.txt" })).content === "OFFICE_FILE_OK");
+  check("file references use the pinned native fuzzy-file search", (await client.call("session.composer.options", { threadId, kind: "file", query: "check" })).options.some(option => option.id === path.join(fs.realpathSync(workspace), "check.txt")));
   fs.writeFileSync(path.join(secondary, "secondary.txt"), "SECONDARY_OK");
   check("select and read secondary repo", (await client.call("session.workspace.list", { threadId, root: fs.realpathSync(secondary), path: "" })).entries.some(e => e.name === "secondary.txt") && (await client.call("session.workspace.read", { threadId, root: fs.realpathSync(secondary), path: "secondary.txt" })).content === "SECONDARY_OK");
   let outsideRejected = false;
@@ -196,6 +204,30 @@ try {
   check("task configuration and confirmed outcomes survive restart", (await client.call("schedule.list")).tasks[0].runs.every(r => r.status === "completed") && !(await client.call("schedule.list")).tasks[0].enabled);
   await client.call("schedule.delete", { id: createdSchedule.id, requestId: "schedule-delete" });
   check("deleting a schedule retains the conversation", (await client.call("schedule.list")).tasks.length === 0 && (await client.call("office.snapshot")).agents.some(a => a.id === threadId));
+  referenceTargetId = threadId;
+  const reader = await client.call("session.new", { threadId, name: "Reference reader", requestId: "reference-reader" });
+  check("slash commands use an explicit supported catalog", (await client.call("session.composer.options", { threadId: reader.threadId, kind: "command" })).options.some(option => option.id === "compact"));
+  const skillOptions = await client.call("session.composer.options", { threadId: reader.threadId, kind: "skill", query: "office-profile-probe" });
+  check("skill picker uses native discovery and respects disabled entries", skillOptions.options.some(option => option.name === "office-profile-probe") && !(await client.call("session.composer.options", { threadId: reader.threadId, kind: "skill", query: "disabled-profile-probe" })).options.length);
+  const readReference = async (id, marker, requestId) => {
+    await client.call("session.send", { threadId: id, message: marker, references: [{ kind: "chat", id: threadId }], requestId });
+    await until(() => payloads.some(p => p.input?.some(item => item.type === "function_call_output" && item.call_id === "read-" + marker)) && JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions.find(row => row.id === id)?.status === "idle", "Native Office chat reference did not complete");
+    return payloads.find(p => p.input?.some(item => item.type === "function_call_output" && item.call_id === "read-" + marker));
+  };
+  const referenced = await readReference(reader.threadId, "OFFICE_READ_REFERENCE", "read-reference");
+  check("actual Codex calls Office's registered read tool through public history APIs", referenced.input.some(item => item.type === "function_call_output" && JSON.stringify(item).includes("OFFICE_FIRST_MARKER")));
+  check("reference reads do not send a message to the referenced worker", !(await client.call("session.history", { threadId })).messages.some(item => item.content.includes("OFFICE_READ_REFERENCE")));
+  await stop(); client = await start();
+  check("native dynamic chat tools survive restart", Boolean(await readReference(reader.threadId, "OFFICE_READ_REFERENCE_RESTART", "read-reference-restart")));
+  const forked = await client.call("session.fork", { threadId: reader.threadId, requestId: "fork-reader" });
+  check("native fork retains chat-reading tools", Boolean(await readReference(forked.threadId, "OFFICE_READ_REFERENCE_FORK", "read-reference-fork")));
+  await client.call("session.subscribe", { threadId: forked.threadId, subscriptionId: "compact-check" });
+  await client.call("session.compact", { threadId: forked.threadId, requestId: "compact-native" });
+  await until(() => client.events.some(event => event.event === "session.stream" && event.payload.subscriptionId === "compact-check" && event.payload.items.some(item => item.content === "整理上下文")), "Native context-compaction lifecycle was not observed");
+  await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions.find(row => row.id === forked.threadId)?.status === "idle", "Compaction did not finish");
+  check("manual compaction emits the native context-compaction lifecycle", true);
+  await client.call("session.archive", { threadId: forked.threadId, requestId: "archive-fork-reader" });
+  await client.call("session.archive", { threadId: reader.threadId, requestId: "archive-reference-reader" });
   await client.call("session.archive", { threadId, requestId: "archive-1" });
   check("own archive", (await client.call("office.snapshot")).agents.length === 0);
   check("foreign state untouched", JSON.stringify(sourceSnapshot()) === sourceBefore);

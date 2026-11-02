@@ -6,6 +6,7 @@ const { sessionChoices, settingsPatch } = require("./codex-session-settings");
 const { loadSessionHistoryPage } = require("./codex-session-history");
 const { clipText } = require("./codex-session-items");
 const { pendingAfterItem } = require("./codex-session-questions");
+const { OFFICE_CHAT_TOOLS } = require("./codex-session-composer");
 
 const ACCESS = {
   ":read-only": { approvalPolicy: "on-request", sandbox: "read-only", policy: "readOnly" },
@@ -92,7 +93,16 @@ class CodexOfficeStore {
     }
     return this.firefighterCreation;
   }
-  renameSession(input) { const row = this.get(input.threadId), name = this.name(input.name); return this.once(input, () => { row.name = name; return { threadId: row.id, name }; }); }
+  renameSession(input) { const row = this.get(input.threadId), name = this.name(input.name); return this.once(input, async () => { if (row.codexThreadId) await this.client.call("thread/name/set", { threadId: row.codexThreadId, name }); row.name = name; return { threadId: row.id, name }; }); }
+  forkSession(input) {
+    const source = this.get(input.threadId), name = this.name(input.name || (source.name.slice(0, 110) + " (fork)"));
+    return this.once(input, async () => {
+      const result = source.codexThreadId ? await this.client.call("thread/fork", { threadId: source.codexThreadId, excludeTurns: true, deferGoalContinuation: true }) : null;
+      const row = { id: crypto.randomUUID(), name, workspace: source.workspace, projectId: source.projectId, updatedAt: Date.now(), status: "idle", settings: { ...source.settings },
+        ...(result ? { codexThreadId: result.thread.id, hasTurns: source.hasTurns, projectContext: source.projectContext, composerToolsVersion: source.composerToolsVersion } : {}) };
+      this.data.sessions.push(row); return { threadId: row.id };
+    });
+  }
   reassignSession(input) { const row = this.get(input.threadId), project = this.project(input.projectId); return this.once(input, () => { if (!project.rootPaths.includes(row.workspace)) throw new Error("Attach this chat's working folder to the destination project before moving it"); if (row.status === "running" || this.starting.has(row.id) || this.isBusy(row.id)) throw new Error("Stop this task and terminal before moving the chat"); row.projectId = project.id; return { threadId: row.id, projectId: project.id, project: project.name }; }); }
   archiveSession(input) { return this.once(input, async () => { const row = this.get(input.threadId); if (row.status === "running") throw new Error("Stop this task before archiving"); if (row.codexThreadId && row.hasTurns) await this.client.call("thread/archive", { threadId: row.codexThreadId }); row.archived = true; return { threadId: row.id, archived: true }; }); }
   current(id, result = {}) {
@@ -119,8 +129,8 @@ class CodexOfficeStore {
     if (row.codexThreadId) return;
     if (!this.inflight.has(row.id)) this.inflight.set(row.id, (async () => {
       const mode = ACCESS[row.settings.accessMode];
-      const result = await this.client.call("thread/start", { cwd: row.workspace, sandbox: mode.sandbox, approvalPolicy: mode.approvalPolicy, ...(row.settings.model ? { model: row.settings.model } : {}), ...configuration });
-      row.codexThreadId = result.thread.id; this.save();
+      const result = await this.client.call("thread/start", { cwd: row.workspace, sandbox: mode.sandbox, approvalPolicy: mode.approvalPolicy, ...(row.settings.model ? { model: row.settings.model } : {}), ...configuration, dynamicTools: OFFICE_CHAT_TOOLS });
+      row.codexThreadId = result.thread.id; row.composerToolsVersion = 1; this.save();
     })().finally(() => this.inflight.delete(row.id)));
     await this.inflight.get(row.id);
   }

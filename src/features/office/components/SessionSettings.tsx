@@ -8,10 +8,11 @@ export type ChatSettings = { model: string; effort: string | null; accessMode: s
 type Choices = { models: { id: string; name: string; efforts: string[]; defaultEffort: string }[];
   accessModes: { id: string; name: string; description?: string | null; allowed: boolean }[] };
 
-export function SessionSettings({ client, threadId, current, disabled, active, onBusyChange, children }: {
+export function SessionSettings({ client, threadId, current, disabled, active, onBusyChange, children, initialPanel }: {
   client: SessionClient; threadId: string; current: ChatSettings; disabled: boolean; active: boolean;
   onBusyChange: (busy: boolean) => void;
   children?: ReactNode;
+  initialPanel?: "model" | "permissions";
 }) {
   const t = useUiText();
   const [choices, setChoices] = useState<Choices | null>(null);
@@ -19,7 +20,8 @@ export function SessionSettings({ client, threadId, current, disabled, active, o
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmFullAccess, setConfirmFullAccess] = useState(false);
-  const [modelOpen, setModelOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(initialPanel === "model");
+  const [permissionsOpen, setPermissionsOpen] = useState(initialPanel === "permissions");
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let stopped = false;
@@ -45,7 +47,7 @@ export function SessionSettings({ client, threadId, current, disabled, active, o
   return <div className="mb-2">
     <div className="flex min-w-0 items-center gap-x-3 gap-y-1">
       <button aria-label={t("Model settings")} aria-expanded={modelOpen} onClick={() => setModelOpen(!modelOpen)} className={triggerClass}><span className="truncate">{model?.name || current.model}</span><span className="shrink-0 text-white/40">{current.effort ? t(current.effort) : t("Default")}</span><ChevronDown size={12} className="shrink-0" aria-hidden="true" /></button>
-      <label className={triggerClass + (blocked ? " opacity-45" : "")}>
+      {!permissionsOpen ? <label className={triggerClass + (blocked ? " opacity-45" : "")}>
       <span className="truncate" aria-hidden="true">{access ? t(access.name) : current.accessMode === "custom" ? t("Custom permissions") : current.accessMode}</span><ChevronDown size={12} className="shrink-0" aria-hidden="true" />
       <select aria-label={t("Select access mode")} title={t("Select session access mode")} value={current.accessMode} disabled={blocked} onChange={event => {
         if (event.target.value === ":danger-full-access" && current.accessMode !== event.target.value) setConfirmFullAccess(true);
@@ -54,7 +56,7 @@ export function SessionSettings({ client, threadId, current, disabled, active, o
         {!access ? <option value={current.accessMode}>{current.accessMode === "custom" ? t("Custom permissions") : current.accessMode}</option> : null}
         {choices?.accessModes.map(mode => <option key={mode.id} value={mode.id} disabled={!mode.allowed} title={mode.description ? t(mode.description) : undefined}>{t(mode.name)}</option>)}
       </select>
-      </label>
+      </label> : <button className={triggerClass} onClick={() => setPermissionsOpen(false)}>{t("Permissions")}<ChevronDown size={12} /></button>}
       {busy ? <span role="status" className="text-xs text-white/45">{t("Saving…")}</span> : null}
       {children}
     </div>
@@ -68,6 +70,10 @@ export function SessionSettings({ client, threadId, current, disabled, active, o
         {model?.efforts.map(effort => <option key={effort} value={effort}>{t(effort)}</option>)}
       </select></label>
     </div> : null}
+    {permissionsOpen ? <div className="mb-2 rounded-xl border border-white/15 bg-[#172330] p-3"><label className="text-xs text-white/60">{t("Permissions")}<select aria-label={t("Select access mode")} value={current.accessMode} disabled={blocked} onChange={event => {
+      if (event.target.value === ":danger-full-access" && current.accessMode !== event.target.value) setConfirmFullAccess(true);
+      else void update({ accessMode: event.target.value });
+    }} className={selectClass}>{!access ? <option value={current.accessMode}>{current.accessMode}</option> : null}{choices?.accessModes.map(mode => <option key={mode.id} value={mode.id} disabled={!mode.allowed}>{t(mode.name)}</option>)}</select></label></div> : null}
     {confirmFullAccess ? <section role="dialog" aria-label={t("Confirm full access")} className="mb-2 rounded-xl border border-amber-300/30 bg-amber-900/15 p-3 text-xs text-amber-100">
       <p>{t("Full access lets Codex access files outside the workspace, run commands, and use the network without individual approvals. This applies to future tasks in this session.")}</p>
       <div className="mt-2 flex gap-2"><button disabled={disabled || busy} onClick={() => void update({ accessMode: ":danger-full-access", confirmFullAccess: true })} className="min-h-10 rounded-lg border border-amber-300/40 px-3">{t("Enable full access")}</button><button onClick={() => setConfirmFullAccess(false)} className="min-h-10 px-3 text-white/70">{t("Cancel")}</button></div>

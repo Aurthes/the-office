@@ -171,7 +171,7 @@ class CodexSessionControls {
       items.push(visible); bytes += size;
     }
     const hasMore = items.length < changed.length;
-    return { connected: true, version: hasMore ? items.at(-1).version : state.version, hasMore, activeTurnId: state.activeTurnId, activeTurnStartedAt: state.activeTurnStartedAt, turnStatus: state.turnStatus, error: state.error, retryAt: state.retry?.at ?? null, retrying: Boolean(state.retry?.dispatching), settings: state.settings, tokenUsage: state.tokenUsage, ...(this.options.features ? { features: this.options.features } : {}), items,
+    return { connected: true, version: hasMore ? items.at(-1).version : state.version, hasMore, activeTurnId: state.activeTurnId, activeTurnStartedAt: state.activeTurnStartedAt, turnStatus: state.turnStatus, error: state.error, retryAt: state.retry?.at ?? null, retrying: Boolean(state.retry?.dispatching), settings: state.settings, tokenUsage: state.tokenUsage, ...(this.options.features ? { features: { ...this.options.features, ...(this.options.composer ? { chatReferences: this.options.composer.canReference(id) } : {}) } } : {}), items,
       questions,
       approvalCount: [...this.requests.values()].filter(r => r.params.threadId === id && r.method !== "item/tool/requestUserInput").length,
       approvals: [...this.requests.values()].filter(r => r.params.threadId === id && r.method !== "item/tool/requestUserInput").slice(0, 2).map(request => {
@@ -182,10 +182,11 @@ class CodexSessionControls {
           details: item?.details, supported: request.supported && !oversized && (request.method !== "item/fileChange/requestApproval" || Boolean(item?.details && !item.incompleteDetails)) };
       }) };
   }
-  async send(id, text, requestId, attachments = [], { resumeInterrupted = false, onlyIfIdle = false, capacityRetry = null } = {}) {
+  async send(id, text, requestId, attachments = [], { resumeInterrupted = false, onlyIfIdle = false, capacityRetry = null, references = [] } = {}) {
     this.requireReady();
     if (!capacityRetry) this.cancelRetry(id);
-    const input = await messageInput(text, attachments, id);
+    const prepared = this.options.composer ? await this.options.composer.prepare(id, text, references) : { text, items: [] };
+    const input = [...await messageInput(prepared.text, attachments, id), ...prepared.items];
     if (typeof requestId !== "string" || requestId.length > 100 || !requestId) throw new Error("缺少发送请求 ID");
     const prior = this.sends.get(requestId);
     if (prior) {
@@ -225,6 +226,13 @@ class CodexSessionControls {
     if (!turnId) return { status: "idle" };
     await this.client.call("turn/interrupt", { threadId: id, turnId });
     return { status: "interruptRequested", turnId };
+  }
+  async compact(id) {
+    this.requireReady(); await this.attach(id); await this.refreshTurn(id);
+    if (this.state(id).activeTurnId) throw new Error("Wait for the current task to finish before compacting");
+    this.cancelRetry(id);
+    await this.client.call("thread/compact/start", { threadId: id });
+    return { status: "compactionRequested" };
   }
   reply(id, requestId, decision) {
     this.requireReady();

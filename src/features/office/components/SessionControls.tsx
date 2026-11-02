@@ -11,6 +11,7 @@ import { useDictationShortcut } from "./useDictationShortcut";
 import { dictationShortcutLabel } from "./dictationShortcutSettings";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { SessionRunTimer } from "./SessionRunTimer";
+import { useSessionComposer } from "./useSessionComposer";
 
 export type SessionAsset = { source: string; name: string; kind: "image" | "markdown" | "html" | "file"; url: string; inline?: boolean; attached?: boolean };
 export type LiveSessionItem = { id: string; turnId?: string; source?: "voice"; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number };
@@ -21,7 +22,7 @@ export type SessionClient = {
   onGap?: (handler: (gap: { expected: number; received: number }) => void) => () => void;
 };
 type Approval = { requestId: string; method: string; params: Record<string, unknown>; details?: string; decisions: string[]; supported: boolean; submitted?: boolean };
-type Snapshot = { connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; activeTurnStartedAt?: number | null; turnStatus?: string; error?: string | null; retryAt?: number | null; retrying?: boolean; settings?: ChatSettings; features?: { dictation: boolean; dictationHTTP?: boolean; voice: boolean; prediction: boolean; accountVersion?: number }; tokenUsage?: { last: { inputTokens: number; outputTokens: number }; modelContextWindow?: number | null }; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number; questions?: SessionQuestionRequest[] };
+type Snapshot = { connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; activeTurnStartedAt?: number | null; turnStatus?: string; error?: string | null; retryAt?: number | null; retrying?: boolean; settings?: ChatSettings; features?: { dictation: boolean; dictationHTTP?: boolean; voice: boolean; prediction: boolean; accountVersion?: number; composer?: boolean; chatReferences?: boolean }; tokenUsage?: { last: { inputTokens: number; outputTokens: number }; modelContextWindow?: number | null }; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number; questions?: SessionQuestionRequest[] };
 type StreamSnapshot = Omit<Snapshot, "items"> & { threadId: string; subscriptionId: string;
   items: (LiveSessionItem | (Omit<LiveSessionItem, "content"> & { append: string; baseVersion: number }))[] };
 type Upload = { id: string; name: string; size: number; ref?: string; error?: string };
@@ -29,11 +30,13 @@ type Upload = { id: string; name: string; size: number; ref?: string; error?: st
 const sessionDrafts = new Map<string, string>();
 const attachmentDrafts = new Map<string, Upload[]>();
 
-export function SessionControls({ client, threadId, onItems, onHistorySync, voice: sharedVoice }: {
+export function SessionControls({ client, threadId, onItems, onHistorySync, voice: sharedVoice, onOpenThread, onRenamed }: {
   client: SessionClient;
   threadId: string; onItems: (items: LiveSessionItem[]) => void;
   onHistorySync?: () => void;
   voice?: SessionVoiceController;
+  onOpenThread?: (id: string) => void | Promise<void>;
+  onRenamed?: (name: string) => void;
 }) {
   const t = useUiText();
   const [state, setState] = useState<Snapshot | null>(null);
@@ -56,6 +59,8 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
   const [error, setError] = useState("");
   const [connectionError, setConnectionError] = useState("");
   const [notice, setNotice] = useState("");
+  const [commandResult, setCommandResult] = useState("");
+  const [settingsPanel, setSettingsPanel] = useState<{ kind: "model" | "permissions"; nonce: string }>();
   const refresh = useRef<(() => Promise<void>) | null>(null);
   const actionBusy = useRef(false);
   const [uploads, setUploads] = useState<Upload[]>(() => attachmentDrafts.get(threadId) || []);
@@ -64,7 +69,9 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
   const picker = useRef<HTMLInputElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const focusPending = useRef(true);
-  const suggestedText = prediction?.threadId === threadId && state?.connected && !state.activeTurnId && state.turnStatus === "completed" && !text && !uploads.length ? prediction.text : "";
+  const composer = useSessionComposer({ client, threadId, enabled: Boolean(state?.connected && state.features?.composer), chatReferences: Boolean(state?.features?.chatReferences), text, setText, input, onOpenThread, onError: setError,
+    onCommand: (command, argument) => { void executeCommand(command, argument).catch(cause => setError(cause instanceof Error ? cause.message : "Command failed")); } });
+  const suggestedText = prediction?.threadId === threadId && state?.connected && !state.activeTurnId && state.turnStatus === "completed" && !text && !uploads.length && !composer.references.length ? prediction.text : "";
   useEffect(() => {
     let stopped = false;
     const generationTrigger = previousPredictionState.current.threadId === threadId && previousPredictionState.current.working ? "live" : "catch_up";
@@ -169,16 +176,17 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
     }));
   };
   const removeFile = (id: string) => { uploadRequests.current.get(id)?.abort(); updateUploads(uploadsRef.current.filter(item => item.id !== id)); };
-  const canContinue = Boolean(state?.turnStatus === "interrupted" && !state.activeTurnId && !text.trim() && !uploads.length && !dictation.busy && voice.status === "off");
-  const readyToSend = canContinue || Boolean((recording || text.trim() || suggestedText || uploads.length) && uploads.every(file => file.ref) && dictation.phase !== "transcribing");
+  const canContinue = Boolean(state?.turnStatus === "interrupted" && !state.activeTurnId && !text.trim() && !uploads.length && !composer.references.length && !dictation.busy && voice.status === "off");
+  const readyToSend = canContinue || Boolean((recording || text.trim() || suggestedText || uploads.length || composer.references.length) && uploads.every(file => file.ref) && dictation.phase !== "transcribing");
   const send = () => {
     if (busy || settingsBusy || !state?.connected || !readyToSend) return;
     if (recording) { void stopDictation(true); return; }
     if (canContinue) { void action("session.continue", { requestId: crypto.randomUUID() }); return; }
     const message = text || suggestedText;
+    if (composer.handleCommand(message)) return;
     if (!text && suggestedText) setText(suggestedText); // Retain a draft if submission fails.
     setPrediction(null);
-    void action("session.send", { message, attachments: uploads.map(file => file.ref), requestId: crypto.randomUUID() });
+    void action("session.send", { message, attachments: uploads.map(file => file.ref), ...(composer.references.length ? { references: composer.references } : {}), requestId: crypto.randomUUID() });
   };
   const dictationShortcut = useDictationShortcut({ input, phase: dictation.phase, enabled: !busy && !settingsBusy && Boolean(state?.connected) && state?.features?.dictation !== false && voice.status === "off",
     start: dictation.start, stop: submit => submit ? send() : stopDictation(), discard: dictation.discard });
@@ -257,26 +265,57 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
     actionBusy.current = true;
     setBusy(true); setError(""); setNotice("");
     try {
-      await client.call(method, { threadId, ...params });
-      if (method === "session.send") { focusPending.current = true; setText(""); if (!dictation.error) dictation.clear(); updateUploads([]); setNotice("Submitted to the session"); }
+      const result = await client.call(method, { threadId, ...params });
+      if (method === "session.send") { focusPending.current = true; setText(""); composer.clear(); if (!dictation.error) dictation.clear(); updateUploads([]); setNotice("Submitted to the session"); }
+      if (method === "session.compact") { setText(""); focusPending.current = true; setNotice("Context compaction requested"); }
+      if (method === "session.rename") { setText(""); onRenamed?.((result as { name: string }).name); setNotice("Chat renamed"); }
+      if (method === "session.new" || method === "session.fork") { setText(""); await onOpenThread?.((result as { threadId: string }).threadId); }
       if (method === "session.continue") setNotice("Submitted to the session");
       if (method === "session.stop") setNotice("Stop request submitted");
       if (method === "session.approval.reply") setNotice("Approval reply submitted; waiting for confirmation");
       if (!client.onEvent) await refresh.current?.();
+      return result;
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Action failed. Check the session before retrying."); }
     finally { actionBusy.current = false; setBusy(false); }
   };
+  async function executeCommand(command: string, argument: string) {
+    if (busy || settingsBusy || !state?.connected) return;
+    setError(""); setNotice("");
+    if (command === "help") { setText("/"); return; }
+    if (command === "model" || command === "permissions") { setText(""); setSettingsPanel({ kind: command, nonce: crypto.randomUUID() }); return; }
+    if (["mention", "skills", "apps", "agents", "resume"].includes(command)) {
+      composer.open(command === "mention" ? "file" : command === "skills" ? "skill" : command === "apps" ? "app" : "chat", command === "agents" || command === "resume" ? "switch" : "reference"); return;
+    }
+    if (command === "compact") { await action("session.compact", { requestId: crypto.randomUUID() }); return; }
+    if (command === "new" || command === "fork") { await action(command === "new" ? "session.new" : "session.fork", { ...(argument ? { name: argument } : {}), requestId: crypto.randomUUID() }); return; }
+    if (command === "rename") {
+      if (!argument) { setText("/rename "); setNotice("Type /rename followed by the new name"); return; }
+      await action("session.rename", { name: argument, requestId: crypto.randomUUID() }); return;
+    }
+    if (command === "status") {
+      const result = await action("session.inspect", { includeHistory: false }) as { name: string; workspace: string; status: string } | undefined;
+      if (result) { setCommandResult(JSON.stringify({ name: result.name, workspace: result.workspace, status: result.status, settings: state.settings, context: state.tokenUsage }, null, 2)); setText(""); }
+      return;
+    }
+    if (command === "mcp") {
+      const result = await action("session.mcp", {}) as { servers: { name: string; status: string; tools: number }[] } | undefined;
+      if (result) { setCommandResult(result.servers.length ? result.servers.map(server => `${server.name} · ${server.status} · ${server.tools} tools`).join("\n") : t("No MCP servers are configured in Office")); setText(""); }
+      return;
+    }
+    setError("Unsupported command. Type / to see available commands.");
+  }
   useEffect(() => {
     dictatedSend.current = message => {
       if (!uploadsRef.current.every(file => file.ref)) return;
       setPrediction(null);
-      void action("session.send", { message, attachments: uploadsRef.current.map(file => file.ref), requestId: crypto.randomUUID() });
+      if (composer.handleCommand(message)) return;
+      void action("session.send", { message, attachments: uploadsRef.current.map(file => file.ref), ...(composer.references.length ? { references: composer.references } : {}), requestId: crypto.randomUUID() });
     };
     return () => { dictatedSend.current = null; };
   });
   return <div onDragOver={event => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={event => { if (event.dataTransfer.files.length) { event.preventDefault(); void addFiles(Array.from(event.dataTransfer.files)); } }} className="max-h-[60dvh] shrink-0 overflow-y-auto border-t border-white/10 bg-[#111b27] p-3 text-xs [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))] md:px-4">
     <div className="mx-auto max-w-3xl">
-    {state?.settings ? <SessionSettings key={`${threadId}:${state.features?.accountVersion || 0}`} client={client} threadId={threadId} current={state.settings} disabled={busy || !state.connected || voice.status !== "off"} active={Boolean(state.activeTurnId)} onBusyChange={setSettingsBusy}>
+    {state?.settings ? <SessionSettings key={`${threadId}:${state.features?.accountVersion || 0}:${settingsPanel?.nonce || ""}`} client={client} threadId={threadId} current={state.settings} disabled={busy || !state.connected || voice.status !== "off"} active={Boolean(state.activeTurnId)} onBusyChange={setSettingsBusy} initialPanel={settingsPanel?.kind}>
       {state.tokenUsage ? <SessionContextUsage usage={state.tokenUsage} /> : null}
     </SessionSettings> : null}
     <input ref={picker} type="file" multiple className="hidden" aria-label={t("Choose attachments")} onChange={event => { void addFiles(Array.from(event.target.files || [])); event.target.value = ""; }} />
@@ -298,8 +337,11 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
       {(state.approvalCount || 0) > state.approvals.length ? <p className="text-amber-100">{t("More requests will appear after these approvals are handled.")}</p> : null}
     </div> : null}
     {state?.questions?.map(request => <SessionQuestions key={threadId + request.requestId} client={client} threadId={threadId} request={request} />)}
+    {composer.chips}
+    {!inputDisabled ? composer.menu : null}
     {/* External tools can emit input after updating the DOM value; React's change tracker may skip onChange. */}
-    <textarea ref={input} aria-label={t("Send to session")} aria-description={suggestedText ? t("Suggested next message. Tab to edit, or Send to submit.") : undefined} placeholder={suggestedText || t("Continue this Codex session…")} rows={1} value={text} onChange={event => setText(event.target.value)} onInput={event => setText(event.currentTarget.value)} onKeyDown={event => {
+    <textarea ref={input} aria-label={t("Send to session")} aria-description={suggestedText ? t("Suggested next message. Tab to edit, or Send to submit.") : undefined} placeholder={suggestedText || t("Continue this Codex session…")} rows={1} value={text} onChange={event => { setText(event.target.value); composer.onSelect(); }} onInput={event => { setText(event.currentTarget.value); composer.onSelect(); }} onSelect={composer.onSelect} onKeyDown={event => {
+      if (composer.handleKeyDown(event)) return;
       if (suggestedText && !event.nativeEvent.isComposing && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
         if (event.key === "Tab") { event.preventDefault(); setText(suggestedText); setPrediction(null); return; }
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setPrediction(null); return; }
@@ -311,7 +353,7 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
       // reads it again. Insert this event's text while keeping native undo/caret.
       const pasted = event.clipboardData.getData("text/plain");
       if (pasted && typeof document.execCommand === "function" && document.execCommand("insertText", false, pasted)) {
-        event.preventDefault(); setText(event.currentTarget.value);
+        event.preventDefault(); setText(event.currentTarget.value); composer.onSelect();
       }
     }} disabled={inputDisabled} className="session-composer-input w-full resize-none overflow-y-auto rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50" />
     <div className="session-composer-actions mt-2 flex items-center justify-between gap-2">
@@ -341,6 +383,7 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
     {dictation.clip && !dictation.busy ? <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] text-white/55"><span>{t("Recording: {seconds} seconds · Kept", { seconds: Math.ceil(dictation.clip.seconds) })}</span>{dictation.transcriptionTime ? <span>{t(dictation.transcriptionTime.retry ? "Retry took {seconds} seconds" : "Transcription took {seconds} seconds", { seconds: dictation.transcriptionTime.seconds.toFixed(1) })}</span> : null}{dictation.phase === "error" ? <button className="text-cyan-200 underline" onClick={() => void dictation.retry()}>{t("Retry transcription")}</button> : null}<button className="underline" onClick={dictation.download}>{t("Download recording")}</button><button className="underline" onClick={dictation.clear}>{t("Clear recording")}</button></div> : null}
     {dictation.error ? <p role="alert" className="mt-1 text-xs text-amber-100">{t(dictation.error)}</p> : null}
     {notice ? <p role="status" className="mt-2 text-[10px] text-cyan-100">{t(notice)}</p> : null}
+    {commandResult ? <section aria-label={t("Command result")} className="relative mt-2 rounded-lg border border-white/15 bg-black/15 p-3"><button aria-label={t("Close command result")} onClick={() => setCommandResult("")} className="absolute right-1 top-1 grid min-h-9 min-w-9 place-items-center"><X size={13} /></button><pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words pr-7 text-xs text-white/70">{commandResult}</pre></section> : null}
     {voice.error && voice.threadId === threadId ? <p role="alert" className="mt-2 break-words text-xs text-amber-100">{t(voice.error)}</p> : null}
     {error ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{t(error)}</p> : null}
     {state?.retryAt ? <p role="status" className="mt-2 break-words text-xs text-amber-100">{state.retrying ? t("Retrying the session…") : t("Model is busy. Retrying in {seconds} seconds…", { seconds: retrySeconds })}</p> : state?.error ? <p role="alert" className="mt-2 break-words text-xs text-rose-200">{state.error}</p> : null}
