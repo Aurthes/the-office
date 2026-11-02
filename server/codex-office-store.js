@@ -80,6 +80,18 @@ class CodexOfficeStore {
     const workspace = this.directory(project ? project.rootPaths[0] : input.workspace);
     return this.once(input, () => { const session = { id: crypto.randomUUID(), name, workspace, projectId: project?.id ?? null, updatedAt: Date.now(), status: "idle", settings: { model: null, effort: null, accessMode: ":workspace" } }; this.data.sessions.push(session); return { threadId: session.id }; });
   }
+  async firefighter() {
+    const existing = this.list().find(row => row.projectId == null && row.name.trim().toLowerCase() === "firefighter");
+    if (existing) return { threadId: existing.id, created: false };
+    // Only creation of this one named worker is shared across concurrent clicks.
+    if (!this.firefighterCreation) {
+      const workspace = path.join(path.dirname(this.file), "workspaces", "firefighter");
+      fs.mkdirSync(workspace, { recursive: true, mode: 0o700 });
+      this.firefighterCreation = this.createSession({ name: "firefighter", projectId: null, workspace, requestId: `firefighter-${crypto.randomUUID()}` })
+        .then(result => ({ ...result, created: true })).finally(() => { this.firefighterCreation = null; });
+    }
+    return this.firefighterCreation;
+  }
   renameSession(input) { const row = this.get(input.threadId), name = this.name(input.name); return this.once(input, () => { row.name = name; return { threadId: row.id, name }; }); }
   reassignSession(input) { const row = this.get(input.threadId), project = this.project(input.projectId); return this.once(input, () => { if (!project.rootPaths.includes(row.workspace)) throw new Error("Attach this chat's working folder to the destination project before moving it"); if (row.status === "running" || this.starting.has(row.id) || this.isBusy(row.id)) throw new Error("Stop this task and terminal before moving the chat"); row.projectId = project.id; return { threadId: row.id, projectId: project.id, project: project.name }; }); }
   archiveSession(input) { return this.once(input, async () => { const row = this.get(input.threadId); if (row.status === "running") throw new Error("Stop this task before archiving"); if (row.codexThreadId && row.hasTurns) await this.client.call("thread/archive", { threadId: row.codexThreadId }); row.archived = true; return { threadId: row.id, archived: true }; }); }

@@ -10,12 +10,12 @@ function Figure({ appearance, face, top, back }: { appearance: DuckAppearance; f
   const figure = useDuckFigure(appearance);
   const { size } = useThree();
   const view = top ? "top" : face ? "face" : back ? "back" : "body";
-  const breadth = Math.max(appearance.bodyWidth, appearance.bodyDepth);
+  const breadth = Math.max(appearance.bodyWidth, appearance.bodyDepth) * (!face && appearance.hose ? 1.45 : 1);
   const zoom = Math.min(size.width / ((face ? .58 * appearance.headScale : .95) * breadth), size.height / (top ? .85 * breadth : (face ? .52 : 1) * appearance.bodyHeight));
   return <>
     <OrthographicCamera key={`camera:${view}`} makeDefault position={top ? [0, 2.8, .001] : [back ? -.9 : .9, .65 * appearance.bodyHeight, back ? -2.4 : 2.4]} near={.01} far={50} zoom={zoom} />
     <primitive object={figure.root} dispose={null} />
-    <mesh position={[0, .002, 0]}><cylinderGeometry args={[.28, .3, .016, 48]} /><meshStandardMaterial color="#35434b" roughness={.65} metalness={.35} /></mesh>
+    <mesh position={[0, .002, appearance.hose ? -.2 : 0]}><cylinderGeometry args={[appearance.hose ? .78 : .28, appearance.hose ? .8 : .3, .016, 48]} /><meshStandardMaterial color="#35434b" roughness={.65} metalness={.35} /></mesh>
     <OrbitControls key={`orbit:${view}`} makeDefault enablePan={false} enableDamping={false} minZoom={80} maxZoom={1600}
       minPolarAngle={top ? 0 : .25} maxPolarAngle={Math.PI * .7} target={[0, (face ? .51 : .35) * appearance.bodyHeight, 0]} />
   </>;

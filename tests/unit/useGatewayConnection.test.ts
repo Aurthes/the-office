@@ -1,10 +1,10 @@
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const ORIGINAL_ENV = { ...process.env };
 
-const setupAndImportHook = async (gatewayUrl: string | null) => {
+const setupAndImportHook = async (gatewayUrl: string | null, deferHandshake = false) => {
   process.env = { ...ORIGINAL_ENV };
   if (gatewayUrl === null) {
     delete process.env.NEXT_PUBLIC_GATEWAY_URL;
@@ -20,11 +20,15 @@ const setupAndImportHook = async (gatewayUrl: string | null) => {
     token: unknown;
     authScopeKey: unknown;
     clientName: unknown;
+    finishHandshake: (() => void) | null;
+    failHandshake: (() => void) | null;
   } = {
     url: null,
     token: null,
     authScopeKey: null,
     clientName: null,
+    finishHandshake: null,
+    failHandshake: null,
   };
 
   vi.doMock("../../src/lib/gateway/openclaw/GatewayBrowserClient", () => {
@@ -51,13 +55,15 @@ const setupAndImportHook = async (gatewayUrl: string | null) => {
       }
 
       start() {
+        captured.finishHandshake = () => this.opts.onHello?.({ type: "hello-ok", protocol: 1, adapterType: "openclaw" });
+        captured.failHandshake = () => this.opts.onClose?.({ code: 1006, reason: "" });
+        if (deferHandshake) return;
         this.connected = true;
         this.opts.onHello?.({ type: "hello-ok", protocol: 1, adapterType: "openclaw" });
       }
 
       stop() {
         this.connected = false;
-        this.opts.onClose?.({ code: 1000, reason: "stopped" });
       }
 
       async request<T = unknown>(method: string, params: unknown): Promise<T> {
@@ -89,6 +95,8 @@ const setupAndImportHook = async (gatewayUrl: string | null) => {
         adapterType: "openclaw" | "demo" | "demo" | "custom";
       } | null;
       shouldPromptForConnect: boolean;
+      status: string;
+      error: string | null;
       useLocalGatewayDefaults: () => void;
       setSelectedAdapterType: (value: "openclaw" | "demo" | "demo" | "custom") => void;
       connect: () => Promise<void>;
@@ -126,6 +134,46 @@ describe("useGatewayConnection", () => {
       expect(screen.getByTestId("gatewayUrl")).toHaveTextContent("ws://example.test:1234");
     });
   });
+
+  for (const outcome of ["success", "failure"] as const) {
+    it(`keeps host-managed startup in connecting state until handshake ${outcome}`, async () => {
+      const { useGatewayConnection, captured } = await setupAndImportHook(null, true);
+      let flush!: () => void;
+      const coordinator = {
+        loadSettingsEnvelope: async () => ({
+          settings: { version: 1, gateway: { url: "ws://127.0.0.1:18790", tokenConfigured: true, adapterType: "openclaw" } },
+          localGatewayDefaults: null,
+        }),
+        loadSettings: async () => null,
+        schedulePatch: () => {},
+        flushPending: () => new Promise<void>(resolve => { flush = resolve; }),
+      };
+      const prompts: boolean[] = [];
+      const Probe = () => {
+        const state = useGatewayConnection(coordinator);
+        prompts.push(state.shouldPromptForConnect);
+        return createElement("div", null,
+          createElement("span", { "data-testid": "status" }, state.status),
+          createElement("span", { "data-testid": "prompt" }, state.shouldPromptForConnect ? "setup" : "loading"),
+          createElement("span", { "data-testid": "error" }, state.error));
+      };
+      render(createElement(Probe));
+      await waitFor(() => expect(flush).toBeTypeOf("function"));
+      expect(prompts).not.toContain(true);
+      await act(async () => { flush(); });
+      await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("connecting"));
+      expect(screen.getByTestId("prompt")).toHaveTextContent("loading");
+      expect(captured.token).toBe("");
+      await act(async () => {
+        if (outcome === "success") captured.finishHandshake?.();
+        else captured.failHandshake?.();
+      });
+      await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent(outcome === "success" ? "connected" : "disconnected"));
+      expect(screen.getByTestId("prompt")).toHaveTextContent(outcome === "success" ? "loading" : "setup");
+      if (outcome === "failure") expect(screen.getByTestId("error")).toHaveTextContent("1006");
+      else expect(prompts).not.toContain(true);
+    });
+  }
 
   it("falls_back_to_local_default_when_env_unset", async () => {
     const { useGatewayConnection } = await setupAndImportHook(null);
@@ -285,7 +333,7 @@ describe("useGatewayConnection", () => {
     expect(captured.clientName).toBe("openclaw-control-ui");
   });
 
-  it("does_not_auto_connect_without_a_last_known_good_state", async () => {
+  it("waits_for_auto_connect_when_a_saved_profile_has_no_last_known_good_state", async () => {
     const { useGatewayConnection, captured } = await setupAndImportHook(null);
     const coordinator = {
       loadSettingsEnvelope: async () => ({
@@ -330,7 +378,7 @@ describe("useGatewayConnection", () => {
     await waitFor(() => {
       expect(screen.getByTestId("gatewayUrl")).toHaveTextContent("ws://localhost:18789");
     });
-    expect(screen.getByTestId("shouldPromptForConnect")).toHaveTextContent("yes");
+    expect(screen.getByTestId("shouldPromptForConnect")).toHaveTextContent("no");
     expect(captured.url).toBeNull();
   });
 
@@ -591,7 +639,7 @@ describe("useGatewayConnection", () => {
       expect(screen.getByTestId("gatewayUrl")).toHaveTextContent("ws://localhost:18789");
     });
     expect(screen.getByTestId("selectedAdapterType")).toHaveTextContent("demo");
-    expect(screen.getByTestId("shouldPromptForConnect")).toHaveTextContent("yes");
+    expect(screen.getByTestId("shouldPromptForConnect")).toHaveTextContent("no");
     expect(captured.url).toBeNull();
   });
 

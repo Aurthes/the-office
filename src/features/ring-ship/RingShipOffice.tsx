@@ -34,6 +34,7 @@ import { STAR_SYSTEMS, starSystem } from "./galaxy";
 import { NavigationConsole, NavigationOverlay, navigationConsolePose, useStarNavigation } from "./StarNavigation";
 import { WarpJourney } from "./WarpJourney";
 import { MonitorDashboard } from "./MonitorDashboard";
+import type { FirefightHandler } from "@/lib/monitoring/firefighter";
 import { SpaceActivity } from "./SpaceActivity";
 import { SpaceTrafficNotice } from "./SpaceTrafficNotice";
 import { emptySpaceMotion } from "./space-activity";
@@ -45,7 +46,7 @@ import { AiCenterDashboard } from "./AiCenterDashboard";
 import { ShipObjectScene, ShipObjectCard } from "./ShipObjectInteraction";
 import { shipObjectCameraPose, type ShipObject } from "./shipObjects";
 
-type Props = ComponentProps<typeof RetroOffice3D> & { navigationPreview?: boolean; musicPreview?: boolean };
+type Props = ComponentProps<typeof RetroOffice3D> & { navigationPreview?: boolean; musicPreview?: boolean; onFirefight?: FirefightHandler };
 type Controls = ComponentRef<typeof OrbitControls>;
 const EMPTY_ROSTER: CompanyRoster = { projects: [], members: [] };
 let modelCache: ModelTemplates | undefined;
@@ -523,7 +524,7 @@ export function RingShipOffice(props: Props) {
     <MusicPlayerDialog autoPlay open={musicOpen} scene={system.id} sceneName={system.name} onOpen={() => setMusicOpen(true)} onClose={() => setMusicOpen(false)} />
     {navigationOpen && navigation.phase !== "warp" ? <NavigationOverlay state={navigation} onAction={navigate} /> : null}
     {navigationPreview && navigation.phase === "warp" && navigation.destination ? <WarpJourney destination={starSystem(navigation.destination)} onArrive={arriveSystem} onComplete={completeWarp} /> : null}
-    <MonitorDashboard open={monitorOpen} onClose={() => setMonitorOpen(false)} />
+    <MonitorDashboard open={monitorOpen} onClose={() => setMonitorOpen(false)} onFirefight={props.onFirefight} />
     <ScheduledTasks open={tasksOpen} onClose={() => setTasksOpen(false)} onOpenSession={open} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
     <AiCenterDashboard open={aiOpen} onClose={() => setAiOpen(false)} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
     <LiftOverlay trip={trip} overlayRef={overlayRef} />
