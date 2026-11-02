@@ -38,6 +38,7 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   // Use the desktop Chromium binary and its normal graphics backend, like real Mac users.
   // Forcing SwiftShader makes the animated scene saturate CI CPUs and stalls input.
   browser=await (browserName==='webkit'?webkit:chromium).launch({headless:true,...(browserName==='webkit'?{}:{channel:browserName==='chrome'?'chrome':'chromium'})});
+  console.log(JSON.stringify({browser:browserName,version:browser.version()}));
   const context=await browser.newContext({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
   const origin=new URL(url).origin;
   await context.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
@@ -46,6 +47,12 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   await context.routeWebSocket('**/api/gateway/ws',ws=>{const server=ws.connectToServer();ws.onMessage(message=>{let frame;try{frame=JSON.parse(String(message))}catch{return server.send(message)}if(frame.method==='project.folders.list'&&!frame.params?.path)frame.params={...frame.params,path:workspace};server.send(JSON.stringify(frame))})});
   page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));
   await page.goto(url,{waitUntil:'domcontentloaded'});
+  if(browserName!=='webkit'){
+   const diagnostics=await browser.newBrowserCDPSession();
+   const {gpu}=await diagnostics.send('SystemInfo.getInfo');
+   console.log(JSON.stringify({graphics:gpu.auxAttributes?.glRenderer,features:gpu.featureStatus}));
+   await diagnostics.detach();
+  }
   await page.getByRole('button',{name:'Sign in with ChatGPT',exact:true}).waitFor({timeout:30000});
   const welcome=page.getByRole('dialog',{name:'Welcome to The Office',exact:true});
   if(/OpenClaw|gateway token|Node.js/.test(await welcome.textContent()))throw Error('Legacy setup leaked into Office onboarding');

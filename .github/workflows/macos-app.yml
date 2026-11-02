@@ -23,8 +23,8 @@ jobs:
           NODE_ENV: test
       - run: npm run desktop:build
       - run: node scripts/check-macos-package.mjs --app "dist-macos/The Office.app"
-      - run: npx playwright install chromium webkit
-      - run: node scripts/check-macos-browser.mjs --app "dist-macos/The Office.app" --browser chromium
+      - run: npx playwright install webkit
+      - run: node scripts/check-macos-browser.mjs --app "dist-macos/The Office.app" --browser chrome
       - run: node scripts/check-macos-browser.mjs --app "dist-macos/The Office.app" --browser webkit
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
