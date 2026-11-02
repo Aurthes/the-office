@@ -108,10 +108,11 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
   }, [resizeInput]);
   const dictation = useNativeDictation(threadId, text, setText, state?.features?.dictationHTTP ? undefined : client);
   const inputDisabled = busy || settingsBusy || !state?.connected || dictation.busy;
-  // Apply requested focus after React has re-enabled the textarea.
+  // Focus desktop composers after enabling them; touch devices open the keyboard on tap.
   useLayoutEffect(() => {
     if (inputDisabled || !focusPending.current) return;
     focusPending.current = false;
+    if (window.matchMedia?.("(pointer: coarse)").matches) return;
     input.current?.focus({ preventScroll: true });
   });
   useLayoutEffect(() => {
