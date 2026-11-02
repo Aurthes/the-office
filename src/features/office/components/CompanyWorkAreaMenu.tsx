@@ -2,10 +2,12 @@
 import { useRef, type ReactNode } from "react";
 import { useUiText } from "@/lib/i18n/ui-language";
 
+export type CompanyWorkAreaActions = ReactNode | ((areaId: string) => ReactNode);
+
 export function CompanyWorkAreaMenu({ areas, activeId, sessionCount, open, onOpenChange, onSelect, actions, description = "Shared area: work · rest · wander" }: {
   areas: { id: string; name: string; agentIds: readonly string[]; countLabel?: string }[];
   activeId: string; sessionCount: number; open: boolean;
-  onOpenChange: (open: boolean) => void; onSelect: (id: string) => void; actions?: ReactNode;
+  onOpenChange: (open: boolean) => void; onSelect: (id: string) => void; actions?: CompanyWorkAreaActions;
   description?: string;
 }) {
   const t = useUiText();
@@ -26,7 +28,7 @@ export function CompanyWorkAreaMenu({ areas, activeId, sessionCount, open, onOpe
         {areas.map(area => <option key={area.id} value={area.id}>{area.name}{area.countLabel ?? ` · ${area.agentIds.length}`}</option>)}
       </select>
       <div className="office-company-description mt-2 hidden text-[10px] text-white/50 md:block">{t(description)}</div>
-      {actions}
+      {typeof actions === "function" ? actions(activeId) : actions}
     </div>
   </section>;
 }

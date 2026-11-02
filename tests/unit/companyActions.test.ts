@@ -5,6 +5,38 @@ import { CompanyActions } from "../../src/features/office/components/CompanyActi
 afterEach(cleanup);
 const projects = [{ id: "p", name: "Native project" }];
 describe("company creation controls", () => {
+  it.each(["recruit", "edit"])("uses the selected work area's project for %s without a second selector", async action => {
+    const available = [...projects, { id: "second", name: "Selected project" }];
+    const call = vi.fn(async (method: string) => method === "office.account" ? { loggedIn: true } : method === "project.inspect" ? { project: { ...available[1], rootPaths: ["/host/selected"] }, sessions: [] } : { threadId: "created" });
+    render(React.createElement(CompanyActions, { client: { call }, projects: available, selectedProjectId: "second", disabled: false, onCreated: async () => {} }));
+    fireEvent.click(screen.getByRole("button", { name: action === "recruit" ? "+ Recruit agent" : "Edit project" })); await act(async () => {});
+    expect(screen.queryByRole("combobox", { name: "Project" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Project")).toHaveTextContent("Selected project");
+    if (action === "edit") {
+      expect(call).toHaveBeenCalledWith("project.inspect", { projectId: "second" });
+      expect(screen.getByLabelText("Project folder 1")).toHaveTextContent("/host/selected");
+    }
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Selected target" } });
+    fireEvent.click(screen.getByRole("button", { name: action === "recruit" ? "Recruit and create session" : "Save project" })); await act(async () => {});
+    expect(call).toHaveBeenCalledWith(action === "recruit" ? "session.create" : "project.update", expect.objectContaining({ projectId: "second", name: "Selected target" }));
+  });
+  it("keeps a project chooser when the selected area does not correspond to a project", () => {
+    const call = vi.fn(async () => ({ loggedIn: true }));
+    render(React.createElement(CompanyActions, { client: { call }, projects, selectedProjectId: "common-room", disabled: false, onCreated: async () => {} }));
+    fireEvent.click(screen.getByRole("button", { name: "+ Recruit agent" }));
+    expect(screen.getByRole("combobox", { name: "Project" })).toHaveValue("p");
+  });
+  it("uses Open Space when that work area is selected instead of assigning the first project", async () => {
+    const call = vi.fn(async () => ({ loggedIn: true }));
+    render(React.createElement(CompanyActions, { client: { call }, projects, selectedProjectId: null, disabled: false, onCreated: async () => {} }));
+    expect(screen.getByRole("button", { name: "Edit project" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "+ Recruit agent" }));
+    await act(async () => {});
+    expect(screen.queryByRole("combobox", { name: "Project" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Project")).toHaveTextContent("Open Space (no project)");
+    expect(screen.getByRole("button", { name: "Choose folder" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Recruit and create session" })).toBeDisabled();
+  });
   it.each([{ available: [] }, { available: projects }])("recruits into Open Space without creating or assigning a project", async ({ available }) => {
     const call = vi.fn(async (method: string) => method === "office.account" ? { loggedIn: true } : method === "project.folders.list" ? { directory: "/existing/work", parent: "/existing", entries: [] } : { threadId: "unassigned" }), onCreated = vi.fn(async () => {});
     render(React.createElement(CompanyActions, { client: { call }, projects: available, disabled: false, onCreated }));
