@@ -100,7 +100,8 @@ export const isSameSessionKey = (a: string, b: string) => {
 };
 
 const CONNECT_FAILED_CLOSE_CODE = 4008;
-const GATEWAY_CONNECT_TIMEOUT_MS = 13_000;
+// Includes the public tunnel's WebSocket upgrade, not just gateway RPC startup.
+const GATEWAY_CONNECT_TIMEOUT_MS = 30_000;
 
 const parseConnectFailedCloseReason = (
   reason: string
@@ -1178,12 +1179,13 @@ export const useGatewayConnection = (
   const connectPromptReady = settingsLoaded;
   const activeAdapterType =
     status === "connected" ? detectedAdapterType ?? selectedAdapterType : selectedAdapterType;
+  // The Studio proxy supplies credentials. An empty browser token is expected;
+  // show setup only for missing configuration or a completed connection failure.
   const shouldPromptForConnect =
     settingsLoaded &&
-    status !== "connected" &&
+    status === "disconnected" &&
     (!hasLastKnownGoodState ||
       !(gatewayUrl ?? "").trim() ||
-      (selectedAdapterType === "openclaw" && !(token ?? "").trim()) ||
       wasManualDisconnectRef.current ||
       Boolean(error));
 
