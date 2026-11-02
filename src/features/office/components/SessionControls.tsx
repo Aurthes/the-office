@@ -21,7 +21,7 @@ export type SessionClient = {
   onGap?: (handler: (gap: { expected: number; received: number }) => void) => () => void;
 };
 type Approval = { requestId: string; method: string; params: Record<string, unknown>; details?: string; decisions: string[]; supported: boolean; submitted?: boolean };
-type Snapshot = { connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; activeTurnStartedAt?: number | null; turnStatus?: string; error?: string | null; settings?: ChatSettings; features?: { dictation: boolean; dictationHTTP?: boolean; voice: boolean; prediction: boolean; accountVersion?: number }; tokenUsage?: { last: { inputTokens: number; outputTokens: number }; modelContextWindow?: number | null }; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number; questions?: SessionQuestionRequest[] };
+type Snapshot = { connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; activeTurnStartedAt?: number | null; turnStatus?: string; error?: string | null; retryAt?: number | null; retrying?: boolean; settings?: ChatSettings; features?: { dictation: boolean; dictationHTTP?: boolean; voice: boolean; prediction: boolean; accountVersion?: number }; tokenUsage?: { last: { inputTokens: number; outputTokens: number }; modelContextWindow?: number | null }; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number; questions?: SessionQuestionRequest[] };
 type StreamSnapshot = Omit<Snapshot, "items"> & { threadId: string; subscriptionId: string;
   items: (LiveSessionItem | (Omit<LiveSessionItem, "content"> & { append: string; baseVersion: number }))[] };
 type Upload = { id: string; name: string; size: number; ref?: string; error?: string };
@@ -37,6 +37,13 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
 }) {
   const t = useUiText();
   const [state, setState] = useState<Snapshot | null>(null);
+  const [retrySeconds, setRetrySeconds] = useState(0);
+  useEffect(() => {
+    if (!state?.retryAt) return;
+    const update = () => setRetrySeconds(Math.max(0, Math.ceil((state.retryAt! - Date.now()) / 1000)));
+    update(); const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, [state?.retryAt]);
   const [prediction, setPrediction] = useState<{ threadId: string; text: string } | null>(null);
   const previousPredictionState = useRef({ threadId, working: false });
   const [text, setTextState] = useState(() => sessionDrafts.get(threadId) || "");
@@ -320,7 +327,7 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
       </span> : <span className="hidden min-w-0 flex-1 truncate text-xs text-white/45 sm:block">{state?.connected ? state.activeTurnId ? t("Codex is working…") : state.turnStatus === "interrupted" ? t("Stopped") : t("Codex · Connected") : connectionError ? t("Codex unavailable") : t("Connecting to Codex…")}</span>}
       <div className="flex shrink-0 items-center gap-2">
         {!state?.settings && state?.tokenUsage ? <SessionContextUsage usage={state.tokenUsage} above /> : null}
-        {state?.activeTurnId && !dictation.busy ? <button aria-label={t("Stop")} title={t("Stop")} disabled={busy || settingsBusy} onClick={() => void action("session.stop", {})} className="grid h-10 w-10 place-items-center rounded-lg text-rose-200 hover:bg-white/5 disabled:opacity-40"><Square size={15} fill="currentColor" aria-hidden="true" /></button> : null}
+        {(state?.activeTurnId || state?.retryAt) && !dictation.busy ? <button aria-label={t("Stop")} title={t("Stop")} disabled={busy || settingsBusy} onClick={() => void action("session.stop", {})} className="grid h-10 w-10 place-items-center rounded-lg text-rose-200 hover:bg-white/5 disabled:opacity-40"><Square size={15} fill="currentColor" aria-hidden="true" /></button> : null}
         <button aria-label={canContinue ? t("Continue interrupted task") : recording ? t("Transcribe and send") : undefined} title={canContinue ? t("Continue interrupted task") : recording ? t("Transcribe and send (Enter)") : undefined} disabled={busy || settingsBusy || !state?.connected || !readyToSend} onClick={send} className="min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40">{busy ? t("Submitting…") : canContinue ? <Play size={18} fill="currentColor" aria-hidden="true" /> : dictation.busy ? t("Send") : state?.activeTurnId ? t("Steer") : t("Send")}</button>
       </div>
     </div>
@@ -333,7 +340,7 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
     {notice ? <p role="status" className="mt-2 text-[10px] text-cyan-100">{t(notice)}</p> : null}
     {voice.error && voice.threadId === threadId ? <p role="alert" className="mt-2 break-words text-xs text-amber-100">{t(voice.error)}</p> : null}
     {error ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{t(error)}</p> : null}
-    {state?.error ? <p role="alert" className="mt-2 break-words text-xs text-rose-200">{state.error}</p> : null}
+    {state?.retryAt ? <p role="status" className="mt-2 break-words text-xs text-amber-100">{state.retrying ? t("Retrying the session…") : t("Model is busy. Retrying in {seconds} seconds…", { seconds: retrySeconds })}</p> : state?.error ? <p role="alert" className="mt-2 break-words text-xs text-rose-200">{state.error}</p> : null}
     {connectionError ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{t(connectionError)} <button className="underline" onClick={() => void refresh.current?.()}>{t("Reconnect")}</button></p> : null}
     </div>
   </div>;

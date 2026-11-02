@@ -36,10 +36,14 @@ let diagnosticClient, gatewayErrors = "";
 const provider = http.createServer((request, response) => {
   let body = ""; request.on("data", data => { body += data; }); request.on("end", () => {
     const payload = JSON.parse(body); payloads.push(payload);
+    const last = [...(payload.input || [])].reverse().find(item => item.role === "user");
+    if (JSON.stringify(last).includes("OFFICE_CAPACITY")) {
+      response.writeHead(503, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: { message: "Selected model is at capacity. Please try a different model.", type: "server_error", code: "server_is_overloaded" } })); return;
+    }
     response.writeHead(200, { "content-type": "text/event-stream" });
     const id = `resp_${payloads.length}`, emit = value => response.write(`data: ${JSON.stringify(value)}\n\n`);
     emit({ type: "response.created", response: { id } });
-    const last = [...(payload.input || [])].reverse().find(item => item.role === "user");
     if (JSON.stringify(last).includes("OFFICE_HOLD")) return;
     if (JSON.stringify(last).includes("OFFICE_QUESTION") && !payload.input.some(i => i.type === "function_call_output" && i.call_id === "async-question-1")) {
       const item = { id: "fc_question", type: "function_call", namespace: "functions", name: "request_user_input_async", call_id: "async-question-1", arguments: JSON.stringify({ questions: [{ title: "Choose a test route", options: ["First route", "Second route"] }] }) };
@@ -79,7 +83,7 @@ async function stop() {
 }
 try {
   provider.listen(0, "127.0.0.1"); await once(provider, "listening");
-  fs.writeFileSync(path.join(home, "config.toml"), `model = "gpt-6.1-sol"\nmodel_provider = "office_check"\n[model_providers.office_check]\nname = "Local test fixture"\nbase_url = "http://127.0.0.1:${provider.address().port}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\n`);
+  fs.writeFileSync(path.join(home, "config.toml"), `model = "gpt-6.1-sol"\nmodel_provider = "office_check"\n[model_providers.office_check]\nname = "Local test fixture"\nbase_url = "http://127.0.0.1:${provider.address().port}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\nrequest_max_retries = 0\nstream_max_retries = 0\n`);
   const portProbe = net.createServer(); portProbe.listen(0, "127.0.0.1"); await once(portProbe, "listening"); port = portProbe.address().port; await new Promise(r => portProbe.close(r));
   let client = await start(true);
   const health = await (await fetch(`http://127.0.0.1:${port}/health`)).json();
@@ -152,6 +156,15 @@ try {
   check("choice answer reaches Codex as a user reply", payloads.at(-1).input.some(i => i.role === "user" && JSON.stringify(i).includes("send_user_message_question_reply") && JSON.stringify(i).includes("Second route")));
   check("choice reply reaches the same conversation and clears its input marker", !(await client.call("office.snapshot")).agents[0].needsInput && (await client.call("session.attach", { threadId })).questions.length === 0);
   check("completed result is available for browser unread marker", (await client.call("office.snapshot")).agents[0].completedResult?.unread === true);
+  await client.call("session.subscribe", { threadId, subscriptionId: "capacity-check" });
+  const capacityStart = Date.now();
+  await client.call("session.send", { threadId, message: "OFFICE_CAPACITY", requestId: "capacity-send" });
+  await until(() => client.events.some(e => e.event === "session.stream" && e.payload.subscriptionId === "capacity-check" && e.payload.retryAt), "Capacity failure did not schedule recovery");
+  check("capacity failure waits 15 seconds without a red error marker", (await client.call("office.snapshot")).agents[0].status === "running" && (await client.call("session.attach", { threadId })).retryAt >= capacityStart + 15000);
+  await client.call("session.unsubscribe", { subscriptionId: "capacity-check" });
+  await until(() => JSON.stringify(payloads.at(-1).input.filter(i => i.role === "user").at(-1)).includes("Continue where you left off.") && JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].status === "idle", "Background capacity recovery did not finish", 25000);
+  const capacityHistory = (await client.call("session.history", { threadId })).messages;
+  check("capacity recovery continues once after 15 seconds without an open chat", Date.now() - capacityStart >= 15000 && capacityHistory.filter(m => m.role === "user" && m.content === "OFFICE_CAPACITY").length === 1 && capacityHistory.filter(m => m.role === "user" && m.content === "Continue where you left off.").length === 1 && JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].codexThreadId === originalNativeId);
   await client.call("session.send", { threadId, message: "OFFICE_HOLD", requestId: "send-3" });
   await until(() => JSON.stringify(payloads.at(-1)).includes("OFFICE_HOLD"), "Hold did not start");
   const runningTiming = await client.call("session.attach", { threadId });

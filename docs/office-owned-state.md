@@ -226,6 +226,15 @@ without falling back to a paid API or attaching to the native App.
 
 ## Reproduce validation
 
+Capacity failures (`serverOverloaded`, `policyCapacityUnavailable`, or the known
+"Selected model is at capacity" error) receive one gateway-owned continuation
+after 15 seconds. Another confirmed capacity failure starts another 15-second
+wait. The timer survives closing the chat, shows a cancellable countdown, and
+keeps the worker in the working state. Stop, a new user message, or a new turn
+cancels it. Authentication, quota, policy and ambiguous transport failures are
+not automatically continued. Native in-progress retries remain native; merely
+opening an old failed conversation never restarts its work.
+
 Run the focused unit tests and TypeScript check, then the opt-in integration:
 
 ```sh
