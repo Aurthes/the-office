@@ -34,8 +34,8 @@ describe("company creation controls", () => {
     await act(async () => {});
     expect(screen.queryByRole("combobox", { name: "Project" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Project")).toHaveTextContent("Open Space (no project)");
-    expect(screen.getByRole("button", { name: "Choose folder" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Recruit and create session" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Choose a working folder" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Recruit and create session" })).not.toBeInTheDocument();
   });
   it.each([{ available: [] }, { available: projects }])("recruits into Open Space without creating or assigning a project", async ({ available }) => {
     const call = vi.fn(async (method: string) => method === "office.account" ? { loggedIn: true } : method === "project.folders.list" ? { directory: "/existing/work", parent: "/existing", entries: [] } : { threadId: "unassigned" }), onCreated = vi.fn(async () => {});
