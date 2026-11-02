@@ -16,10 +16,21 @@ const MessageTime = memo(function MessageTime({ timestamp }: { timestamp?: numbe
 
 const MessageBody = memo(function MessageBody({ message, truncatedLabel }: { message: LiveSessionItem; truncatedLabel: string }) {
   return <>
-    {message.role === "tool" ? <pre className="overflow-auto whitespace-pre-wrap break-all text-xs text-white/60">{message.content}</pre> : <SessionMarkdown content={message.content} assets={message.assets} user={message.role === "user"} />}
+    <SessionMarkdown content={message.content} assets={message.assets} user={message.role === "user"} />
     {message.truncated ? <p className="mt-2 text-[10px] text-amber-200/70">{truncatedLabel}</p> : null}
-    {message.role !== "tool" ? <MessageTime timestamp={message.timestamp} /> : null}
+    <MessageTime timestamp={message.timestamp} />
   </>;
+});
+
+const ToolSummary = memo(function ToolSummary({ message }: { message: LiveSessionItem }) {
+  const t = useUiText();
+  const firstLine = message.content.trimStart().split(/\r?\n/, 1)[0].replace(/\s+/g, " ");
+  const summary = firstLine.length > 120 ? `${firstLine.slice(0, 119)}…` : firstLine || t("Tool");
+  return <p className="flex min-w-0 items-center gap-2 text-xs text-white/55">
+    <span aria-hidden="true" className="shrink-0 text-white/30">›</span>
+    <span className="min-w-0 truncate font-mono">{summary}</span>
+    {message.status === "inProgress" || message.status === "failed" ? <span className={`shrink-0 text-[10px] ${message.status === "failed" ? "text-rose-300" : "text-white/40"}`}>{t(message.status === "inProgress" ? " · In progress" : " · Failed")}</span> : null}
+  </p>;
 });
 
 function WorkProcess({ items }: { items: LiveSessionItem[] }) {
@@ -28,8 +39,7 @@ function WorkProcess({ items }: { items: LiveSessionItem[] }) {
   return <details onToggle={event => setOpen(event.currentTarget.open)} className="rounded-lg border border-white/10 bg-white/[0.025] px-3 py-2" aria-label={t("Work process")}>
     <summary className="cursor-pointer text-xs text-white/50">{t("Work process · {count} items", { count: items.length })}</summary>
     {/* Hidden work logs can contain hundreds of Markdown blocks and images. */}
-    {open ? <div className="mt-3 space-y-3 border-l border-white/15 pl-3">{items.map(message => <div key={message.id}>
-      {message.role === "tool" ? <p className="mb-1 text-[10px] text-white/40">{t("Tool")}{message.status === "inProgress" ? t(" · In progress") : message.status === "failed" ? t(" · Failed") : ""}</p> : null}
+    {open ? <div className="mt-2 space-y-2 border-l border-white/15 pl-3">{items.map(message => message.role === "tool" ? <ToolSummary key={message.id} message={message} /> : <div key={message.id}>
       <MessageBody message={message} truncatedLabel={t("This message is long. View the rest in the desktop app.")} />
     </div>)}</div> : null}
   </details>;

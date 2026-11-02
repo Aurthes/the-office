@@ -32,7 +32,7 @@ it("keeps large folded logs out of the DOM and renders the latest items when reo
   expect(view.container.querySelector("img")).toBeNull();
   fireEvent.click(screen.getByText("Work process · 501 items"));
   await screen.findByText("Command 499");
-  expect(view.container.querySelectorAll("pre")).toHaveLength(500);
+  expect(view.container.querySelector("pre")).toBeNull();
   expect(view.container.querySelector("img")).not.toBeNull();
   fireEvent.click(screen.getByText("Work process · 501 items"));
   await waitFor(() => expect(view.container.querySelector("pre")).toBeNull());
@@ -42,7 +42,32 @@ it("keeps large folded logs out of the DOM and renders the latest items when reo
   fireEvent.click(screen.getByText("Work process · 501 items"));
   await screen.findByText("Updated result");
   expect(screen.queryByText("Command 499")).toBeNull();
-  expect(view.container.querySelectorAll("pre")).toHaveLength(500);
+  expect(view.container.querySelector("pre")).toBeNull();
+});
+
+it("shows only a one-line tool or command summary with status, omitting parameters and output", async () => {
+  const view = render(React.createElement(SessionTranscript, { messages: [
+    { id: "tool", turnId: "t", role: "tool", content: '\nfunctions.exec_command\n{"cmd":"FULL_ARGUMENTS_MARKER"}\nFULL_OUTPUT_MARKER', status: "inProgress", truncated: true },
+    { id: "shell", turnId: "t", role: "tool", content: 'rg  -n "pattern" src\r\nSECOND_COMMAND_MARKER', status: "failed" },
+  ] }));
+  fireEvent.click(screen.getByText("Work process · 2 items"));
+  await screen.findByText("functions.exec_command");
+  expect(screen.getByText('rg -n "pattern" src')).toBeInTheDocument();
+  expect(screen.getByText("· In progress")).toBeInTheDocument();
+  expect(screen.getByText("· Failed")).toBeInTheDocument();
+  expect(view.container.textContent).not.toMatch(/FULL_ARGUMENTS_MARKER|FULL_OUTPUT_MARKER|SECOND_COMMAND_MARKER|This message is long/);
+  expect(view.container.querySelector("pre, code")).toBeNull();
+});
+
+it("bounds long single-line calls instead of hiding full payloads in the DOM or hover text", async () => {
+  const full = `functions.exec ${"argument ".repeat(1000)}HIDDEN_TAIL_MARKER`;
+  const view = render(React.createElement(SessionTranscript, { messages: [{ id: "long", role: "tool", content: full }] }));
+  fireEvent.click(screen.getByText("Work process · 1 items"));
+  const summary = await screen.findByText(/^functions\.exec/);
+  expect(summary.textContent?.length).toBeLessThanOrEqual(120);
+  expect(summary.textContent).toMatch(/…$/);
+  expect(view.container.innerHTML).not.toContain("HIDDEN_TAIL_MARKER");
+  expect(view.container.innerHTML).not.toContain(full);
 });
 
 it("shows voice questions without protocol wrappers or a duplicate call-end bubble", () => {
