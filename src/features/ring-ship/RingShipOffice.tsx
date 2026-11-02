@@ -108,7 +108,7 @@ export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, 
   const move = useRef<{ target: THREE.Vector3; position: THREE.Vector3; zoom: number } | null>(null);
   const followSpace = useRef(false);
   useEffect(() => {
-    followSpace.current = !!objectFocus?.space;
+    followSpace.current = !!(objectFocus?.space || objectFocus?.npc);
     if (busy) { move.current = null; return; }
     const controls = controlsRef.current;
     if (navigationFocus && controls) {
@@ -151,7 +151,7 @@ export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, 
   }, [controlsRef]);
   useFrame((state, delta) => {
     if (busy) return;
-    if (objectFocus?.space && followSpace.current && controlsRef.current) move.current = shipObjectCameraPose(objectFocus, size.width, size.height, state.camera.position, controlsRef.current.target);
+    if ((objectFocus?.space || objectFocus?.npc) && followSpace.current && controlsRef.current) move.current = shipObjectCameraPose(objectFocus, size.width, size.height, state.camera.position, controlsRef.current.target);
     const camera = state.camera;
     const person = followed.current && lookupRef.current.get(followed.current.id);
     if (person && followed.current) {
@@ -402,7 +402,8 @@ export function RingShipOffice(props: Props) {
   const objectEnabled = !busy && !navigationOpen && !props.activeChatAgentId && !returnFlight && !monitorOpen && !tasksOpen && !musicOpen && !settingsOpen && !aiOpen;
   const objectFocus = objectEnabled && inspectedObject && (inspectedObject.space ? inspectedObject.space.seed === system.seed : !shipView && inspectedObject.deck === visibleDeck && currentLayout.cabins.some(c => c.id === inspectedObject.cabinId)) ? inspectedObject : null;
   const inspectObject = useCallback((object: ShipObject) => {
-    setInspectedObject(object); if (!object.space) setDeck(object.deck); setWhole(false); setLiftOpen(false); setFleetOpen(false);
+    setInspectedObject(object); setFocus(previous => ({ ...previous, request: previous.request + 1 }));
+    if (!object.space) setDeck(object.deck); setWhole(false); setLiftOpen(false); setFleetOpen(false);
   }, []);
   const reserveCount = layout.cabins.filter(c => c.kind === "reserve").length;
   const travel = useCallback((destination: DeckIndex, id = "") => {
@@ -449,12 +450,12 @@ export function RingShipOffice(props: Props) {
       <ShipHull layout={layout} deck={visibleDeck} whole={shipView} busy={busy} />
       {decks.map((value, index) => <group key={index} position={[0, index * DECK_STEP, 0]} visible={shipView || busy || index === visibleDeck}>
         <StaticShip layout={value} enabled={objectEnabled && (shipView || index === visibleDeck)} selectedId={objectFocus?.id} onSelect={inspectObject} /><ReturnPodBay layout={value} active={!!returnFlight}/>
+        {index === 0 ? <ShipCompanions layout={value} active={!busy && (shipView || visibleDeck === 0)} enabled={objectEnabled && (shipView || visibleDeck === 0)} selectedId={objectFocus?.id} onSelect={inspectObject} /> : null}
         {value.cabins.filter(c => c.kind === "ai").map(cabin => <AiComputationCore key={cabin.id} layout={value} cabin={cabin} interactive={objectEnabled && !shipView && index === visibleDeck} onOpen={() => select(cabin.id)} />)}
       </group>)}
       {!shipView && !busy ? <group position={[0, visibleDeck * DECK_STEP, 0]}>
         <CabinTargets layout={currentLayout} focus={validFocus} onSelect={select} />
         {visibleDeck === 0 ? currentLayout.cabins.filter(c => c.kind === "lounge").map(cabin => <ListeningBar key={cabin.id} layout={currentLayout} cabin={cabin} onOpen={() => { closeObject(); setMusicOpen(true); }} />) : null}
-        {visibleDeck === 0 ? <ShipCompanions layout={currentLayout} /> : null}
         {currentLayout.cabins.filter(c => c.kind === "monitor").map(cabin => <group key={cabin.id}>
           {!navigationOpen ? <MonitorRoomScreen layout={currentLayout} cabin={cabin} onOpen={openMonitor} /> : null}
           {!navigationOpen ? <TaskRoomScreen layout={currentLayout} cabin={cabin} onOpen={openTasks} /> : null}

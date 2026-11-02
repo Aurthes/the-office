@@ -7,6 +7,18 @@ import { setUiLanguage } from "@/lib/i18n/ui-language";
 import type { ShipObject } from "@/features/ring-ship/shipObjects";
 const object: ShipObject = { id: "plant-1", kind: "pottedPlant", deck: 1, cabinId: "cabin", cabinName: "Rainforest Habitat", bounds: new Box3(new Vector3(), new Vector3(1, 1, 1)), parts: [] };
 afterEach(() => { cleanup(); setUiLanguage("en"); });
+it("shows an NPC's name and live activity in the existing information card", () => {
+  vi.useFakeTimers();
+  try {
+    const npc = { ...object, kind: "robotBartender" as const, npc: { name: "C.O.R.E.", activity: "Washing and polishing a glass" } };
+    render(React.createElement(ShipObjectCard, { object: npc, customRoom: false, onClose: vi.fn() }));
+    expect(screen.getByRole("heading", { name: "C.O.R.E." })).toBeVisible();
+    expect(screen.getByText("Washing and polishing a glass")).toBeVisible();
+    act(() => { npc.npc.activity = "Checking the bottle stock"; vi.advanceTimersByTime(400); });
+    expect(screen.getByText("Checking the bottle stock")).toBeVisible();
+    expect(screen.queryByText("Washing and polishing a glass")).toBeNull();
+  } finally { vi.useRealTimers(); }
+});
 it("uses the shared card for space discoveries without assigning them to a deck", () => {
   render(React.createElement(ShipObjectCard, { object: { ...object, kind: "asteroid", space: { kind: "asteroid", index: 0, seed: 0, generation: 0 } }, customRoom: false, onClose: vi.fn() }));
   expect(screen.getByRole("heading", { name: "Drifting asteroid" })).toBeVisible();

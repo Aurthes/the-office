@@ -2,6 +2,10 @@ import * as THREE from "three";
 import { DECK_STEP, type DeckIndex } from "./layout";
 
 export const SHIP_OBJECT_INFO = {
+  cat: ["Ship cat", "A curious little explorer with a talent for finding the best napping spots."],
+  dog: ["Ship dog", "An enthusiastic companion who considers every corridor a new adventure."],
+  mechDrone: ["Maintenance robot", "A careful little mechanic keeping the ship in good working order."],
+  robotBartender: ["Robot bartender", "Keeper of clean glasses, tidy bottles and a welcoming bar."],
   asteroid: ["Drifting asteroid", "A weathered traveller carrying stories older than the ship."],
   passingShip: ["Passing ship", "A fellow explorer following a distant trade route. Safe travels!"],
   passingFleet: ["Passing fleet", "A small convoy crossing our course. The crew waves from the observation deck."],
@@ -59,6 +63,7 @@ export type ShipObject = {
   bounds: THREE.Box3;
   parts: Array<{ mesh: THREE.Mesh; start: number; count: number }>;
   space?: { kind: "asteroid" | "ship"; index: number; generation: number; seed: number };
+  npc?: { name: string; activity: string };
 };
 export type ShipObjectRange = { object: ShipObject; start: number; count: number };
 
