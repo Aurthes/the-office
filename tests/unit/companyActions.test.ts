@@ -13,8 +13,9 @@ describe("company creation controls", () => {
     fireEvent.change(screen.getByLabelText("Project"), { target: { value: "" } });
     expect(screen.getByLabelText("Project")).not.toBeRequired();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Explorer" } });
-    expect(screen.getByRole("button", { name: "Recruit and create session" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Choose folder" }));
+    expect(screen.getByText("Choose a working folder for this agent. No project is created.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose a working folder" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Choose a working folder" }));
     await act(async () => {});
     fireEvent.click(screen.getByRole("button", { name: "Use this folder" }));
     expect(screen.getByLabelText("Working folder")).toHaveTextContent("/existing/work");
@@ -23,6 +24,24 @@ describe("company creation controls", () => {
     expect(call).toHaveBeenCalledWith("session.create", { name: "Explorer", projectId: null, workspace: "/existing/work", requestId: expect.any(String) });
     expect(call.mock.calls.some(([method]) => method === "project.create")).toBe(false);
     expect(onCreated).toHaveBeenCalledWith("unassigned", expect.objectContaining({ seed: "unassigned", duck: expect.any(Object) }));
+  });
+  it("keeps an Open Space recruit after cancelling the folder picker and never creates before a folder is chosen", async () => {
+    const call = vi.fn(async (method: string) => method === "office.account" ? { loggedIn: true } : { directory: "/existing/work", parent: "/existing", entries: [] });
+    render(React.createElement(CompanyActions, { client: { call }, projects, disabled: false, onCreated: async () => {} }));
+    fireEvent.click(screen.getByRole("button", { name: "+ Recruit agent" }));
+    fireEvent.change(screen.getByLabelText("Project"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Choose a working folder" }));
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByLabelText("Project")).toHaveValue("");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Explorer" } });
+    fireEvent.submit(screen.getByRole("dialog"));
+    await act(async () => {});
+    expect(screen.getByRole("group", { name: "Browse host folders" })).toBeInTheDocument();
+    expect(call.mock.calls.some(([method]) => method === "session.create" || method === "project.create")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Use this folder" }));
+    expect(screen.getByLabelText("Name")).toHaveValue("Explorer");
+    expect(screen.getByRole("button", { name: "Recruit and create session" })).toBeEnabled();
   });
   it("opens the folder picker directly and creates a project with its folder name", async () => {
     const call = vi.fn(async (method: string) => method === "project.folders.list" ? { directory: "/existing/repo", parent: "/existing", entries: [] } : { project: { id: "new" } }), onCreated = vi.fn(async () => {});
