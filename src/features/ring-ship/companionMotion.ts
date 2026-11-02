@@ -3,7 +3,7 @@ import { BAR_LAYOUT, barPoint } from "./barLayout";
 import { moveCharacter, occupiedWaypoint, separateCharacter, type CharacterBody } from "./characterCollision";
 import { footingRadius, walkableSegment } from "./walkableSurface";
 
-export type CompanionKind = "cat" | "dog" | "drone" | "bartender" | "kirby";
+export type CompanionKind = "cat" | "dog" | "drone" | "bartender" | "kirby" | "dumu" | "dufu";
 export type CompanionAction = "idle" | "wander" | "run" | "sniff" | "sit" | "sleep" | "stretch" | "groom" | "patrol" | "scan" | "repair" | "charge" | "wash" | "inventory" | "pour" | "wipe";
 export type CompanionState = {
   kind: CompanionKind; action: CompanionAction; time: number; duration: number;
@@ -12,8 +12,8 @@ export type CompanionState = {
   seed: number; cycles: number; radius: number;
   progress?: { position: ShipPoint; elapsed: number };
 };
-export const COMPANION_NAMES: Record<CompanionKind, string> = { cat: "MOCHI", dog: "BISCUIT", drone: "PATCH-7", bartender: "C.O.R.E.", kirby: "Kirby" };
-const RADII: Record<CompanionKind, number> = { cat: .42, dog: .5, drone: .62, bartender: .55, kirby: .78 };
+export const COMPANION_NAMES: Record<CompanionKind, string> = { cat: "MOCHI", dog: "BISCUIT", drone: "PATCH-7", bartender: "C.O.R.E.", kirby: "Kirby", dumu: "嘟母", dufu: "嘟父" };
+const RADII: Record<CompanionKind, number> = { cat: .42, dog: .5, drone: .62, bartender: .55, kirby: .78, dumu: .56, dufu: .56 };
 export function companionBody(state: CompanionState): CharacterBody {
   return { id: `npc:${state.kind}`, position: state.position, radius: state.radius, deck: 0 };
 }
@@ -64,12 +64,13 @@ export function createCompanionState(kind: CompanionKind, layout: ShipLayout, se
 function nextAction(state: CompanionState, layout: ShipLayout, others: readonly CharacterBody[]) {
   const previous = state.action, cabin = cabinFor(state, layout), ring = layout.rings[cabin.ring];
   state.cycles++; state.time = 0;
-  if (state.kind === "cat" || state.kind === "dog" || state.kind === "kirby") {
+  if (state.kind === "cat" || state.kind === "dog" || state.kind === "kirby" || state.kind === "dumu" || state.kind === "dufu") {
     state.action = state.kind === "kirby" ? "wander" : previous === "sleep" ? "stretch" : pick(state, PET_ACTIONS);
     if (state.action === previous) state.action = "wander";
     state.duration = state.action === "sleep" ? 16 + random(state) * 14 : 4 + random(state) * 7;
     if (state.action === "wander" || state.action === "run") {
-      const roomVisit = state.action !== "run" && random(state) < .24;
+      // The duo controller chooses shared room visits; local strolls stay independent.
+      const roomVisit = state.kind !== "dumu" && state.kind !== "dufu" && state.action !== "run" && random(state) < .24;
       const rooms = layout.cabins.filter(c => c.deck === 0 && ["lounge", "garden", "canteen", "hydroponics"].includes(c.kind));
       let destination = roomVisit ? pick(state, rooms.filter(c => c.id !== cabin.id)) : cabin;
       const angle = Math.atan2(state.position.x, state.position.z);
@@ -122,7 +123,7 @@ export function advanceCompanion(state: CompanionState, layout: ShipLayout, elap
     if (reached || closeEnough) state.progress = { position: { ...state.position }, elapsed: 0 };
     if ((reached || closeEnough) && ++state.waypoint >= state.route.length) {
       state.route = []; state.waypoint = 0; state.cabinId = state.destinationId; state.time = 0;
-      if (state.kind === "cat" || state.kind === "dog") { state.action = "sniff"; state.duration = 2 + random(state) * 3; }
+      if (state.kind === "cat" || state.kind === "dog" || state.kind === "dumu" || state.kind === "dufu") { state.action = "sniff"; state.duration = 2 + random(state) * 3; }
       if (state.kind === "kirby") { state.action = pick(state, ["stretch", "sit", "groom"]); state.duration = 1.5 + random(state) * 2; }
       if (state.kind === "drone" && state.action === "patrol") { state.action = "scan"; state.duration = 7; }
     }
