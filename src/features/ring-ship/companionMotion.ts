@@ -1,5 +1,6 @@
 import { cabinAngle, routeBetweenCabins, shipPoint, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
 import { BAR_LAYOUT, barPoint } from "./barLayout";
+import { moveCharacter, occupiedWaypoint, separateCharacter, type CharacterBody } from "./characterCollision";
 
 export type CompanionKind = "cat" | "dog" | "drone" | "bartender";
 export type CompanionAction = "idle" | "wander" | "run" | "sniff" | "sit" | "sleep" | "stretch" | "groom" | "patrol" | "scan" | "repair" | "charge" | "wash" | "inventory" | "pour" | "wipe";
@@ -7,9 +8,13 @@ export type CompanionState = {
   kind: CompanionKind; action: CompanionAction; time: number; duration: number;
   position: ShipPoint; facing: number; y: number; speed: number;
   cabinId: string; destinationId: string; route: ShipPoint[]; waypoint: number;
-  seed: number; cycles: number;
+  seed: number; cycles: number; radius: number;
 };
 export const COMPANION_NAMES: Record<CompanionKind, string> = { cat: "MOCHI", dog: "BISCUIT", drone: "PATCH-7", bartender: "C.O.R.E." };
+const RADII: Record<CompanionKind, number> = { cat: .42, dog: .5, drone: .62, bartender: .55 };
+export function companionBody(state: CompanionState): CharacterBody {
+  return { id: `npc:${state.kind}`, position: state.position, radius: state.radius, deck: 0 };
+}
 const PET_ACTIONS: CompanionAction[] = ["wander", "wander", "run", "sniff", "sit", "sleep", "stretch", "groom"];
 const DRONE_ACTIONS: CompanionAction[] = ["patrol", "scan", "repair", "scan", "charge"];
 const BAR_ACTIONS: CompanionAction[] = ["wash", "inventory", "pour", "wipe", "wash", "idle"];
@@ -41,7 +46,7 @@ function travel(state: CompanionState, points: ShipPoint[], destination: ShipCab
   state.route = points; state.waypoint = 0; state.destinationId = destination.id; state.speed = speed;
 }
 
-export function createCompanionState(kind: CompanionKind, layout: ShipLayout, seed: number): CompanionState {
+export function createCompanionState(kind: CompanionKind, layout: ShipLayout, seed: number, radius = RADII[kind]): CompanionState {
   const cabin = layout.cabins.find(c => c.deck === 0 && c.kind === (kind === "drone" ? "maintenance" : "lounge"));
   if (!cabin) throw new Error(`Missing companion cabin: ${kind}`);
   const position = kind === "bartender" ? barPoint(layout, cabin, -.7, .42)
@@ -49,7 +54,7 @@ export function createCompanionState(kind: CompanionKind, layout: ShipLayout, se
   return { kind, action: kind === "bartender" ? "wash" : kind === "drone" ? "scan" : "idle", time: 0,
     duration: kind === "cat" ? 2.5 : kind === "dog" ? 4 : 8, position, facing: cabinAngle(layout, cabin.slot) + (kind === "bartender" ? Math.PI : kind === "cat" ? 1.1 : -1.1),
     y: kind === "bartender" ? .8 : kind === "drone" ? .65 : .09, speed: .65,
-    cabinId: cabin.id, destinationId: cabin.id, route: [], waypoint: 0, seed: seed >>> 0, cycles: 0 };
+    cabinId: cabin.id, destinationId: cabin.id, route: [], waypoint: 0, seed: seed >>> 0, cycles: 0, radius };
 }
 
 function nextAction(state: CompanionState, layout: ShipLayout) {
@@ -85,7 +90,7 @@ function nextAction(state: CompanionState, layout: ShipLayout) {
   }
 }
 
-export function advanceCompanion(state: CompanionState, layout: ShipLayout, elapsed: number) {
+export function advanceCompanion(state: CompanionState, layout: ShipLayout, elapsed: number, others: readonly CharacterBody[] = []) {
   const dt = Math.min(Math.max(elapsed, 0), .05), target = state.route[state.waypoint];
   if (!dt) return;
   if (target) {
@@ -93,14 +98,22 @@ export function advanceCompanion(state: CompanionState, layout: ShipLayout, elap
     if (distance > .001) {
       const facing = Math.atan2(dx, dz), difference = Math.atan2(Math.sin(facing - state.facing), Math.cos(facing - state.facing));
       state.facing += difference * Math.min(1, dt * 10);
-      state.position.x += dx / distance * Math.min(step, distance); state.position.z += dz / distance * Math.min(step, distance);
+      const next = moveCharacter(companionBody(state), target, step, others, state.kind !== "bartender");
+      state.position.x = next.x; state.position.z = next.z;
     }
-    if (distance <= step + .001 && ++state.waypoint >= state.route.length) {
+    const body = companionBody(state);
+    const reached = Math.hypot(target.x - state.position.x, target.z - state.position.z) <= .001;
+    const closeEnough = state.kind !== "bartender" && distance < body.radius * 2 + .15 && occupiedWaypoint(body, target, others);
+    if ((reached || closeEnough) && ++state.waypoint >= state.route.length) {
       state.route = []; state.waypoint = 0; state.cabinId = state.destinationId; state.time = 0;
       if (state.kind === "cat" || state.kind === "dog") { state.action = "sniff"; state.duration = 2 + random(state) * 3; }
       if (state.kind === "drone" && state.action === "patrol") { state.action = "scan"; state.duration = 7; }
     }
   } else {
+    if (state.kind !== "bartender") {
+      const next = separateCharacter(companionBody(state), state.speed * dt, others);
+      state.position.x = next.x; state.position.z = next.z;
+    }
     state.time += dt;
     if (state.time >= state.duration) nextAction(state, layout);
     if (state.kind === "bartender" || state.kind === "drone") {

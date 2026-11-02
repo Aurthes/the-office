@@ -12,6 +12,18 @@ type Login = { state: string; url: string; qrCode: string; expiresAt: number };
 type Source = "scene" | "daily" | "search";
 type Collection = { songs: Song[]; playlists: { id: string; name: string }[] };
 type Queue = { songs: Song[]; source: Source; scene: string; batch: number };
+const lastSceneTrackKey = (scene: string) => `claw3d:music:last-scene-track:${scene}`;
+function shuffledSceneSongs(songs: Song[], scene: string, previousId?: string): Song[] {
+  let lastId = previousId;
+  try { lastId ||= localStorage.getItem(lastSceneTrackKey(scene)) || undefined; } catch { /* Playback works without storage. */ }
+  const shuffled = [...songs];
+  for (let index = shuffled.length - 1; index > 0; index--) {
+    const other = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[other]] = [shuffled[other], shuffled[index]];
+  }
+  // Keep the previous song as a fallback if the other tracks cannot play.
+  return [...shuffled.filter(song => song.id !== lastId), ...shuffled.filter(song => song.id === lastId)];
+}
 async function request<T>(url: string, signal: AbortSignal, method = "GET"): Promise<T> {
   const response = await fetch(url, { method, signal, cache: "no-store" });
   const result = await response.json();
@@ -72,18 +84,6 @@ export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget,
     document.addEventListener("click", retry); document.addEventListener("keydown", retry);
     return () => { document.removeEventListener("click", retry); document.removeEventListener("keydown", retry); };
   }, [playHint]);
-  useEffect(() => {
-    const sceneChanged = appliedScene.current !== scene;
-    if (!connection?.authorized || (source === "search" && !sceneChanged)) return;
-    if (sceneChanged) playRequest.current?.abort();
-    const controller = new AbortController();
-    const requestedSource = sceneChanged ? "scene" : source;
-    const requestedBatch = sceneChanged ? 0 : batch;
-    request<Collection>(API + "?action=recommendations&scene=" + encodeURIComponent(scene) + "&source=" + requestedSource + "&batch=" + requestedBatch, controller.signal)
-      .then(result => { if (!controller.signal.aborted) applyRecommendations(result, scene, requestedSource, requestedBatch); })
-      .catch(cause => { if (!controller.signal.aborted) { setError(cause.message); setSongs([]); if (cause.code === "AUTH_REQUIRED") setConnection({ configured: true, authorized: false }); } });
-    return () => controller.abort();
-  }, [connection?.authorized, source, scene, batch]);
   useEffect(() => {
     if (!login || !["waiting", "confirm"].includes(login.state)) return;
     const controller = new AbortController();
@@ -149,17 +149,31 @@ export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget,
   const applyRecommendations = useEffectEvent((collection: Collection, requestedScene: string, requestedSource: Source, requestedBatch: number) => {
     if (requestedScene !== scene) return;
     const sceneChanged = appliedScene.current !== scene;
+    const autoStart = requestedSource === "scene" && ((autoPlay && !started.current) || (sceneChanged && started.current));
+    const recommendedSongs = autoStart ? shuffledSceneSongs(collection.songs, scene, selected?.id) : collection.songs;
     appliedScene.current = scene;
-    setSongs(collection.songs); setPlaylists(collection.playlists);
+    setSongs(recommendedSongs); setPlaylists(collection.playlists);
     if (sceneChanged) { setSource("scene"); setBatch(0); }
-    if (requestedSource !== "scene" || (!(autoPlay && !started.current) && !(sceneChanged && started.current))) return;
-    const first = collection.songs.find(song => song.playable && (!sceneChanged || song.id !== selected?.id)) || collection.songs.find(song => song.playable);
+    if (!autoStart) return;
+    const first = recommendedSongs.find(song => song.playable);
     if (!first) return;
     const prepareOnly = started.current && !wantsPlayback.current;
     started.current = true;
     if (!prepareOnly) wantsPlayback.current = true;
-    void startAt({ songs: collection.songs, source: "scene", scene, batch: requestedBatch }, collection.songs.indexOf(first), prepareOnly);
+    void startAt({ songs: recommendedSongs, source: "scene", scene, batch: requestedBatch }, recommendedSongs.indexOf(first), prepareOnly);
   });
+  useEffect(() => {
+    const sceneChanged = appliedScene.current !== scene;
+    if (!connection?.authorized || (source === "search" && !sceneChanged)) return;
+    if (sceneChanged) playRequest.current?.abort();
+    const controller = new AbortController();
+    const requestedSource = sceneChanged ? "scene" : source;
+    const requestedBatch = sceneChanged ? 0 : batch;
+    request<Collection>(API + "?action=recommendations&scene=" + encodeURIComponent(scene) + "&source=" + requestedSource + "&batch=" + requestedBatch, controller.signal)
+      .then(result => { if (!controller.signal.aborted) applyRecommendations(result, scene, requestedSource, requestedBatch); })
+      .catch(cause => { if (!controller.signal.aborted) { setError(cause.message); setSongs([]); if (cause.code === "AUTH_REQUIRED") setConnection({ configured: true, authorized: false }); } });
+    return () => controller.abort();
+  }, [connection?.authorized, source, scene, batch]);
   const next = async (manual = false) => {
     if (playRequest.current || (!manual && !wantsPlayback.current)) return;
     wantsPlayback.current = true;
@@ -227,7 +241,13 @@ export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget,
       <div className="music-track-heading"><div><strong>{selected?.name}</strong><small>{selected?.artists}{track?.preview ? " · " + t("Preview · {seconds}s", { seconds: track.preview.end - track.preview.start }) : ""}</small></div><button type="button" className="music-icon-button" aria-label={t("Next track")} disabled={loadingTrack} onClick={() => { void next(true); }}><SkipForward size={18} /></button></div>
       <audio ref={audio} controls preload="metadata" src={track?.url} aria-label={t("Music playback")}
         onLoadedMetadata={() => { switchingTrack.current = false; keepPreviewRange(); }} onSeeking={keepPreviewRange}
-        onPlay={() => { switchingTrack.current = false; wantsPlayback.current = true; setPlaying(true); setPlayHint(false); if (track?.preview && audio.current && audio.current.currentTime >= track.preview.end) audio.current.currentTime = track.preview.start; }}
+        onPlay={() => {
+          switchingTrack.current = false; wantsPlayback.current = true; setPlaying(true); setPlayHint(false);
+          if (selected && queue.current.source === "scene") {
+            try { localStorage.setItem(lastSceneTrackKey(queue.current.scene), selected.id); } catch { /* Playback works without storage. */ }
+          }
+          if (track?.preview && audio.current && audio.current.currentTime >= track.preview.end) audio.current.currentTime = track.preview.start;
+        }}
         onPause={() => { setPlaying(false); if (!switchingTrack.current && audio.current && !audio.current.ended) { wantsPlayback.current = false; playRequest.current?.abort(); } }}
         onEnded={() => { setPlaying(false); void next(); }}
         onVolumeChange={() => { if (audio.current) setVolume(audio.current.muted ? 0 : audio.current.volume); }}

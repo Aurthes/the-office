@@ -40,6 +40,7 @@ import { SpaceTrafficNotice } from "./SpaceTrafficNotice";
 import { emptySpaceMotion } from "./space-activity";
 import { ListeningBar } from "./ListeningBar";
 import { ShipCompanions } from "./ShipCompanions";
+import { companionBody, type CompanionKind, type CompanionState } from "./companionMotion";
 import { MusicPlayerDialog } from "./MusicPlayerDialog";
 import { AiComputationCore } from "./AiComputationCore";
 import { AiCenterDashboard } from "./AiCenterDashboard";
@@ -199,7 +200,7 @@ function placeNameplate(frame: NameplatePlacement, time: number, x: number, y: n
   return lift;
 }
 
-function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId }: { agents: OfficeAgent[]; layout: ShipLayout; focus: string; onOpen: (id: string) => void; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null }) {
+function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId, companionsRef }: { agents: OfficeAgent[]; layout: ShipLayout; focus: string; onOpen: (id: string) => void; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null; companionsRef: RefObject<Map<CompanionKind, CompanionState>> }) {
   const agentsRef = useRef<RenderAgent[]>([]);
   const nameplatePlacement = useRef<NameplatePlacement>({ frame: -1, rects: [] });
   const [hovered, setHovered] = useState<string | null>(null);
@@ -210,8 +211,8 @@ function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId }: { agent
     agentsRef.current = values; lookupRef.current = new Map(values.map(a => [a.id, a]));
   }, [agents, layout, lookupRef]);
   useFrame((state, delta) => {
-    advanceCrew(agentsRef.current as MovingAgent[], layout, performance.now(), delta, chatAgentId);
-  });
+    advanceCrew(agentsRef.current as MovingAgent[], layout, performance.now(), delta, chatAgentId, [...companionsRef.current.values()].map(companionBody));
+  }, -1);
   return <>{agents.map(agent => {
     const seat = layout.seats[agent.id]; if (!seat) return null;
     return <group key={agent.id}>
@@ -333,6 +334,7 @@ export function RingShipOffice(props: Props) {
   const [menuOpen, setMenuOpen] = useState(false), [settingsOpen, setSettingsOpen] = useState(false), [fleetOpen, setFleetOpen] = useState(false);
   const controlsRef = useRef<Controls>(null);
   const crewLookupRef = useRef(new Map<string, RenderAgent>());
+  const companionsRef = useRef(new Map<CompanionKind, CompanionState>());
   const [returnFlight, setReturnFlight] = useState<ReturnFlight | null>(null);
   const [returnStage, setReturnStage] = useState<ReturnStage>("walking");
   const [returnError, setReturnError] = useState("");
@@ -439,7 +441,7 @@ export function RingShipOffice(props: Props) {
       <ShipHull layout={layout} deck={visibleDeck} whole={shipView} busy={busy} />
       {decks.map((value, index) => <group key={index} position={[0, index * DECK_STEP, 0]} visible={shipView || busy || index === visibleDeck}>
         <StaticShip layout={value} enabled={objectEnabled && (shipView || index === visibleDeck)} selectedId={objectFocus?.id} onSelect={inspectObject} /><ReturnPodBay layout={value} active={!!returnFlight}/>
-        {index === 0 ? <ShipCompanions layout={value} active={!busy && (shipView || visibleDeck === 0)} enabled={objectEnabled && (shipView || visibleDeck === 0)} selectedId={objectFocus?.id} onSelect={inspectObject} /> : null}
+        {index === 0 ? <ShipCompanions layout={value} active={!busy && (shipView || visibleDeck === 0)} enabled={objectEnabled && (shipView || visibleDeck === 0)} selectedId={objectFocus?.id} onSelect={inspectObject} companionsRef={companionsRef} crewRef={shipView ? undefined : crewLookupRef} /> : null}
         {value.cabins.filter(c => c.kind === "ai").map(cabin => <AiComputationCore key={cabin.id} layout={value} cabin={cabin} interactive={objectEnabled && !shipView && index === visibleDeck} onOpen={() => select(cabin.id)} />)}
       </group>)}
       {!shipView && !busy ? <group position={[0, visibleDeck * DECK_STEP, 0]}>
@@ -450,7 +452,7 @@ export function RingShipOffice(props: Props) {
           {!navigationOpen ? <TaskRoomScreen layout={currentLayout} cabin={cabin} onOpen={openTasks} /> : null}
           {navigationPreview ? <NavigationConsole layout={currentLayout} cabin={cabin} state={navigation} onAction={action => { closeObject(); navigate(action); }} disabled={busy || !!returnFlight || !!props.activeChatAgentId || navigation.phase === "warp"} /> : null}
         </group>)}
-        <Crew agents={visibleAgents.filter(a=>a.id!==returnFlight?.agentId)} layout={currentLayout} focus={validFocus} onOpen={open} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} />
+        <Crew agents={visibleAgents.filter(a=>a.id!==returnFlight?.agentId)} layout={currentLayout} focus={validFocus} onOpen={open} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} companionsRef={companionsRef} />
       </group> : null}
       {returnFlight ? <group visible={!shipView}>
         <ReturnPodJourney key={returnFlight.requestId} flight={returnFlight} resultRef={archiveResultRef} transferRef={returnTransferRef} displayDeck={visibleDeck} onStage={returnPhaseChanged} onComplete={returnComplete}/>

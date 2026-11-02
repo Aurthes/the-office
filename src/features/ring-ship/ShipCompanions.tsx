@@ -5,7 +5,9 @@ import { useFrame, useLoader, useThree } from "@react-three/fiber";
 import { useCursor } from "@react-three/drei";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { advanceCompanion, companionActivity, companionWorkPoint, COMPANION_NAMES, createCompanionState, type CompanionKind } from "./companionMotion";
+import { advanceCompanion, companionActivity, companionBody, companionWorkPoint, COMPANION_NAMES, createCompanionState, type CompanionKind, type CompanionState } from "./companionMotion";
+import { crewBodies } from "./crewMotion";
+import type { RenderAgent } from "@/features/retro-office/core/types";
 import { createCompanionFigure } from "./companionFigure";
 import type { ShipLayout } from "./layout";
 import type { ShipObject, ShipObjectKind } from "./shipObjects";
@@ -17,7 +19,8 @@ const MODELS = {
 const HEIGHTS = { cat: .62, dog: .7, drone: 1.05, bartender: 1.35 };
 const KINDS: Record<CompanionKind, ShipObjectKind> = { cat: "cat", dog: "dog", drone: "mechDrone", bartender: "robotBartender" };
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
-type Props = { layout: ShipLayout; active: boolean; enabled: boolean; selectedId?: string; onSelect: (object: ShipObject) => void };
+type Props = { layout: ShipLayout; active: boolean; enabled: boolean; selectedId?: string; onSelect: (object: ShipObject) => void;
+  companionsRef: RefObject<Map<CompanionKind, CompanionState>>; crewRef?: RefObject<Map<string, RenderAgent>> };
 
 function WorkProps({ cup, cloth, bottle, bubbles, beam, sparks }: {
   cup: RefObject<THREE.Group | null>; cloth: RefObject<THREE.Mesh | null>; bottle: RefObject<THREE.Group | null>;
@@ -43,11 +46,20 @@ function WorkProps({ cup, cloth, bottle, bubbles, beam, sparks }: {
 }
 
 function Companion({ kind, ...props }: Props & { kind: CompanionKind }) {
-  const { layout, active, enabled, selectedId, onSelect } = props;
+  const { layout, active, enabled, selectedId, onSelect, companionsRef, crewRef } = props;
   const source = useLoader(GLTFLoader, MODELS[kind]);
   const figure = useMemo(() => createCompanionFigure(source, kind, HEIGHTS[kind]), [source, kind]);
   const [seed] = useState(() => crypto.getRandomValues(new Uint32Array(1))[0]);
-  const state = useMemo(() => createCompanionState(kind, layout, seed), [kind, layout, seed]);
+  const state = useMemo(() => {
+    const bounds = figure.bounds;
+    const radius = Math.hypot(Math.max(Math.abs(bounds.min.x), Math.abs(bounds.max.x)), Math.max(Math.abs(bounds.min.z), Math.abs(bounds.max.z)));
+    return createCompanionState(kind, layout, seed, radius);
+  }, [kind, layout, seed, figure]);
+  useEffect(() => {
+    const companions = companionsRef.current;
+    companions.set(kind, state);
+    return () => { companions.delete(kind); };
+  }, [kind, state, companionsRef]);
   const record = useMemo<ShipObject>(() => {
     const cabin = layout.cabins.find(c => c.id === state.cabinId)!;
     return { id: `npc:${kind}`, kind: KINDS[kind], cabinId: cabin.id, cabinName: cabin.name, deck: 0, bounds: new THREE.Box3(), parts: [], npc: { name: COMPANION_NAMES[kind], activity: companionActivity(state) } };
@@ -69,7 +81,8 @@ function Companion({ kind, ...props }: Props & { kind: CompanionKind }) {
   useFrame((_, elapsed) => {
     if (!active || !group.current) return;
     const delta = Math.min(elapsed, .05), actor = group.current, object = objectRef.current;
-    advanceCompanion(state, layout, delta); figure.animate(state, delta);
+    const bodies = [...crewBodies([...(crewRef?.current.values() || [])], layout), ...[...companionsRef.current.values()].map(companionBody)];
+    advanceCompanion(state, layout, delta, bodies); figure.animate(state, delta);
     actor.position.set(state.position.x, state.y + ((kind === "drone" || kind === "bartender") ? Math.sin(state.time * 1.7) * .035 : 0), state.position.z);
     actor.rotation.y = state.facing; actor.updateMatrixWorld(true);
     object.bounds.copy(figure.bounds).applyMatrix4(actor.matrixWorld);
