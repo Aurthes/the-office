@@ -89,14 +89,14 @@ export function addRainforest(b: Builder, layout: ShipLayout, cabin: ShipCabin) 
   }
   const patches = Array.from({ length: 9 }, () => ({ u: between(-width * .35, width * .35), v: (random() < .55 ? 1 : -1) * between(1.5, 2.65) }));
   const trees: { u: number; v: number; height: number; spread: number }[] = [];
-  for (let attempt = 0; attempt < 160 && trees.length < 12; attempt++) {
+  for (let attempt = 0; attempt < 400 && trees.length < 22; attempt++) {
     const patch = patches[Math.floor(random() * patches.length)];
     const u = patch.u + between(-1.65, 1.65), v = patch.v + between(-.65, .65);
-    if (!plantable(u, v) || trees.some(tree => Math.hypot(tree.u - u, tree.v - v) < 1.2)) continue;
-    const kind = trees.length % 3, yaw = between(0, Math.PI * 2), spread = between(.8, 1.2);
+    if (!plantable(u, v) || trees.some(tree => Math.hypot(tree.u - u, tree.v - v) < .95)) continue;
+    const kind = trees.length % 3, yaw = between(0, Math.PI * 2), spread = between(.95, 1.35);
     let height = between(1.7, 2.7);
     if (kind === 0) {
-      const size = between(1.8, 2.65);
+      const size = between(2.05, 2.9);
       b.object("rainforestTree", () => { if (!model("rainforestTree", size, u, v, .19, yaw)) {
         b.curve([xyz(u, v, .2), xyz(u + .08, v, 1.2), xyz(u - .12, v + .06, height)], .12, "#79644b");
         b.ball(spread, xyz(u, v, height), "#43764c", [1.15, .65, 1]);
@@ -112,16 +112,24 @@ export function addRainforest(b: Builder, layout: ShipLayout, cabin: ShipCabin) 
     }
     trees.push({ u, v, height, spread });
   }
-  // Understory gathers around tree roots, with occasional growth in the gaps.
-  for (let attempt = 0, planted = 0; attempt < 220 && planted < 76; attempt++) {
-    const patch = random() < .8 && trees.length ? trees[Math.floor(random() * trees.length)] : patches[Math.floor(random() * patches.length)];
+  // Dense root clusters blend into growth across the beds, without a planting grid.
+  for (let attempt = 0, planted = 0; attempt < 700 && planted < 200; attempt++) {
+    const tree = trees[Math.floor(random() * trees.length)], clustered = tree && random() < .55;
     const a = between(0, Math.PI * 2), distance = between(.35, 1.65);
-    const u = patch.u + Math.cos(a) * distance, v = patch.v + Math.sin(a) * distance * .6;
+    const u = clustered ? tree.u + Math.cos(a) * distance : between(-width * .39, width * .39);
+    const v = clustered ? tree.v + Math.sin(a) * distance * .6 : (random() < .5 ? -1 : 1) * between(1.08, ring.depth / 2 - .55);
     if (!plantable(u, v)) continue;
-    const kind = random(), size = between(.55, 1.25), yaw = between(0, Math.PI * 2);
-    if (kind < .48) model("rainforestFern", size, u, v, .18, yaw);
-    else if (kind < .7) model("rainforestBush", size * .65, u, v, .16, yaw);
-    else tropicalPlant(b, point, u, v, between(.45, 1.15), size * .65, yaw);
+    const reach = Math.min(Math.abs(v) - .72, ring.depth / 2 - .3 - Math.abs(v));
+    const kind = random(), size = Math.min(between(.65, 1.35), reach * 1.5), spread = Math.min(size * .8, reach), yaw = between(0, Math.PI * 2);
+    // Optional model loading must not leave holes in the understory.
+    if (kind < .48) {
+      if (!model("rainforestFern", size, u, v, .18, yaw)) tropicalPlant(b, point, u, v, size * .55, spread, yaw);
+    } else if (kind < .7) {
+      if (!model("rainforestBush", size * .85, u, v, .16, yaw)) b.object("rainforestBush", () => {
+        b.ball(size * .45, xyz(u, v, .25 + size * .25), "#3f7046", [1.15, .7, 1]);
+        tropicalPlant(b, point, u, v, size * .65, spread * .85, yaw);
+      });
+    } else tropicalPlant(b, point, u, v, between(.55, 1.25), spread, yaw);
     planted++;
   }
   for (const [index, tree] of trees.entries()) {
