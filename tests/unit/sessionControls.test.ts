@@ -5,6 +5,47 @@ import { SessionControls } from "../../src/features/office/components/SessionCon
 const snapshot = { connected: true, version: 1, activeTurnId: "turn", items: [], approvals: [] };
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 describe("shared-session composer", () => {
+  it("inserts repeated paste-event text even when the clipboard disappears before default paste", async () => {
+    const call = vi.fn(async () => ({ ...snapshot, activeTurnId: null, features: { dictation: false, voice: false, prediction: false } }));
+    const client = { call }, threadId = "transient-dictation-clipboard";
+    const view = render(React.createElement(SessionControls, { client, threadId, onItems: vi.fn() }));
+    const input = screen.getByRole("textbox", { name: "Send to session" }) as HTMLTextAreaElement;
+    await waitFor(() => expect(input).toBeEnabled());
+    const original = Object.getOwnPropertyDescriptor(document, "execCommand");
+    const insert = vi.fn((_command: string, _ui: boolean, text: string) => {
+      input.setRangeText(text, input.selectionStart, input.selectionEnd, "end"); return true;
+    });
+    Object.defineProperty(document, "execCommand", { configurable: true, value: insert });
+    try {
+      input.focus();
+      for (const text of ["第一段。", " 第二段。", "\n第三段。"])
+        expect(fireEvent.paste(input, { clipboardData: { files: [], getData: () => text } })).toBe(false);
+      input.setSelectionRange(0, 4);
+      fireEvent.paste(input, { clipboardData: { files: [], getData: () => "替换段。" } });
+      view.rerender(React.createElement(SessionControls, { client, threadId, onItems: vi.fn() }));
+      expect(input).toHaveValue("替换段。 第二段。\n第三段。");
+      expect(input.selectionStart).toBe(4); expect(input).toHaveFocus();
+      expect(insert).toHaveBeenLastCalledWith("insertText", false, "替换段。");
+      expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+      expect(call).not.toHaveBeenCalledWith("session.send", expect.anything());
+    } finally {
+      if (original) Object.defineProperty(document, "execCommand", original); else Reflect.deleteProperty(document, "execCommand");
+    }
+  });
+  it("leaves default paste available when native insertion is unavailable", async () => {
+    const call = vi.fn(async () => ({ ...snapshot, activeTurnId: null }));
+    render(React.createElement(SessionControls, { client: { call }, threadId: "default-paste-fallback", onItems: vi.fn() }));
+    const input = screen.getByRole("textbox", { name: "Send to session" });
+    await waitFor(() => expect(input).toBeEnabled());
+    const original = Object.getOwnPropertyDescriptor(document, "execCommand");
+    Object.defineProperty(document, "execCommand", { configurable: true, value: () => false });
+    try {
+      expect(fireEvent.paste(input, { clipboardData: { files: [], getData: () => "ordinary paste" } })).toBe(true);
+      expect(input).toHaveValue("");
+    } finally {
+      if (original) Object.defineProperty(document, "execCommand", original); else Reflect.deleteProperty(document, "execCommand");
+    }
+  });
   it("keeps text inserted by an external tool's value write and native input event", async () => {
     const call = vi.fn(async () => ({ ...snapshot, activeTurnId: null, features: { dictation: false, voice: false, prediction: false } }));
     const client = { call }, threadId = "external-value-and-input";
