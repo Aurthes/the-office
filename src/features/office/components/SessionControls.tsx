@@ -79,12 +79,15 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
   const resizeInput = useCallback(() => {
     const node = input.current;
     if (!node?.clientWidth) return; // The chat stays mounted behind the character page.
+    // Keep a single editable control for external dictation/accessibility tools.
     // Measure outside normal flow so a temporary shrink cannot move the transcript.
-    const measure = node.cloneNode(false) as HTMLTextAreaElement;
-    measure.removeAttribute("id"); measure.setAttribute("aria-hidden", "true"); measure.tabIndex = -1;
-    measure.value = node.value || suggestedText;
+    const measure = document.createElement("div"), style = getComputedStyle(node);
+    measure.className = node.className; measure.setAttribute("aria-hidden", "true");
+    measure.textContent = (node.value || suggestedText) + "\u200b"; // Count an empty final line too.
     Object.assign(measure.style, { position: "fixed", visibility: "hidden", pointerEvents: "none",
-      width: `${node.getBoundingClientRect().width}px`, height: "auto", maxHeight: "none" });
+      width: `${node.getBoundingClientRect().width}px`, height: "auto", maxHeight: "none",
+      font: style.font, letterSpacing: style.letterSpacing, tabSize: style.tabSize,
+      whiteSpace: "pre-wrap", overflowWrap: "break-word" });
     node.after(measure);
     const height = measure.scrollHeight + measure.offsetHeight - measure.clientHeight;
     measure.remove();
