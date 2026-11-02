@@ -61,7 +61,7 @@ describe("company creation controls", () => {
     fireEvent.click(screen.getByRole("button", { name: "+ Recruit agent" }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Keep me" } });
     fireEvent.click(screen.getByRole("button", { name: "Recruit and create session" })); await act(async () => {});
-    expect(screen.getByRole("alert").textContent).toContain("check the result");
+    expect(screen.getByText(/After a connection loss or timeout/).textContent).toContain("check the result");
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Keep me");
     expect(call.mock.calls.filter(([method]) => method === "session.create")).toHaveLength(1);
   });

@@ -8,6 +8,7 @@
     "dev:https": "node server/index.js --dev --https",
     "demo-gateway": "node server/demo-gateway-adapter.js",
     "codex-gateway": "node server/codex-office-gateway.js",
+    "desktop:build": "node scripts/build-macos.mjs",
     "prebuild": "node scripts/generate-workstation-geometry.mjs",
     "build": "next build",
     "start": "node server/index.js",

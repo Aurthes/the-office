@@ -7,7 +7,7 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   {
-    files: ["server/**/*.js", "scripts/**/*.js"],
+    files: ["server/**/*.js", "scripts/**/*.js", "desktop/**/*.cjs"],
     rules: {
       "@typescript-eslint/no-require-imports": "off",
     },
@@ -18,6 +18,7 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    "dist-macos/**",
     "next-env.d.ts",
 
     // Vendored third-party code (kept as-is; linting it adds noise).

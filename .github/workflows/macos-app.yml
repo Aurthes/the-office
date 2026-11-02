@@ -1,0 +1,35 @@
+name: macOS Application Preview
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.15.0'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: node --test desktop/launcher.test.cjs
+      - run: npm test -- --run tests/unit/desktopHeaders.test.ts tests/unit/officeOnboarding.test.ts tests/unit/companyActions.test.ts tests/unit/duckCharacter.test.ts tests/unit/codexOfficeRuntime.test.ts
+        env:
+          NODE_ENV: test
+      - run: npm run desktop:build
+      - run: node scripts/check-macos-package.mjs --app "dist-macos/The Office.app"
+      - run: npx playwright install chromium webkit
+      - run: node scripts/check-macos-browser.mjs --app "dist-macos/The Office.app" --browser chromium
+      - run: node scripts/check-macos-browser.mjs --app "dist-macos/The Office.app" --browser webkit
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: office-macos-preview-${{ matrix.runner }}
+          path: |
+            dist-macos/*.dmg
+            dist-macos/build-info.json
+          if-no-files-found: error

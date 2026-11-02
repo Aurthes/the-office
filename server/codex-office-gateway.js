@@ -43,7 +43,7 @@ voice = new CodexOfficeVoice(store, controls, (ws, payload) => {
 const agents = () => store.list().map(row => ({ ...row, role: row.project, identity: { name: row.name, emoji: "💬" }, needsInput: Boolean(store.pendingQuestions(row.id).length || controls.questions(row.id).some(q => !q.submitted) || controls.snapshot(row.id).approvalCount) }));
 const key = id => `agent:${id}:main`;
 const history = (id, cursor) => loadSessionHistoryPage(store.call.bind(store), store.get(id), cursor);
-async function account() { const status = await native.call("account/read", { refreshToken: false }); return { loggedIn: Boolean(status.account) || status.requiresOpenaiAuth === false, email: status.account?.email || null, requiresAuth: status.requiresOpenaiAuth !== false, login }; }
+async function account() { const status = await native.call("account/read", { refreshToken: false }); return { loggedIn: Boolean(status.account) || status.requiresOpenaiAuth === false, email: status.account?.email || null, requiresAuth: status.requiresOpenaiAuth !== false, loginFlow: process.env.CLAW3D_OFFICE_DESKTOP === "1" ? "browser" : "device", login }; }
 schedules = new OfficeSchedules(directory, {
   getSession: id => store.get(id), changed: () => broadcast("schedules.updated", {}),
   canSend: async id => {
@@ -62,7 +62,7 @@ const methods = {
   "schedule.update": p => store.once(p, () => ({ id: schedules.update(p).task.id })),
   "schedule.delete": p => store.once(p, () => schedules.remove(p)),
   "schedule.run": p => store.once(p, () => schedules.runNow(p)),
-  "office.login": async () => { if ((await account()).loggedIn) return { loggedIn: true }; if (login?.loginId) await native.call("account/login/cancel", { loginId: login.loginId }); login = await native.call("account/login/start", { type: "chatgptDeviceCode" }, 30000); return login; },
+  "office.login": async p => { if ((await account()).loggedIn) return { loggedIn: true }; if (login?.loginId) await native.call("account/login/cancel", { loginId: login.loginId }); const browser = process.env.CLAW3D_OFFICE_DESKTOP === "1" && p.flow !== "device"; login = await native.call("account/login/start", { type: browser ? "chatgpt" : "chatgptDeviceCode" }, 30000); return login; },
   "office.snapshot": async () => { const listed = agents(); return { defaultId: listed[0]?.id, mainKey: "main", agents: listed, projects: store.projects(), creationAvailable: native.ready }; },
   "agents.list": async () => methods["office.snapshot"](),
   "project.create": p => store.createProject(p),

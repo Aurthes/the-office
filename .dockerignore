@@ -1,5 +1,6 @@
 node_modules
 .next
+dist-macos
 .git
 .cursor
 .DS_Store

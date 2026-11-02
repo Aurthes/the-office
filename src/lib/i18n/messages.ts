@@ -1,5 +1,15 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Welcome to The Office": "欢迎来到 The Office",
+  "Sign in, choose a working folder, and give your first agent a name.": "登录账号，选择工作文件夹，再给第一个 agent 起个名字。",
+  "Office has its own conversations and sign-in. Your existing Codex App stays unchanged.": "Office 使用独立的登录和会话，不会改动已有的 Codex App。",
+  "Codex is ready.": "Codex 已就绪。",
+  "Open your office": "进入办公室",
+  "Recruit an agent to start. You can create projects and connect other services later.": "招募一个 agent 就能开始，之后再创建项目、连接其他服务。",
+  "Explore first": "先逛逛",
+  "Checking Codex sign-in…": "正在检查 Codex 登录状态…",
+  "Could not check Codex sign-in. Please retry.": "无法检查 Codex 登录状态，请重试。",
+  "Use a sign-in code instead": "改用登录码",
   "Ship cat": "飞船猫猫",
   "A curious little explorer with a talent for finding the best napping spots.": "好奇的小探险家，总能找到最舒服的午睡角落。",
   "Ship dog": "飞船狗狗",
