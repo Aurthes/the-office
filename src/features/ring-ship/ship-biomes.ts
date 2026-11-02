@@ -5,15 +5,17 @@ import { cabinAngle, shipPoint, type ShipCabin, type ShipLayout } from "./layout
 const WATER = new THREE.MeshStandardMaterial({ roughness: .23, metalness: .02, transparent: true, opacity: .88 });
 const LEAF = new THREE.MeshStandardMaterial({ roughness: .96, metalness: 0, side: THREE.DoubleSide, vertexColors: true });
 
-function tropicalPlant(b: Builder, point: (u: number, v: number) => { x: number; z: number }, u: number, v: number, height: number, spread: number, seed: number) {
+function tropicalPlant(b: Builder, point: (u: number, v: number) => { x: number; z: number }, u: number, v: number, height: number, spread: number, seed: number, base = .2) {
   b.object("tropicalPlant", () => {
-    const shade = new THREE.Color("#28593c"), tip = new THREE.Color("#6a9a50");
+    const shade = new THREE.Color("#28593c").lerp(new THREE.Color("#3a6842"), .5 + .5 * Math.sin(seed));
+    const tip = new THREE.Color("#6a9a50").lerp(new THREE.Color("#3d8272"), .5 + .5 * Math.cos(seed * 1.7));
     for (let leaf = 0; leaf < 7; leaf++) {
-      const angle = seed + leaf * Math.PI * 2 / 7, length = spread * (.85 + .15 * Math.sin(leaf * 2.1));
+      const variation = Math.sin(seed * 3.7 + leaf * 2.1);
+      const angle = seed + leaf * Math.PI * 2 / 7 + variation * .24, length = spread * (.82 + .18 * variation);
       const positions: number[] = [], colors: number[] = [], indices: number[] = [];
       for (let row = 0; row <= 12; row++) {
         const t = row / 12, width = Math.sin(Math.PI * t) * length * .28;
-        const y = .2 + height * (1 - Math.exp(-t * 4) - .45 * t ** 3);
+        const y = base + height * (1 - Math.exp(-t * 4) - (.4 + variation * .15) * t ** 3);
         for (const side of [-1, 0, 1]) {
           const p = point(u + Math.sin(angle) * length * t + Math.cos(angle) * width * side, v + Math.cos(angle) * length * t - Math.sin(angle) * width * side);
           positions.push(p.x, y + (side === 0 ? width * .12 : -width * .18), p.z);
@@ -33,6 +35,31 @@ function tropicalPlant(b: Builder, point: (u: number, v: number) => { x: number;
   });
 }
 
+function hangingVine(b: Builder, points: [number, number, number][], seed: number) {
+  b.object("vine", () => {
+    const curve = new THREE.CatmullRomCurve3(points.map(p => new THREE.Vector3(...p)));
+    b.add(new THREE.TubeGeometry(curve, 32, .018, 5, false), "#496442");
+    const positions: number[] = [], colors: number[] = [];
+    for (let i = 1; i < 10; i++) {
+      const p = curve.getPoint(i / 10), angle = seed + (i % 2 ? 0 : Math.PI) + Math.sin(i * 2.4) * .4;
+      const length = .17 + .07 * Math.sin(seed + i), width = length * .38;
+      const outward = new THREE.Vector3(Math.sin(angle), -.25, Math.cos(angle));
+      const across = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
+      const tip = p.clone().addScaledVector(outward, length);
+      const middle = p.clone().addScaledVector(outward, length * .48).add(new THREE.Vector3(0, .025, 0));
+      const left = middle.clone().addScaledVector(across, width), right = middle.clone().addScaledVector(across, -width);
+      const shade = new THREE.Color(i % 3 ? "#4e8050" : "#83a85b");
+      for (const vertex of [p, left, middle, left, tip, middle, p, middle, right, middle, tip, right]) {
+        positions.push(vertex.x, vertex.y, vertex.z); colors.push(shade.r, shade.g, shade.b);
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3)); geometry.computeVertexNormals();
+    b.add(geometry, "#ffffff", new THREE.Matrix4(), false, LEAF);
+  });
+}
+
 export function addRainforest(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
   const ring = layout.rings[cabin.ring], step = Math.PI * 2 / layout.allocation.sectors;
   const width = ring.radius * step, angle = cabinAngle(layout, cabin.slot);
@@ -41,6 +68,15 @@ export function addRainforest(b: Builder, layout: ShipLayout, cabin: ShipCabin) 
   const model = (name: ModelName, size: number, u: number, v: number, y = .21, yaw = 0) => b.furniture(name, size, point(u, v), y, angle + u / ring.radius + yaw);
   const box = (u: number, v: number, y: number, size: [number, number, number], color: string) => b.localBox(layout, cabin, u, v, y, size, color);
   const start = cabin.slot * step - Math.PI / 2 + .05, end = (cabin.slot + 1) * step - Math.PI / 2 - .05;
+  // Stable per habitat: natural growth survives reloads and roster updates.
+  let seed = 2166136261;
+  for (const char of cabin.id) seed = Math.imul(seed ^ char.charCodeAt(0), 16777619);
+  const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+  const between = (min: number, max: number) => min + random() * (max - min);
+  const plantable = (u: number, v: number) => Math.abs(u) < width * .39 && Math.abs(v) > 1.08 && Math.abs(v) < ring.depth / 2 - .55 &&
+    // Keep the pond, benches and service terminals accessible.
+    (u / 1.65) ** 2 + ((v + 2.05) / .95) ** 2 > 1 &&
+    !(Math.abs(Math.abs(u) - width * .39) < .9 && (v < 0 ? Math.abs(v + 1.25) < .65 : v > 2.05));
 
   // The ring's central circulation lane stays clear between two planted beds.
   for (const side of [-1, 1]) {
@@ -51,41 +87,62 @@ export function addRainforest(b: Builder, layout: ShipLayout, cabin: ShipCabin) 
   for (let u = -width * .42; u < width * .42; u += .35) {
     box(u, 0, .061, [.31, .024, 1.24], Math.round(u / .35) % 2 ? "#957c61" : "#86705a");
   }
-  for (let index = 0; index < 5; index++) {
-    const u = (index - 2) * width * .16, v = index % 2 ? 1.6 : 1.4, size = index === 2 ? 2.8 : 2.55;
-    b.object("rainforestTree", () => { if (!model("rainforestTree", size, u, v, .19, index * 1.8)) {
-      b.cylinder(.12, 1.7, xyz(u, v, 1.02), "#79644b", 9);
-      b.ball(.9, xyz(u, v, 2.15), "#43764c", [1.2, .8, 1]);
-    } });
-    model("rainforestFern", 1.1, u + .65, 1.4, .2, index);
-    tropicalPlant(b, point, u - .75, 2.55, .85, .65, index * .9);
-    model("rainforestRock", .62, u - .5, 1.35, .14, index);
-    const vine = u + .4;
-    b.object("vine", () => {
-      b.curve([xyz(vine, 1.65, 2.35), xyz(vine - .16, 1.6, 1.85), xyz(vine + .1, 1.58, 1.3), xyz(vine, 1.62, .8)], .025, "#456443");
-      for (let j = 0; j < 5; j++) model("rainforestFern", .25, vine + (j % 2 ? .1 : -.1), 1.58, .95 + j * .25, j * 1.2);
-    });
-  }
-  for (let i = 0; i < 17; i++) {
-    const u = (i - 8) * width * .048;
-    model("rainforestFern", 1.1 + (i % 3) * .12, u, i % 2 ? 2.65 : 1.35, .2, i * .8);
-    if (Math.abs(u) > 1.6) {
-      if (i % 2) tropicalPlant(b, point, u, -1.9, 1.6, .92, i * 1.3);
-      else model("rainforestFern", 1.35, u, -2.05, .2, i);
-      model("rainforestFern", 1.05, u + .35, -1.35, .2, i);
+  const patches = Array.from({ length: 9 }, () => ({ u: between(-width * .35, width * .35), v: (random() < .55 ? 1 : -1) * between(1.5, 2.65) }));
+  const trees: { u: number; v: number; height: number; spread: number }[] = [];
+  for (let attempt = 0; attempt < 160 && trees.length < 12; attempt++) {
+    const patch = patches[Math.floor(random() * patches.length)];
+    const u = patch.u + between(-1.65, 1.65), v = patch.v + between(-.65, .65);
+    if (!plantable(u, v) || trees.some(tree => Math.hypot(tree.u - u, tree.v - v) < 1.2)) continue;
+    const kind = trees.length % 3, yaw = between(0, Math.PI * 2), spread = between(.8, 1.2);
+    let height = between(1.7, 2.7);
+    if (kind === 0) {
+      const size = between(1.8, 2.65);
+      b.object("rainforestTree", () => { if (!model("rainforestTree", size, u, v, .19, yaw)) {
+        b.curve([xyz(u, v, .2), xyz(u + .08, v, 1.2), xyz(u - .12, v + .06, height)], .12, "#79644b");
+        b.ball(spread, xyz(u, v, height), "#43764c", [1.15, .65, 1]);
+      } });
+      height = size * .9;
+    } else {
+      // Curved palms and shorter tree ferns break up the broadleaf canopy.
+      if (kind === 2) height *= .58;
+      const leanU = between(-.28, .28), leanV = between(-.16, .16);
+      b.object("rainforestTree", () => b.curve([xyz(u, v, .2), xyz(u + leanU * .3, v + leanV * .3, height * .55), xyz(u + leanU, v + leanV, height)], kind === 1 ? .085 : .11, kind === 1 ? "#79644b" : "#586349"));
+      if (kind === 2 && model("rainforestFern", spread * 1.8, u + leanU, v + leanV, height, yaw)) height += .35;
+      else tropicalPlant(b, point, u + leanU, v + leanV, kind === 1 ? .85 : .55, spread * 1.25, yaw, height);
     }
+    trees.push({ u, v, height, spread });
   }
-  for (const [index, u] of [-width * .29, -width * .115, width * .115, width * .29].entries()) {
-    model("rainforestTree", index % 2 ? 2.15 : 2.35, u, -1.8, .19, index * 1.9 + .8);
+  // Understory gathers around tree roots, with occasional growth in the gaps.
+  for (let attempt = 0, planted = 0; attempt < 220 && planted < 76; attempt++) {
+    const patch = random() < .8 && trees.length ? trees[Math.floor(random() * trees.length)] : patches[Math.floor(random() * patches.length)];
+    const a = between(0, Math.PI * 2), distance = between(.35, 1.65);
+    const u = patch.u + Math.cos(a) * distance, v = patch.v + Math.sin(a) * distance * .6;
+    if (!plantable(u, v)) continue;
+    const kind = random(), size = between(.55, 1.25), yaw = between(0, Math.PI * 2);
+    if (kind < .48) model("rainforestFern", size, u, v, .18, yaw);
+    else if (kind < .7) model("rainforestBush", size * .65, u, v, .16, yaw);
+    else tropicalPlant(b, point, u, v, between(.45, 1.15), size * .65, yaw);
+    planted++;
+  }
+  for (const [index, tree] of trees.entries()) {
+    // Unequal hanging tendrils and occasional swags between nearby crowns.
+    const count = Math.floor(between(1, 4));
+    for (let i = 0; i < count; i++) {
+      const a = between(0, Math.PI * 2), u = tree.u + Math.sin(a) * tree.spread * .4, v = tree.v + Math.cos(a) * tree.spread * .22;
+      const top = tree.height * between(.8, 1.05), bottom = between(.35, top * .65), sway = between(-.3, .3);
+      hangingVine(b, [xyz(u, v, top), xyz(u + sway, v + .08, top * .72), xyz(u - sway * .5, v - .06, bottom + .2), xyz(u + sway * .4, v, bottom)], a);
+    }
+    const next = trees.slice(index + 1).find(other => other.v * tree.v > 0 && Math.hypot(other.u - tree.u, other.v - tree.v) < 3.4);
+    if (next && random() < .65) hangingVine(b, [xyz(tree.u, tree.v, tree.height * .8), xyz((tree.u + next.u) / 2, (tree.v + next.v) / 2, Math.min(tree.height, next.height) * .55), xyz(next.u, next.v, next.height * .8)], between(0, Math.PI * 2));
   }
   // A dark, shallow pool sits inside the planting, away from the walking lane.
   const pond = point(0, -2.05);
   const matrix = new THREE.Matrix4().makeRotationY(angle).scale(new THREE.Vector3(1.25, 1, .58)).setPosition(pond.x, .205, pond.z);
   b.object("pond", () => b.add(new THREE.CylinderGeometry(1, 1, .025, 48), "#397e78", matrix, false, WATER));
   for (let i = 0; i < 11; i++) {
-    const a = i / 11 * Math.PI * 2;
-    const u = Math.cos(a) * 1.32, v = -2.05 + Math.sin(a) * .63;
-    b.object("rainforestRock", () => { if (!model("rainforestRock", .36 + (i % 3) * .06, u, v, .15, a)) b.ball(.2, xyz(u, v, .23), "#7b8270", [1, .6, 1]); });
+    const a = (i + between(-.3, .3)) / 11 * Math.PI * 2;
+    const u = Math.cos(a) * between(1.26, 1.4), v = -2.05 + Math.sin(a) * between(.6, .72);
+    b.object("rainforestRock", () => { if (!model("rainforestRock", between(.28, .55), u, v, .15, a)) b.ball(.2, xyz(u, v, .23), "#7b8270", [1, .6, 1]); });
   }
   for (const side of [-1, 1]) {
     const u = side * width * .39;
