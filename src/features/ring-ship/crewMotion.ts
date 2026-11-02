@@ -1,21 +1,32 @@
 import type { OfficeAgent, RenderAgent } from "@/features/retro-office/core/types";
 import { CANVAS_W, CANVAS_H, SCALE } from "@/features/retro-office/core/constants";
 import { routeBetweenCabins, type ShipLayout, type ShipPoint } from "./layout";
+import { crewRadius, moveCharacter, occupiedWaypoint, separateCharacter, type CharacterBody } from "./characterCollision";
 
 export type MovingAgent = RenderAgent & OfficeAgent & { route: ShipPoint[]; routeIndex: number; pauseUntil: number; home: ShipPoint; visiting: boolean };
 export function canvasPoint(point: ShipPoint) { return { x: point.x / SCALE + CANVAS_W / 2, y: point.z / SCALE + CANVAS_H / 2 }; }
 export function worldPoint(agent: RenderAgent): ShipPoint { return { x: (agent.x - CANVAS_W / 2) * SCALE, z: (agent.y - CANVAS_H / 2) * SCALE }; }
 export function hash(value: string) { let result = 0; for (const char of value) result = (result * 31 + char.charCodeAt(0)) >>> 0; return result; }
+export function crewBodies(crew: readonly RenderAgent[], layout: ShipLayout): CharacterBody[] {
+  return crew.flatMap(agent => {
+    const seat = layout.seats[agent.id];
+    return seat ? [{ id: agent.id, position: worldPoint(agent), radius: crewRadius("avatarProfile" in agent ? agent : {}), deck: seat.deck }] : [];
+  });
+}
 
 // Native task state changes the destination and pace, never the current position.
-export function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number, delta: number, chatAgentId?: string | null) {
+export function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number, delta: number, chatAgentId?: string | null, companions: readonly CharacterBody[] = []) {
   const dt = Math.min(delta, 0.05), amenities = layout.cabins.filter(c => ["garden", "lounge", "canteen", "gym", "observatory"].includes(c.kind));
+  const bodies = crewBodies(crew, layout), others = [...bodies, ...companions];
+  const byId = new Map(bodies.map(body => [body.id, body]));
   for (const a of crew) {
     const seat = layout.seats[a.id]; if (!seat) continue;
     a.frame += dt * 60;
     if (a.id === chatAgentId && a.status === "idle" && !a.needsInput) { a.state = "standing"; continue; }
     const needsDesk = a.status === "working" || a.status === "error" || a.needsInput;
-    const p = worldPoint(a);
+    const body = byId.get(a.id)!;
+    const p = !needsDesk && !a.route.length ? separateCharacter(body, dt * 1.05, others) : worldPoint(a);
+    Object.assign(a, canvasPoint(p)); body.position = p;
     if (needsDesk && Math.hypot(p.x - a.home.x, p.z - a.home.z) < 0.02) {
       a.route = []; a.visiting = false; Object.assign(a, canvasPoint(a.home)); a.facing = seat.facing;
       a.state = "sitting"; a.interactionTarget = "desk"; continue;
@@ -41,9 +52,17 @@ export function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number
     a.frame += dt * 60 * (a.walkSpeed - 1);
     const dx = target.x - p.x, dz = target.z - p.z, distance = Math.hypot(dx, dz), stride = dt * 1.05 * a.walkSpeed;
     a.state = "walking"; a.facing = Math.atan2(dx, dz);
-    const next = distance <= stride ? target : { x: p.x + dx / distance * stride, z: p.z + dz / distance * stride };
+    const next = moveCharacter(body, target, stride, others);
     Object.assign(a, canvasPoint(next));
-    if (distance <= stride) {
+    body.position = next;
+    if (Math.hypot(next.x - p.x, next.z - p.z) < 1e-6) a.state = "standing";
+    const reached = Math.hypot(next.x - target.x, next.z - target.z) < 1e-6;
+    // Shared amenity waypoints can be occupied. Stop nearby, or continue to the
+    // next waypoint, rather than walking into the character already there.
+    const stopped = a.state === "standing" && !needsDesk && a.routeIndex === a.route.length - 1;
+    const closeEnough = distance < body.radius * (stopped ? 4 : 2) + .15 && occupiedWaypoint(body, target, others)
+      && !(needsDesk && a.routeIndex === a.route.length - 1);
+    if (reached || closeEnough) {
       a.routeIndex += 1;
       if (a.routeIndex >= a.route.length) {
         a.route = []; a.pauseUntil = now + 16000 + hash(a.id) % 20000;
