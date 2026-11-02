@@ -34,13 +34,18 @@ const native = new CodexOfficeClient({ home: process.env.CLAW3D_OFFICE_CODEX_HOM
   if (mapped.id !== undefined || ["serverRequest/resolved", "turn/completed"].includes(mapped.method)) changed();
 } });
 store = new CodexOfficeStore(directory, native, changed, id => Boolean(voice?.active?.threadId === id || controls?.state(id).activeTurnId || workspace?.snapshot(id)?.running || workspace?.starts.has(id)));
-controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features });
+controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features,
+  changed: id => { stream?.changed(id); changed(); },
+  canRetry: async id => !stopping && native.ready && !store.isBusy(id) && !store.starting.has(id)
+    && !store.pendingQuestions(id).length && !controls.snapshot(id).approvalCount && !controls.questions(id).some(q => !q.submitted)
+    && (await account()).loggedIn,
+});
 stream = new CodexSessionStream(controls);
 workspace = new CodexSessionWorkspace(native, { commandExec: true, policy: id => store.overrides(id).sandboxPolicy, roots: row => store.sessionFolders(row) });
 voice = new CodexOfficeVoice(store, controls, (ws, payload) => {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "event", event: "session.voice", payload }));
 });
-const agents = () => store.list().map(row => ({ ...row, role: row.project, identity: { name: row.name, emoji: "💬" }, needsInput: Boolean(store.pendingQuestions(row.id).length || controls.questions(row.id).some(q => !q.submitted) || controls.snapshot(row.id).approvalCount) }));
+const agents = () => store.list().map(row => ({ ...row, status: controls.state(row.id).retry ? "running" : row.status, role: row.project, identity: { name: row.name, emoji: "💬" }, needsInput: Boolean(store.pendingQuestions(row.id).length || controls.questions(row.id).some(q => !q.submitted) || controls.snapshot(row.id).approvalCount) }));
 const key = id => `agent:${id}:main`;
 const history = (id, cursor) => loadSessionHistoryPage(store.call.bind(store), store.get(id), cursor);
 async function account() { const status = await native.call("account/read", { refreshToken: false }); return { loggedIn: Boolean(status.account) || status.requiresOpenaiAuth === false, email: status.account?.email || null, requiresAuth: status.requiresOpenaiAuth !== false, loginFlow: process.env.CLAW3D_OFFICE_DESKTOP === "1" ? "browser" : "device", login }; }
@@ -159,7 +164,7 @@ wss.on("connection", ws => {
 });
 const tick = setInterval(() => broadcast("tick", { ts: Date.now() }), 30000); tick.unref();
 async function close(code = 0) {
-  if (stopping) return; stopping = true; clearInterval(tick); clearTimeout(rosterTimer); dictate.close(); schedules.close();
+  if (stopping) return; stopping = true; clearInterval(tick); clearTimeout(rosterTimer); dictate.close(); schedules.close(); controls.close();
   for (const ws of clients) { stream.disconnected(ws); ws.close(1001, "Office stopping"); }
   wss.close(); server.close(); await workspace.close(); await native.close(); process.exitCode = code;
 }

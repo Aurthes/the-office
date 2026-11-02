@@ -278,3 +278,21 @@ it("uses canonical history after all bootstrap chunks and emits only subsequent 
   expect(onItems).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ content: "genuinely new answer" })]);
   expect(onHistorySync).toHaveBeenCalledTimes(1);
 });
+
+it("shows a 15 second capacity countdown and lets Stop cancel the backend retry", async () => {
+  vi.useFakeTimers(); let stopped = false;
+  const call = vi.fn(async (method: string) => {
+    if (method === "session.stop") stopped = true;
+    return { ...snapshot, version: stopped ? 2 : 1, activeTurnId: null, turnStatus: "failed", error: "Selected model is at capacity. Please try a different model.", retryAt: stopped ? null : Date.now() + 15000, features: { dictation: false, voice: false, prediction: false } };
+  });
+  render(React.createElement(SessionControls, { client: { call }, threadId: "capacity-countdown", onItems: vi.fn() }));
+  await act(async () => {});
+  expect(screen.getByText("Model is busy. Retrying in 15 seconds…")).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).toBeNull();
+  await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+  expect(screen.getByText("Model is busy. Retrying in 11 seconds…")).toBeInTheDocument();
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Stop" })); });
+  expect(call).toHaveBeenCalledWith("session.stop", { threadId: "capacity-countdown" });
+  expect(screen.queryByText(/Model is busy/)).toBeNull();
+  expect(call.mock.calls.some(([m]) => m === "session.send" || m === "session.continue")).toBe(false);
+});
