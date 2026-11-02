@@ -3,7 +3,9 @@
 The macOS application runs the existing Office interface in your browser. It
 includes Node.js 24.15.0 and the pinned official Codex CLI 0.166.0. Users do not
 install Node, OpenClaw, a global CLI, or a gateway, and do not configure tokens or
-ports. macOS 13.5 or newer is required. Apple Silicon and Intel use separate builds.
+ports. The first release targets **Apple Silicon (M1 or newer)** on macOS 13.5 or
+newer. Intel build tooling remains experimental: package/runtime checks have run,
+but the graphical installation has not been validated on a physical Intel Mac.
 
 ## Install and start
 
@@ -26,12 +28,13 @@ Closing the browser leaves Office running. Reopen it from the Dock or the app's
 Office tasks; conversations remain saved and can be continued after reopening.
 The launcher also cleans up its own children if the native wrapper disappears.
 
-All mutable data is under `~/Library/Application Support/The Office/`: independent
+Office core data is under `~/Library/Application Support/The Office/`: independent
 Codex state in `runtime/`, settings in `state/`, uploads, local startup settings,
 versioned web caches and service logs. App resources stay immutable. Ports and
 the private gateway token are generated automatically and retained across starts.
 The app listens only on loopback and does not install login items, tunnels or
-system services. Optional remote hosting keeps its separate deployment workflow.
+system services. Optional integrations keep their existing configuration locations.
+Optional remote hosting keeps its separate deployment workflow.
 
 ## Build and validate
 
@@ -66,14 +69,17 @@ quality or account entitlement.
 The browser check uses a temporary working folder and a local synthetic model,
 then exercises the real packaged startup, first-login screen, recruitment,
 appearance persistence, streaming reply and reloaded history. It redirects only
-the folder picker's initial location to its disposable workspace. `--browser chrome`
+the folder picker's initial location to its disposable workspace and represents
+optional music as unconfigured, so a test never uses the host's music account.
+Core creation, settings, chat and history requests still reach the real runtime.
+`--browser chrome`
 can use an existing Google Chrome installation. Chromium uses the full desktop
 browser in headless mode with its normal graphics backend. The check does not force
 the animated 3D scene through a CPU renderer. WebKit is a browser-engine check,
 not a claim that every Safari version or physical microphone has been tested.
 
 The manually triggered **macOS Application Preview** workflow builds Apple Silicon
-on `macos-15` and Intel on `macos-15-intel`, runs the same checks and uploads preview
+on `macos-15`, runs the same checks and uploads preview
 DMGs as workflow artifacts. Browser checks use the runner's installed Chrome
 and the pinned Playwright WebKit build. The check logs browser versions and the
 Chromium graphics backend to help distinguish rendering stalls from app failures.
