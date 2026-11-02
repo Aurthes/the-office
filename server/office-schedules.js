@@ -36,6 +36,15 @@ class OfficeSchedules {
       return { ...task, sessionName: session?.name ?? null, targetAvailable: !!session };
     }) };
   }
+  pendingThreadIds() {
+    const ids = new Set();
+    for (const task of this.data.tasks) {
+      if (task.enabled) ids.add(task.threadId);
+      const run = latest(task);
+      if (["waiting", "dispatching"].includes(run?.status)) ids.add(run.threadId);
+    }
+    return ids;
+  }
   get(id) {
     const task = this.data.tasks.find(item => item.id === id);
     if (!task) throw new Error("Scheduled task not found");

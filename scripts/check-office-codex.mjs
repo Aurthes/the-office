@@ -187,7 +187,10 @@ try {
   await until(() => JSON.stringify(payloads.at(-1).input).includes("Continue where you left off.") && JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].status === "idle", "Play continuation did not finish");
   check("Play continues with original history and native identity", JSON.stringify(payloads.at(-1).input).includes("OFFICE_FIRST_MARKER") && JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].codexThreadId === originalNativeId);
   const scheduleConfig = { name: "Fixture report", threadId, prompt: "OFFICE_SCHEDULE_MARKER", firstRunAt: Date.now(), intervalMinutes: 60, enabled: true };
+  const rosterEventsBeforeSchedule = client.events.filter(event => event.event === "roster.updated").length;
   const createdSchedule = await client.call("schedule.create", { ...scheduleConfig, requestId: "schedule-create" });
+  await until(() => client.events.filter(event => event.event === "roster.updated").length > rosterEventsBeforeSchedule, "Schedule creation did not refresh roster");
+  check("enabled schedule exposes an independent clock flag and refreshes the roster", (await client.call("office.snapshot")).agents[0].hasPendingSchedule === true);
   check("schedule management retries do not duplicate tasks", (await client.call("schedule.create", { ...scheduleConfig, requestId: "schedule-create" })).id === createdSchedule.id && (await client.call("schedule.list")).tasks.length === 1);
   const storedSchedule = () => JSON.parse(fs.readFileSync(path.join(data, "scheduled-tasks.json"))).tasks[0];
   socket.terminate();
@@ -196,6 +199,7 @@ try {
   check("actual Codex scheduler runs with no browser connected", JSON.stringify(payloads.at(-1).input).includes("OFFICE_SCHEDULE_MARKER") && storedSchedule().runs[0].turnId != null);
   check("scheduled reply belongs to the original Office conversation", (await client.call("session.history", { threadId })).messages.some(m => m.role === "user" && m.content.includes("[Scheduled task: Fixture report]")) && JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].codexThreadId === originalNativeId);
   await client.call("schedule.update", { ...scheduleConfig, id: createdSchedule.id, enabled: false, requestId: "schedule-pause" });
+  check("pausing a schedule clears its clock without changing chat activity", (await client.call("office.snapshot")).agents[0].hasPendingSchedule === false && (await client.call("office.snapshot")).agents[0].status === "idle");
   const nextScheduledAt = storedSchedule().nextRunAt;
   await client.call("schedule.run", { id: createdSchedule.id, requestId: "schedule-manual" });
   await until(() => storedSchedule().runs.length === 2 && storedSchedule().runs.at(-1).status === "completed", "Manual scheduled run did not complete", 25000);

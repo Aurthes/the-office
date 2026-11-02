@@ -13,6 +13,7 @@ import { MessageSquare, ChevronDown, ChevronLeft, ChevronRight, Maximize2, Minim
 import type { OfficeAgent } from "@/features/retro-office/core/types";
 import { getAgentActivity, type AgentActivity } from "@/features/retro-office/core/agentActivity";
 import { AgentActivityIndicator } from "@/features/office/components/AgentActivityIndicator";
+import { ScheduledTaskIndicator } from "@/features/office/components/ScheduledTaskIndicator";
 import { OfficeConnectionScreen } from "@/features/office/components/OfficeConnectionScreen";
 import { ExistingSessionPanel } from "@/features/office/components/ExistingSessionPanel";
 import { useSessionVoice } from "@/features/office/components/useSessionVoice";
@@ -477,6 +478,7 @@ type ChatRosterEntry = {
   name: string;
 
   activity: AgentActivity;
+  hasPendingSchedule?: boolean;
 };
 
 const normalizeOfficeFeedText = (
@@ -1438,7 +1440,7 @@ export function OfficeScreen({
           for (const agent of snapshot.agents) {
             dispatch({ type: "updateAgent", agentId: agent.id, patch: {
               sessionCreated: true, sessionSettingsSynced: true,
-              completedResult: agent.completedResult ?? null, needsInput: Boolean(agent.needsInput),
+              completedResult: agent.completedResult ?? null, needsInput: Boolean(agent.needsInput), hasPendingSchedule: Boolean(agent.hasPendingSchedule),
               ...(["running", "idle", "error"].includes(agent.status) ? { status: agent.status as "running" | "idle" | "error", runId: null } : {}),
             } });
           }
@@ -3106,6 +3108,7 @@ export function OfficeScreen({
         title: organization.people.find(person => person.id === agent.id)?.title,
         needsReview: agent.status === "idle" && Boolean(results.get(agent.id)?.completedResult?.unread && readById[agent.id] !== results.get(agent.id)?.completedResult?.key),
         needsInput: Boolean(results.get(agent.id)?.needsInput),
+        hasPendingSchedule: Boolean(results.get(agent.id)?.hasPendingSchedule),
       } : agent)];
     },
     [officeAgents, sessionView, state.agents, readById, organization.people],
@@ -3115,6 +3118,7 @@ export function OfficeScreen({
       id: agent.id, name: agent.name || agent.id,
 
       activity: getAgentActivity(agent),
+      hasPendingSchedule: agent.hasPendingSchedule,
     }));
   }, [allVisibleAgents]);
 
@@ -3739,6 +3743,7 @@ export function OfficeScreen({
                         >
                           {agent.name.slice(0, 1).toUpperCase()}
                           <span className="absolute -right-1 -top-1 rounded-full bg-[#11161e]"><AgentActivityIndicator activity={agent.activity} /></span>
+                          <ScheduledTaskIndicator active={agent.hasPendingSchedule} className="absolute -bottom-1 -right-1" />
                         </button>
                       );
                     })}
@@ -3767,6 +3772,7 @@ export function OfficeScreen({
                         <span className="sr-only">
 
                         </span>
+                        <ScheduledTaskIndicator active={agent.hasPendingSchedule} />
                       </button>
                     );
                   })

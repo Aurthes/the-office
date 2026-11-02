@@ -142,6 +142,7 @@ export const ZH_CN: Record<string, string> = {
   "Conversation unavailable": "会话不可用",
   "First run": "首次运行",
   "Repeat every": "重复间隔",
+  "Pending scheduled task": "有待执行的定时任务",
   "Repeat interval": "间隔数值",
   "Interval unit": "间隔单位",
   "minutes": "分钟",

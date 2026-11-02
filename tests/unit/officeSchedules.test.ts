@@ -22,6 +22,31 @@ function fixture() {
   return { directory, deps, scheduler, config, complete, sessions, advance: (ms: number) => { now += ms; } };
 }
 describe("Office scheduled conversation tasks", () => {
+  it("marks enabled schedules independently of current activity and clears paused or deleted tasks", async () => {
+    const f = fixture(), { task } = f.scheduler.create({ ...f.config, firstRunAt: f.config.firstRunAt + 3600000 });
+    const second = f.scheduler.create(f.config).task;
+    expect([...f.scheduler.pendingThreadIds()]).toEqual(["chat"]);
+    f.scheduler.update({ ...f.config, id: task.id, enabled: false });
+    f.scheduler.remove({ id: second.id });
+    expect([...f.scheduler.pendingThreadIds()]).toEqual([]);
+    f.scheduler.runNow({ id: task.id });
+    expect([...f.scheduler.pendingThreadIds()]).toEqual(["chat"]);
+    f.deps.canSend.mockResolvedValue(false); await f.scheduler.tick();
+    expect([...f.scheduler.pendingThreadIds()]).toEqual(["chat"]);
+    f.deps.canSend.mockResolvedValue(true); await f.scheduler.tick();
+    expect(task.runs.at(-1).status).toBe("running");
+    expect([...f.scheduler.pendingThreadIds()]).toEqual([]);
+  });
+  it("keeps an unconfirmed dispatch on its captured target when the future schedule moves", async () => {
+    const f = fixture(), { task } = f.scheduler.create(f.config);
+    f.deps.send.mockImplementationOnce(async () => {
+      f.scheduler.update({ ...f.config, id: task.id, threadId: "other" });
+      expect([...f.scheduler.pendingThreadIds()].sort()).toEqual(["chat", "other"]);
+      return { status: "started", turnId: "old-target" };
+    });
+    await f.scheduler.tick();
+    expect([...f.scheduler.pendingThreadIds()]).toEqual(["other"]);
+  });
   it("dispatches once when due, keeps acceptance separate from completion, and resumes ordered missed occurrences", async () => {
     const f = fixture(), { task } = f.scheduler.create({ ...f.config, firstRunAt: f.config.firstRunAt - 2 * 3600000 });
     await Promise.all([f.scheduler.tick(), f.scheduler.tick()]);

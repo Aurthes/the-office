@@ -8,6 +8,7 @@ export type OfficeAgent = {
   title?: string;
   needsReview?: boolean;
   needsInput?: boolean;
+  hasPendingSchedule?: boolean;
   status: "working" | "idle" | "error";
   color: string;
   item: string;

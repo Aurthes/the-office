@@ -48,12 +48,15 @@ composer = new CodexSessionComposer(store, workspace); controls.options.composer
 voice = new CodexOfficeVoice(store, controls, (ws, payload) => {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "event", event: "session.voice", payload }));
 });
-const agents = () => store.list().map(row => ({ ...row, status: controls.state(row.id).retry ? "running" : row.status, role: row.project, identity: { name: row.name, emoji: "💬" }, needsInput: Boolean(store.pendingQuestions(row.id).length || controls.questions(row.id).some(q => !q.submitted) || controls.snapshot(row.id).approvalCount) }));
+const agents = () => {
+  const pending = schedules.pendingThreadIds();
+  return store.list().map(row => ({ ...row, hasPendingSchedule: pending.has(row.id), status: controls.state(row.id).retry ? "running" : row.status, role: row.project, identity: { name: row.name, emoji: "💬" }, needsInput: Boolean(store.pendingQuestions(row.id).length || controls.questions(row.id).some(q => !q.submitted) || controls.snapshot(row.id).approvalCount) }));
+};
 const key = id => `agent:${id}:main`;
 const history = (id, cursor) => loadSessionHistoryPage(store.call.bind(store), store.get(id), cursor);
 async function account() { const status = await native.call("account/read", { refreshToken: false }); return { loggedIn: Boolean(status.account) || status.requiresOpenaiAuth === false, email: status.account?.email || null, requiresAuth: status.requiresOpenaiAuth !== false, loginFlow: process.env.CLAW3D_OFFICE_DESKTOP === "1" ? "browser" : "device", login }; }
 schedules = new OfficeSchedules(directory, {
-  getSession: id => store.get(id), changed: () => broadcast("schedules.updated", {}),
+  getSession: id => store.get(id), changed: () => { broadcast("schedules.updated", {}); changed(); },
   canSend: async id => {
     if (!native.ready || store.isBusy(id) || store.starting.has(id) || store.pendingQuestions(id).length) return false;
     await controls.attach(id); await controls.refreshTurn(id);

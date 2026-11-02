@@ -5,7 +5,7 @@ import { agentStoreReducer, initialAgentStoreState } from "../../src/features/ag
 describe("one-read company snapshot", () => {
   it("hydrates all native sessions, names and project membership in one RPC", async () => {
     const agents = Array.from({ length: 150 }, (_, i) => ({ id: `original-${i}`, name: `Person ${i}`,
-      role: "Project", projectId: "p", status: i === 0 ? "running" : "idle", model: "native-model", modelProvider: "openai", effort: "high", updatedAt: i }));
+      role: "Project", projectId: "p", status: i === 0 ? "running" : "idle", hasPendingSchedule: i === 0, model: "native-model", modelProvider: "openai", effort: "high", updatedAt: i }));
     const call = vi.fn(async () => ({ defaultId: agents[0].id, mainKey: "main", agents,
       projects: [{ id: "p", name: "Project" }], creationAvailable: true }));
     const result = await loadCompanySnapshot({ client: { call }, gatewayUrl: "ws://office", loadSettings: async () => null });
@@ -14,6 +14,8 @@ describe("one-read company snapshot", () => {
     expect(result.hydration.seeds[0]).toMatchObject({ agentId: "original-0", name: "Person 0", role: "Project",
       sessionKey: "agent:original-0:main", model: "openai/native-model", thinkingLevel: "high" });
     expect(result.snapshot.agents[0].status).toBe("running");
+    expect(result.snapshot.agents[0].hasPendingSchedule).toBe(true);
+    expect(result.snapshot.agents[1].hasPendingSchedule).toBe(false);
     expect(result.hydration.sessionCreatedAgentIds).toHaveLength(150);
   });
   it("accepts an empty office instead of resurrecting a stale hello roster", async () => {

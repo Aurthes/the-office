@@ -14,6 +14,12 @@ repeat every 1 hour. **Edit**, **Pause/Resume**, **Run now** and **Delete** are
 available on each task. Deleting a task preserves its conversation. An executing
 run must finish or be stopped in its conversation before deletion.
 
+Conversations with an enabled schedule or an unsent queued run show a small
+clock: on the right of the chat list row and the upper left of the main Agent
+avatar. It is separate from working/idle and attention markers. Paused tasks
+without queued work do not show a clock; a manual run queued while paused does.
+Creating, pausing, editing or deleting a task refreshes the roster automatically.
+
 The Office gateway owns one 10-second scheduling timer and writes its own
 `scheduled-tasks.json` beside `office.json`, using an atomic rename. No separate
 Python daemon, per-task system timer, native App storage or external scheduler

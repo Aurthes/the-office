@@ -21,6 +21,7 @@ import { DECK_NAMES, DECK_STEP, DECKS, PUBLIC_DESCRIPTIONS, SHARED_PROJECT_ID, s
 import { buildShipGeometry, disposeShipGeometry, SHIP_MODELS, shipModelUrl, type ModelTemplates } from "./geometry";
 import { useShipLayout } from "./useShipLayout";
 import { getAgentActivity, workChatter } from "@/features/retro-office/core/agentActivity";
+import { ScheduledTaskIndicator } from "@/features/office/components/ScheduledTaskIndicator";
 import { paintCrewNameplate } from "./crewNameplate";
 import { chatCameraPose } from "./chatCamera";
 import { shipCameraPose } from "./cameraPose";
@@ -508,12 +509,13 @@ export function RingShipOffice(props: Props) {
         <div className="ship-crew-bar grid grid-cols-6 gap-1 rounded-xl border border-white/15 bg-[#102734]/95 p-1.5">
           {agents.slice(0, 6).map(agent => <button key={agent.id} title={agent.name} aria-label={t("Open session: {0}", { "0": agent.name })} onClick={() => open(agent.id)}
             className="ship-crew-avatar relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-[#102531]" style={{ background: agent.color }}>
-            {agent.name.slice(0, 2)}<ActivityBadge agent={agent} />
+            {agent.name.slice(0, 2)}<ActivityBadge agent={agent} /><ScheduledTaskIndicator active={agent.hasPendingSchedule} className="absolute -left-1 -top-2" />
           </button>)}
           <button onClick={() => setFleetOpen(value => !value)} className="col-span-full flex h-8 items-center justify-center gap-1.5 rounded-full px-3 text-[10px]" aria-expanded={fleetOpen} aria-label={t("Session list")}><Users size={13} />{agents.length} {t("AGENTS")}</button>
         </div>
         {fleetOpen ? <div className="ship-fleet mt-2 max-h-[60vh] overflow-auto rounded-xl border border-white/15 bg-[#0d2431]/98 p-2 shadow-xl">
-          {agents.map(agent => <button key={agent.id} className="flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-white/10" onClick={() => open(agent.id)}>
+          {agents.map(agent => <button key={agent.id} className="relative flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-white/10" onClick={() => open(agent.id)}>
+            <ScheduledTaskIndicator active={agent.hasPendingSchedule} className="absolute left-0 top-0" />
             <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: agent.color }} /><span className="min-w-0 flex-1 truncate text-xs">{agent.name}</span><span className="text-[10px]" style={{ color: getAgentActivity(agent).color }}>{getAgentActivity(agent).marker} {t(getAgentActivity(agent).label)}</span>
           </button>)}
         </div> : null}
