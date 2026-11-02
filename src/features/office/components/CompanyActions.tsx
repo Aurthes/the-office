@@ -9,11 +9,13 @@ import { createDuckAppearanceFromSeed } from "@/lib/avatars/duck";
 
 type Project = { id: string; name: string; rootPaths?: string[] };
 type Chat = { id: string; name: string; workspace: string };
-export function CompanyActions({ client, projects, disabled, onCreated }: {
+export function CompanyActions({ client, projects, selectedProjectId, disabled, onCreated }: {
   client: SessionClient; projects: Project[];
+  selectedProjectId?: string | null;
   disabled: boolean; onCreated: (threadId?: string, avatarProfile?: AgentAvatarProfile) => Promise<void>;
 }) {
   const t = useUiText();
+  const selectedProject = projects.find(project => project.id === selectedProjectId);
   const [mode, setMode] = useState<"project" | "edit" | "session" | null>(null);
   const [name, setName] = useState(""), [folders, setFolders] = useState<string[]>([]);
   const [projectId, setProjectId] = useState(""), [chats, setChats] = useState<Chat[]>([]);
@@ -32,8 +34,9 @@ export function CompanyActions({ client, projects, disabled, onCreated }: {
   };
   const open = (next: "project" | "edit" | "session") => {
     setMode(next); setName(""); setFolders([]); setPicker(next === "project" ? 0 : null); setError(""); setNotice(""); setChats([]); setWorkspaces({});
-    setProjectId(projects[0]?.id || "");
-    if (next === "edit" && projects[0]) void loadProject(projects[0].id);
+    const project = selectedProject || (selectedProjectId === null ? undefined : projects[0]);
+    setProjectId(project?.id || "");
+    if (next === "edit" && project) void loadProject(project.id);
   };
   const affected = mode === "edit" ? chats.filter(chat => !folders.includes(chat.workspace)) : [];
   const needsFolder = mode !== "session" || !projectId;
@@ -67,7 +70,7 @@ export function CompanyActions({ client, projects, disabled, onCreated }: {
     <OfficeCodexAccount client={client} />
     <div className="flex flex-wrap gap-2">
       <button disabled={disabled || busy} onClick={() => open("project")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("+ Project")}</button>
-      <button disabled={disabled || busy || !projects.length} onClick={() => open("edit")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("Edit project")}</button>
+      <button disabled={disabled || busy || !projects.length || selectedProjectId === null} onClick={() => open("edit")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("Edit project")}</button>
       <button disabled={disabled || busy} onClick={() => open("session")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("+ Recruit agent")}</button>
     </div>
     {mode ? <form role="dialog" aria-label={t(label)} onSubmit={event => { event.preventDefault(); void submit(); }} className="mt-2 max-h-[65vh] space-y-3 overflow-y-auto rounded border border-white/15 bg-[#0d1b22] p-3">
@@ -76,7 +79,7 @@ export function CompanyActions({ client, projects, disabled, onCreated }: {
         if (mode === "project" && !folders.length && !name) setName((folder.split("/").filter(Boolean).pop() || folder).slice(0, 120));
         setPicker(null);
       }} onCancel={() => { setPicker(null); if (mode === "project" && !folders.length) setMode(null); }} /> : <>
-      {mode !== "project" ? <label className="block text-xs">{t("Project")}<select aria-label={t("Project")} required={mode === "edit"} disabled={locked} value={projectId} onChange={event => { setPicker(null); if (mode === "edit") void loadProject(event.target.value); else setProjectId(event.target.value); }} className={field}>
+      {mode !== "project" && (selectedProject || selectedProjectId === null) ? <p aria-label={t("Project")} className="break-words text-xs text-white/60">{t("Project")} · <span className="text-white">{selectedProject?.name || t("Open Space (no project)")}</span></p> : mode !== "project" ? <label className="block text-xs">{t("Project")}<select aria-label={t("Project")} required={mode === "edit"} disabled={locked} value={projectId} onChange={event => { setPicker(null); if (mode === "edit") void loadProject(event.target.value); else setProjectId(event.target.value); }} className={field}>
         {mode === "session" ? <option value="">{t("Open Space (no project)")}</option> : null}
         {projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
       </select></label> : null}

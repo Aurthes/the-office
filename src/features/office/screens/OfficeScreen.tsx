@@ -19,6 +19,7 @@ import { useSessionVoice } from "@/features/office/components/useSessionVoice";
 import { SessionVoiceCall } from "@/features/office/components/SessionVoice";
 import { SessionListDivider } from "@/features/office/components/SessionListDivider";
 import { CompanyActions } from "@/features/office/components/CompanyActions";
+import { SHARED_PROJECT_ID } from "@/features/ring-ship/layout";
 import { OfficeOnboarding } from "@/features/onboarding/components/OfficeOnboarding";
 import { useCompletionReadState } from "@/features/office/hooks/useCompletionReadState";
 import { useCompanyRosterSync } from "@/features/office/hooks/useCompanyRosterSync";
@@ -3296,7 +3297,9 @@ export function OfficeScreen({
       title={t(chatExpanded ? "Restore" : "Expand")} className="session-header-button office-chat-expand hidden md:inline-flex">{chatExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
     <button type="button" onClick={() => setChatOpen(false)} aria-label={t("Close chat and return to office")} title={t("Close chat")} className="session-header-button"><X size={18} /></button>
   </>;
-  const companyActions = sessionView && companyRoster ? <CompanyActions client={client} projects={companyRoster.projects}
+  const companyActions = sessionView && companyRoster ? (areaId: string) => {
+    const projectId = areaId === SHARED_PROJECT_ID ? null : companyRoster.projects.find(project => project.id === areaId)?.id;
+    return <CompanyActions key={projectId === null ? "open-space" : projectId || "whole-company"} client={client} projects={companyRoster.projects} selectedProjectId={projectId}
     disabled={status !== "connected" || !companyCreationAvailable} onCreated={async (threadId, avatarProfile) => {
       if (threadId && avatarProfile) {
         await settingsCoordinator.applyPatchNow({ avatars: { [gatewayUrl.trim()]: { [threadId]: avatarProfile } } });
@@ -3307,7 +3310,8 @@ export function OfficeScreen({
         if (showOnboardingWizard) handleCompleteOnboarding();
         handleOpenAgentChat(threadId);
       }
-    }} /> : null;
+    }} />;
+  } : null;
 
   return (
     <main className="office-responsive relative h-full w-full overflow-hidden bg-black">
@@ -3475,7 +3479,7 @@ export function OfficeScreen({
         </div>
       ) : null}
 
-      {showOnboardingWizard && sessionView ? <OfficeOnboarding client={client} connected={status === "connected"} agentCount={state.agents.length} onComplete={handleCompleteOnboarding}>{companyActions}</OfficeOnboarding> : null}
+      {showOnboardingWizard && sessionView ? <OfficeOnboarding client={client} connected={status === "connected"} agentCount={state.agents.length} onComplete={handleCompleteOnboarding}>{companyActions?.("")}</OfficeOnboarding> : null}
       {showOnboardingWizard && !sessionView ? (
         <OnboardingWizard
           key={companyCreatedSignal > 0 ? `onboarding-company-created-${companyCreatedSignal}` : "onboarding-default"}
