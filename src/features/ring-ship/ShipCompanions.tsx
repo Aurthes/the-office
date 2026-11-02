@@ -12,13 +12,14 @@ import { createCompanionFigure } from "./companionFigure";
 import type { ShipLayout } from "./layout";
 import type { ShipObject, ShipObjectKind } from "./shipObjects";
 import { ShipKirby } from "./ShipKirby";
+import { ShipDuduDogs } from "./ShipDuduDogs";
 
 const MODELS = {
   cat: "/office-assets/models/companions/cat.glb", dog: "/office-assets/models/companions/dog.glb",
   drone: "/office-assets/models/companions/mech-drone.glb", bartender: "/office-assets/models/companions/core-bartender.glb",
 };
 const HEIGHTS = { cat: .62, dog: .7, drone: 1.05, bartender: 1.35 };
-type ModelKind = Exclude<CompanionKind, "kirby">;
+type ModelKind = keyof typeof MODELS;
 const KINDS: Record<ModelKind, ShipObjectKind> = { cat: "cat", dog: "dog", drone: "mechDrone", bartender: "robotBartender" };
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
 export type ShipCompanionProps = { layout: ShipLayout; active: boolean; enabled: boolean; selectedId?: string; onSelect: (object: ShipObject) => void;
@@ -144,5 +145,5 @@ function Companion({ kind, ...props }: Props & { kind: ModelKind }) {
 }
 
 export function ShipCompanions(props: Props) {
-  return <>{(["cat", "dog", "drone", "bartender"] as const).map(kind => <Suspense key={kind} fallback={null}><Companion kind={kind} {...props} /></Suspense>)}<Suspense fallback={null}><ShipKirby {...props} /></Suspense></>;
+  return <>{(["cat", "dog", "drone", "bartender"] as const).map(kind => <Suspense key={kind} fallback={null}><Companion kind={kind} {...props} /></Suspense>)}<Suspense fallback={null}><ShipKirby {...props} /></Suspense><ShipDuduDogs {...props} /></>;
 }

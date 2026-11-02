@@ -6,6 +6,8 @@ export const SHIP_OBJECT_INFO = {
   kirby: ["Kirby", "A pink visitor with an appetite for fifteen-second breaks. One idle crew member at a time. Poyo!"],
   cat: ["Ship cat", "A curious little explorer with a talent for finding the best napping spots."],
   dog: ["Ship dog", "An enthusiastic companion who considers every corridor a new adventure."],
+  dumu: ["嘟母", "A little white cloud with very loud opinions. Professional zoomies director; 嘟父's favourite troublemaker."],
+  dufu: ["嘟父", "A golden-hearted companion with floppy ears. Patiently follows 嘟母 into every tiny adventure."],
   mechDrone: ["Maintenance robot", "A careful little mechanic keeping the ship in good working order."],
   robotBartender: ["Robot bartender", "Keeper of clean glasses, tidy bottles and a welcoming bar."],
   asteroid: ["Drifting asteroid", "A weathered traveller carrying stories older than the ship."],

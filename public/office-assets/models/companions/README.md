@@ -48,7 +48,7 @@ cloths and the existing bottle positions. Its routine includes washing glasses,
 checking stock, pouring drinks and wiping the counter. Small visual effects use
 ordinary geometry and alpha materials, without extra lights or transmission.
 
-All five NPCs use the existing selection camera and information card, with live
+These five asset-based NPCs use the existing selection camera and information card, with live
 activity text. A selected moving NPC stays in view until the user moves the
 camera. Behaviour and animation pause on hidden decks; changing views preserves
 their current routine. Animation mixers, cloned skeletons and procedural buffers
@@ -66,6 +66,21 @@ belly portrait uses a single small canvas texture without another render pass.
 Brief gestures alternate with walks. Its collision circle follows the occupied
 mesh footprint without shrinking the model, and navigation looks ahead and can
 back out of crowded spots instead of stepping back and forth in place.
+
+嘟母 (white Maltese) and 嘟父 (golden retriever) are code-native 3D interpretations
+of Moonlab Studio's [Maltese & Retriever / 线条小狗](https://weibo.com/u/7776232700)
+characters. Their rounded geometry, black outlines and articulated parts are
+created by `duduFigure.ts`; no third-party mesh, texture or animation download is
+used. Each model reuses its sphere geometry and materials, adds no lights or
+shadows, and releases its resources on unmount.
+
+Their pair controller reuses the existing companion routes, floor checks and
+character collision circles. Independent strolls and gestures alternate with
+nose boops, paw high-fives, hugs and circular chase games. They periodically
+travel to another common cabin together. A rendezvous needs a clear supported
+spot, times out when blocked, and never teleports either participant. Small
+billboard hearts use one shared geometry/material. Both dogs support hover,
+selection, the follow camera and information cards; hidden decks pause the pair.
 
 License notices: `licenses/Kenney-Cube-Pets.txt` and
 `licenses/Companion-Robots-CC-BY-4.0.txt` and `licenses/Kirby-CC-BY-4.0.txt`. Changes listed above are adaptations
