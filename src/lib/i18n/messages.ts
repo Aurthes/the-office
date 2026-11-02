@@ -1,5 +1,6 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Focus on {name}": "定位到{name}",
   "CEO": "CEO（公司负责人）",
   "Choose at least one manager.": "请至少选择一位上级。",
   "Department reporting structure": "部门汇报关系",

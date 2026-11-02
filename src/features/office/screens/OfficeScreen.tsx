@@ -829,7 +829,11 @@ export function OfficeScreen({
   const [sessionSearch, setSessionSearch] = useState("");
   const [companyRoster, setCompanyRoster] = useState<CompanyRoster | null>(null);
   const organizationNames = useMemo(() => new Map(state.agents.map(agent => [agent.agentId, agent.name || agent.agentId])), [state.agents]);
-  const organization = useOfficeOrganization({ roster: companyRoster, names: organizationNames, coordinator: settingsCoordinator, gatewayUrl, enabled: sessionView && status === "connected" });
+  const organizationState = useOfficeOrganization({ roster: companyRoster, names: organizationNames, coordinator: settingsCoordinator, gatewayUrl, enabled: sessionView && status === "connected" });
+  const [organizationFocus, setOrganizationFocus] = useState<{ id: string; request: number } | null>(null);
+  const organization = { ...organizationState, focusRequest: organizationFocus, focusPerson: (id: string) => {
+    setChatOpen(false); setOrganizationFocus(previous => ({ id, request: (previous?.request || 0) + 1 }));
+  } };
   const [companyCreationAvailable, setCompanyCreationAvailable] = useState(false);
   const OfficeScene = sessionView ? RingShipOffice : RetroOffice3D;
   const [selectedChatAgentId, setSelectedChatAgentId] = useState<string | null>(

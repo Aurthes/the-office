@@ -6,7 +6,7 @@ export const OPEN_DEPARTMENT_ID = "open-workspace";
 export type OfficePosition = { title: string; reportsTo: string[] };
 export type OfficeOrganization = Record<string, OfficePosition>;
 export type OrganizationPerson = OfficePosition & { id: string; name: string; department: string; departmentId: string | null };
-export type OrganizationView = { people: OrganizationPerson[]; ceoAvatar: AgentAvatarProfile | null; savePosition: (id: string, position: OfficePosition) => Promise<void> };
+export type OrganizationView = { focusPerson?: (id: string) => void; focusRequest?: { id: string; request: number } | null; people: OrganizationPerson[]; ceoAvatar: AgentAvatarProfile | null; savePosition: (id: string, position: OfficePosition) => Promise<void> };
 
 export function normalizeOrganization(value: unknown): OfficeOrganization {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};

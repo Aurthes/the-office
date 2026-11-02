@@ -12,11 +12,11 @@ export function OrganizationPanel({ organization, personId, browse = false }: { 
   return <section className="organization-panel" aria-label={t("Organization")}>
     {browse ? <ul className="organization-tree" aria-label={t("Department reporting structure")}>
       {organization.people.filter(value => value.reportsTo.includes(CEO_ID)).map(head => <li key={head.id}>
-        <strong>{department(head)}</strong><button type="button" onClick={() => setSelected(head.id)}>{head.name} · {head.title === "Head" ? t("Head") : head.title}</button>
-        <ul>{organization.people.filter(value => value.reportsTo.includes(head.id)).map(worker => <li key={worker.id}><button type="button" onClick={() => setSelected(worker.id)}>{worker.name} · {worker.title === "Worker" ? t("Worker") : worker.title}</button></li>)}</ul>
+        <strong>{department(head)}</strong><button type="button" onClick={() => organization.focusPerson?.(head.id)} disabled={!organization.focusPerson} aria-label={t("Focus on {name}", { name: head.name })}>{head.name} · {head.title === "Head" ? t("Head") : head.title}</button>
+        <ul>{organization.people.filter(value => value.reportsTo.includes(head.id)).map(worker => <li key={worker.id}><button type="button" onClick={() => organization.focusPerson?.(worker.id)} disabled={!organization.focusPerson} aria-label={t("Focus on {name}", { name: worker.name })}>{worker.name} · {worker.title === "Worker" ? t("Worker") : worker.title}</button></li>)}</ul>
       </li>)}
     </ul> : null}
-    {browse ? <label>{t("Person")}<select aria-label={t("Person")} value={selected} onChange={event => setSelected(event.target.value)}>{organization.people.map(value => <option key={value.id} value={value.id}>{value.name} · {department(value)}</option>)}</select></label> : null}
+    {browse ? <label>{t("Person")}<select aria-label={t("Person")} value={selected} onChange={event => { setSelected(event.target.value); organization.focusPerson?.(event.target.value); }}>{organization.people.map(value => <option key={value.id} value={value.id}>{value.name} · {department(value)}</option>)}</select></label> : null}
     <PersonPosition key={selected} organization={organization} person={person} />
   </section>;
 }
@@ -27,11 +27,11 @@ function PersonPosition({ organization, person }: { organization: OrganizationVi
   const displayTitle = (value: string) => value === "Head" || value === "Worker" ? t(value) : value;
   const department = (value: typeof person) => value.id === CEO_ID ? t("Company") : value.departmentId ? value.department : t("Open Workspace");
   const reports = organization.people.filter(value => value.reportsTo.includes(person.id));
-  const names = (ids: string[]) => ids.map(id => organization.people.find(value => value.id === id)?.name || id).join(", ") || "—";
+  const managers = person.reportsTo.map(id => organization.people.find(value => value.id === id)).filter(value => !!value);
   return <>
     <dl><div><dt>{t("Department")}</dt><dd>{department(person)}</dd></div><div><dt>{t("Title")}</dt><dd>{displayTitle(person.title)}</dd></div>
-      <div><dt>{t("Reports to")}</dt><dd>{names(person.reportsTo)}</dd></div>
-      <div><dt>{t("Direct reports")}</dt><dd>{reports.length ? reports.map(value => `${value.name} (${displayTitle(value.title)} · ${department(value)})`).join(", ") : "—"}</dd></div></dl>
+      <div><dt>{t("Reports to")}</dt><dd className="organization-person-links">{managers.length ? managers.map(manager => <button key={manager.id} type="button" disabled={!organization.focusPerson} aria-label={t("Focus on {name}", { name: manager.name })} onClick={() => organization.focusPerson?.(manager.id)}>{manager.name}</button>) : "—"}</dd></div>
+      <div><dt>{t("Direct reports")}</dt><dd className="organization-person-links">{reports.length ? reports.map(value => <button key={value.id} type="button" disabled={!organization.focusPerson} aria-label={t("Focus on {name}", { name: value.name })} onClick={() => organization.focusPerson?.(value.id)}>{value.name} ({displayTitle(value.title)} · {department(value)})</button>) : "—"}</dd></div></dl>
     {editing ? <form onSubmit={event => {
       event.preventDefault(); if (saving) return; setSaving(true); setError("");
       void organization.savePosition(person.id, { title, reportsTo }).then(() => setEditing(false)).catch(cause => setError(cause instanceof Error ? t(cause.message) : t("Could not save organization."))).finally(() => setSaving(false));

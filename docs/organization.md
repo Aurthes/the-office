@@ -11,7 +11,10 @@ self-reporting, and a manager above the CEO are rejected. The existing roster
 remains the only source of department membership.
 
 Click the CEO to inspect all departments, or open a worker's Character page to
-view and edit their title and managers. The CEO uses a randomized duck avatar
+view and edit their title and managers. Clicking a manager, direct report, or
+organization-list entry focuses the camera on that person, switching decks when
+needed. The CEO nameplate appears on hover or keyboard focus; the model remains
+clickable on touch devices. The CEO uses a randomized duck avatar
 saved through existing Studio avatar settings. It has no Codex session.
 
 Organization metadata lives in Office settings and does not grant execution,
