@@ -83,13 +83,17 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   const timer=page.getByRole('timer');await timer.waitFor({timeout:30000});
   const initialTime=await timer.textContent();
   await expect(timer).not.toHaveText(initialTime,{timeout:5000});
-  for(const width of [1440,390]){
+  for(const width of [1440,390,320]){
    await page.setViewportSize({width,height:1000});
    const layout=await timer.evaluate(element=>{
-    const time=element.getBoundingClientRect(),actions=document.querySelector('.session-composer-actions').getBoundingClientRect();
-    return {below:time.top>=actions.bottom,visible:time.left>=0&&time.right<=innerWidth&&time.bottom<=innerHeight};
+    const time=element.getBoundingClientRect(),actions=element.closest('.session-composer-actions');
+    if(!actions)return {inline:false,visible:false,clear:false};
+    const row=actions.getBoundingClientRect();
+    const clear=[...actions.querySelectorAll('button')].every(button=>{const rect=button.getBoundingClientRect();return time.right<=rect.left||time.left>=rect.right||time.bottom<=rect.top||time.top>=rect.bottom});
+    return {inline:time.top>=row.top&&time.bottom<=row.bottom,visible:time.left>=0&&time.right<=innerWidth&&time.bottom<=innerHeight,clear};
    });
-   if(!layout.below||!layout.visible)throw Error('Running timer overlaps controls or leaves the viewport at '+width+'px');
+   if(!layout.inline||!layout.visible||!layout.clear)throw Error('Running timer must share the status row without overlapping controls at '+width+'px');
+   if(option('--screenshots')){fs.mkdirSync(option('--screenshots'),{recursive:true});await page.screenshot({path:path.join(option('--screenshots'),browserName+'-running-'+width+'.png')})}
   }
   await expect.poll(()=>typeof finishReply).toBe('function');finishReply();
   await page.getByText('OFFICE_MAC_PACKAGE_REPLY_OK',{exact:true}).first().waitFor({timeout:30000});

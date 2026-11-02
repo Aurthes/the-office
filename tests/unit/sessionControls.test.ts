@@ -292,6 +292,7 @@ it("keeps the running elapsed time across reopening and removes it after complet
   let view!: ReturnType<typeof render>;
   await act(async () => { view = render(React.createElement(SessionControls, props)); });
   expect(screen.getByRole("timer")).toHaveTextContent("1:05");
+  expect(screen.getByText("Codex is working…").parentElement).toHaveTextContent("Codex is working…·1:05");
   const input = screen.getByRole("textbox", { name: "Send to session" });
   const reads = call.mock.calls.length;
   await act(async () => { vi.advanceTimersByTime(2000); });

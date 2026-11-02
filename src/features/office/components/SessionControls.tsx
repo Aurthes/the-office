@@ -324,7 +324,13 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
       </div>
       {dictation.busy ? <span role="status" className="min-w-0 flex-1 truncate text-xs text-rose-200">
         {dictation.phase === "starting" ? t("Preparing microphone…") : dictation.phase === "transcribing" ? t("Transcribing…") : t("Recording · {time}", { time: `${Math.floor(dictation.seconds / 60)}:${String(Math.floor(dictation.seconds % 60)).padStart(2, "0")}` })}
-      </span> : <span className="hidden min-w-0 flex-1 truncate text-xs text-white/45 sm:block">{state?.connected ? state.activeTurnId ? t("Codex is working…") : state.turnStatus === "interrupted" ? t("Stopped") : t("Codex · Connected") : connectionError ? t("Codex unavailable") : t("Connecting to Codex…")}</span>}
+      </span> : <span className="flex flex-1 items-center gap-1 text-xs text-white/45">
+        <span className="hidden min-w-0 truncate sm:inline">{state?.connected ? state.activeTurnId ? t("Codex is working…") : state.turnStatus === "interrupted" ? t("Stopped") : t("Codex · Connected") : connectionError ? t("Codex unavailable") : t("Connecting to Codex…")}</span>
+        {state?.connected && state.activeTurnId && typeof state.activeTurnStartedAt === "number" && Number.isFinite(state.activeTurnStartedAt) ? <span className="flex shrink-0 items-center gap-1">
+          <span aria-hidden="true" className="hidden sm:inline">·</span>
+          <SessionRunTimer key={`${threadId}:${state.activeTurnId}`} startedAt={state.activeTurnStartedAt} />
+        </span> : null}
+      </span>}
       <div className="flex shrink-0 items-center gap-2">
         {!state?.settings && state?.tokenUsage ? <SessionContextUsage usage={state.tokenUsage} above /> : null}
         {(state?.activeTurnId || state?.retryAt) && !dictation.busy ? <button aria-label={t("Stop")} title={t("Stop")} disabled={busy || settingsBusy} onClick={() => void action("session.stop", {})} className="grid h-10 w-10 place-items-center rounded-lg text-rose-200 hover:bg-white/5 disabled:opacity-40"><Square size={15} fill="currentColor" aria-hidden="true" /></button> : null}
@@ -332,9 +338,6 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
       </div>
     </div>
 
-    {state?.connected && state.activeTurnId && typeof state.activeTurnStartedAt === "number" && Number.isFinite(state.activeTurnStartedAt) ? <div className="mt-1 text-right text-[11px] text-white/55">
-      <SessionRunTimer key={`${threadId}:${state.activeTurnId}`} startedAt={state.activeTurnStartedAt} />
-    </div> : null}
     {dictation.clip && !dictation.busy ? <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] text-white/55"><span>{t("Recording: {seconds} seconds · Kept", { seconds: Math.ceil(dictation.clip.seconds) })}</span>{dictation.transcriptionTime ? <span>{t(dictation.transcriptionTime.retry ? "Retry took {seconds} seconds" : "Transcription took {seconds} seconds", { seconds: dictation.transcriptionTime.seconds.toFixed(1) })}</span> : null}{dictation.phase === "error" ? <button className="text-cyan-200 underline" onClick={() => void dictation.retry()}>{t("Retry transcription")}</button> : null}<button className="underline" onClick={dictation.download}>{t("Download recording")}</button><button className="underline" onClick={dictation.clear}>{t("Clear recording")}</button></div> : null}
     {dictation.error ? <p role="alert" className="mt-1 text-xs text-amber-100">{t(dictation.error)}</p> : null}
     {notice ? <p role="status" className="mt-2 text-[10px] text-cyan-100">{t(notice)}</p> : null}
