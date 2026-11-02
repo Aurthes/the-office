@@ -74,7 +74,10 @@ not a claim that every Safari version or physical microphone has been tested.
 
 The manually triggered **macOS Application Preview** workflow builds Apple Silicon
 on `macos-15` and Intel on `macos-15-intel`, runs the same checks and uploads preview
-DMGs as workflow artifacts. It does not publish a GitHub release. Installer builds
+DMGs as workflow artifacts. Browser checks use the runner's installed Chrome
+and the pinned Playwright WebKit build. The check logs browser versions and the
+Chromium graphics backend to help distinguish rendering stalls from app failures.
+It does not publish a GitHub release. Installer builds
 refuse to overwrite an existing output app or DMG; pass `--out /new/directory` for
 a new candidate. Do not build over or delete a running app or rollback candidate.
 
