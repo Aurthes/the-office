@@ -138,6 +138,7 @@ const mergeOfficePatch = (
       merged[gatewayKey] = {
         ...existing,
         ...value,
+        ...(value.organization && existing.organization ? { organization: { ...existing.organization, ...value.organization } } : {}),
       };
       continue;
     }

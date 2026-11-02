@@ -23,6 +23,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import type { OrganizationView } from "@/lib/office/organization";
 import type { CompanyLayout, CompanyRoster } from "@/features/retro-office/core/companyLayout";
 import { CompanyWorkAreaMenu, type CompanyWorkAreaActions } from "@/features/office/components/CompanyWorkAreaMenu";
 import { CompanyWorkAreas, CompanyAreaCamera } from "@/features/retro-office/scene/CompanyWorkAreas";
@@ -1842,6 +1843,7 @@ export function RetroOffice3D({
 
 }: {
   agents: OfficeAgent[];
+  organization?: OrganizationView;
   officeCenterSignal?: number;
   animationState?: Pick<
     OfficeAnimationState,

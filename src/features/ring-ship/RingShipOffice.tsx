@@ -11,6 +11,9 @@ import type { OfficeAgent, RenderAgent } from "@/features/retro-office/core/type
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
 import { AGENT_SCALE } from "@/features/retro-office/core/constants";
 import { normalizeDuckAppearance } from "@/lib/avatars/duck";
+import { CEO_ID } from "@/lib/office/organization";
+import { CeoCharacter } from "./CeoCharacter";
+import { OrganizationPanel } from "./OrganizationPanel";
 import { DuckCrewModel } from "./DuckCrewModel";
 import { CompanyWorkAreaMenu } from "@/features/office/components/CompanyWorkAreaMenu";
 import { SettingsPanel } from "@/features/office/components/panels/SettingsPanel";
@@ -230,16 +233,16 @@ function CrewLabel({ agent, lookupRef, placement, expanded, onOpen, deck }: { de
   const vectors = useMemo(() => ({ anchor: new THREE.Vector3(), up: new THREE.Vector3(), projected: new THREE.Vector3(), bottom: new THREE.Vector3() }), []);
   const t = useUiText();
   const activity = getAgentActivity(agent);
-  const { name, color, status, needsInput, needsReview } = agent;
+  const { name, color, status, needsInput, needsReview, title } = agent;
   const { bodyHeight, headwear, eyeHeight } = normalizeDuckAppearance(agent.avatarProfile?.duck);
   const lastBubble = useRef("");
   const lastPaint = useRef(-1);
   const textureRef = useRef<THREE.CanvasTexture | null>(null);
   const texture = useMemo(() => {
     const canvas = document.createElement("canvas");
-    paintCrewNameplate(canvas, { name, color, status, needsInput, needsReview }, expanded, activity.kind === "working" ? "" : activity.marker, 0, t);
+    paintCrewNameplate(canvas, { name, color, status, needsInput, needsReview, title }, expanded, activity.kind === "working" ? "" : activity.marker, 0, t);
     const result = new THREE.CanvasTexture(canvas); result.colorSpace = THREE.SRGBColorSpace; return result;
-  }, [name, color, status, needsInput, needsReview, activity, expanded, t]);
+  }, [name, color, status, needsInput, needsReview, title, activity, expanded, t]);
   useEffect(() => { textureRef.current = texture; lastBubble.current = ""; return () => texture.dispose(); }, [texture]);
   useFrame(state => {
     const value = lookupRef.current.get(agent.id); if (!ref.current) return;
@@ -257,7 +260,7 @@ function CrewLabel({ agent, lookupRef, placement, expanded, onOpen, deck }: { de
       }
     }
     const p = worldPoint(value), width = expanded ? 160 : 84;
-    const height = expanded ? 36 : 21;
+    const height = expanded ? 36 : agent.title ? 32 : 21;
     const zoom = state.camera.zoom;
     const seatedLift = value.state === "sitting" ? Math.max(0, (value.workstation?.seatHeight ?? .4) - .08 - .065 * AGENT_SCALE) : 0;
     const headY = .16 + (headwear === "none" ? .65 : .72 + Math.max(0, eyeHeight - 1) * .3) * bodyHeight * AGENT_SCALE + seatedLift;
@@ -442,6 +445,7 @@ export function RingShipOffice(props: Props) {
       <Lighting radius={layout.radius} dimmed={navigationOpen && navigation.phase !== "warp"} />
       <ShipHull layout={layout} deck={visibleDeck} whole={shipView} busy={busy} />
       {decks.map((value, index) => <group key={index} position={[0, index * DECK_STEP, 0]} visible={shipView || busy || index === visibleDeck}>
+        {index === 0 && props.organization?.ceoAvatar ? <CeoCharacter layout={value} profile={props.organization.ceoAvatar} enabled={objectEnabled && (shipView || visibleDeck === 0)} onSelect={inspectObject} /> : null}
         <StaticShip layout={value} enabled={objectEnabled && (shipView || index === visibleDeck)} selectedId={objectFocus?.id} onSelect={inspectObject} /><ReturnPodBay layout={value} active={!!returnFlight}/>
         {index === 0 ? <ShipCompanions layout={value} active={!busy && (shipView || visibleDeck === 0)} enabled={objectEnabled && (shipView || visibleDeck === 0)} selectedId={objectFocus?.id} onSelect={inspectObject} companionsRef={companionsRef} crewRef={shipView ? undefined : crewLookupRef} chatAgentId={props.activeChatAgentId} /> : null}
         {value.cabins.filter(c => c.kind === "ai").map(cabin => <AiComputationCore key={cabin.id} layout={value} cabin={cabin} interactive={objectEnabled && !shipView && index === visibleDeck} onOpen={() => select(cabin.id)} />)}
@@ -509,7 +513,7 @@ export function RingShipOffice(props: Props) {
     </div>
     </fieldset>
     <div className="ship-bottom-right">
-    {objectFocus ? <ShipObjectCard object={objectFocus} customRoom={currentLayout.cabins.some(c => c.id === objectFocus.cabinId && !!c.projectId && c.projectId !== SHARED_PROJECT_ID)} onClose={closeObject} /> : null}
+    {objectFocus ? <ShipObjectCard object={objectFocus} customRoom={currentLayout.cabins.some(c => c.id === objectFocus.cabinId && !!c.projectId && c.projectId !== SHARED_PROJECT_ID)} onClose={closeObject}>{objectFocus.id === CEO_ID && props.organization ? <OrganizationPanel organization={props.organization} personId={CEO_ID} browse /> : null}</ShipObjectCard> : null}
     {navigationPreview && !navigationOpen ? <div className="star-location"><span style={{ color: system.color }}>{t(system.name)}</span><small>{t(system.description)}</small>{activityEnabled ? <small ref={spaceCaption} className="star-cruise-status">{t("Cruising")}</small> : null}</div> : null}
     </div>
     </div>

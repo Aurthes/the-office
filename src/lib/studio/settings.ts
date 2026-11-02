@@ -1,3 +1,4 @@
+import { normalizeOrganization, mergeOrganization, type OfficeOrganization, type OfficePosition } from "@/lib/office/organization";
 
 import {
   DEFAULT_ACTIVE_FLOOR_ID,
@@ -102,6 +103,7 @@ export type StudioAnalyticsPreferencePatch = {
 };
 
 export type StudioOfficePreference = {
+  organization?: OfficeOrganization;
   title: string;
 
   companyName: string;
@@ -114,6 +116,7 @@ export type StudioOfficePreference = {
 };
 
 export type StudioOfficePreferencePublic = {
+  organization?: OfficeOrganization;
   title: string;
 
   companyName: string;
@@ -126,6 +129,7 @@ export type StudioOfficePreferencePublic = {
 };
 
 export type StudioOfficePreferencePatch = {
+  organization?: Record<string, OfficePosition | null> | null;
   title?: string | null;
 
   companyName?: string | null;
@@ -394,6 +398,7 @@ export const sanitizeStudioOfficePreference = (
   value: StudioOfficePreference
 ): StudioOfficePreferencePublic => ({
   title: value.title,
+  ...(value.organization ? { organization: value.organization } : {}),
 
   companyName: value.companyName,
   companyPrompt: value.companyPrompt,
@@ -742,6 +747,7 @@ const normalizeOfficePreference = (
   if (!isRecord(value)) return fallback;
   return {
     title: normalizeOfficeTitle(value.title, fallback.title),
+    ...(value.organization !== undefined ? { organization: normalizeOrganization(value.organization) } : fallback.organization ? { organization: fallback.organization } : {}),
 
     companyName: normalizeCompanyField(value.companyName ?? fallback.companyName),
     companyPrompt: normalizeCompanyField(value.companyPrompt ?? fallback.companyPrompt),
@@ -1031,6 +1037,7 @@ export const mergeStudioSettings = (
         {
           ...fallback,
           ...officePatch,
+          ...(officePatch.organization !== undefined ? { organization: mergeOrganization(fallback.organization, officePatch.organization) } : {}),
         },
         fallback
       );

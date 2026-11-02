@@ -1,4 +1,6 @@
 "use client";
+import type { OrganizationView } from "@/lib/office/organization";
+import { OrganizationPanel } from "./OrganizationPanel";
 import { useRef, useState } from "react";
 import { ArrowLeft, ArrowRightLeft, Check, Flame, RotateCcw, Shuffle } from "lucide-react";
 import { createDefaultAgentAvatarProfile, type AgentAvatarProfile } from "@/lib/avatars/profile";
@@ -55,13 +57,14 @@ function RenameCharacter({ name, onRename, onDone }: { name: string; onRename: (
   </form>;
 }
 
-export function DuckCharacterPanel({ info, profile, status, model, onSave, mode, onModeChange, onRename, onReassign, projects = [] }: {
+export function DuckCharacterPanel({ info, profile, status, model, onSave, mode, onModeChange, onRename, onReassign, projects = [], organization }: {
   info: SessionInspection; profile?: AgentAvatarProfile | null; status: string; model?: string | null;
   onSave: (profile: AgentAvatarProfile) => Promise<void>;
   mode: CharacterMode; onModeChange: (mode: CharacterMode) => void;
   onRename?: (name: string) => Promise<void>;
   onReassign?: (projectId: string) => Promise<void>;
   projects?: CompanyProject[];
+  organization?: OrganizationView;
 }) {
   const t = useUiText();
   const editing = mode === "edit";
@@ -105,6 +108,7 @@ export function DuckCharacterPanel({ info, profile, status, model, onSave, mode,
           <div><dt>{t("Workspace")}</dt><dd>{info.workspace || "—"}</dd></div>
           <div><dt>{t("Session ID")}</dt><dd className="duck-character-id">{info.id}</dd></div>
         </dl>
+        {organization ? <OrganizationPanel organization={organization} personId={info.id} /> : null}
         <div className="duck-character-actions"><button onClick={() => onModeChange("edit")}>{t("Edit character")}</button>
           {onReassign ? <button disabled={!projects.length} onClick={() => onModeChange("reassign")}><ArrowRightLeft size={14} />{t("Reassign")}</button> : null}</div>
       </>}
