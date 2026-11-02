@@ -5,6 +5,23 @@ import { SessionControls } from "../../src/features/office/components/SessionCon
 const snapshot = { connected: true, version: 1, activeTurnId: "turn", items: [], approvals: [] };
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 describe("shared-session composer", () => {
+  it.each([false, true])("only autofocuses desktop composers on open and after sending (touch=%s)", async touch => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: coarse)" && touch }));
+    try {
+      const call = vi.fn(async () => ({ ...snapshot, activeTurnId: null }));
+      render(React.createElement(SessionControls, { client: { call }, threadId: `device-focus-${touch}`, onItems: vi.fn() }));
+      const input = screen.getByRole("textbox", { name: "Send to session" });
+      await waitFor(() => expect(input).toBeEnabled());
+      expect(document.activeElement === input).toBe(!touch);
+      input.focus(); // Touch users can still choose to type.
+      fireEvent.change(input, { target: { value: "hello" } });
+      const send = screen.getByRole("button", { name: "Send" });
+      send.focus(); fireEvent.click(send);
+      await waitFor(() => expect(input).toHaveValue(""));
+      expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ message: "hello" }));
+      expect(document.activeElement === input).toBe(!touch);
+    } finally { vi.unstubAllGlobals(); }
+  });
   it("inserts repeated paste-event text even when the clipboard disappears before default paste", async () => {
     const call = vi.fn(async () => ({ ...snapshot, activeTurnId: null, features: { dictation: false, voice: false, prediction: false } }));
     const client = { call }, threadId = "transient-dictation-clipboard";
