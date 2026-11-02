@@ -9,11 +9,26 @@ but the graphical installation has not been validated on a physical Intel Mac.
 
 ## Install and start
 
-1. Open the DMG for your Mac's architecture and drag **The Office** to Applications.
+[Download the Apple Silicon preview](https://github.com/Aurthes/the-office/releases/download/v0.1.4-preview.1/The-Office-0.1.4-macOS-arm64.dmg).
+
+1. Open the DMG and drag **The Office** to Applications.
 2. Open **The Office**. It starts its own local services and opens your browser.
 3. In Office, sign in with ChatGPT. Complete the official browser authorization.
    A device-code alternative is available if the callback cannot connect.
 4. Recruit an agent, choose an existing working folder and give the agent a name.
+
+### If macOS blocks the preview
+
+This preview has no Developer ID signature or Apple notarization. If macOS says
+the developer cannot be verified, and you trust this download:
+
+1. Try opening **The Office** once.
+2. Open **System Settings → Privacy & Security** and find **Open Anyway**.
+3. Confirm **Open** when prompted.
+
+See [Apple's instructions for opening downloaded apps](https://support.apple.com/en-us/102445).
+
+### Accounts and saved work
 
 Office has independent sign-in, projects and conversations. It does not attach to
 or change the native Codex/ChatGPT App. Existing public rules, standalone skills

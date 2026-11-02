@@ -79,12 +79,15 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
   const resizeInput = useCallback(() => {
     const node = input.current;
     if (!node?.clientWidth) return; // The chat stays mounted behind the character page.
+    // Keep a single editable control for external dictation/accessibility tools.
     // Measure outside normal flow so a temporary shrink cannot move the transcript.
-    const measure = node.cloneNode(false) as HTMLTextAreaElement;
-    measure.removeAttribute("id"); measure.setAttribute("aria-hidden", "true"); measure.tabIndex = -1;
-    measure.value = node.value || suggestedText;
+    const measure = document.createElement("div"), style = getComputedStyle(node);
+    measure.className = node.className; measure.setAttribute("aria-hidden", "true");
+    measure.textContent = (node.value || suggestedText) + "\u200b"; // Count an empty final line too.
     Object.assign(measure.style, { position: "fixed", visibility: "hidden", pointerEvents: "none",
-      width: `${node.getBoundingClientRect().width}px`, height: "auto", maxHeight: "none" });
+      width: `${node.getBoundingClientRect().width}px`, height: "auto", maxHeight: "none",
+      font: style.font, letterSpacing: style.letterSpacing, tabSize: style.tabSize,
+      whiteSpace: "pre-wrap", overflowWrap: "break-word" });
     node.after(measure);
     const height = measure.scrollHeight + measure.offsetHeight - measure.clientHeight;
     measure.remove();
@@ -286,7 +289,8 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
       {(state.approvalCount || 0) > state.approvals.length ? <p className="text-amber-100">{t("More requests will appear after these approvals are handled.")}</p> : null}
     </div> : null}
     {state?.questions?.map(request => <SessionQuestions key={threadId + request.requestId} client={client} threadId={threadId} request={request} />)}
-    <textarea ref={input} aria-label={t("Send to session")} aria-description={suggestedText ? t("Suggested next message. Tab to edit, or Send to submit.") : undefined} placeholder={suggestedText || t("Continue this Codex session…")} rows={1} value={text} onChange={event => setText(event.target.value)} onKeyDown={event => {
+    {/* External tools can emit input after updating the DOM value; React's change tracker may skip onChange. */}
+    <textarea ref={input} aria-label={t("Send to session")} aria-description={suggestedText ? t("Suggested next message. Tab to edit, or Send to submit.") : undefined} placeholder={suggestedText || t("Continue this Codex session…")} rows={1} value={text} onChange={event => setText(event.target.value)} onInput={event => setText(event.currentTarget.value)} onKeyDown={event => {
       if (suggestedText && !event.nativeEvent.isComposing && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
         if (event.key === "Tab") { event.preventDefault(); setText(suggestedText); setPrediction(null); return; }
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setPrediction(null); return; }

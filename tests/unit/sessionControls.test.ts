@@ -5,6 +5,47 @@ import { SessionControls } from "../../src/features/office/components/SessionCon
 const snapshot = { connected: true, version: 1, activeTurnId: "turn", items: [], approvals: [] };
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 describe("shared-session composer", () => {
+  it("keeps text inserted by an external tool's value write and native input event", async () => {
+    const call = vi.fn(async () => ({ ...snapshot, activeTurnId: null, features: { dictation: false, voice: false, prediction: false } }));
+    const client = { call }, threadId = "external-value-and-input";
+    const view = render(React.createElement(SessionControls, { client, threadId, onItems: vi.fn() }));
+    const input = screen.getByRole("textbox", { name: "Send to session" }) as HTMLTextAreaElement;
+    await waitFor(() => expect(input).toBeEnabled());
+    fireEvent.input(input, { target: { value: "第一段。" } });
+    // Some external editors write the DOM value before emitting input. React's
+    // change tracker can suppress onChange even though a native input occurred.
+    input.value += " 第二段。";
+    fireEvent.input(input);
+    view.rerender(React.createElement(SessionControls, { client, threadId, onItems: vi.fn() }));
+    await act(async () => {});
+    expect(input).toHaveValue("第一段。 第二段。");
+    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+  });
+  it("keeps one editable target and its draft across repeated external text insertions", async () => {
+    const call = vi.fn(async () => ({ ...snapshot, activeTurnId: null, features: { dictation: false, voice: false, prediction: false } }));
+    const view = render(React.createElement(SessionControls, { client: { call }, threadId: "external-dictation-target", onItems: vi.fn() }));
+    const input = screen.getByRole("textbox", { name: "Send to session" }) as HTMLTextAreaElement;
+    await waitFor(() => expect(input).toBeEnabled());
+    Object.defineProperty(input, "clientWidth", { value: 600 });
+    const extraInputs: HTMLTextAreaElement[] = [];
+    const observer = new MutationObserver(records => {
+      for (const record of records) for (const node of record.addedNodes) {
+        if (node instanceof HTMLTextAreaElement && !node.disabled && !node.readOnly) extraInputs.push(node);
+      }
+    });
+    observer.observe(view.container, { childList: true, subtree: true });
+    try {
+      input.focus();
+      for (const value of ["第一段。", "第一段。 第二段。", "第一段。 第二段。 第三段。\n"]) {
+        fireEvent.input(input, { target: { value } });
+        await act(async () => {});
+        expect(screen.getByRole("textbox", { name: "Send to session" })).toBe(input);
+        expect(input).toHaveValue(value); expect(input).toHaveFocus();
+      }
+      expect(extraInputs).toEqual([]);
+      expect(call).not.toHaveBeenCalledWith("session.send", expect.anything());
+    } finally { observer.disconnect(); }
+  });
   it("shows Play for an empty interrupted task and continues the same conversation once", async () => {
     let resolve!: (value: unknown) => void;
     const pending = new Promise(r => { resolve = r; });
