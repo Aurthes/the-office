@@ -26,7 +26,9 @@ async function loadSessionHistoryPage(call, row, cursor) {
   const visible = result.data.flatMap(entry => {
     const item = entry.type === "item" ? sessionItem(entry.item, entry.turnId)
       : entry.type === "realtime" ? realtimeSessionItem(entry.item) : null;
-    return item ? [{ ...item, timestamp: entry.item.startedAtMs || row.updatedAt }] : [];
+    // Older entries may have no recorded time. A session update is not a
+    // message timestamp, and must not make every historical message look new.
+    return item ? [item] : [];
   });
   // Conversation text has priority over the collapsed work log.
   const primary = item => item.role !== "tool" && item.phase !== "commentary";

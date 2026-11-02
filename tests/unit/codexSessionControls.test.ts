@@ -162,3 +162,28 @@ it("uses the same clean spoken input for live updates", () => {
   controls.handle({ method: "item/completed", params: { threadId: "original-id", turnId: "t", item: { id: "voice", type: "userMessage", content: [{ type: "text", text: raw }] } } });
   expect(controls.snapshot("original-id").items[0]).toMatchObject({ role: "user", content: "Confirm the voice channel." });
 });
+
+it("preserves the item-start time across streaming deltas and completion", () => {
+  const { controls } = setup();
+  controls.handle({ method: "item/started", params: { threadId: "id", turnId: "t", startedAtMs: 1793607123000, item: { id: "a", type: "agentMessage", text: "" } } });
+  controls.handle({ method: "item/agentMessage/delta", params: { threadId: "id", turnId: "t", itemId: "a", delta: "reply" } });
+  expect(controls.snapshot("id").items[0].timestamp).toBe(1793607123000);
+  controls.handle({ method: "item/completed", params: { threadId: "id", turnId: "t", completedAtMs: 1793607199000, item: { id: "a", type: "agentMessage", text: "complete reply" } } });
+  expect(controls.snapshot("id").items[0]).toMatchObject({ timestamp: 1793607123000, content: "complete reply", status: "completed" });
+  controls.handle({ method: "item/completed", params: { threadId: "id", turnId: "t", completedAtMs: 1793607200000, item: { id: "u", type: "userMessage", content: [{ type: "text", text: "question" }] } } });
+  expect(controls.snapshot("id").items[1]).toMatchObject({ timestamp: 1793607200000, role: "user" });
+});
+it("restores native turn start time after attachment and preserves it while steering", async () => {
+  const { client, controls } = setup(true);
+  client.call.mockImplementation(async (method: string) => method === "thread/turns/list" ? { data: [{ id: "active-turn", status: "inProgress", startedAt: 1793607000 }] } : method === "turn/steer" ? { turnId: "active-turn" } : {});
+  await controls.attach("id");
+  expect(controls.snapshot("id").activeTurnStartedAt).toBe(1793607000000);
+  await controls.send("id", "keep going", "timed-steer");
+  expect(controls.snapshot("id").activeTurnStartedAt).toBe(1793607000000);
+  controls.handle({ method: "turn/completed", params: { threadId: "id", turn: { id: "an-older-turn", status: "completed" } } });
+  expect(controls.snapshot("id").activeTurnStartedAt).toBe(1793607000000);
+  controls.handle({ method: "turn/completed", params: { threadId: "id", turn: { id: "active-turn", status: "completed" } } });
+  expect(controls.snapshot("id")).toMatchObject({ activeTurnId: null, activeTurnStartedAt: null });
+  controls.handle({ method: "turn/started", params: { threadId: "id", turn: { id: "next", startedAt: 1793607300 } } });
+  expect(controls.snapshot("id")).toMatchObject({ activeTurnId: "next", activeTurnStartedAt: 1793607300000 });
+});

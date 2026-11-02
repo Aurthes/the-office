@@ -5,10 +5,20 @@ import { SessionMarkdown } from "./SessionMarkdown";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { visibleUserText } from "@/lib/text/codex-visible-text";
 
+const MessageTime = memo(function MessageTime({ timestamp }: { timestamp?: number }) {
+  if (timestamp === undefined || !Number.isFinite(timestamp)) return null;
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return null;
+  return <time className="session-message-time" dateTime={date.toISOString()} title={date.toLocaleString(undefined, { dateStyle: "full", timeStyle: "long" })}>
+    {date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+  </time>;
+});
+
 const MessageBody = memo(function MessageBody({ message, truncatedLabel }: { message: LiveSessionItem; truncatedLabel: string }) {
   return <>
     {message.role === "tool" ? <pre className="overflow-auto whitespace-pre-wrap break-all text-xs text-white/60">{message.content}</pre> : <SessionMarkdown content={message.content} assets={message.assets} user={message.role === "user"} />}
     {message.truncated ? <p className="mt-2 text-[10px] text-amber-200/70">{truncatedLabel}</p> : null}
+    {message.role !== "tool" ? <MessageTime timestamp={message.timestamp} /> : null}
   </>;
 });
 

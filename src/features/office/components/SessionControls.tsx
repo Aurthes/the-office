@@ -10,6 +10,7 @@ import { useNativeDictation } from "./useNativeDictation";
 import { useDictationShortcut } from "./useDictationShortcut";
 import { dictationShortcutLabel } from "./dictationShortcutSettings";
 import { useUiText } from "@/lib/i18n/ui-language";
+import { SessionRunTimer } from "./SessionRunTimer";
 
 export type SessionAsset = { source: string; name: string; kind: "image" | "markdown" | "html" | "file"; url: string; inline?: boolean; attached?: boolean };
 export type LiveSessionItem = { id: string; turnId?: string; source?: "voice"; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number };
@@ -20,7 +21,7 @@ export type SessionClient = {
   onGap?: (handler: (gap: { expected: number; received: number }) => void) => () => void;
 };
 type Approval = { requestId: string; method: string; params: Record<string, unknown>; details?: string; decisions: string[]; supported: boolean; submitted?: boolean };
-type Snapshot = { connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; turnStatus?: string; error?: string | null; settings?: ChatSettings; features?: { dictation: boolean; dictationHTTP?: boolean; voice: boolean; prediction: boolean; accountVersion?: number }; tokenUsage?: { last: { inputTokens: number; outputTokens: number }; modelContextWindow?: number | null }; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number; questions?: SessionQuestionRequest[] };
+type Snapshot = { connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; activeTurnStartedAt?: number | null; turnStatus?: string; error?: string | null; settings?: ChatSettings; features?: { dictation: boolean; dictationHTTP?: boolean; voice: boolean; prediction: boolean; accountVersion?: number }; tokenUsage?: { last: { inputTokens: number; outputTokens: number }; modelContextWindow?: number | null }; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number; questions?: SessionQuestionRequest[] };
 type StreamSnapshot = Omit<Snapshot, "items"> & { threadId: string; subscriptionId: string;
   items: (LiveSessionItem | (Omit<LiveSessionItem, "content"> & { append: string; baseVersion: number }))[] };
 type Upload = { id: string; name: string; size: number; ref?: string; error?: string };
@@ -324,6 +325,9 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
       </div>
     </div>
 
+    {state?.connected && state.activeTurnId && typeof state.activeTurnStartedAt === "number" && Number.isFinite(state.activeTurnStartedAt) ? <div className="mt-1 text-right text-[11px] text-white/55">
+      <SessionRunTimer key={`${threadId}:${state.activeTurnId}`} startedAt={state.activeTurnStartedAt} />
+    </div> : null}
     {dictation.clip && !dictation.busy ? <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] text-white/55"><span>{t("Recording: {seconds} seconds · Kept", { seconds: Math.ceil(dictation.clip.seconds) })}</span>{dictation.transcriptionTime ? <span>{t(dictation.transcriptionTime.retry ? "Retry took {seconds} seconds" : "Transcription took {seconds} seconds", { seconds: dictation.transcriptionTime.seconds.toFixed(1) })}</span> : null}{dictation.phase === "error" ? <button className="text-cyan-200 underline" onClick={() => void dictation.retry()}>{t("Retry transcription")}</button> : null}<button className="underline" onClick={dictation.download}>{t("Download recording")}</button><button className="underline" onClick={dictation.clear}>{t("Clear recording")}</button></div> : null}
     {dictation.error ? <p role="alert" className="mt-1 text-xs text-amber-100">{t(dictation.error)}</p> : null}
     {notice ? <p role="status" className="mt-2 text-[10px] text-cyan-100">{t(notice)}</p> : null}

@@ -124,6 +124,8 @@ try {
   check("project context reaches Codex without appearing as a user message", payloads.some(p => p.input?.some(i => i.role === "developer" && JSON.stringify(i).includes(fs.realpathSync(secondary)))) && !(await client.call("session.history", { threadId })).messages.some(m => m.content.includes("Current Office project context")));
   await client.call("project.update", { projectId: project.id, name: "Updated project", rootPaths: [workspace], requestId: "remove-secondary" });
   check("saved history", (await client.call("session.history", { threadId })).messages.some(m => m.content === "OFFICE_CHECK_OK"));
+  const timedHistory = (await client.call("session.history", { threadId })).messages.filter(m => ["user", "assistant"].includes(m.role) && m.content.trim());
+  check("user and Codex message times come from persisted item records", timedHistory.some(m => m.role === "user") && timedHistory.some(m => m.role === "assistant") && timedHistory.every(m => Number.isFinite(m.timestamp) && m.timestamp > 0 && m.timestamp <= Date.now()));
   const originalNativeId = JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].codexThreadId;
   fs.writeFileSync(path.join(foreign, "AGENTS.md"), "OFFICE_UPDATED_GLOBAL_RULE_MARKER"); sourceBefore = JSON.stringify(sourceSnapshot());
   await stop(); client = await start();
@@ -152,6 +154,11 @@ try {
   check("completed result is available for browser unread marker", (await client.call("office.snapshot")).agents[0].completedResult?.unread === true);
   await client.call("session.send", { threadId, message: "OFFICE_HOLD", requestId: "send-3" });
   await until(() => JSON.stringify(payloads.at(-1)).includes("OFFICE_HOLD"), "Hold did not start");
+  const runningTiming = await client.call("session.attach", { threadId });
+  check("running task exposes its original native start time", Boolean(runningTiming.activeTurnId) && Number.isFinite(runningTiming.activeTurnStartedAt) && runningTiming.activeTurnStartedAt > 0 && runningTiming.activeTurnStartedAt <= Date.now());
+  await client.call("session.subscribe", { threadId, subscriptionId: "timing-resubscribe" });
+  await until(() => client.events.some(event => event.event === "session.stream" && event.payload.subscriptionId === "timing-resubscribe"), "No timing resubscription snapshot");
+  check("reopening the task stream preserves elapsed-time origin", client.events.findLast(event => event.event === "session.stream" && event.payload.subscriptionId === "timing-resubscribe").payload.activeTurnStartedAt === runningTiming.activeTurnStartedAt);
   check("stop own active turn", (await client.call("session.stop", { threadId })).status === "interruptRequested");
   await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].status === "idle", "Interrupted turn did not finish");
   check("interrupted turn is available for Play", (await client.call("session.attach", { threadId })).turnStatus === "interrupted" && !(await client.call("office.snapshot")).agents[0].completedResult);

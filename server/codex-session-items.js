@@ -4,7 +4,8 @@ const { visibleUserText } = require("../src/lib/text/codex-visible-text");
 
 // Preserve native phases. Only public reasoning summaries belong in the UI.
 function sessionItem(item, turnId) {
-  const base = { id: `${turnId}:${item.id}`, turnId };
+  const timestamp = [item.startedAtMs, item.completedAtMs].find(value => Number.isFinite(value) && value >= 0);
+  const base = { id: `${turnId}:${item.id}`, turnId, ...(timestamp === undefined ? {} : { timestamp }) };
   if (item.type === "userMessage") {
     const content = (item.content || []).filter(p => ["text", "inputText", "input_text"].includes(p.type)).map(p => p.text).join("\n");
     return { ...base, role: "user", content: visibleUserText(content), assets: describeSessionAssets(content, item.content || []) };

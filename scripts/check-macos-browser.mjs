@@ -18,19 +18,19 @@ if(fs.realpathSync(process.execPath)!==fs.realpathSync(node)){
  process.exit(result.status??1);
 }
 const {LocalOffice}=createRequire(path.join(office,"package.json"))("./desktop/launcher.cjs");
-const {chromium,webkit}=createRequire(path.join(source,"package.json"))("@playwright/test");
+const {chromium,webkit,expect}=createRequire(path.join(source,"package.json"))("@playwright/test");
 const browserName=option("--browser")||"chromium";
 if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose --browser chromium, chrome or webkit");
 (async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'office-mac-browser-')),data=path.join(root,'data'),foreign=path.join(root,'foreign'),workspace=path.join(root,'workspace');
  for(const dir of [foreign,workspace])fs.mkdirSync(dir);
- let local,browser,page;let requests=0;const errors=[];
+ let local,browser,page,finishReply;let requests=0;const errors=[];
  const provider=http.createServer((req,res)=>{let raw='';req.on('data',part=>raw+=part);req.on('end',()=>{
   JSON.parse(raw);requests++;res.writeHead(200,{'content-type':'text/event-stream'});
   const id='response-'+requests,emit=value=>res.write('data: '+JSON.stringify(value)+'\n\n');
   emit({type:'response.created',response:{id}});
   const item={id:'message-'+requests,type:'message',role:'assistant',content:[{type:'output_text',text:'OFFICE_MAC_PACKAGE_REPLY_OK'}]};
-  emit({type:'response.output_item.done',output_index:0,item});emit({type:'response.completed',response:{id,output:[item],usage:{input_tokens:8,output_tokens:3,total_tokens:11}}});res.end();
+  finishReply=()=>{emit({type:'response.output_item.done',output_index:0,item});emit({type:'response.completed',response:{id,output:[item],usage:{input_tokens:8,output_tokens:3,total_tokens:11}}});res.end()};
  })});
  try{
   local=new LocalOffice({appDirectory:office,dataDirectory:data,environment:{PATH:'/usr/bin:/bin',CODEX_HOME:foreign}});
@@ -80,7 +80,34 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   await page.getByLabel('Send to session',{exact:true}).waitFor({timeout:20000});
   await page.getByLabel('Send to session',{exact:true}).fill('Say hello for the disposable package check.');
   await page.getByRole('button',{name:'Send',exact:true}).click();
+  const timer=page.getByRole('timer');await timer.waitFor({timeout:30000});
+  const initialTime=await timer.textContent();
+  await expect(timer).not.toHaveText(initialTime,{timeout:5000});
+  for(const width of [1440,390]){
+   await page.setViewportSize({width,height:1000});
+   const layout=await timer.evaluate(element=>{
+    const time=element.getBoundingClientRect(),actions=document.querySelector('.session-composer-actions').getBoundingClientRect();
+    return {below:time.top>=actions.bottom,visible:time.left>=0&&time.right<=innerWidth&&time.bottom<=innerHeight};
+   });
+   if(!layout.below||!layout.visible)throw Error('Running timer overlaps controls or leaves the viewport at '+width+'px');
+  }
+  await expect.poll(()=>typeof finishReply).toBe('function');finishReply();
   await page.getByText('OFFICE_MAC_PACKAGE_REPLY_OK',{exact:true}).first().waitFor({timeout:30000});
+  await expect(timer).toHaveCount(0);
+  const readMessageTimes=()=>page.locator('article .session-message-time').evaluateAll(elements=>elements.map(element=>({role:element.closest('article').getAttribute('aria-label'),time:element.getAttribute('datetime'),title:element.title})));
+  await expect.poll(async()=> (await readMessageTimes()).length).toBe(2);
+  const messageTimes=await readMessageTimes();
+  if(!messageTimes.some(item=>item.role==='You')||!messageTimes.some(item=>item.role==='Codex')||messageTimes.some(item=>!Number.isFinite(Date.parse(item.time))||!item.title))throw Error('User or Codex message time is missing');
+  for(const width of [1440,390]){
+   await page.setViewportSize({width,height:1000});
+   const clear=await page.locator('article .session-message-time').evaluateAll(elements=>elements.every(element=>{
+    const article=element.closest('article'),time=element.getBoundingClientRect(),text=article.querySelector('.session-user-text, .agent-markdown').getBoundingClientRect();
+    return time.top>=text.bottom&&time.left>=0&&time.right<=innerWidth;
+   }));
+   if(!clear)throw Error('Message time overlaps text or leaves the viewport at '+width+'px');
+   if(option('--screenshots')){fs.mkdirSync(option('--screenshots'),{recursive:true});await page.screenshot({path:path.join(option('--screenshots'),browserName+'-'+width+'.png')})}
+  }
+  await page.setViewportSize({width:1440,height:1000});
   const state=JSON.parse(fs.readFileSync(path.join(data,'runtime/office.json')));
   if(state.sessions.length!==1||state.sessions[0].workspace!==fs.realpathSync(workspace))throw Error('Recruitment did not save its working folder');
   const settingsFile=path.join(data,'state/claw3d/settings.json'),settings=JSON.parse(fs.readFileSync(settingsFile));
@@ -94,10 +121,11 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   await page.getByRole('button',{name:'Open session: Mac verification recruit',exact:true}).first().waitFor({timeout:30000});
   await page.getByRole('button',{name:'Open session: Mac verification recruit',exact:true}).first().click();
   await page.getByText('OFFICE_MAC_PACKAGE_REPLY_OK',{exact:true}).first().waitFor({timeout:20000});
+  await expect.poll(readMessageTimes).toEqual(messageTimes);
   const again=JSON.parse(fs.readFileSync(settingsFile));const reloaded=Object.values(again.avatars).flatMap(g=>Object.values(g)).find(p=>p.duck);
   if(JSON.stringify(reloaded.duck)!==saved)throw Error('Reload or canceled edit changed saved recruit style');
   if(errors.length)throw Error(errors.join('\n'));
-  console.log(JSON.stringify({browser:browserName,browserRecruitment:true,workingFolder:true,randomStyleSaved:true,realBundledCodexReply:true,historyAfterReload:true,canceledEditPreserved:true,paidEndpoints:false,modelRequests:requests,pageErrors:0}));
+  console.log(JSON.stringify({browser:browserName,browserRecruitment:true,workingFolder:true,randomStyleSaved:true,realBundledCodexReply:true,historyAfterReload:true,messageTimesPersisted:true,runningTimerTicks:true,timesDoNotOverlap:true,canceledEditPreserved:true,paidEndpoints:false,modelRequests:requests,pageErrors:0}));
  }catch(error){console.error(error.stack);console.error(JSON.stringify({browser:browserName,pageErrors:errors,visiblePage:page?await page.locator('body').innerText().catch(()=>'(unavailable)'):null}));process.exitCode=1}
  finally{await browser?.close();await local?.close();provider.closeAllConnections();await new Promise(resolve=>provider.close(resolve));fs.rmSync(root,{recursive:true,force:true})}
 })();

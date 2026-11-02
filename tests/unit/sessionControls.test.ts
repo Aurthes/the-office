@@ -1,6 +1,7 @@
 import React from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SessionRunTimer } from "../../src/features/office/components/SessionRunTimer";
 import { SessionControls } from "../../src/features/office/components/SessionControls";
 const snapshot = { connected: true, version: 1, activeTurnId: "turn", items: [], approvals: [] };
 afterEach(() => { cleanup(); vi.useRealTimers(); });
@@ -277,4 +278,35 @@ it("uses canonical history after all bootstrap chunks and emits only subsequent 
   await act(async () => push(3, false, "genuinely new answer"));
   expect(onItems).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ content: "genuinely new answer" })]);
   expect(onHistorySync).toHaveBeenCalledTimes(1);
+});
+
+it("keeps the running elapsed time across reopening and removes it after completion", async () => {
+  vi.useFakeTimers();vi.setSystemTime(new Date("2026-11-02T08:14:00Z"));
+  let active = true;
+  const call = vi.fn(async (method: string) => {
+    if (method === "session.stop") active = false;
+    return { ...snapshot, activeTurnId: active ? "timed-turn" : null, activeTurnStartedAt: active ? Date.parse("2026-11-02T08:12:55Z") : null,
+      features: { dictation: false, voice: false, prediction: false } };
+  });
+  const props = { client: { call }, threadId: "timed-reopen", onItems: vi.fn() };
+  let view!: ReturnType<typeof render>;
+  await act(async () => { view = render(React.createElement(SessionControls, props)); });
+  expect(screen.getByRole("timer")).toHaveTextContent("1:05");
+  const input = screen.getByRole("textbox", { name: "Send to session" });
+  const reads = call.mock.calls.length;
+  await act(async () => { vi.advanceTimersByTime(2000); });
+  expect(screen.getByRole("timer")).toHaveTextContent("1:07");expect(call.mock.calls).toHaveLength(reads);
+  expect(screen.getByRole("textbox", { name: "Send to session" })).toBe(input);
+  view.unmount();vi.advanceTimersByTime(30000);
+  await act(async () => { render(React.createElement(SessionControls, props)); });
+  expect(screen.getByRole("timer")).toHaveTextContent("1:37");
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Stop" })); });
+  expect(screen.queryByRole("timer")).toBeNull();
+});
+it("shows hour-long elapsed time without wrapping back to minutes", async () => {
+  vi.useFakeTimers();vi.setSystemTime(new Date("2026-11-02T10:00:00Z"));
+  render(React.createElement(SessionRunTimer, { startedAt: Date.parse("2026-11-02T08:00:01Z") }));
+  expect(screen.getByRole("timer")).toHaveTextContent("1:59:59");
+  await act(async () => { vi.advanceTimersByTime(1000); });
+  expect(screen.getByRole("timer")).toHaveTextContent("2:00:00");
 });

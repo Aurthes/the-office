@@ -9,7 +9,7 @@ const supportedApprovals = new Set(["item/commandExecution/requestApproval", "it
 class CodexSessionControls {
   constructor(client, asyncQuestions = () => [], options = {}) { this.client = client; this.asyncQuestions = asyncQuestions; this.options = options; this.states = new Map(); this.requests = new Map(); this.sends = new Map(); this.attaching = new Map(); }
   state(id) {
-    if (!this.states.has(id)) this.states.set(id, { version: 0, activeTurnId: null, items: new Map(), turnStatus: null, error: null });
+    if (!this.states.has(id)) this.states.set(id, { version: 0, activeTurnId: null, activeTurnStartedAt: null, items: new Map(), turnStatus: null, error: null });
     return this.states.get(id);
   }
   requireReady() { if (!this.client?.ready) throw new Error("Codex is disconnected"); }
@@ -53,6 +53,10 @@ class CodexSessionControls {
   async refreshTurn(id) {
     const result = await this.client.call("thread/turns/list", { threadId: id, limit: 1, itemsView: "notLoaded", sortDirection: "desc" });
     const turn = result.data[0], state = this.state(id);
+    const sameTurn = state.activeTurnId === turn?.id;
+    state.activeTurnStartedAt = turn?.status === "inProgress"
+      ? Number.isFinite(turn.startedAt) ? turn.startedAt * 1000 : sameTurn ? state.activeTurnStartedAt : null
+      : null;
     state.activeTurnId = turn?.status === "inProgress" ? turn.id : null;
     state.turnStatus = turn?.status || null; state.error = turn?.error?.message || null;
   }
@@ -69,9 +73,13 @@ class CodexSessionControls {
       state.version++; return;
     }
     if (frame.method === "serverRequest/resolved") { this.requests.delete(String(p.requestId)); state.version++; return; }
-    if (frame.method === "turn/started") { state.activeTurnId = p.turn.id; state.turnStatus = "inProgress"; state.error = null; state.version++; }
+    if (frame.method === "turn/started") {
+      state.activeTurnStartedAt = Number.isFinite(p.turn.startedAt) ? p.turn.startedAt * 1000
+        : state.activeTurnId === p.turn.id ? state.activeTurnStartedAt : Date.now();
+      state.activeTurnId = p.turn.id; state.turnStatus = "inProgress"; state.error = null; state.version++;
+    }
     if (frame.method === "turn/completed") {
-      if (state.activeTurnId === p.turn.id) { state.activeTurnId = null; state.turnStatus = p.turn.status; state.error = p.turn.error?.message || null; }
+      if (state.activeTurnId === p.turn.id) { state.activeTurnId = null; state.activeTurnStartedAt = null; state.turnStatus = p.turn.status; state.error = p.turn.error?.message || null; }
       for (const [key, request] of this.requests) if (request.params.threadId === id && request.params.turnId === p.turn.id) this.requests.delete(key);
       state.version++;
     }
@@ -85,7 +93,9 @@ class CodexSessionControls {
       if (!normalized) return;
       state.items.set(normalized.id, { ...normalized, ...clipText(normalized.content, 64 * 1024), version: ++state.version });
     } else if (["item/started", "item/completed"].includes(frame.method) && item) {
-      const normalized = sessionItem(item, p.turnId);
+      const previous = state.items.get(`${p.turnId}:${item.id}`);
+      const normalized = sessionItem({ ...item, startedAtMs: item.startedAtMs ?? p.startedAtMs ?? previous?.timestamp,
+        completedAtMs: item.completedAtMs ?? p.completedAtMs }, p.turnId);
       if (!normalized) return;
       const key = normalized.id;
       const details = item.type === "fileChange" ? JSON.stringify(item.changes || []) : null;
@@ -126,7 +136,7 @@ class CodexSessionControls {
       items.push(visible); bytes += size;
     }
     const hasMore = items.length < changed.length;
-    return { connected: true, version: hasMore ? items.at(-1).version : state.version, hasMore, activeTurnId: state.activeTurnId, turnStatus: state.turnStatus, error: state.error, settings: state.settings, tokenUsage: state.tokenUsage, ...(this.options.features ? { features: this.options.features } : {}), items,
+    return { connected: true, version: hasMore ? items.at(-1).version : state.version, hasMore, activeTurnId: state.activeTurnId, activeTurnStartedAt: state.activeTurnStartedAt, turnStatus: state.turnStatus, error: state.error, settings: state.settings, tokenUsage: state.tokenUsage, ...(this.options.features ? { features: this.options.features } : {}), items,
       questions,
       approvalCount: [...this.requests.values()].filter(r => r.params.threadId === id && r.method !== "item/tool/requestUserInput").length,
       approvals: [...this.requests.values()].filter(r => r.params.threadId === id && r.method !== "item/tool/requestUserInput").slice(0, 2).map(request => {
@@ -156,8 +166,12 @@ class CodexSessionControls {
     if (resumeInterrupted && (active || this.state(id).turnStatus !== "interrupted")) throw new Error("This task is no longer interrupted. Refresh the conversation before continuing.");
     // The desktop uses this identity to display external steering as a user
     // message. Reuse the send ID so duplicate requests keep the same identity.
+    const submittedAt = Date.now();
     const result = await this.client.call(active ? "turn/steer" : "turn/start", { threadId: id, input, clientUserMessageId: requestId, ...(active ? { expectedTurnId: active } : this.options.settings?.overrides(id) || {}) });
     const turnId = result.turn?.id || result.turnId;
+    const state = this.state(id);
+    state.activeTurnStartedAt = Number.isFinite(result.turn?.startedAt) ? result.turn.startedAt * 1000
+      : state.activeTurnId === turnId ? state.activeTurnStartedAt : active ? null : submittedAt;
     this.state(id).activeTurnId = turnId;
     this.state(id).turnStatus = "inProgress";
     this.state(id).version++;

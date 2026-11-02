@@ -57,3 +57,19 @@ it("shows voice questions without protocol wrappers or a duplicate call-end bubb
   expect(screen.getByRole("img", { name: "image.png" })).toBeTruthy();
   expect(screen.queryByText(/realtime_delegation|Handoff|just ended|Still checking/)).toBeNull();
 });
+
+it("shows each message's own time below its content, with the full date on hover", () => {
+  const sent = Date.UTC(2026, 10, 2, 8, 12, 3), replied = sent + 95000;
+  const view = render(React.createElement(SessionTranscript, { messages: [
+    { id: "timed-user", role: "user", content: "A timed question", timestamp: sent },
+    { id: "timed-assistant", role: "assistant", content: "A timed answer", timestamp: replied },
+    { id: "legacy-no-time", role: "assistant", content: "An older answer" },
+    { id: "invalid-time", role: "assistant", content: "Unknown time", timestamp: Number.NaN },
+  ] }));
+  const times = [...view.container.querySelectorAll("time")];
+  expect(times.map(time => time.dateTime)).toEqual(["2026-11-02T08:12:03.000Z", "2026-11-02T08:13:38.000Z"]);
+  for (const time of times) { expect(time.textContent).toMatch(/\d{1,2}:\d{2}:\d{2}/); expect(time.title).toContain("2026"); }
+  expect(screen.getByText("A timed question").closest("article")).toContainElement(times[0]);
+  expect(screen.getByText("A timed answer").closest("article")).toContainElement(times[1]);
+  expect(screen.getByText("An older answer").closest("article")?.querySelector("time")).toBeNull();
+});

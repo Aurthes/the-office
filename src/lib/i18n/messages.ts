@@ -1,5 +1,7 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Running · {time}": "已运行 · {time}",
+  "Elapsed time": "已运行时间",
   "Welcome to The Office": "欢迎来到 The Office",
   "Sign in, choose a working folder, and give your first agent a name.": "登录账号，选择工作文件夹，再给第一个 agent 起个名字。",
   "Office has its own conversations and sign-in. Your existing Codex App stays unchanged.": "Office 使用独立的登录和会话，不会改动已有的 Codex App。",

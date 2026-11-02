@@ -96,3 +96,15 @@ it("extracts delegated voice requests before budgeting and hides synthetic hando
   expect(page.messages[1].content).toBe("");
   expect(original[0].content?.[0].text).toBe(raw);
 });
+
+it("keeps individual recorded message times and never substitutes a session update", async () => {
+  const sent = 1793607123000, replied = sent + 95000;
+  const call = vi.fn().mockResolvedValue({ data: entries([
+    { ...item("u", "userMessage", "question"), startedAtMs: sent, completedAtMs: sent + 10 },
+    { ...item("a", "agentMessage", "answer"), startedAtMs: replied, completedAtMs: replied + 5000 },
+    { ...item("completed-only", "agentMessage", "completed"), completedAtMs: replied + 10000 },
+    item("legacy", "agentMessage", "older reply"),
+  ]) });
+  const page = await loadSessionHistoryPage(call, { ...row, updatedAt: replied + 86400000 });
+  expect(page.messages.map((message: { timestamp?: number }) => message.timestamp)).toEqual([sent, replied, replied + 10000, undefined]);
+});
