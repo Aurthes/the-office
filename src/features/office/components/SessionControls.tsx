@@ -289,7 +289,8 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, voic
       {(state.approvalCount || 0) > state.approvals.length ? <p className="text-amber-100">{t("More requests will appear after these approvals are handled.")}</p> : null}
     </div> : null}
     {state?.questions?.map(request => <SessionQuestions key={threadId + request.requestId} client={client} threadId={threadId} request={request} />)}
-    <textarea ref={input} aria-label={t("Send to session")} aria-description={suggestedText ? t("Suggested next message. Tab to edit, or Send to submit.") : undefined} placeholder={suggestedText || t("Continue this Codex session…")} rows={1} value={text} onChange={event => setText(event.target.value)} onKeyDown={event => {
+    {/* External tools can emit input after updating the DOM value; React's change tracker may skip onChange. */}
+    <textarea ref={input} aria-label={t("Send to session")} aria-description={suggestedText ? t("Suggested next message. Tab to edit, or Send to submit.") : undefined} placeholder={suggestedText || t("Continue this Codex session…")} rows={1} value={text} onChange={event => setText(event.target.value)} onInput={event => setText(event.currentTarget.value)} onKeyDown={event => {
       if (suggestedText && !event.nativeEvent.isComposing && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
         if (event.key === "Tab") { event.preventDefault(); setText(suggestedText); setPrediction(null); return; }
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setPrediction(null); return; }
