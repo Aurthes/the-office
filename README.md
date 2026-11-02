@@ -62,7 +62,8 @@ and conversation content stay as written.
 
 ## macOS application
 
-A self-contained macOS installer can be built as a **developer preview**.
+A self-contained macOS installer for **Apple Silicon (M1 or newer)** can be built
+as a **developer preview**.
 It bundles Node and Codex, starts Office automatically and opens a first-run
 sign-in and folder-selection flow. See [build, install and validation instructions](docs/macos-install.md).
 Public distribution still requires Developer ID signing and Apple notarization;

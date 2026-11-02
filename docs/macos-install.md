@@ -3,7 +3,9 @@
 The macOS application runs the existing Office interface in your browser. It
 includes Node.js 24.15.0 and the pinned official Codex CLI 0.166.0. Users do not
 install Node, OpenClaw, a global CLI, or a gateway, and do not configure tokens or
-ports. macOS 13.5 or newer is required. Apple Silicon and Intel use separate builds.
+ports. The first release targets **Apple Silicon (M1 or newer)** on macOS 13.5 or
+newer. Intel build tooling remains experimental: package/runtime checks have run,
+but the graphical installation has not been validated on a physical Intel Mac.
 
 ## Install and start
 
@@ -77,7 +79,7 @@ the animated 3D scene through a CPU renderer. WebKit is a browser-engine check,
 not a claim that every Safari version or physical microphone has been tested.
 
 The manually triggered **macOS Application Preview** workflow builds Apple Silicon
-on `macos-15` and Intel on `macos-15-intel`, runs the same checks and uploads preview
+on `macos-15`, runs the same checks and uploads preview
 DMGs as workflow artifacts. Browser checks use the runner's installed Chrome
 and the pinned Playwright WebKit build. The check logs browser versions and the
 Chromium graphics backend to help distinguish rendering stalls from app failures.
