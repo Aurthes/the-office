@@ -8,7 +8,7 @@ const row: ServerRow = { alias: "cluster-b-01", group: "online", active: true, s
  metrics: { cores: 4, cpuPercent: 25, load1: 1, memoryTotal: 8*1024**3, memoryUsed: 4*1024**3, disks: [{mount:"/",total:1000,used:900,percent:90}],rxBytesPerSecond:0,txBytesPerSecond:0,uptimeSeconds:7200 } };
 it("shows the actual host family, resource pressure and an exact-host terminal action",()=>{
  const terminal=vi.fn();render(createElement(ServerRackInfo,{row,onTerminal:terminal}));
- expect(screen.getByText("Cluster B")).toBeInTheDocument();expect(screen.getByText("25.0%")).toBeInTheDocument();expect(screen.getByText("50.0%")).toBeInTheDocument();expect(screen.getByText("90.0%")).toBeInTheDocument();
+ expect(screen.getByText("CLUSTER-B")).toBeInTheDocument();expect(screen.getByText("25.0%")).toBeInTheDocument();expect(screen.getByText("50.0%")).toBeInTheDocument();expect(screen.getByText("90.0%")).toBeInTheDocument();
  fireEvent.click(screen.getByRole("button",{name:"Terminal"}));expect(terminal).toHaveBeenCalledWith("cluster-b-01");
 });
 it("keeps missing readings unknown and cannot open a terminal for a disabled host",()=>{
