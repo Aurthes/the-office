@@ -176,7 +176,8 @@ export function addMachineRoom(b: Builder, layout: ShipLayout, cabin: ShipCabin)
   const first = plan.racks[0].u, last = plan.racks[plan.racks.length - 1].u;
 
   for (const side of [-1, 1]) {
-    b.annulus(ring.radius + side * 1.96 - .99, ring.radius + side * 1.96 + .99,
+    const bank = plan.rows.filter(row => row.v * side > 0).map(row => row.v);
+    b.annulus(ring.radius + Math.min(...bank) - .5, ring.radius + Math.max(...bank) + .5,
       angle + (first - .5) / ring.radius, angle + (last + .5) / ring.radius, .06, .035, "#344b58");
     for (const v of [side * .91, side * (ring.depth / 2 - .24)]) {
       b.annulus(ring.radius + v, ring.radius + v + .025, angle + (first - .5) / ring.radius,
