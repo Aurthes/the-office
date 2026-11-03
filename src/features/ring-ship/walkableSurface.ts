@@ -1,6 +1,7 @@
 import { cabinAngle, SHIP_CORRIDOR_START, SHIP_CORRIDOR_WIDTH, shipPoint, type ShipLayout, type ShipPoint } from "./layout";
 import { hullProfile } from "./shell-shapes";
-import { circleHitsBox, projectOutside, segmentHitsBox } from "@/features/retro-office/core/collision";
+import { projectOutside } from "@/features/retro-office/core/collision";
+import { furnitureNear, furnitureHitsPoint, furnitureHitsSegment, type CollisionActor } from "./furnitureCollisions";
 import { cloningCollisionBoxes } from "./cloningGeometry";
 import { barCollisionBoxes } from "./barLayout";
 import { breakRoomCollisionBoxes } from "./breakRoomLayout";
@@ -30,30 +31,39 @@ function floorPoint(point: ShipPoint, layout: ShipLayout, deck: number) {
   return true;
 }
 
-export function isWalkable(point: ShipPoint, layout: ShipLayout, padding = 0, deck = 0) {
+function solidBoxes(layout: ShipLayout, deck: number, point: ShipPoint, padding: number, to = point) {
+  return [...cloningCollisionBoxes(layout, deck), ...barCollisionBoxes(layout, deck), ...breakRoomCollisionBoxes(layout, deck), ...furnitureNear(layout, deck, point, padding, to)];
+}
+
+export function isWalkable(point: ShipPoint, layout: ShipLayout, padding = 0, deck = 0, actor?: CollisionActor) {
   if (!Number.isFinite(point.x) || !Number.isFinite(point.z) || !floorPoint(point, layout, deck)) return false;
-  if ([...cloningCollisionBoxes(layout,deck),...barCollisionBoxes(layout,deck),...breakRoomCollisionBoxes(layout,deck)].some(box=>circleHitsBox({x:point.x,y:point.z},box,Math.max(padding,EDGE)))) return false;
+  if (solidBoxes(layout, deck, point, Math.max(padding, EDGE)).some(box => furnitureHitsPoint(box, point, Math.max(padding, EDGE), actor))) return false;
   if (!padding) return true;
   return FOOT_SAMPLES.every(([x, z]) => floorPoint({ x: point.x + x * padding, z: point.z + z * padding }, layout, deck));
 }
 
-export function walkableSegment(start: ShipPoint, end: ShipPoint, layout: ShipLayout, padding = 0, deck = 0) {
-  if([...cloningCollisionBoxes(layout,deck),...barCollisionBoxes(layout,deck),...breakRoomCollisionBoxes(layout,deck)].some(box=>segmentHitsBox({x:start.x,y:start.z},{x:end.x,y:end.z},box,Math.max(padding,EDGE))))return false;
+export function walkableSegment(start: ShipPoint, end: ShipPoint, layout: ShipLayout, padding = 0, deck = 0, actor?: CollisionActor) {
+  if (solidBoxes(layout, deck, start, Math.max(padding, EDGE), end).some(box => furnitureHitsSegment(box, start, end, Math.max(padding, EDGE), actor))) return false;
   const distance = Math.hypot(end.x - start.x, end.z - start.z), samples = Math.max(1, Math.ceil(distance / .1));
   for (let i = 0; i <= samples; i++) {
     const t = i / samples;
-    if (!isWalkable({ x: start.x + (end.x - start.x) * t, z: start.z + (end.z - start.z) * t }, layout, padding, deck)) return false;
+    if (!isWalkable({ x: start.x + (end.x - start.x) * t, z: start.z + (end.z - start.z) * t }, layout, padding, deck, actor)) return false;
   }
   return true;
 }
 
 // Recovery is only for an already invalid pose. Normal movement rejects unsafe
 // steps; it never projects a route across a gap between two valid endpoints.
-export function nearestWalkablePoint(point: ShipPoint, layout: ShipLayout, padding = 0, deck = 0, free: (point: ShipPoint) => boolean = () => true): ShipPoint {
+export function nearestWalkablePoint(point: ShipPoint, layout: ShipLayout, padding = 0, deck = 0, free: (point: ShipPoint) => boolean = () => true, actor?: CollisionActor): ShipPoint {
   const candidates: ShipPoint[] = [], radius = Math.hypot(point.x, point.z), angle = Math.atan2(point.x, point.z);
   let recovered={x:point.x,y:point.z};
-  const pods=[...cloningCollisionBoxes(layout,deck),...barCollisionBoxes(layout,deck),...breakRoomCollisionBoxes(layout,deck)];
-  for(let pass=0;pass<pods.length;pass++)for(const box of pods)if(circleHitsBox(recovered,box,Math.max(padding,EDGE)))recovered=projectOutside(recovered,box,Math.max(padding,EDGE));
+  for (let pass = 0; pass < 12; pass++) {
+    let changed = false;
+    for (const box of solidBoxes(layout, deck, { x: recovered.x, z: recovered.y }, Math.max(padding, EDGE))) {
+      if (furnitureHitsPoint(box, { x: recovered.x, z: recovered.y }, Math.max(padding, EDGE), actor)) { recovered = projectOutside(recovered, box, Math.max(padding, EDGE)); changed = true; }
+    }
+    if (!changed) break;
+  }
   candidates.push({x:recovered.x,z:recovered.y});
   const sector = ((angle / TAU * layout.allocation.sectors) % 1 + 1) % 1;
   for (const ring of layout.rings) {
@@ -66,7 +76,10 @@ export function nearestWalkablePoint(point: ShipPoint, layout: ShipLayout, paddi
     const across = Math.max(-half, Math.min(half, point.x * Math.cos(direction) - point.z * Math.sin(direction)));
     candidates.push({ x: Math.sin(direction) * along + Math.cos(direction) * across, z: Math.cos(direction) * along - Math.sin(direction) * across });
   }
-  const valid = candidates.filter(candidate => isWalkable(candidate, layout, padding, deck))
+  // Furniture can fill the radial projection; also try nearby floor on either
+  // side, rather than relocating a walker to a distant cabin.
+  for (const distance of [.3, .6, 1, 1.5, 2, 3]) for (let i = 0; i < 16; i++) candidates.push({ x: point.x + Math.cos(i * TAU / 16) * distance, z: point.z + Math.sin(i * TAU / 16) * distance });
+  const valid = candidates.filter(candidate => isWalkable(candidate, layout, padding, deck, actor))
     .sort((a, b) => Math.hypot(a.x - point.x, a.z - point.z) - Math.hypot(b.x - point.x, b.z - point.z));
   return valid.find(free) || valid[0] || shipPoint(layout.rings[0].radius, 0);
 }

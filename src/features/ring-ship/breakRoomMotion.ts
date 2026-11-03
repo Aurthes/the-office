@@ -8,7 +8,7 @@ export function freeBreakSeat(layout: ShipLayout, cabin: ShipCabin, body: Charac
     const seat = (start + i) % BREAK_ROOM.seats.length, key = breakSeatKey(cabin.id, seat);
     const pose = breakSeatPose(layout, cabin, seat);
     if (others.some(other => other.id !== body.id && other.reservedSeat === key)) continue;
-    if (occupiedWaypoint(body, pose.point, others) || !isWalkable(pose.point, layout, footingRadius(body.radius), cabin.deck)) continue;
+    if (occupiedWaypoint(body, pose.point, others) || !isWalkable(pose.point, layout, footingRadius(body.radius), cabin.deck, { ...body, reservedSeat: key })) continue;
     return seat;
   }
 }

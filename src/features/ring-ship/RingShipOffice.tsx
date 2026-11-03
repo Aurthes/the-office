@@ -4,7 +4,8 @@ import { useServerSnapshot } from "./useServerSnapshot";
 import { ServerRackInfo } from "./ServerRackInfo";
 import { ServerTerminal } from "./ServerTerminal";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ComponentRef, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ComponentRef, type RefObject } from "react";
+import { registerFurniture } from "./furnitureCollisions";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Environment, Lightformer, OrbitControls } from "@react-three/drei";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -104,6 +105,7 @@ function StaticShip({ layout, enabled, selectedId, onSelect, serverHosts }: { la
   const t = useUiText();
   const models = useModels();
   const group = useMemo(() => buildShipGeometry(layout, models, t, serverHosts), [layout, models, t, serverHosts]);
+  useLayoutEffect(() => registerFurniture(layout, group.userData.shipCollisionBoxes), [layout, group]);
   const activity = useRef<THREE.MeshStandardMaterial[]>([]);
   useEffect(() => {
     activity.current = group.children.flatMap(object => {

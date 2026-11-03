@@ -1,6 +1,6 @@
 import { CEO_ID } from "@/lib/office/organization";
 import { cabinAngle, routeBetweenCabins, shipPoint, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
-import { occupiedWaypoint, walkCharacter, type CharacterBody, type CharacterRecovery } from "./characterCollision";
+import { walkableWaypoint, occupiedWaypoint, walkCharacter, type CharacterBody, type CharacterRecovery } from "./characterCollision";
 import { footingRadius, isWalkable, walkableSegment } from "./walkableSurface";
 import { monitorChairPose } from "./monitor-room-geometry";
 import { BREAK_ACTIONS, BREAK_ACTIVITIES, breakAction, breakSeatKey, breakSeatPose, type BreakVisit } from "./breakRoomLayout";
@@ -12,7 +12,7 @@ export type CeoState = {
   position: ShipPoint; facing: number; walking: boolean; radius: number;
   cabinId: string; destinationId: string; route: ShipPoint[]; waypoint: number; blocked: number;
   recovery?: CharacterRecovery;
-  breakVisit?: BreakVisit;
+  breakVisit?: BreakVisit; departingSeat?: { key: string; point: ShipPoint };
 };
 const ROUTINE: CeoAction[] = ["monitor", "stretch", "review", "window", "coffee", "patrol", "monitor", "think"];
 const DURATIONS: Record<CeoAction, number> = { monitor: 12, stretch: 4, review: 8, window: 6, coffee: 9, patrol: 5, think: 5, celebrate: 3, break: 22 };
@@ -29,7 +29,7 @@ export const CEO_ACTIVITIES: Record<CeoAction, string> = {
 };
 export function ceoHome(layout: ShipLayout) { return layout.cabins.find(c => c.kind === "monitor") || layout.cabins.find(c => c.kind === "lounge") || layout.cabins[0]; }
 export function ceoBody(state: CeoState): CharacterBody { return { id: CEO_ID, position: state.position, radius: state.radius, deck: 0,
-  reservedSeat: state.breakVisit ? breakSeatKey(state.breakVisit.cabinId, state.breakVisit.seat) : undefined }; }
+  reservedSeat: state.breakVisit ? breakSeatKey(state.breakVisit.cabinId, state.breakVisit.seat) : state.departingSeat && Math.hypot(state.position.x-state.departingSeat.point.x,state.position.z-state.departingSeat.point.z)<1.5 ? state.departingSeat.key : undefined }; }
 function random(state: CeoState) { state.seed = (Math.imul(state.seed, 1664525) + 1013904223) >>> 0; return state.seed / 4294967296; }
 function point(layout: ShipLayout, cabin: ShipCabin, u: number, v: number) {
   const ring = layout.rings[cabin.ring];
@@ -52,6 +52,7 @@ export function createCeoState(layout: ShipLayout, seed: number, radius = .43): 
 function nextAction(state: CeoState, layout: ShipLayout, others: readonly CharacterBody[]) {
   const home = ceoHome(layout), source = layout.cabins.find(c => c.id === state.cabinId) || home;
   const previousBreak = state.breakVisit;
+  if (previousBreak) state.departingSeat = { key: breakSeatKey(source.id, previousBreak.seat), point: breakSeatPose(layout, source, previousBreak.seat).point };
   if (state.action !== "celebrate") state.routine = (state.routine + 1) % ROUTINE.length;
   let action = state.action === "think" && random(state) < .35 ? "celebrate" : ROUTINE[state.routine];
   let destination = home;
@@ -90,7 +91,7 @@ function nextAction(state: CeoState, layout: ShipLayout, others: readonly Charac
 export function advanceCeo(state: CeoState, layout: ShipLayout, elapsed: number, others: readonly CharacterBody[] = []) {
   const dt = Math.min(Math.max(elapsed, 0), .05); if (!dt) return;
   state.elapsed += dt; state.walking = false;
-  const target = state.route[state.waypoint];
+  const target = walkableWaypoint(ceoBody(state), state.route, state.waypoint, layout);
   if (target) {
     const before = state.position, body = ceoBody(state), distance = Math.hypot(target.x - before.x, target.z - before.z);
     const last = state.waypoint === state.route.length - 1, following = state.route[state.waypoint + 1];

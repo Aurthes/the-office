@@ -1,5 +1,6 @@
 import { cabinAngle, routeBetweenCabins, shipPoint, type DeckIndex, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
 import { isWalkable, nearestWalkablePoint } from "./walkableSurface";
+import type { CollisionActor } from "./furnitureCollisions";
 
 export type SiteAction = "travelling" | "changing" | "survey" | "blueprint" | "notes" | "measure" | "patrol" | "packing" | "returning" | "lift";
 export type FieldworkState = {
@@ -39,10 +40,10 @@ export function sitePoint(layout: ShipLayout, cabin: ShipCabin, seed: number, pa
   const p = shipPoint(ring.radius + v, cabinAngle(layout, cabin.slot) + u / ring.radius);
   return isWalkable(p, layout, .4, cabin.deck) ? p : nearestWalkablePoint(p, layout, .4, cabin.deck);
 }
-export function siteJourney(layout: ShipLayout, position: ShipPoint, deck: DeckIndex, destination: ShipCabin, target: ShipPoint) {
+export function siteJourney(layout: ShipLayout, position: ShipPoint, deck: DeckIndex, destination: ShipCabin, target: ShipPoint, actor?: CollisionActor) {
   const ring = [...layout.rings].sort((a, b) => Math.abs(a.radius - Math.hypot(position.x, position.z)) - Math.abs(b.radius - Math.hypot(position.x, position.z)))[0];
   const angle = Math.atan2(position.x, position.z);
-  const safe = (points: ShipPoint[], level: DeckIndex) => points.map(p => nearestWalkablePoint(p, layout, .4, level));
+  const safe = (points: ShipPoint[], level: DeckIndex) => points.map(p => nearestWalkablePoint(p, layout, .4, level, undefined, actor));
   if (deck === destination.deck) return [{ deck, points: safe([...routeBetweenCabins(layout, { ring: ring.index, angle }, destination), target], deck) }];
   const spoke = [...layout.spokes].sort((a, b) => Math.abs(Math.atan2(Math.sin(a - angle), Math.cos(a - angle))) - Math.abs(Math.atan2(Math.sin(b - angle), Math.cos(b - angle))))[0];
   const inner = shipPoint(layout.rings[0].radius, spoke), lift = shipPoint(3.8, spoke);
