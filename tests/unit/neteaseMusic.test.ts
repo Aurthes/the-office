@@ -55,9 +55,10 @@ it("builds a scene mix from fitting playlists, removes unavailable tracks and ke
   f.fetchImpl.mockImplementation(async (url, init) => {
     const biz = JSON.parse(new URLSearchParams(init.body as URLSearchParams).get("bizContent")!);
     if (url.includes("/search/playlist/")) {
-      expect(biz.keyword).toBe("太空 纯音乐");
-      return response({ records: [{ id: "metal", name: "Space instrumental metal", tags: ["金属"] }, { id: "ambiguous", name: "Space soundtrack" }, { id: "ambient", name: "Space instrumental ambient" }, { id: "score", name: "No vocals space soundtrack" }] });
+      expect(biz.keyword).toBe("太空 宇宙 氛围 配乐");
+      return response({ records: [{ id: "metal", name: "Space instrumental metal", tags: ["金属"] }, { id: "ambiguous", name: "Forest ambient" }, { id: "ambient", name: "Space instrumental ambient" }, { id: "score", name: "No vocals space soundtrack" }] });
     }
+    if (url.includes("/lyric/")) return response({ pureMusic: true });
     expect(url).toContain("/playlist/song/list/get/v3"); expect(["metal", "ambiguous"]).not.toContain(biz.playlistId);
     return response([{ id: "vip", name: "Playable VIP", visible: true, playFlag: true, vipFlag: true, freeTrailFlag: true }, { id: "blocked", name: "Blocked", visible: false, playFlag: false }]);
   });
@@ -65,23 +66,64 @@ it("builds a scene mix from fitting playlists, removes unavailable tracks and ke
   expect(result.songs).toEqual([{ id: "vip", name: "Playable VIP", artists: "", album: "", playable: true }]);
   expect(result.playlists.map((p: { id: string }) => p.id)).toEqual(["ambient", "score"]);
 });
-it("uses official daily recommendations and filters their array response without leaking playback URLs", async () => {
-  const f = setup();
-  f.fetchImpl.mockImplementationOnce(async url => {
-    expect(url).toContain("/recommend/songlist/get/v2");
-    return response([{ id: "daily", name: "Daily song", visible: true, playFlag: true, playUrl: "DO_NOT_FORWARD" }, { id: "blocked", name: "Blocked", playFlag: false }]);
-  });
-  expect(await f.music.recommendations({ source: "daily" })).toEqual({ songs: [{ id: "daily", name: "Daily song", artists: "", album: "", playable: true }], playlists: [] });
-});
-it("falls back to space ambient when a scene's matching playlists have no playable songs", async () => {
+it("filters daily recommendations by the current scene and checks lyrics before displaying them", async () => {
   const f = setup();
   f.fetchImpl.mockImplementation(async (url, init) => {
-    const biz = JSON.parse(new URLSearchParams(init.body as URLSearchParams).get("bizContent")!);
-    if (url.includes("/search/playlist/")) return response({ records: [{ id: biz.keyword === "desert ambient instrumental" ? "empty" : "space", name: biz.keyword }] });
-    return response(biz.playlistId === "space" ? [{ id: "song", name: "Ambient", playFlag: true }] : []);
+    if (url.includes("/recommend/songlist/")) return response([
+      { id: "daily", name: "Space ambient", visible: true, playFlag: true, playUrl: "DO_NOT_FORWARD" },
+      { id: "pop", name: "Space pop", playFlag: true },
+      { id: "vocal", name: "Space ambient vocal song", playFlag: true },
+      { id: "wrong-scene", name: "Rainforest soundscape", playFlag: true },
+    ]);
+    expect(url).toContain("/lyric/");
+    const { songId } = JSON.parse(new URLSearchParams(init.body as URLSearchParams).get("bizContent")!);
+    expect(["pop", "wrong-scene"]).not.toContain(songId);
+    return response(songId === "vocal" ? { noLyric: true, lyric: "[00:01.00]I sing these words" } : { pureMusic: true });
   });
-  expect((await f.music.recommendations({ scene: "amber-nebula" })).songs).toMatchObject([{ name: "Ambient", playable: true }]);
-  expect(f.fetchImpl).toHaveBeenCalledTimes(4);
+  expect(await f.music.recommendations({ source: "daily" })).toEqual({ songs: [{ id: "daily", name: "Space ambient", artists: "", album: "", playable: true }], playlists: [] });
+});
+it("does not replace an empty rainforest catalog with music from another galaxy", async () => {
+  const f = setup();
+  f.fetchImpl.mockImplementation(async (url, init) => {
+    expect(url).toContain("/search/playlist/");
+    const { keyword } = JSON.parse(new URLSearchParams(init.body as URLSearchParams).get("bizContent")!);
+    expect(keyword).toMatch(/雨林|森林/);
+    return response({ records: [{ id: "wrong", name: "Space ambient instrumental" }, { id: "jungle-dnb", name: "Jungle drum and bass" }] });
+  });
+  expect(await f.music.recommendations({ scene: "jade-nebula" })).toEqual({ songs: [], playlists: [] });
+  expect(f.fetchImpl).toHaveBeenCalledTimes(2);
+});
+it("recommends verified nature recordings and quiet forest scores, not mechanical beats or songs in a misleading playlist", async () => {
+  const f = setup();
+  f.fetchImpl.mockImplementation(async (url, init) => {
+    if (url.includes("/search/playlist/")) return response({ records: [{ id: "forest", name: "雨林 鸟鸣 自然环境声" }, { id: "rock", name: "森林摇滚纯音乐" }] });
+    const biz = JSON.parse(new URLSearchParams(init.body as URLSearchParams).get("bizContent")!);
+    if (url.includes("/playlist/song/")) {
+      expect(biz.playlistId).toBe("forest");
+      return response([{ id: "rain", name: "Rain in the forest" }, { id: "birds", name: "Birds and leaves" }, { id: "score", name: "Quiet exploration" }, { id: "sung", name: "回音沙漠" }, { id: "unknown", name: "Unconfirmed" }, { id: "beat", name: "10 Hz Alpha Forest" }, { id: "rock-song", name: "Rock anthem" }]);
+    }
+    expect(url).toContain("/lyric/");
+    expect(["beat", "rock-song"]).not.toContain(biz.songId);
+    return response(biz.songId === "unknown" ? {} : biz.songId === "sung" ? { pureMusic: true, lyric: { lyric: "[00:01.00]这是一句演唱歌词" } } : { pureMusic: true, lyric: "[99:00.00]纯音乐，请欣赏" });
+  });
+  const result = await f.music.recommendations({ scene: "jade-nebula" });
+  expect(result.songs.map((song: { id: string }) => song.id)).toEqual(["rain", "birds", "score"]);
+  expect(result.playlists.map((list: { id: string }) => list.id)).toEqual(["forest"]);
+  // Playback reuses the recent verification, keeping continuous playback within the provider quota.
+  const before = f.fetchImpl.mock.calls.length;
+  f.fetchImpl.mockResolvedValueOnce(response({ playUrl: "https://audio.music.126.net/rain.mp3" }));
+  await expect(f.music.track("rain", { instrumentalOnly: true })).resolves.toMatchObject({ url: "https://audio.music.126.net/rain.mp3" });
+  expect(f.fetchImpl.mock.calls.length).toBe(before + 1);
+});
+it("uses the current scene when personal daily picks contain only pop", async () => {
+  const f = setup();
+  f.fetchImpl.mockImplementation(async url => {
+    if (url.includes("/recommend/songlist/")) return response([{ id: "pop", name: "Popular song" }]);
+    if (url.includes("/search/playlist/")) return response({ records: [{ id: "forest", name: "森林 自然 白噪音" }] });
+    if (url.includes("/playlist/song/")) return response([{ id: "birds", name: "Birds" }]);
+    return response({ pureMusic: true });
+  });
+  expect((await f.music.recommendations({ scene: "jade-nebula", source: "daily" })).songs).toMatchObject([{ id: "birds" }]);
 });
 it.each([{ pureMusic: true }, { pureMusic: false, noLyric: true }])("allows explicit instrumental metadata %j before requesting audio", async metadata => {
   const f = setup();
@@ -89,7 +131,7 @@ it.each([{ pureMusic: true }, { pureMusic: false, noLyric: true }])("allows expl
   expect(await f.music.track("song", { instrumentalOnly: true })).toMatchObject({ url: "https://audio.music.126.net/song.mp3" });
   expect(f.fetchImpl.mock.calls.map(([url]) => new URL(url).pathname)).toEqual(["/openapi/music/basic/song/lyric/get/v2", "/openapi/music/basic/song/detail/get/v2"]);
 });
-it.each([{ pureMusic: false, noLyric: false }, { lyric: "" }, {}])("skips vocals or unconfirmed instrumental metadata %j without requesting audio", async metadata => {
+it.each([{ pureMusic: false, noLyric: false }, { lyric: "" }, {}, { pureMusic: true, lyric: "[00:02]Sung words" }, { noLyric: true, lrc: { lyric: "[00:02]Sung words" } }, { pureMusic: true, txtLyric: "Sung words" }])("skips vocals or unconfirmed instrumental metadata %j without requesting audio", async metadata => {
   const f = setup(); f.fetchImpl.mockResolvedValueOnce(response(metadata));
   await expect(f.music.track("song", { instrumentalOnly: true })).rejects.toMatchObject({ status: 403, code: "NOT_INSTRUMENTAL" });
   expect(f.fetchImpl).toHaveBeenCalledOnce();
