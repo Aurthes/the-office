@@ -167,6 +167,13 @@ export function addRainforest(b: Builder, layout: ShipLayout, cabin: ShipCabin) 
   }
 }
 
+export function serverConsoleScreenPose(layout: ShipLayout, cabin: ShipCabin) {
+  const ring = layout.rings[cabin.ring], width = ring.radius * Math.PI * 2 / layout.allocation.sectors;
+  const angle = cabinAngle(layout, cabin.slot), point = shipPoint(ring.radius - 1.18, angle - width * .39 / ring.radius);
+  // The existing .56m Prop_Computer has a screen tilted 45 degrees, 1.17m up.
+  return { point, angle, height: 1.172, tilt: -Math.PI / 4 };
+}
+
 export function addMachineRoom(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
   const ring = layout.rings[cabin.ring], width = ring.radius * Math.PI * 2 / layout.allocation.sectors;
   const angle = cabinAngle(layout, cabin.slot);

@@ -60,7 +60,7 @@ describe("three-ring ship allocation", () => {
       const cabin = layout.cabins.find(c => c.id === p.id);
       expect(cabin?.kind).toBe(p.kind); expect(cabin?.projectId).toBeUndefined();
     }
-    expect(layout.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length * DECKS.length - (DECKS.length-1)*2 + 2);
+    expect(layout.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length * DECKS.length - (DECKS.length-1)*2 + 3);
     checkSeats(layout, 100);
   });
   it("uses contiguous outer cabins for teams larger than one bay without shrinking furniture", () => {
@@ -128,7 +128,7 @@ it("fills ready decks before expanding and assigns every worker to exactly one d
     expect(floor.cabins).toHaveLength(24);
     expect(floor.cabins.every(c => c.deck === deck)).toBe(true);
     expect(floor.rings).toBe(layout.rings);
-    expect(floor.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length - (deck===0?0:2) + (layout.allocation.monitorRoom?.deck === deck ? 1 : 0) + (layout.allocation.cloningRoom?.deck === deck ? 1 : 0));
+    expect(floor.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length - (deck===0?0:2) + (layout.allocation.monitorRoom?.deck === deck ? 1 : 0) + (layout.allocation.cloningRoom?.deck === deck ? 1 : 0) + (layout.allocation.serverRoom?.deck === deck ? 1 : 0));
     for (const seat of Object.values(floor.seats)) expect(floor.cabins.find(c => c.id === seat.cabinId)?.deck).toBe(deck);
   }
   checkSeats(layout, 64);
@@ -159,4 +159,36 @@ it("adopts one existing reserve cabin and keeps its location without moving save
   expect(grown.cabins.find(c => c.id === room.id)).toEqual(room);
   for (const [id, assignment] of Object.entries(upgraded.allocation.projects)) expect(grown.allocation.projects[id]).toEqual(assignment);
   expect(parseShipAllocation(JSON.stringify({ ...upgraded.allocation, monitorRoom: { deck: 3, ring: 1, slot: 0 } }))).toBeUndefined();
+});
+
+
+it("adds an L1 machine room to a saved ship without moving projects or other public rooms", () => {
+  const data = roster([2, 5, 8]), before = buildShipLayout(data);
+  const legacy = { ...before.allocation, serverRoom: undefined };
+  const upgraded = buildShipLayout(data, legacy);
+  expect(upgraded.allocation.projects).toEqual(legacy.projects);
+  expect(upgraded.allocation.monitorRoom).toEqual(legacy.monitorRoom);
+  expect(upgraded.allocation.cloningRoom).toEqual(legacy.cloningRoom);
+  expect(upgraded.allocation.sectors).toBe(legacy.sectors);
+  expect(upgraded.cabins.find(c => c.id === "public:server-room")).toMatchObject({ deck: 0, kind: "servers", agentIds: [] });
+  expect(upgraded.cabins.find(c => c.id === "public:servers")).toMatchObject({ kind: "ai", deck: 0 });
+  expect(upgraded.cabins.filter(c => c.kind === "servers")).toHaveLength(3);
+  const grown = buildShipLayout(roster([2, 5, 8, 4]), parseShipAllocation(JSON.stringify(upgraded.allocation)));
+  expect(grown.allocation.serverRoom).toEqual(upgraded.allocation.serverRoom);
+  expect(buildShipLayout(data, parseShipAllocation(JSON.stringify(upgraded.allocation))).allocation).toEqual(upgraded.allocation);
+  expect(parseShipAllocation(JSON.stringify({ ...upgraded.allocation, serverRoom: { deck: 3, ring: 1, slot: 0 } }))).toBeUndefined();
+});
+
+it("makes space for the new L1 room when the saved main deck is full", () => {
+  const initial = buildShipLayout(roster([]));
+  const bays = initial.cabins.filter(c => c.deck === 0 && (c.kind === "reserve" || c.id === "public:server-room"));
+  const data = roster(bays.map(c => RING_CAPACITIES[c.ring]));
+  const projects = Object.fromEntries(bays.map((c, i) => [`p${i}`, { deck: c.deck, ring: c.ring, slot: c.slot, span: 1 }]));
+  const legacy = { ...initial.allocation, serverRoom: undefined, projects: { ...projects, "open-workspace": initial.allocation.projects["open-workspace"] } };
+  const upgraded = buildShipLayout(data, legacy);
+  expect(upgraded.allocation.projects).toEqual(legacy.projects);
+  expect(upgraded.allocation.sectors).toBe(legacy.sectors + 1);
+  expect(upgraded.allocation.serverRoom).toMatchObject({ deck: 0, slot: legacy.sectors });
+  expect(upgraded.allocation.monitorRoom).toEqual(legacy.monitorRoom);
+  expect(upgraded.allocation.cloningRoom).toEqual(legacy.cloningRoom);
 });

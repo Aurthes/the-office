@@ -5,8 +5,9 @@ import { useUiText } from "@/lib/i18n/ui-language";
 import type { ShipCabin, ShipLayout } from "./layout";
 import { monitorScreenPose } from "./monitor-room-geometry";
 import { MonitorIllustration } from "./MonitorIllustration";
-import { CalendarClock } from "lucide-react";
+import { CalendarClock, Server } from "lucide-react";
 import { cabinAngle, shipPoint } from "./layout";
+import { serverConsoleScreenPose } from "./ship-biomes";
 
 export function TaskRoomScreen({ layout, cabin, onOpen }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void }) {
   const t = useUiText(), ring = layout.rings[cabin.ring];
@@ -27,10 +28,22 @@ export function MonitorRoomScreen({ layout, cabin, onOpen }: { layout: ShipLayou
       aria-label={t("Open monitoring dashboard")} style={{ width: screen.width * 100, height: 165 }}
       className="cursor-pointer rounded-lg border-2 border-[#71d3c8]/70 bg-[#102a36] p-3 text-[#d8f5ec] shadow-[0_0_24px_#71d3c830] transition-colors hover:bg-[#174454] focus-visible:outline-4 focus-visible:outline-amber-200">
       <span className="block text-[10px] uppercase tracking-[.3em] text-[#71d3c8]">{t("OPERATIONS CONSOLE")}</span>
-      <span className="mt-2 grid grid-cols-2 gap-3">
+      <span className="mt-2 block">
         <span className="rounded border border-[#71d3c8]/25 bg-black/10 px-2 text-[#8ed8bc]"><MonitorIllustration visual="chart" compact /><span className="block text-[10px]">{t("Strategy performance")}</span></span>
-        <span className="rounded border border-blue-200/20 bg-black/10 px-2 text-[#9db8e9]"><MonitorIllustration visual="servers" compact /><span className="block text-[10px]">{t("Server fleet")}</span></span>
       </span>
     </button>
   </Html>;
+}
+
+export function ServerRoomScreen({ layout, cabin, onOpen }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void }) {
+  const t = useUiText(), screen = serverConsoleScreenPose(layout, cabin);
+  return <group position={[screen.point.x, screen.height, screen.point.z]} rotation={[0, screen.angle, 0]}>
+    <Html transform rotation={[screen.tilt, 0, 0]} distanceFactor={4} zIndexRange={[12, 11]}>
+      <button type="button" aria-label={t("Open server fleet status")} title={t("Server fleet")}
+        onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onOpen(); }}
+        className="flex cursor-pointer flex-col items-center justify-center rounded-sm border border-blue-200/70 bg-[#102a36] text-[#9db8e9] shadow-[0_0_8px_#9db8e970] hover:bg-[#235168] focus-visible:outline-2 focus-visible:outline-amber-200" style={{ width: 46, height: 28 }}>
+        <Server size={18} strokeWidth={1.3} />
+      </button>
+    </Html>
+  </group>;
 }

@@ -83,10 +83,10 @@ export function LocalMusicPlayer({ autoPlay, controlsTarget, minimized, onOpen, 
   return <><section className="music-netease-player" aria-label={t("Local music")}>
     {error ? <p className="music-notice" role="alert">{t(error)}</p> : null}
     <div className="music-discovery"><strong>{name}</strong><p>{t("Local library · No sign-in needed")}</p>
-      <div className="music-discovery-actions" style={{ marginTop: 12 }} role="group" aria-label={t("Playback mode")}>
+      <div className="music-discovery-actions music-local-controls" style={{ marginTop: 12 }} role="group" aria-label={t("Music playback")}>
         {([["sequence", "Repeat all"], ["shuffle", "Random Mix"], ["repeat-one", "Repeat one"]] as const).map(([value, label]) => <button key={value} type="button" className="music-action" aria-pressed={mode === value} onClick={() => changeMode(value)}>{t(label)}</button>)}
+        <button type="button" className="music-action music-local-play" aria-label={t("Play music")} title={t("Play music")} disabled={!songs?.length} onClick={() => { const first = mode === "repeat-one" ? selected || queue.current[0] : queue.current[0]; if (first) play(first); }}><Play size={15} /></button>
       </div>
-      <button type="button" className="music-action" disabled={!songs?.length} onClick={() => { const first = mode === "repeat-one" ? selected || queue.current[0] : queue.current[0]; if (first) play(first); }}><Play size={15} />{t("Play music")}</button>
     </div>
     <div className="music-results">{songs === null ? <p className="music-empty" role="status">{t("Loading local music…")}</p> : songs.length === 0 ? <p className="music-empty">{t("No local tracks installed.")}</p> : <ul>{songs.map(song => <li key={song.id}>
       <button type="button" className="music-song" data-selected={selected?.id === song.id} aria-label={t("Play {song}", { song: song.name })} onClick={() => play(song)}><Play size={16} /><span><strong>{song.name}</strong><small>{[song.artists, song.album].filter(Boolean).join(" · ")}</small></span></button>

@@ -18,6 +18,10 @@
 .music-discovery-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
 .music-discovery-actions .music-action { min-height:36px; padding:7px 12px; font-size:12px; }
 .music-discovery-actions [aria-pressed="true"] { border-color:#d7bc85; background:#c6a46a30; }
+.music-local-controls { flex-wrap:nowrap; gap:6px; }
+.music-local-controls .music-action { white-space:nowrap; padding:7px 8px; }
+.music-local-controls .music-local-play { flex:0 0 36px; padding:0; }
+@media(max-width:360px) { .music-local-controls .music-action { font-size:11px; padding:7px 5px; } .music-local-controls .music-local-play { padding:0; } }
 .music-discovery strong { color:#eed6a6; font-size:14px; font-weight:500; }
 .music-discovery p,.music-availability { margin:6px 0 0; color:#9fb9a4; font-size:11px; line-height:1.6; }
 .music-availability { padding:0 12px 10px; }
