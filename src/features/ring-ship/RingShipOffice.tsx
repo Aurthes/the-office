@@ -18,7 +18,7 @@ import { OrganizationPanel } from "./OrganizationPanel";
 import { DuckCrewModel } from "./DuckCrewModel";
 import { CompanyWorkAreaMenu } from "@/features/office/components/CompanyWorkAreaMenu";
 import { SettingsPanel } from "@/features/office/components/panels/SettingsPanel";
-import { cabinAngle, DECK_NAMES, DECK_STEP, DECKS, PUBLIC_DESCRIPTIONS, SHARED_PROJECT_ID, shipDeck, type DeckIndex, type ShipLayout, type ShipPoint } from "./layout";
+import { cabinAngle, CLONING_LAB_WIDTH, DECK_NAMES, DECK_STEP, DECKS, PUBLIC_DESCRIPTIONS, SHARED_PROJECT_ID, shipDeck, type DeckIndex, type ShipLayout, type ShipPoint } from "./layout";
 import { buildShipGeometry, disposeShipGeometry, SHIP_MODELS, shipModelUrl, type ModelTemplates } from "./geometry";
 import { useShipLayout } from "./useShipLayout";
 import { getAgentActivity, workChatter } from "@/features/retro-office/core/agentActivity";
@@ -214,9 +214,10 @@ function CabinTargets({ layout, focus, onSelect }: { layout: ShipLayout; focus: 
   const step = Math.PI * 2 / layout.allocation.sectors;
   return <>{layout.cabins.map(cabin => {
     const ring = layout.rings[cabin.ring], selected = cabin.id === focus || cabin.projectId === focus;
+    const span = cabin.kind === "cloning" ? Math.min(step,CLONING_LAB_WIDTH/ring.radius) : step;
     return <mesh key={cabin.id} position={[0, 0.075, 0]} rotation={[-Math.PI / 2, 0, 0]}
       onClick={event => { event.stopPropagation(); if (event.delta < 6) onSelect(cabin.projectId || cabin.id); }}>
-      <ringGeometry args={[ring.radius - ring.depth / 2 + 0.1, ring.radius + ring.depth / 2 - 0.1, 24, 1, cabin.slot * step - Math.PI / 2, step]} />
+      <ringGeometry args={[ring.radius - ring.depth / 2 + 0.1, ring.radius + ring.depth / 2 - 0.1, 24, 1, cabinAngle(layout,cabin.slot) - span/2 - Math.PI / 2, span]} />
       <meshBasicMaterial side={THREE.DoubleSide} color={cabin.color} transparent opacity={selected && cabin.kind!=="return" ? 0.15 : 0} depthWrite={false} />
     </mesh>;
   })}</>;

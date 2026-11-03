@@ -95,9 +95,9 @@ export function CloningLab({ layout, cabin, flight, resultRef, onStage, onComple
   return <>
     <group position={[center.x,cabin.deck*DECK_STEP,center.z]} rotation={[0,angle,0]} name="cloning-laboratory">
       <Pod index={0} cabin={cabin} interactive={interactive&&!flight} selectedId={selectedId} onSelect={onSelect} door={node=>{doors.current[0]=node;}}/><Pod index={1} cabin={cabin} interactive={interactive&&!flight} selectedId={selectedId} onSelect={onSelect} door={node=>{doors.current[1]=node;}}/>
-      <mesh position={[0,.04,.1]}><boxGeometry args={[6.5,.06,5.35]}/><meshStandardMaterial color="#36535d" roughness={.8}/></mesh>
-      <mesh position={[0,.12,-2.15]}><boxGeometry args={[6.2,.015,.055]}/><meshStandardMaterial color="#85d6c7" emissive="#85d6c7" emissiveIntensity={.5}/></mesh>
-      <Html transform position={[0,2.7,2.45]} rotation={[0,Math.PI,0]} distanceFactor={4} zIndexRange={[10,9]}><div className="rounded-lg border border-teal-200/35 bg-[#122e3a] px-5 py-3 text-center text-teal-100"><strong className="block whitespace-nowrap text-lg">{t("Cloning laboratory")}</strong><span className="text-[10px] uppercase tracking-widest">{t("One history · Two futures")}</span></div></Html>
+      <mesh position={[0,.04,.35]}><boxGeometry args={[6.5,.06,5.6]}/><meshStandardMaterial color="#36535d" roughness={.8}/></mesh>
+      <mesh position={[0,.12,-2.2]}><boxGeometry args={[6.2,.015,.055]}/><meshStandardMaterial color="#85d6c7" emissive="#85d6c7" emissiveIntensity={.5}/></mesh>
+      <Html transform position={[0,2.7,2.8]} rotation={[0,Math.PI,0]} distanceFactor={4} zIndexRange={[10,9]}><div className="rounded-lg border border-teal-200/35 bg-[#122e3a] px-5 py-3 text-center text-teal-100"><strong className="block whitespace-nowrap text-lg">{t("Cloning laboratory")}</strong><span className="text-[10px] uppercase tracking-widest">{t("One history · Two futures")}</span></div></Html>
     </group>
     {flight?<Sequence key={flight.requestId} layout={layout} cabin={cabin} flight={flight} resultRef={resultRef} onStage={onStage} onComplete={onComplete}/>:null}
   </>;

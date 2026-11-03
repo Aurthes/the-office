@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildShipLayout, cabinAngle, parseShipAllocation, routeBetweenCabins } from "@/features/ring-ship/layout";
+import { areaBounds, buildShipLayout, cabinAngle, CLONING_AISLE_V, CLONING_POD, parseShipAllocation, routeBetweenCabins } from "@/features/ring-ship/layout";
 import { clonePose, cloneStage, cloningPoint, rejoinCrewAfterClone } from "@/features/ring-ship/cloneMotion";
 import { advanceCrew, syncCrew, worldPoint } from "@/features/ring-ship/crewMotion";
 import type { OfficeAgent } from "@/features/retro-office/core/types";
@@ -8,7 +8,7 @@ import { createDefaultAgentAvatarProfile } from "@/lib/avatars/profile";
 import { createDuckAppearanceFromSeed } from "@/lib/avatars/duck";
 import { cloneAgentPreferences } from "@/lib/office/clone";
 import { CEO_ID } from "@/lib/office/organization";
-import { isWalkable, walkableSegment } from "@/features/ring-ship/walkableSurface";
+import { footingRadius, isWalkable, walkableSegment } from "@/features/ring-ship/walkableSurface";
 import { moveCharacter } from "@/features/ring-ship/characterCollision";
 
 const roster = { projects: [{ id: "p", name: "Department" }], members: [{ id: "source", projectId: "p" }, { id: "clone", projectId: "p" }] };
@@ -21,6 +21,35 @@ describe("cloning laboratory",()=>{
     expect(grown.allocation.cloningRoom).toEqual(upgraded.allocation.cloningRoom);
     expect(grown.cabins.filter(c=>c.kind==="cloning")).toHaveLength(1);
     expect(parseShipAllocation(JSON.stringify({...grown.allocation,cloningRoom:{deck:4,ring:1,slot:0}}))).toBeUndefined();
+  });
+  it("focuses only the compact lab while keeping the saved bay and department placements",()=>{
+    const layout=buildShipLayout(roster),lab=layout.cabins.find(c=>c.kind==="cloning")!;
+    const fullBay={...layout,cabins:layout.cabins.map(c=>c===lab?{...c,kind:"reserve" as const}:c)};
+    const compact=areaBounds(layout,lab.id),wide=areaBounds(fullBay,lab.id);
+    expect(compact.width*compact.depth/(wide.width*wide.depth)).toBeLessThan(.5);
+    expect(buildShipLayout(roster,layout.allocation).allocation).toEqual(layout.allocation);
+  });
+  it("fits the full-size pods and pad on the floor and leaves a walkable exit aisle",()=>{
+    const layout=buildShipLayout(roster),lab=layout.cabins.find(c=>c.kind==="cloning")!;
+    const empty={...layout,cabins:layout.cabins.filter(c=>c!==lab)};
+    for(const u of [-3.25,3.25])for(const v of [-2.45,3.15])expect(isWalkable(cloningPoint(layout,lab,u,v),empty,0,lab.deck)).toBe(true);
+    for(const side of [-1,1])for(const du of [-1,1])for(const dv of [-1,1]){
+      const p=cloningPoint(layout,lab,side*CLONING_POD.spacing+du*CLONING_POD.width/2,CLONING_POD.v+dv*CLONING_POD.length/2);
+      expect(isWalkable(p,empty,0,lab.deck)).toBe(true);
+    }
+    expect(walkableSegment(cloningPoint(layout,lab,-3.5,CLONING_AISLE_V),cloningPoint(layout,lab,3.5,CLONING_AISLE_V),layout,.4,lab.deck)).toBe(true);
+  });
+  it.each([[.524,.524],[.524,.8],[.8,.8]])("lets opposing characters (%s, %s) pass the lab without overlap or deadlock",(first,second)=>{
+    const layout=buildShipLayout(roster),lab=layout.cabins.find(c=>c.kind==="cloning")!,center=cabinAngle(layout,lab.slot);
+    const paths=[-1,1].map(direction=>routeBetweenCabins(layout,{ring:lab.ring,angle:center-direction*.3},lab,center+direction*.3));
+    const bodies=paths.map((path,i)=>({id:String(i),position:{...path[0]},radius:i?second:first,deck:lab.deck}));
+    const waypoints=[1,1];
+    for(let frame=0;frame<1800&&waypoints.some((n,i)=>n<paths[i].length);frame++){
+      bodies.forEach((body,i)=>{const target=paths[i][waypoints[i]];if(!target)return;body.position=moveCharacter(body,target,.035,bodies,true,layout);if(Math.hypot(body.position.x-target.x,body.position.z-target.z)<.01)waypoints[i]++;});
+      expect(Math.hypot(bodies[0].position.x-bodies[1].position.x,bodies[0].position.z-bodies[1].position.z)).toBeGreaterThanOrEqual(first+second-1e-6);
+      bodies.forEach(body=>expect(isWalkable(body.position,layout,footingRadius(body.radius),lab.deck)).toBe(true));
+    }
+    expect(waypoints).toEqual(paths.map(path=>path.length));
   });
   it("holds both pods until a real fork is confirmed, and never treats a delay as success",()=>{
     expect(cloneStage(10000,{status:"pending"})).toBe("synchronizing");

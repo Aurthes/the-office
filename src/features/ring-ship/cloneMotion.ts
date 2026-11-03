@@ -1,4 +1,4 @@
-import { routeBetweenCabins, type ShipLayout, type ShipPoint } from "./layout";
+import { CLONING_AISLE_V, CLONING_POD, routeBetweenCabins, type ShipLayout, type ShipPoint } from "./layout";
 import { canvasPoint, type MovingAgent } from "./crewMotion";
 import { cloningPoint } from "./cloningGeometry";
 export { cloningPoint } from "./cloningGeometry";
@@ -19,7 +19,7 @@ export function cloneStage(seconds: number, result: CloneResult): CloneStage {
 }
 export function clonePose(seconds: number, index: number) {
   const t = Math.max(0, seconds - index * .13), rise = smooth((t - .65) / 1.35), step = smooth((t - 2) / 1.5), walk = smooth((t - 3.5) / 1.5);
-  return { u: index ? 2 : -2, v: .4 - .3 * rise - 1.4 * step - 1.1 * walk,
+  return { u: index ? 2 : -2, v: CLONING_POD.v - .65 - .3 * rise - (CLONING_POD.v + .35) * step - 1.1 * walk,
     y: .66 - .58 * step, tilt: -Math.PI / 2 * (1 - rise), walking: t >= 2 && t < 5,
     door: smooth(seconds / .8) * (1 - smooth((seconds - 5.2) / .8)) };
 }
@@ -32,6 +32,6 @@ export function rejoinCrewAfterClone(agent: MovingAgent, layout: ShipLayout, arr
   const ring = [...layout.rings].sort((a,b)=>Math.abs(a.radius-Math.hypot(departure.x,departure.z))-Math.abs(b.radius-Math.hypot(departure.x,departure.z)))[0];
   Object.assign(agent,canvasPoint(arrival.point));
   const route=routeBetweenCabins(layout,{ring:ring.index,angle:Math.atan2(departure.x,departure.z)},cabin,seat.angle);
-  agent.route = [...(lab?[cloningPoint(layout,lab,0,-2.1),...route.slice(1)]:route),agent.home];
+  agent.route = [...(lab?[cloningPoint(layout,lab,0,CLONING_AISLE_V),...route.slice(1)]:route),agent.home];
   agent.routeIndex=0;agent.visiting=false;agent.state="walking";agent.interactionTarget=undefined;
 }

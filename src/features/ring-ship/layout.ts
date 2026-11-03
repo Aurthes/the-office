@@ -28,8 +28,9 @@ export const SHARED_PROJECT_ID = "open-workspace";
 export const RING_RADII = [12, 26, 42] as const;
 export const RING_DEPTHS = [5.6, 6.8, 8] as const;
 export const RING_CAPACITIES = [3, 6, 8] as const;
-export const CLONING_POD = { spacing: 2, v: 1.05, width: 1.9, length: 3.15 } as const;
-export const CLONING_AISLE_V = -2.1;
+export const CLONING_POD = { spacing: 2, v: 1.4, width: 1.9, length: 3.15 } as const;
+export const CLONING_AISLE_V = -2.2;
+export const CLONING_LAB_WIDTH = 8.4;
 export const PUBLIC_CABINS: ReadonlyArray<{ id: string; ring: RingIndex; slot: number; kind: CabinKind; name: string; color: string }> = [
   { id: "public:lounge", ring: 0, slot: 0, kind: "lounge", name: "Observation lounge", color: "#d6af71" },
   { id: "public:servers", ring: 0, slot: 4, kind: "ai", name: "AI Center", color: "#86e6de" },
@@ -194,7 +195,8 @@ export function areaBounds(layout: ShipLayout, id: string) {
   if (!bays.length) return { x: 0, z: 0, width: layout.radius * 2, depth: layout.radius * 2 };
   const points = bays.flatMap(c => {
     const ring = layout.rings[c.ring];
-    return [-0.5, 0, 0.5].flatMap(offset => [ring.radius - ring.depth / 2, ring.radius + ring.depth / 2].map(r => shipPoint(r, (c.slot + 0.5 + offset) * TAU / layout.allocation.sectors)));
+    const halfAngle = c.kind === "cloning" ? CLONING_LAB_WIDTH / ring.radius / 2 : Math.PI / layout.allocation.sectors;
+    return [-halfAngle, 0, halfAngle].flatMap(offset => [ring.radius - ring.depth / 2, ring.radius + ring.depth / 2].map(r => shipPoint(r, cabinAngle(layout,c.slot) + offset)));
   });
   const xs = points.map(p => p.x), zs = points.map(p => p.z);
   return { x: (Math.min(...xs) + Math.max(...xs)) / 2, z: (Math.min(...zs) + Math.max(...zs)) / 2,

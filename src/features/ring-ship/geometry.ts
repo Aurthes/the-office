@@ -10,7 +10,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
 import workstationModels from "@/features/retro-office/core/workstation-models.json";
 import { CHAIR_SEAT, DESK_SURFACE_HEIGHT, WORKSTATION_SCALE } from "@/features/retro-office/core/geometry";
-import { cabinAngle, seatPosition, shipPoint, SHIP_CORRIDOR_START, SHIP_CORRIDOR_WIDTH, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
+import { cabinAngle, CLONING_LAB_WIDTH, seatPosition, shipPoint, SHIP_CORRIDOR_START, SHIP_CORRIDOR_WIDTH, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
 import { type ShipObject, type ShipObjectKind, type ShipObjectRange } from "./shipObjects";
 
 export const FURNITURE_MODELS = ["desk", "chairDesk", "pottedPlant", "plantSmall1", "loungeSofa", "tableRound", "kitchenCoffeeMachine", "kitchenCabinet", "bookcaseClosed", "lampRoundFloor", "kitchenFridgeSmall", "chairModernCushion", "tableCoffee", "table", "loungeDesignChair"] as const;
@@ -175,7 +175,11 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
     const spokeAtEnd = spokeSlots.has((cabin.slot + 1) % layout.allocation.sectors);
 
     const opening = cabin.kind === "return" ? { ...shipPoint(ring.radius + 1.8, theta), radius: 1.02 } : undefined;
-    b.add(cabinDeck(ring.radius, ring.depth/2, cabin.slot*step, (cabin.slot+1)*step, opening), reserve ? "#8fa5ac" : cabin.kind === "ai" ? "#456370" : cabin.kind === "garden" ? "#a2b48f" : "#c7bca6");
+    b.add(cabinDeck(ring.radius, ring.depth/2, cabin.slot*step, (cabin.slot+1)*step, opening), reserve || cabin.kind === "cloning" ? "#8fa5ac" : cabin.kind === "ai" ? "#456370" : cabin.kind === "garden" ? "#a2b48f" : "#c7bca6");
+    if(cabin.kind === "cloning") {
+      const half=CLONING_LAB_WIDTH/ring.radius/2;
+      b.add(cabinDeck(ring.radius,ring.depth/2,theta-half,theta+half),"#c7bca6",new THREE.Matrix4().makeTranslation(0,.008,0));
+    }
 
     for (const t of [-0.27, 0, 0.27]) {
       const a = theta + t * step, p = shipPoint(outer - 0.2, a);

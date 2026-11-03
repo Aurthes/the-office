@@ -22,8 +22,11 @@ filesystem snapshot. Scheduled tasks are deliberately **not copied**. Existing
 employees keep their reporting relationships; cloning a manager does not reassign
 their staff. Department membership remains independent of reporting relationships.
 
-The lab occupies one ready reserve cabin. Its location is saved in the existing
-ship allocation so future projects cannot displace it. Two lightweight pods reuse
+The lab uses a compact 8.4-unit section of one ready reserve cabin; the unused
+sides retain their reserve flooring. Its location is saved in the existing ship
+allocation so future projects cannot displace it. The pods sit toward the back,
+leaving the front aisle open for opposing crew and large companions to pass.
+Two lightweight pods reuse
 the ship's duck figures; no new downloaded model or runtime daemon is required.
 Each pod can be selected to zoom in and open the standard object information
 card. Pod bodies and boarding steps share their rendered footprint with the
