@@ -13,9 +13,11 @@ Spotify authorization and playback are not implemented by this change.
 The selected provider is remembered in browser storage. On subsequent Office
 entry, the saved provider is used instead of always choosing NetEase. Browsers
 that block autoplay show a tap-to-play hint. Playback also works without browser
-storage. Local playback shuffles its queue, avoids starting with the last heard
-track when alternatives exist, and continues with another shuffled batch when
-the queue ends. Scene changes do not interrupt a local track or undo a pause.
+storage. Local playback offers Repeat all (library order), Random Mix (the default,
+without repeats within each shuffled batch), and Repeat one (native audio loop).
+The mode is remembered. Changing modes keeps the current track and pause state;
+manual next still advances in Repeat one. Random Mix avoids starting with the
+last heard track when alternatives exist. Scene changes do not interrupt a local track or undo a pause.
 
 Install local music privately under
 `<OPENCLAW_STATE_DIR>/claw3d/music-library/`, using the usual Studio state-directory
@@ -32,9 +34,8 @@ resolution when the environment variable is unset. `library.json` contains:
 ```
 
 Files must be direct children of that directory, in MP3, WAV, Ogg or M4A format.
-Prepare mobile-friendly streaming copies offline; high-bitrate originals can
-outpace a remote connection even though the files are local to the server. Constant-bitrate
-MP3 at 96 kbps is one suitable option with modest, predictable transfer needs. The player preloads audio and allows a two-second download reserve after an
+Local files still travel over the connection to the listener. Files are served
+unchanged; the player does not transcode them. The player preloads audio and allows a two-second download reserve after an
 incomplete stream becomes playable. Already buffered tracks start immediately;
 an explicit resume tap always calls play directly. Buffering status is shown
 while waiting for data.

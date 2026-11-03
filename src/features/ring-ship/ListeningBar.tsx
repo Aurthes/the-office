@@ -53,7 +53,7 @@ function Speaker({ x, wood }: { x: number; wood: THREE.MeshStandardMaterial }) {
 function Turntable({ wood, onOpen }: { wood: THREE.MeshStandardMaterial; onOpen: () => void }) {
   const t = useUiText();
   const [hovered, setHovered] = useState(false);
-  return <group position={[.68, 1.34, -.04]}
+  return <group
     onClick={event => { event.stopPropagation(); if (event.delta < 6) onOpen(); }}
     onPointerOver={event => { if (event.pointerType === "mouse") { event.stopPropagation(); setHovered(true); } }}
     onPointerOut={() => setHovered(false)}>
@@ -84,8 +84,8 @@ function Turntable({ wood, onOpen }: { wood: THREE.MeshStandardMaterial; onOpen:
   </group>;
 }
 
-function BarModel({ onOpen }: { onOpen: () => void }) {
-  return <Surfaces>{(wood, marble) => <>
+function BarModel({ wood, marble }: { wood: THREE.MeshStandardMaterial; marble: THREE.MeshStandardMaterial }) {
+  return <>
     <RoundedBox args={[4.5, 1.08, .64]} radius={.045} smoothness={3} position={[0, .66, 0]} material={wood} castShadow receiveShadow />
     {/* Individual wood ribs catch the light; the counter has a rounded stone edge. */}
     {Array.from({ length: 37 }, (_, i) => <mesh key={i} position={[-2.16 + i * .12, .66, -.335]} material={wood} castShadow><boxGeometry args={[.065, .95, .035]} /></mesh>)}
@@ -106,11 +106,19 @@ function BarModel({ onOpen }: { onOpen: () => void }) {
       <mesh position={[0, .025, 0]}><cylinderGeometry args={[.052, .05, .045, 24]} /><meshStandardMaterial color="#bc8941" roughness={.2} /></mesh>
     </group>)}
     <Speaker x={-.3} wood={wood} /><Speaker x={1.65} wood={wood} />
-    <Turntable wood={wood} onOpen={onOpen} />
-  </>}</Surfaces>;
+  </>;
 }
 
 export function ListeningBar({ layout, cabin, onOpen }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void }) {
-  const angle = cabinAngle(layout, cabin.slot), point = shipPoint(layout.rings[cabin.ring].radius + BAR_LAYOUT.radial, angle);
-  return <group position={[point.x, 0, point.z]} rotation={[0, angle, 0]}><Suspense fallback={null}><BarModel onOpen={onOpen} /></Suspense></group>;
+  const ring = layout.rings[cabin.ring], angle = cabinAngle(layout, cabin.slot), point = shipPoint(ring.radius, angle);
+  const cornerAngle = Math.PI * 2 / layout.allocation.sectors * .32, cornerRadius = ring.radius - ring.depth / 2 + .9;
+  return <group position={[point.x, 0, point.z]} rotation={[0, angle, 0]}><Suspense fallback={null}><Surfaces>{(wood, marble) => <>
+    <group position={[0, 0, BAR_LAYOUT.radial]}><BarModel wood={wood} marble={marble} /></group>
+    <group position={[Math.sin(cornerAngle) * cornerRadius, 0, Math.cos(cornerAngle) * cornerRadius - ring.radius]} rotation={[0, Math.PI + cornerAngle, 0]}>
+      <RoundedBox args={[1.3, .1, .9]} radius={.035} smoothness={3} position={[0, .95, 0]} material={wood} castShadow receiveShadow />
+      {[-.49, .49].flatMap(x => [-.27, .27].map(z => <mesh key={`${x}:${z}`} position={[x, .49, z]} material={wood} castShadow><boxGeometry args={[.09, .82, .09]} /></mesh>))}
+      {[-.27, .27].map(z => <mesh key={z} position={[0, .3, z]} material={wood}><boxGeometry args={[1.05, .045, .045]} /></mesh>)}
+      <group position={[0, 1.008, 0]}><Turntable wood={wood} onOpen={onOpen} /></group>
+    </group>
+  </>}</Surfaces></Suspense></group>;
 }

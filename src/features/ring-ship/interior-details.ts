@@ -145,6 +145,8 @@ export function addCabinDetails(b: Builder, layout: ShipLayout, c: ShipCabin) {
     model('tableCoffee', 1.05, 0, -1.35);
     model('loungeDesignChair', .65, -1.1, -1.5, .08, .5);
     model('loungeDesignChair', .65, 1.1, -1.5, .08, -.5);
-    for (const side of [-1, 1]) { bookcase(side * width * .37, -edge); plant(side * width * .37, edge); }
+    // The other inner corner holds the listening bar's dedicated turntable stool.
+    bookcase(-width * .37, -edge);
+    for (const side of [-1, 1]) plant(side * width * .37, edge);
   }
 }
