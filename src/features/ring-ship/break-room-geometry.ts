@@ -21,9 +21,8 @@ export function addBreakRoom(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
     box(0, c.z, .54, [c.width, .92, c.depth], "#c9ae8d");
     box(0, c.z, c.height, [c.width + .08, .1, c.depth + .06], "#f2e1c5");
     for (const x of [-1.08, 0, 1.08]) { box(x, c.z - .34, .55, [.96, .74, .03], "#b69271"); box(x, c.z - .365, .79, [.3, .035, .035], "#596c69"); }
-    box(0, c.z + .31, 1.62, [3.65, 1.04, .09], "#536f65");
-    box(0, c.z + .22, 2.18, [3.7, .07, .14], "#e6c48a", true);
-    box(0, c.z + .27, 1.5, [3.1, .04, .05], "#dab47c");
+    box(0, c.z + .31, 1.14, [3.65, .16, .09], "#536f65");
+    box(0, c.z + .35, 1.0, [3.4, .035, .035], "#e6c48a", true);
   });
   b.object("kitchenCoffeeMachine", () => {
     box(-1.05, 2.03, 1.37, [.62, .5, .42], "#314b50");
