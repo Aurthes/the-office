@@ -8,11 +8,11 @@ export const SHIP_CORRIDOR_START = 3.2;
 // Leave room for opposing crew and companions to pass with collision enabled.
 export const SHIP_CORRIDOR_WIDTH = 3.2;
 export const DECK_NAMES = ["Main deck", "Expansion deck", "Reserve deck"] as const;
-export type CabinKind = "work" | "reserve" | "garden" | "hydroponics" | "canteen" | "gym" | "servers" | "ai" | "maintenance" | "lounge" | "cargo" | "observatory" | "quarters" | "return" | "monitor";
+export type CabinKind = "work" | "reserve" | "garden" | "hydroponics" | "canteen" | "gym" | "servers" | "ai" | "maintenance" | "lounge" | "cargo" | "observatory" | "quarters" | "return" | "monitor" | "cloning";
 export type ShipPoint = { x: number; z: number };
 export type ShipAssignment = { deck?: DeckIndex; ring: RingIndex; slot: number; span: number };
 type CabinLocation = { deck: DeckIndex; ring: RingIndex; slot: number };
-export type ShipAllocation = { version: 1; sectors: number; projects: Record<string, ShipAssignment>; monitorRoom?: CabinLocation };
+export type ShipAllocation = { version: 1; sectors: number; projects: Record<string, ShipAssignment>; monitorRoom?: CabinLocation; cloningRoom?: CabinLocation };
 export type ShipRing = { index: RingIndex; radius: number; depth: number; capacity: number };
 export type ShipCabin = {
   id: string; deck: DeckIndex; ring: RingIndex; slot: number; kind: CabinKind; name: string; color: string;
@@ -59,8 +59,9 @@ export function parseShipAllocation(value: string | null): ShipAllocation | unde
     for (const a of Object.values(parsed.projects) as ShipAssignment[]) {
       if (!a || (a.deck !== undefined && !DECKS.includes(a.deck)) || ![0, 1, 2].includes(a.ring) || !Number.isInteger(a.slot) || !Number.isInteger(a.span) || a.slot < 0 || a.span < 1 || a.slot + a.span > parsed.sectors) return;
     }
-    const monitor = parsed.monitorRoom;
-    if (monitor && (!DECKS.includes(monitor.deck) || ![0, 1, 2].includes(monitor.ring) || !Number.isInteger(monitor.slot) || monitor.slot < 0 || monitor.slot >= parsed.sectors)) return;
+    for (const room of [parsed.monitorRoom, parsed.cloningRoom]) {
+      if (room && (!DECKS.includes(room.deck) || ![0, 1, 2].includes(room.ring) || !Number.isInteger(room.slot) || room.slot < 0 || room.slot >= parsed.sectors)) return;
+    }
     return parsed as ShipAllocation;
   } catch { return; }
 }
@@ -89,8 +90,9 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
     for (const deck of DECKS) for (const cabin of PUBLIC_CABINS) {
       if (cabin.kind !== "return" || deck === 0) occupied[deck][cabin.ring].add(cabin.slot);
     }
-    const monitor = previous?.monitorRoom;
-    if (monitor) occupied[monitor.deck][monitor.ring].add(monitor.slot);
+    for (const room of [previous?.monitorRoom, previous?.cloningRoom]) {
+      if (room) occupied[room.deck][room.ring].add(room.slot);
+    }
     assignments = Object.create(null) as Record<string, ShipAssignment>;
     let complete = true;
     for (const group of groups) {
@@ -150,6 +152,14 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
     allocation.monitorRoom = { deck: monitor.deck, ring: monitor.ring, slot: monitor.slot };
     Object.assign(monitor, { id: "public:monitor", kind: "monitor", name: "Monitor room", color: "#71d3c8" });
   }
+  const savedLab = previous?.cloningRoom;
+  const lab = savedLab
+    ? cabins.find(c => c.deck === savedLab.deck && c.ring === savedLab.ring && c.slot === savedLab.slot && c.kind === "reserve")
+    : cabins.find(c => c.deck === 0 && c.ring !== 0 && c.kind === "reserve") ?? cabins.find(c => c.kind === "reserve");
+  if (lab) {
+    allocation.cloningRoom = { deck: lab.deck, ring: lab.ring, slot: lab.slot };
+    Object.assign(lab, { id: "public:cloning", kind: "cloning", name: "Cloning laboratory", color: "#8edbd4" });
+  }
   return { allocation, rings, cabins, seats, radius: rings[2].radius + rings[2].depth / 2,
     spokes: Array.from({ length: 4 }, (_, i) => Math.floor(i * sectors / 4) * TAU / sectors) };
 }
@@ -198,6 +208,7 @@ export function routeBetweenCabins(layout: ShipLayout, from: Pick<ShipSeat, "rin
 }
 
 export const PUBLIC_DESCRIPTIONS: Record<CabinKind, string> = {
+  cloning: "Fork an agent with its conversation history and personal settings. Two pods, two independent futures.",
   ai: "Open the computation core for subscription usage, tokens, and API quotas.",
   monitor: "Open the main screen for strategy dashboards and server fleet status.",
   return: "Return to Earth in a drop pod and archive the same Codex session.",
