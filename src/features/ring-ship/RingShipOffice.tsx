@@ -34,6 +34,7 @@ import { CloningLab, type CloneFlight } from "./CloningLab";
 import { CLONE_LABELS, cloningPoint, rejoinCrewAfterClone, type CloneArrival, type CloneRequest, type CloneResult, type CloneStage } from "./cloneMotion";
 import { returnRoute, RETURN_LABELS, type ArchiveResult, type ReturnStage, type ReturnTransfer } from "./returnPodMotion";
 import { advanceCrew, syncCrew, worldPoint, type MovingAgent } from "./crewMotion";
+import { BREAK_CHATTER, BREAK_ROOM, breakAction } from "./breakRoomLayout";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { MonitorRoomScreen, ServerRoomScreen, TaskRoomScreen } from "./MonitorRoom";
 import { ScheduledTasks } from "./ScheduledTasks";
@@ -299,18 +300,22 @@ function CrewLabel({ agent, lookupRef, placement, expanded, onOpen, deck }: { de
     ref.current.visible = !!value && !(value as MovingAgent).kirbyPose;
     if (leaderLine.current) leaderLine.current.visible = ref.current.visible;
     if (!value || !ref.current.visible) return;
-    if (activity.kind === "working") {
-      const bubble = t(workChatter(agent.id, state.clock.elapsedTime * 1000));
+    const visit = (value as MovingAgent).breakVisit;
+    const casual = activity.kind === "idle" && value.state === "sitting" && !!visit;
+    if (activity.kind === "working" || casual || lastBubble.current) {
+      const seconds = state.clock.elapsedTime + value.phaseOffset;
+      const smallTalk = casual && seconds % 14 < 3 ? BREAK_CHATTER[breakAction(visit)][Math.floor(seconds / 14) % 2] : "";
+      const bubble = t(activity.kind === "working" ? workChatter(agent.id, state.clock.elapsedTime * 1000) : smallTalk);
       const currentTexture = textureRef.current, tick = Math.floor(state.clock.elapsedTime * 10);
       if (currentTexture && (bubble !== lastBubble.current || (!bubble && tick !== lastPaint.current))) {
-        paintCrewNameplate(currentTexture.image as HTMLCanvasElement, agent, expanded, bubble, state.clock.elapsedTime * Math.PI * 2 / 3, t);
+        paintCrewNameplate(currentTexture.image as HTMLCanvasElement, agent, expanded, bubble, state.clock.elapsedTime * Math.PI * 2 / 3, t, casual);
         currentTexture.needsUpdate = true; lastBubble.current = bubble; lastPaint.current = tick;
       }
     }
     const p = worldPoint(value), width = expanded ? 160 : 84;
     const height = expanded ? 36 : agent.title ? 32 : 21;
     const zoom = state.camera.zoom;
-    const seatedLift = value.state === "sitting" ? Math.max(0, (value.workstation?.seatHeight ?? .4) - .08 - .065 * AGENT_SCALE) : 0;
+    const seatedLift = value.state === "sitting" ? Math.max(0, (visit ? BREAK_ROOM.seatHeight : value.workstation?.seatHeight ?? .4) - .08 - .065 * AGENT_SCALE) : 0;
     const headY = .16 + (headwear === "none" ? .65 : .72 + Math.max(0, eyeHeight - 1) * .3) * bodyHeight * AGENT_SCALE + seatedLift;
     vectors.anchor.set(p.x, headY, p.z);
     vectors.projected.set(p.x, headY + deck * DECK_STEP, p.z).project(state.camera);

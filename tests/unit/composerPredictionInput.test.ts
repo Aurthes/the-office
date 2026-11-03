@@ -21,6 +21,18 @@ describe("composer prediction interaction", () => {
     expect(input.value).toBe("Run the tests");
     expect(call.mock.calls.some(([method]) => method === "session.send")).toBe(false);
   });
+  it("tapping the grey suggestion accepts an editable draft without sending", async () => {
+    const call = mount("prediction-tap");
+    const input = await screen.findByPlaceholderText("Run the tests") as HTMLTextAreaElement;
+    fireEvent.click(input);
+    expect(input.value).toBe("Run the tests");
+    expect(call.mock.calls.some(([method]) => method === "session.send")).toBe(false);
+    fireEvent.change(input, { target: { value: "Run only the relevant tests" } });
+    fireEvent.click(input);
+    expect(input.value).toBe("Run only the relevant tests");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ message: "Run only the relevant tests" })));
+  });
   it("Send and Enter can explicitly submit the displayed suggestion", async () => {
     const call = mount("prediction-send");
     await screen.findByPlaceholderText("Run the tests"); fireEvent.click(screen.getByRole("button", { name: "Send" }));
