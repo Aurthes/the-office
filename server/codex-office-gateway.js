@@ -91,7 +91,13 @@ const methods = {
   "session.firefighter": () => store.firefighter(),
   "session.rename": p => store.renameSession(p),
   "session.reassign": p => store.reassignSession(p),
-  "session.archive": p => { if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before archiving"); if (controls.state(p.threadId).activeTurnId) throw new Error("Stop the active task before archiving"); return store.archiveSession(p); },
+  "session.archive": async p => {
+    if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before archiving");
+    if (controls.state(p.threadId).activeTurnId) throw new Error("Stop the active task before archiving");
+    const result = await store.archiveSession(p);
+    schedules.pauseForSession(p.threadId);
+    return result;
+  },
   "config.get": async () => ({ exists: true, hash: "office-codex-1", config: { gateway: { reload: { mode: "hot" } }, agents: { list: agents() } } }),
   "sessions.list": async p => ({ sessions: store.list().filter(r => !p.agentId || p.agentId === r.id).map(r => ({ key: key(r.id), displayName: r.name, updatedAt: r.updatedAt, model: r.model, thinkingLevel: r.effort })) }),
   "sessions.preview": async p => ({ ts: Date.now(), previews: (p.keys || []).map(key => ({ key, status: "empty", items: [] })) }),

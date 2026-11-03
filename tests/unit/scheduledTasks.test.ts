@@ -98,6 +98,32 @@ it("reuses a management operation ID after a lost acknowledgement", async () => 
   expect(updates[0][1]).toEqual(updates[1][1]);
 });
 
+it("reassigns an archived target through Edit, retains its history and keeps it paused until Resume", async () => {
+  const archived = { ...task(), threadId: "archived", enabled: false, sessionName: null, targetAvailable: false,
+    runs: [{ id: "old-run", scheduledAt: Date.now(), status: "completed" as const, error: null, manual: false, finishedAt: Date.now() }] };
+  const f = fixture([archived]);
+  f.call.mockImplementation(async (method, params) => {
+    if (method === "schedule.update") Object.assign(archived, params, { sessionName: "Report conversation", targetAvailable: true });
+    return method === "schedule.list" ? { tasks: f.tasks, sessions: f.sessions } : { id: archived.id };
+  });
+  await screen.findByText("Edit this task to choose another conversation before resuming.");
+  expect(screen.getByRole("button", { name: "Resume" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Run now" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  expect(screen.getByLabelText("Enabled")).not.toBeChecked();
+  fireEvent.change(screen.getByLabelText("Target conversation"), { target: { value: "chat" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save scheduled task" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Save scheduled task" })).toBeNull());
+  expect(f.call.mock.calls.find(([method]) => method === "schedule.update")?.[1]).toMatchObject({ id: "one", threadId: "chat", enabled: false, prompt: task().prompt });
+  expect(screen.queryByText("Edit this task to choose another conversation before resuming.")).toBeNull();
+  expect(screen.getByText(/Last run.*Completed/)).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Resume" })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+  await waitFor(() => expect(f.call.mock.calls.filter(([method]) => method === "schedule.update")).toHaveLength(2));
+  expect(f.call.mock.calls.filter(([method]) => method === "schedule.update").at(-1)?.[1]).toMatchObject({ threadId: "chat", enabled: true });
+  expect(f.call.mock.calls.some(([method]) => ["session.send", "schedule.run"].includes(method))).toBe(false);
+});
+
 it("translates controls while preserving user-supplied names and instructions", async () => {
   setUiLanguage("zh-CN");
   fixture([{ ...task(), name: "My custom report" }]);

@@ -168,6 +168,7 @@ export const ZH_CN: Record<string, string> = {
   "Target conversation": "目标会话",
   "Choose a conversation": "选择一个会话",
   "Conversation unavailable": "会话不可用",
+  "Edit this task to choose another conversation before resuming.": "请点“修改”，选择其他会话后再恢复任务。",
   "First run": "首次运行",
   "Repeat every": "重复间隔",
   "Pending scheduled task": "有待执行的定时任务",
