@@ -1,4 +1,5 @@
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
+import { BAR_LAYOUT } from "./barLayout";
 
 export type RingIndex = 0 | 1 | 2;
 export type DeckIndex = 0 | 1 | 2;
@@ -8,7 +9,7 @@ export const SHIP_CORRIDOR_START = 3.2;
 // Leave room for opposing crew and companions to pass with collision enabled.
 export const SHIP_CORRIDOR_WIDTH = 3.2;
 export const DECK_NAMES = ["Main deck", "Expansion deck", "Reserve deck"] as const;
-export type CabinKind = "work" | "reserve" | "garden" | "hydroponics" | "canteen" | "gym" | "servers" | "ai" | "maintenance" | "lounge" | "cargo" | "observatory" | "quarters" | "return" | "monitor" | "cloning";
+export type CabinKind = "work" | "reserve" | "garden" | "hydroponics" | "canteen" | "gym" | "servers" | "ai" | "maintenance" | "lounge" | "bar" | "cargo" | "observatory" | "quarters" | "return" | "monitor" | "cloning";
 export type ShipPoint = { x: number; z: number };
 export type ShipAssignment = { deck?: DeckIndex; ring: RingIndex; slot: number; span: number };
 type CabinLocation = { deck: DeckIndex; ring: RingIndex; slot: number };
@@ -33,6 +34,7 @@ export const CLONING_AISLE_V = -2.2;
 export const CLONING_LAB_WIDTH = 8.4;
 export const PUBLIC_CABINS: ReadonlyArray<{ id: string; ring: RingIndex; slot: number; kind: CabinKind; name: string; color: string }> = [
   { id: "public:lounge", ring: 0, slot: 0, kind: "lounge", name: "Observation lounge", color: "#d6af71" },
+  { id: "public:bar", ring: 0, slot: 7, kind: "bar", name: "Listening bar", color: "#c6a46a" },
   { id: "public:servers", ring: 0, slot: 4, kind: "ai", name: "AI Center", color: "#86e6de" },
   { id: "public:garden", ring: 1, slot: 0, kind: "garden", name: "Rainforest habitat", color: "#75b788" },
   { id: "public:hydroponics", ring: 1, slot: 4, kind: "hydroponics", name: "Hydroponics", color: "#79c5aa" },
@@ -95,7 +97,7 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
   for (;;) {
     const occupied = DECKS.map(() => [new Set<number>(), new Set<number>(), new Set<number>()]);
     for (const deck of DECKS) for (const cabin of PUBLIC_CABINS) {
-      if (cabin.kind !== "return" || deck === 0) occupied[deck][cabin.ring].add(cabin.slot);
+      if ((cabin.kind !== "return" && cabin.kind !== "bar") || deck === 0) occupied[deck][cabin.ring].add(cabin.kind === "bar" ? sectors - 1 : cabin.slot);
     }
     for (const room of [previous?.monitorRoom, previous?.cloningRoom]) {
       if (room) occupied[room.deck][room.ring].add(room.slot);
@@ -133,7 +135,8 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
     name: "Reserve cabin", color: "#819ea6", agentIds: [],
   }))));
   for (const deck of DECKS) for (const p of PUBLIC_CABINS) {
-    if (p.kind !== "return" || deck === 0) Object.assign(cabins[deck * 3 * sectors + p.ring * sectors + p.slot], p, { id: cabinId(p.id, deck) });
+    const slot = p.kind === "bar" ? sectors - 1 : p.slot;
+    if ((p.kind !== "return" && p.kind !== "bar") || deck === 0) Object.assign(cabins[deck * 3 * sectors + p.ring * sectors + slot], p, { id: cabinId(p.id, deck), slot });
     if (p.kind === "ai" && deck !== 0) Object.assign(cabins[deck * 3 * sectors + p.ring * sectors + p.slot], { kind: "servers", name: "Server room", color: "#77a9ce" });
   }
   const seats: Record<string, ShipSeat> = Object.create(null);
@@ -207,18 +210,20 @@ function shortestAngle(from: number, to: number) { return Math.atan2(Math.sin(to
 function arc(layout: ShipLayout, ringIndex: RingIndex, deck: DeckIndex, from: number, to: number): ShipPoint[] {
   const radius=layout.rings[ringIndex].radius;
   const delta = shortestAngle(from, to), steps = Math.max(1, Math.ceil(Math.abs(delta) / 0.12));
-  const labs=layout.cabins.filter(c=>c.kind==="cloning"&&c.ring===ringIndex&&c.deck===deck);
-  if(!labs.length||Math.abs(delta)<1e-8)return Array.from({ length: steps }, (_, i) => shipPoint(radius, from + delta * (i + 1) / steps));
-  const boundary=(CLONING_POD.spacing+CLONING_POD.width/2+1)/radius;
+  const rooms=layout.cabins.filter(c=>(c.kind==="cloning"||c.kind==="bar")&&c.ring===ringIndex&&c.deck===deck);
+  if(!rooms.length||Math.abs(delta)<1e-8)return Array.from({ length: steps }, (_, i) => shipPoint(radius, from + delta * (i + 1) / steps));
+  const boundary=(room:ShipCabin)=>(room.kind==="bar"?BAR_LAYOUT.routeHalfWidth:CLONING_POD.spacing+CLONING_POD.width/2+1)/radius;
+  const aisle=(room:ShipCabin)=>room.kind==="bar"?BAR_LAYOUT.aisle:CLONING_AISLE_V;
   const events: Array<{t:number;enter?:boolean}>=Array.from({length:steps+1},(_,i)=>({t:i/steps}));
-  for(const lab of labs)for(const wrap of [-TAU,0,TAU])for(const side of [-1,1]){
-    const t=(shortestAngle(from,cabinAngle(layout,lab.slot))+wrap+side*boundary)/delta;
+  for(const room of rooms)for(const wrap of [-TAU,0,TAU])for(const side of [-1,1]){
+    const t=(shortestAngle(from,cabinAngle(layout,room.slot))+wrap+side*boundary(room))/delta;
     if(t>0&&t<1)events.push({t,enter:side*Math.sign(delta)<0});
   }
   return events.sort((a,b)=>a.t-b.t).flatMap(event=>{
-    const angle=from+delta*event.t,inside=labs.some(lab=>Math.abs(shortestAngle(cabinAngle(layout,lab.slot),angle))<boundary-1e-8);
-    if(event.enter!==undefined){const outside=shipPoint(radius,angle),aisle=shipPoint(radius+CLONING_AISLE_V,angle);return event.enter?[outside,aisle]:[aisle,outside];}
-    return [shipPoint(radius+(inside?CLONING_AISLE_V:0),angle)];
+    const angle=from+delta*event.t,room=rooms.find(room=>Math.abs(shortestAngle(cabinAngle(layout,room.slot),angle))<boundary(room)+1e-8);
+    const offset=room?aisle(room):0;
+    if(event.enter!==undefined){const outside=shipPoint(radius,angle),inside=shipPoint(radius+offset,angle);return event.enter?[outside,inside]:[inside,outside];}
+    return [shipPoint(radius+offset,angle)];
   });
 }
 export function routeBetweenCabins(layout: ShipLayout, from: Pick<ShipSeat, "ring" | "angle">, destination: ShipCabin, arrivalAngle = cabinAngle(layout, destination.slot)): ShipPoint[] {
@@ -229,6 +234,7 @@ export function routeBetweenCabins(layout: ShipLayout, from: Pick<ShipSeat, "rin
 }
 
 export const PUBLIC_DESCRIPTIONS: Record<CabinKind, string> = {
+  bar: "A dedicated bar for drinks, music and conversation, with a robot bartender and counter stools.",
   cloning: "Fork an agent with its conversation history and personal settings. Two pods, two independent futures.",
   ai: "Open the computation core for subscription usage, tokens, and API quotas.",
   monitor: "Open the main screen for strategy dashboards and server fleet status.",

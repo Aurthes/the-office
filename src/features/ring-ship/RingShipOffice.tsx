@@ -371,7 +371,7 @@ export function RingShipOffice(props: Props) {
   const visibleAgents = useMemo(() => agents.filter(a => currentLayout.seats[a.id]), [agents, currentLayout]);
   const counts = decks.map(d => agents.filter(a => d.seats[a.id]).length);
   // Only the explicit preview starts at the console; the office keeps its overview.
-  const [focus, setFocus] = useState({ id: props.musicPreview ? "public:lounge" : props.navigationPreview ? commandCabin?.id ?? "" : "", request: 0 });
+  const [focus, setFocus] = useState({ id: props.musicPreview ? "public:bar" : props.navigationPreview ? commandCabin?.id ?? "" : "", request: 0 });
   const arriveSystem = useCallback(() => {
     setWhole(false);
     setFocus(previous => ({ id: "", request: previous.request + 1 }));
@@ -549,7 +549,7 @@ export function RingShipOffice(props: Props) {
       </group>)}
       {!shipView && !busy ? <group position={[0, visibleDeck * DECK_STEP, 0]}>
         <CabinTargets layout={currentLayout} focus={validFocus} onSelect={select} />
-        {visibleDeck === 0 ? currentLayout.cabins.filter(c => c.kind === "lounge").map(cabin => <ListeningBar key={cabin.id} layout={currentLayout} cabin={cabin} onOpen={() => { closeObject(); setMusicOpen(true); }} />) : null}
+        {visibleDeck === 0 ? currentLayout.cabins.filter(c => c.kind === "bar").map(cabin => <ListeningBar key={cabin.id} layout={currentLayout} cabin={cabin} interactive={objectEnabled} onSelect={inspectObject} onOpen={() => { closeObject(); setMusicOpen(true); }} />) : null}
         {currentLayout.cabins.filter(c => c.kind === "monitor").map(cabin => <group key={cabin.id}>
           {!navigationOpen ? <MonitorRoomScreen layout={currentLayout} cabin={cabin} onOpen={openMonitor} /> : null}
           {!navigationOpen ? <TaskRoomScreen layout={currentLayout} cabin={cabin} onOpen={openTasks} /> : null}

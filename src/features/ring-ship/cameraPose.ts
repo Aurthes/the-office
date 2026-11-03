@@ -7,6 +7,6 @@ export function shipCameraPose(layout: ShipLayout, width: number, height: number
   const zoom = focus && !whole ? Math.min(width / (span * 1.35 + 7), height / (span * 0.8 + 8))
     : Math.min(width / (layout.radius * 2.25), height / (layout.radius * 1.4 + (whole ? DECK_STEP * 2 : 0)));
   const offset = new Vector3(70, 73, 94);
-  if (focus && !whole) offset.set(25, 29, 38).applyAxisAngle(new Vector3(0, 1, 0), Math.atan2(bounds.x, bounds.z));
+  if (focus && !whole) offset.set(25, 29, 38).applyAxisAngle(new Vector3(0, 1, 0), Math.atan2(bounds.x, bounds.z) + (layout.cabins.some(c=>c.id===focus&&c.kind==="bar")?Math.PI:0));
   return { target, position: target.clone().add(offset), zoom: Math.max(0.2, zoom * 0.92) };
 }

@@ -50,9 +50,9 @@ function travel(state: CompanionState, points: ShipPoint[], destination: ShipCab
 }
 
 export function createCompanionState(kind: CompanionKind, layout: ShipLayout, seed: number, radius = RADII[kind]): CompanionState {
-  const cabin = layout.cabins.find(c => c.deck === 0 && c.kind === (kind === "drone" ? "maintenance" : "lounge"));
+  const cabin = layout.cabins.find(c => c.deck === 0 && c.kind === (kind === "drone" ? "maintenance" : kind === "bartender" ? "bar" : "lounge"));
   if (!cabin) throw new Error(`Missing companion cabin: ${kind}`);
-  const position = kind === "bartender" ? barPoint(layout, cabin, -.7, .42)
+  const position = kind === "bartender" ? barPoint(layout, cabin, -.7, BAR_LAYOUT.staffZ)
     : kind === "kirby" ? companionPoint(layout, cabin, 2.1, -.35)
     : companionPoint(layout, cabin, kind === "cat" ? -.85 : kind === "dog" ? .9 : 0, kind === "drone" ? -.6 : -.15);
   return { kind, action: kind === "bartender" ? "wash" : kind === "drone" ? "scan" : "idle", time: 0,
@@ -99,7 +99,7 @@ function nextAction(state: CompanionState, layout: ShipLayout, others: readonly 
     if (state.action === previous) state.action = state.action === "wash" ? "inventory" : "wash";
     state.duration = state.action === "idle" ? 3 : 8 + random(state) * 6;
     const x = state.action === "inventory" ? -1.45 : state.action === "pour" ? -.55 : state.action === "wipe" ? 1.65 : -.7;
-    travel(state, [barPoint(layout, cabin, x, .42)], cabin, .5);
+    travel(state, [barPoint(layout, cabin, x, BAR_LAYOUT.staffZ)], cabin, .5);
   }
 }
 

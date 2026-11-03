@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { DECK_STEP, type DeckIndex } from "./layout";
 
 export const SHIP_OBJECT_INFO = {
+  barCounter: ["Bar counter", "Drinks, clean glasses and a friendly robot, all in their own cabin."],
+  barStool: ["Bar stool", "Pull up a seat for a drink and a story from the stars."],
   cloningPod: ["Cloning pod", "A fresh appearance and a new conversation, carrying the source agent's context through the chosen turn."],
   ceo: ["CEO", "Your representative, overseeing the heads of every department."],
   kirby: ["Kirby", "A pink visitor with an appetite for fifteen-second breaks. One idle crew member at a time. Poyo!"],

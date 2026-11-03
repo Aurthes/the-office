@@ -97,4 +97,14 @@ describe("individually interactive batched ship props", () => {
   it("translates all object names, descriptions and playful notes", () => {
     for (const text of [...Object.values(SHIP_OBJECT_INFO).flat(), ...SHIP_OBJECT_NOTES]) expect(ZH_CN[text], text).toBeTruthy();
   });
+  it("keeps lounge seating in the observation cabin without adding sofas or lounge chairs to the bar",()=>{
+    vi.spyOn(HTMLCanvasElement.prototype,"getContext").mockReturnValue({fillRect:vi.fn(),fillText:vi.fn()} as unknown as ReturnType<HTMLCanvasElement["getContext"]>);
+    const model=new THREE.Group();model.add(new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial()));
+    const models=Object.fromEntries(SHIP_MODELS.map(name=>[name,model]));
+    const group=buildShipGeometry(shipDeck(buildShipLayout({projects:[],members:[]}),0),models),objects=group.userData.shipObjects as ShipObject[];
+    expect(objects.some(o=>o.cabinId==="public:lounge"&&o.kind==="loungeSofa")).toBe(true);
+    expect(objects.some(o=>o.cabinId==="public:lounge"&&o.kind==="loungeDesignChair")).toBe(true);
+    expect(objects.filter(o=>o.cabinId==="public:bar").every(o=>!["loungeSofa","loungeDesignChair","chairDesk","tableCoffee"].includes(o.kind))).toBe(true);
+    disposeShipGeometry(group);const mesh=model.children[0] as THREE.Mesh;mesh.geometry.dispose();(mesh.material as THREE.Material).dispose();
+  });
 });

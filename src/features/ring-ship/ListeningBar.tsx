@@ -1,12 +1,13 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Html, RoundedBox, useTexture } from "@react-three/drei";
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Html, RoundedBox, useCursor, useTexture } from "@react-three/drei";
 import * as THREE from "three";
 import { Disc3 } from "lucide-react";
 import { useUiText } from "@/lib/i18n/ui-language";
-import { cabinAngle, shipPoint, type ShipCabin, type ShipLayout } from "./layout";
+import { cabinAngle, DECK_STEP, shipPoint, type ShipCabin, type ShipLayout } from "./layout";
 import { BAR_LAYOUT } from "./barLayout";
+import type { ShipObject } from "./shipObjects";
 import "./listening-bar.css";
 
 const BRASS = "#c6a46a";
@@ -84,37 +85,52 @@ function Turntable({ wood, onOpen }: { wood: THREE.MeshStandardMaterial; onOpen:
   </group>;
 }
 
-function BarModel({ wood, marble }: { wood: THREE.MeshStandardMaterial; marble: THREE.MeshStandardMaterial }) {
+type BarInteraction = { cabin: ShipCabin; interactive: boolean; onSelect?: (object: ShipObject) => void };
+function BarObject({ cabin, interactive, onSelect, kind, index = 0, position, children }: BarInteraction & { kind: "barCounter" | "barStool"; index?: number; position?: [number,number,number]; children: ReactNode }) {
+  const ref=useRef<THREE.Group>(null),[hovered,setHovered]=useState(false);
+  useCursor(interactive&&hovered);
+  return <group ref={ref} name={kind==="barCounter"?"bar-counter":`bar-stool:${index}`} position={position}
+    onPointerOver={event=>{if(interactive){event.stopPropagation();setHovered(true);}}} onPointerOut={()=>setHovered(false)}
+    onClick={event=>{
+      if(!interactive||!ref.current)return;event.stopPropagation();if(event.delta>=6)return;
+      ref.current.updateWorldMatrix(true,true);
+      const bounds=new THREE.Box3().setFromObject(ref.current).translate(new THREE.Vector3(0,-cabin.deck*DECK_STEP,0));
+      onSelect?.({id:`${cabin.id}:${kind}:${index}`,kind,cabinId:cabin.id,cabinName:cabin.name,deck:cabin.deck,bounds,parts:[]});
+    }}>{children}</group>;
+}
+
+function BarModel({ wood, marble, ...interaction }: BarInteraction & { wood: THREE.MeshStandardMaterial; marble: THREE.MeshStandardMaterial }) {
   return <>
+    <BarObject {...interaction} kind="barCounter">
     <RoundedBox args={[4.5, 1.08, .64]} radius={.045} smoothness={3} position={[0, .66, 0]} material={wood} castShadow receiveShadow />
     {/* Individual wood ribs catch the light; the counter has a rounded stone edge. */}
     {Array.from({ length: 37 }, (_, i) => <mesh key={i} position={[-2.16 + i * .12, .66, -.335]} material={wood} castShadow><boxGeometry args={[.065, .95, .035]} /></mesh>)}
-    <RoundedBox args={[4.75, .13, .92]} radius={.035} smoothness={3} position={[0, 1.265, 0]} material={marble} castShadow receiveShadow />
+    <RoundedBox args={[BAR_LAYOUT.width, .13, BAR_LAYOUT.depth]} radius={.035} smoothness={3} position={[0, 1.265, 0]} material={marble} castShadow receiveShadow />
     <mesh position={[0, 1.19, -.34]}><boxGeometry args={[4.38, .018, .018]} /><meshStandardMaterial color="#edc587" emissive="#edb46c" emissiveIntensity={.7} toneMapped={false} /></mesh>
     <mesh position={[0, .17, -.48]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[.021, .021, 4.3, 16]} /><meshStandardMaterial color={BRASS} metalness={.8} roughness={.3} /></mesh>
     {[-1.9, 1.9].map(x => <mesh key={x} position={[x, .14, -.4]} rotation={[Math.PI / 3, 0, 0]}><cylinderGeometry args={[.019, .019, .25, 12]} /><meshStandardMaterial color={BRASS} metalness={.8} roughness={.3} /></mesh>)}
-    {[-1.55, -.05, 1.45].map(x => <group key={x} position={[x, 0, -.9]}>
-      <mesh position={[0, .105, 0]}><cylinderGeometry args={[.27, .29, .06, 32]} /><meshStandardMaterial color="#293b35" metalness={.7} roughness={.35} /></mesh>
-      <mesh position={[0, .42, 0]}><cylinderGeometry args={[.035, .05, .62, 20]} /><meshStandardMaterial color={BRASS} metalness={.8} roughness={.28} /></mesh>
-      <mesh position={[0, .28, 0]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[.18, .014, 8, 32]} /><meshStandardMaterial color={BRASS} metalness={.8} roughness={.28} /></mesh>
-      <mesh position={[0, .78, 0]} castShadow><cylinderGeometry args={[.27, .26, .12, 40]} /><meshStandardMaterial color="#355146" roughness={.9} /></mesh>
-      <mesh position={[0, .714, 0]}><cylinderGeometry args={[.265, .265, .022, 40]} /><meshStandardMaterial color={BRASS} metalness={.7} roughness={.3} /></mesh>
-    </group>)}
     {BAR_LAYOUT.bottles.map(bottle => <Bottle key={bottle.x} {...bottle} />)}
     {[-1.1, -.87].map(x => <group key={x} position={[x, 1.33, -.1]}>
       <mesh position={[0, .055, 0]}><cylinderGeometry args={[.064, .054, .11, 24, 1, true]} /><meshPhysicalMaterial color="#d4e1d4" metalness={.1} roughness={.12} transparent opacity={.5} side={THREE.DoubleSide} /></mesh>
       <mesh position={[0, .025, 0]}><cylinderGeometry args={[.052, .05, .045, 24]} /><meshStandardMaterial color="#bc8941" roughness={.2} /></mesh>
     </group>)}
     <Speaker x={-.3} wood={wood} /><Speaker x={1.65} wood={wood} />
+    </BarObject>
+    {BAR_LAYOUT.stoolXs.map((x,index) => <BarObject {...interaction} kind="barStool" index={index} key={x} position={[x, 0, BAR_LAYOUT.stoolZ]}>
+      <mesh position={[0, .105, 0]}><cylinderGeometry args={[.27, .29, .06, 32]} /><meshStandardMaterial color="#293b35" metalness={.7} roughness={.35} /></mesh>
+      <mesh position={[0, .42, 0]}><cylinderGeometry args={[.035, .05, .62, 20]} /><meshStandardMaterial color={BRASS} metalness={.8} roughness={.28} /></mesh>
+      <mesh position={[0, .28, 0]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[.18, .014, 8, 32]} /><meshStandardMaterial color={BRASS} metalness={.8} roughness={.28} /></mesh>
+      <mesh position={[0, .78, 0]} castShadow><cylinderGeometry args={[.27, .26, .12, 40]} /><meshStandardMaterial color="#355146" roughness={.9} /></mesh>
+      <mesh position={[0, .714, 0]}><cylinderGeometry args={[.265, .265, .022, 40]} /><meshStandardMaterial color={BRASS} metalness={.7} roughness={.3} /></mesh>
+    </BarObject>)}
   </>;
 }
 
-export function ListeningBar({ layout, cabin, onOpen }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void }) {
+export function ListeningBar({ layout, cabin, onOpen, interactive = true, onSelect }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void; interactive?: boolean; onSelect?: (object: ShipObject) => void }) {
   const ring = layout.rings[cabin.ring], angle = cabinAngle(layout, cabin.slot), point = shipPoint(ring.radius, angle);
-  const cornerAngle = Math.PI * 2 / layout.allocation.sectors * .32, cornerRadius = ring.radius - ring.depth / 2 + .9;
-  return <group position={[point.x, 0, point.z]} rotation={[0, angle, 0]}><Suspense fallback={null}><Surfaces>{(wood, marble) => <>
-    <group position={[0, 0, BAR_LAYOUT.radial]}><BarModel wood={wood} marble={marble} /></group>
-    <group position={[Math.sin(cornerAngle) * cornerRadius, 0, Math.cos(cornerAngle) * cornerRadius - ring.radius]} rotation={[0, Math.PI + cornerAngle, 0]}>
+  return <group name={`listening-bar:${cabin.id}`} position={[point.x, 0, point.z]} rotation={[0, angle, 0]}><Suspense fallback={null}><Surfaces>{(wood, marble) => <>
+    <group position={[0, 0, BAR_LAYOUT.radial]}><BarModel wood={wood} marble={marble} cabin={cabin} interactive={interactive} onSelect={onSelect} /></group>
+    <group name="bar-turntable" position={[BAR_LAYOUT.turntable.x, 0, BAR_LAYOUT.radial+BAR_LAYOUT.turntable.z]} rotation={[0, Math.PI, 0]}>
       <RoundedBox args={[1.3, .1, .9]} radius={.035} smoothness={3} position={[0, .95, 0]} material={wood} castShadow receiveShadow />
       {[-.49, .49].flatMap(x => [-.27, .27].map(z => <mesh key={`${x}:${z}`} position={[x, .49, z]} material={wood} castShadow><boxGeometry args={[.09, .82, .09]} /></mesh>))}
       {[-.27, .27].map(z => <mesh key={z} position={[0, .3, z]} material={wood}><boxGeometry args={[1.05, .045, .045]} /></mesh>)}

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { advanceCompanion, companionActivity, createCompanionState, type CompanionKind } from "@/features/ring-ship/companionMotion";
 import { buildShipLayout, cabinAngle, shipDeck } from "@/features/ring-ship/layout";
 import { ZH_CN } from "@/lib/i18n/messages";
+import { BAR_LAYOUT } from "@/features/ring-ship/barLayout";
+import { isWalkable } from "@/features/ring-ship/walkableSurface";
 
 const layout = shipDeck(buildShipLayout({ projects: [], members: [] }), 0);
 const kinds: CompanionKind[] = ["cat", "dog", "drone", "bartender"];
@@ -35,13 +37,15 @@ describe("autonomous ship companions", () => {
     expect(Math.hypot(state.position.x - point.x, state.position.z - point.z)).toBeLessThanOrEqual(1.65 * .05 + .00001);
   });
   it("keeps the bartender behind the counter throughout its station changes", () => {
-    const state = createCompanionState("bartender", layout, 123), cabin = layout.cabins.find(c => c.kind === "lounge")!;
-    const angle = cabinAngle(layout, cabin.slot), radius = layout.rings[cabin.ring].radius + 1.65;
+    const state = createCompanionState("bartender", layout, 123), cabin = layout.cabins.find(c => c.kind === "bar")!;
+    expect(state.cabinId).toBe(cabin.id);
+    const angle = cabinAngle(layout, cabin.slot), radius = layout.rings[cabin.ring].radius + BAR_LAYOUT.radial;
     for (let i = 0; i < 12000; i++) {
       advanceCompanion(state, layout, .05);
       const x = state.position.x - Math.sin(angle) * radius, z = state.position.z - Math.cos(angle) * radius;
-      expect(x * Math.sin(angle) + z * Math.cos(angle)).toBeCloseTo(.42, 6);
+      expect(x * Math.sin(angle) + z * Math.cos(angle)).toBeCloseTo(BAR_LAYOUT.staffZ, 6);
       expect(Math.abs(x * Math.cos(angle) - z * Math.sin(angle))).toBeLessThanOrEqual(1.66);
+      expect(isWalkable(state.position,layout,.4,cabin.deck)).toBe(true);
     }
   });
 });
