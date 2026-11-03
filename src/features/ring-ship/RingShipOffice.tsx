@@ -5,7 +5,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Environment, Lightformer, OrbitControls } from "@react-three/drei";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import * as THREE from "three";
-import { BrainCircuit, CalendarClock, Monitor, Home, Layers3, Settings2, Users, X } from "lucide-react";
+import { BrainCircuit, CalendarClock, Monitor, Home, Layers3, Settings2, Users, Volume2, VolumeX, X } from "lucide-react";
 import type { RetroOffice3D } from "@/features/retro-office/RetroOffice3D";
 import type { OfficeAgent, RenderAgent } from "@/features/retro-office/core/types";
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
@@ -51,6 +51,7 @@ import { AiComputationCore } from "./AiComputationCore";
 import { AiCenterDashboard } from "./AiCenterDashboard";
 import { ShipObjectScene, ShipObjectCard } from "./ShipObjectInteraction";
 import { shipObjectCameraPose, type ShipObject } from "./shipObjects";
+import { useDuckFocusAudio } from "./useDuckFocusAudio";
 
 type Props = ComponentProps<typeof RetroOffice3D> & { navigationPreview?: boolean; musicPreview?: boolean; onFirefight?: FirefightHandler };
 type Controls = ComponentRef<typeof OrbitControls>;
@@ -421,6 +422,9 @@ export function RingShipOffice(props: Props) {
   const selected = currentLayout.cabins.find(c => c.id === validFocus || c.projectId === validFocus);
   const objectEnabled = !busy && !navigationOpen && !props.activeChatAgentId && !returnFlight && !monitorOpen && !tasksOpen && !musicOpen && !settingsOpen && !aiOpen;
   const objectFocus = objectEnabled && inspectedObject && (inspectedObject.space ? inspectedObject.space.seed === system.seed : !shipView && inspectedObject.deck === visibleDeck && currentLayout.cabins.some(c => c.id === inspectedObject.cabinId)) ? inspectedObject : null;
+  const duckFocus = !busy && !navigationOpen && !returnFlight && !monitorOpen && !tasksOpen && !musicOpen && !settingsOpen && !aiOpen && !shipView
+    ? props.activeChatAgentId || (objectFocus?.kind === "ceo" ? objectFocus.id : !objectFocus && currentLayout.seats[validFocus] ? validFocus : null) : null;
+  const duckAudio = useDuckFocusAudio(duckFocus);
   const inspectObject = useCallback((object: ShipObject) => {
     setInspectedObject(object); setFocus(previous => ({ id: "", request: previous.request + 1 }));
     if (!object.space) setDeck(object.deck); setWhole(false); setLiftOpen(false); setFleetOpen(false);
@@ -514,10 +518,11 @@ export function RingShipOffice(props: Props) {
       <div className="mt-1 text-[9px] tracking-[0.3em] text-[#9bb8bf]">{shipView ? t("Whole ship · 3 decks") : t("L{0} · {1} · {2} sessions", { "0": visibleDeck + 1, "1": t(DECK_NAMES[visibleDeck]), "2": visibleAgents.length })}</div>
     </div>
     <div className="ship-toolbar absolute right-3 top-3 z-20 flex items-center gap-2">
-      <div title={`Runtime: Codex (${gatewayStatus})`} className={`rounded-lg border px-2 py-2 text-[10px] uppercase tracking-wider ${gatewayStatus === "connected" ? "border-emerald-300/25 bg-emerald-400/10 text-emerald-200" : "border-amber-300/25 bg-amber-400/10 text-amber-100"}`}><span className="max-md:hidden">CODEX · </span>{t(gatewayStatus)}</div>
+      <div title={`Runtime: Codex (${gatewayStatus})`} className={`max-md:hidden rounded-lg border px-2 py-2 text-[10px] uppercase tracking-wider ${gatewayStatus === "connected" ? "border-emerald-300/25 bg-emerald-400/10 text-emerald-200" : "border-amber-300/25 bg-amber-400/10 text-amber-100"}`}><span className="max-md:hidden">CODEX · </span>{t(gatewayStatus)}</div>
       <button className={button} title={t("Deck overview")} aria-label={t("Deck overview")} onClick={() => select("")}><Home size={15} /></button>
       <button className={button} title={t("Whole ship")} aria-label={t("Whole ship")} aria-pressed={shipView} onClick={() => { closeObject(); setWhole(value => !value); setLiftOpen(false); setFocus(previous => ({ id: "", request: previous.request + 1 })); }}><Layers3 size={15} /></button>
       <button className={button} title={t("Open AI Center")} aria-label={t("Open AI Center")} onClick={openAiCenter}><BrainCircuit size={15} /></button>
+      {duckAudio.available ? <button className={button} title={t(duckAudio.muted ? "Unmute duck voices" : "Mute duck voices")} aria-label={t(duckAudio.muted ? "Unmute duck voices" : "Mute duck voices")} aria-pressed={duckAudio.muted} onClick={duckAudio.toggleMuted}>{duckAudio.muted ? <VolumeX size={15} /> : <Volume2 size={15} />}</button> : null}
       <button className={button} title={t("Voice reply settings")} aria-label={t("Settings")} onClick={() => { closeObject(); setSettingsOpen(true); }}><Settings2 size={15} /></button>
     </div>
     <div className="ship-sidebar">

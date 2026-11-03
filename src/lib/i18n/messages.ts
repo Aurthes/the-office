@@ -751,6 +751,8 @@ export const ZH_CN: Record<string, string> = {
   "Unmute microphone": "打开麦克风",
   "Mute": "静音",
   "Unmute": "取消静音",
+  "Mute duck voices": "关闭鸭叫音效",
+  "Unmute duck voices": "开启鸭叫音效",
   "Microphone muted": "麦克风已静音",
   "Return to voice conversation": "返回语音会话",
   "Voice settings": "语音设置",
