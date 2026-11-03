@@ -1,7 +1,7 @@
 import { CEO_ID } from "@/lib/office/organization";
 import { cabinAngle, routeBetweenCabins, shipPoint, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
 import { moveCharacter, occupiedWaypoint, type CharacterBody } from "./characterCollision";
-import { isWalkable } from "./walkableSurface";
+import { footingRadius, isWalkable, walkableSegment } from "./walkableSurface";
 import { monitorChairPose } from "./monitor-room-geometry";
 
 export type CeoAction = "monitor" | "stretch" | "review" | "window" | "coffee" | "patrol" | "think" | "celebrate";
@@ -75,6 +75,19 @@ export function advanceCeo(state: CeoState, layout: ShipLayout, elapsed: number,
   const target = state.route[state.waypoint];
   if (target) {
     const before = state.position, body = ceoBody(state), distance = Math.hypot(target.x - before.x, target.z - before.z);
+    const last = state.waypoint === state.route.length - 1, following = state.route[state.waypoint + 1];
+    // An occupied stop cannot be reached exactly. Pass an optional waypoint
+    // only when the next leg has floor; the command chair must actually clear.
+    const nearbyCrew = distance < state.radius * 3 + .3 && occupiedWaypoint(body, target, others)
+      && !occupiedWaypoint(body, before, others);
+    if (nearbyCrew) {
+      const canContinue = following && walkableSegment(before, following, layout, footingRadius(state.radius));
+      if (canContinue || (last && state.action !== "monitor")) {
+        state.waypoint++; state.blocked = 0;
+        if (state.waypoint === state.route.length) { state.route = []; state.cabinId = state.destinationId; }
+      } else state.blocked += dt;
+      return;
+    }
     const next = moveCharacter(body, target, dt * .9, others, true, layout);
     const moved = Math.hypot(next.x - before.x, next.z - before.z);
     state.position = next; state.walking = moved > 1e-6;
@@ -83,9 +96,7 @@ export function advanceCeo(state: CeoState, layout: ShipLayout, elapsed: number,
       state.facing += Math.atan2(Math.sin(facing - state.facing), Math.cos(facing - state.facing)) * Math.min(1, dt * 9);
     }
     state.blocked = moved < dt * .1 ? state.blocked + dt : 0;
-    const last = state.waypoint === state.route.length - 1;
-    const nearbyCrew = last && state.action === "patrol" && distance < state.radius * 3 + .3 && occupiedWaypoint(body, target, others);
-    if (Math.hypot(next.x - target.x, next.z - target.z) < 1e-5 || nearbyCrew) {
+    if (Math.hypot(next.x - target.x, next.z - target.z) < 1e-5) {
       state.waypoint++; state.blocked = 0;
       if (state.waypoint === state.route.length) { state.route = []; state.cabinId = state.destinationId; }
     }

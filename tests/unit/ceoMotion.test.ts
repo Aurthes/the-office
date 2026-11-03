@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { advanceCeo, ceoActivity, ceoBody, ceoHome, createCeoState, type CeoAction } from "@/features/ring-ship/ceoMotion";
-import { buildShipLayout, shipDeck } from "@/features/ring-ship/layout";
-import { isWalkable, footingRadius } from "@/features/ring-ship/walkableSurface";
+import { buildShipLayout, shipDeck, shipPoint } from "@/features/ring-ship/layout";
+import { isWalkable, footingRadius, walkableSegment } from "@/features/ring-ship/walkableSurface";
 import { monitorChairPose } from "@/features/ring-ship/monitor-room-geometry";
 import { animateCeoFigure } from "@/features/ring-ship/ceoPose";
 import { createDuckCrewFigure } from "@/features/ring-ship/duckCrewFigure";
@@ -40,6 +40,53 @@ describe("CEO daily life", () => {
       expect(Math.hypot(s.position.x - target.x, s.position.z - target.z)).toBeGreaterThanOrEqual(s.radius + other.radius + .029);
     }
     expect(ceoBody(s)).toMatchObject({ id: "npc:ceo", deck: 0, position: s.position });
+  });
+  it("settles at an occupied routine stop instead of circling it forever", () => {
+    const s = createCeoState(layout, 42);
+    s.duration = 0; advanceCeo(s, layout, .05); s.duration = Infinity;
+    const other = { id: "resting-crew", position: { ...s.route[0] }, radius: .5, deck: 0 };
+    for (let i = 0; i < 240; i++) {
+      advanceCeo(s, layout, .05, [other]);
+      expect(Math.hypot(s.position.x - other.position.x, s.position.z - other.position.z)).toBeGreaterThanOrEqual(s.radius + other.radius + .029);
+    }
+    expect(s.route).toHaveLength(0); expect(s.action).toBe("stretch"); expect(s.walking).toBe(false);
+    const settled = { ...s.position };
+    for (let i = 0; i < 100; i++) advanceCeo(s, layout, .05, [other]);
+    expect(s.position).toEqual(settled);
+  });
+  it("continues a patrol past an occupied intermediate stop", () => {
+    const s = createCeoState(layout, 42);
+    s.action = "coffee"; s.routine = 4; s.duration = 0;
+    advanceCeo(s, layout, .05); s.duration = Infinity;
+    const other = { id: "resting-crew", position: { ...s.route[0] }, radius: .5, deck: 0 };
+    const destination = s.destinationId;
+    for (let i = 0; i < 6000 && s.route.length; i++) {
+      const before = { ...s.position }; advanceCeo(s, layout, .05, [other]);
+      expect(walkableSegment(before, s.position, layout, footingRadius(s.radius))).toBe(true);
+      expect(Math.hypot(s.position.x - before.x, s.position.z - before.z)).toBeLessThanOrEqual(.045001);
+    }
+    expect(s.route).toHaveLength(0); expect(s.cabinId).toBe(destination); expect(s.cabinId).not.toBe(ceoHome(layout).id);
+  });
+  it("waits steadily for an occupied chair, then reaches the real seat when it clears", () => {
+    const s = createCeoState(layout, 42), chair = monitorChairPose(layout, ceoHome(layout));
+    s.position = { x: chair.point.x, z: chair.point.z + 1.3 };
+    s.action = "monitor"; s.route = [{ ...chair.point }]; s.duration = Infinity;
+    const other = { id: "resting-crew", position: { ...chair.point }, radius: .5, deck: 0 };
+    const waiting = { ...s.position };
+    for (let i = 0; i < 200; i++) advanceCeo(s, layout, .05, [other]);
+    expect(s.route).toHaveLength(1); expect(s.walking).toBe(false); expect(s.position).toEqual(waiting);
+    for (let i = 0; i < 100; i++) advanceCeo(s, layout, .05);
+    expect(s.route).toHaveLength(0); expect(s.position.x).toBeCloseTo(chair.point.x, 6); expect(s.position.z).toBeCloseTo(chair.point.z, 6);
+  });
+  it("waits when skipping an occupied corner would cross a floor gap", () => {
+    const s = createCeoState(layout, 42);
+    s.position = { x: 0, z: 19 }; s.action = "patrol";
+    s.route = [{ x: 0, z: 20 }, shipPoint(26, .35)]; s.duration = Infinity;
+    const other = { id: "resting-crew", position: { ...s.route[0] }, radius: .5, deck: 0 };
+    expect(walkableSegment(s.position, s.route[1], layout, footingRadius(s.radius))).toBe(false);
+    const waiting = { ...s.position };
+    for (let i = 0; i < 100; i++) advanceCeo(s, layout, .05, [other]);
+    expect(s.waypoint).toBe(0); expect(s.walking).toBe(false); expect(s.position).toEqual(waiting);
   });
   it("does not advance when paused or jump after a suspended frame", () => {
     const s = createCeoState(layout, 5); s.duration = 0; advanceCeo(s, layout, .05);
