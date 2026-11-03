@@ -148,3 +148,6 @@
   .ship-lift-menu p:last-child { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .ship-lift-door { transition: none; } }
+
+.ship-object-card[data-server-alias] { max-height:min(460px,55dvh); }
+@media(max-width:767px) { .ship-object-card[data-server-alias] { max-height:min(360px,44dvh); } }
