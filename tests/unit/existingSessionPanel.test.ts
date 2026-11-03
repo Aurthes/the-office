@@ -8,8 +8,17 @@ const metadata = (id = "original") => ({ id, name: `Name ${id}`, workspace: "/re
 const page = (text: string, nextCursor: string | null, threadId = "original") => ({ threadId, nextCursor, messages: [{ id: text, content: text, role: "assistant" }] });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
+function sessionEvents() {
+  // Match the real client: account, roster and transcript observers coexist.
+  const handlers = new Set<(event: { event: string; payload?: unknown }) => void>();
+  return {
+    emit: (event: { event: string; payload?: unknown }) => { handlers.forEach(handler => handler(event)); },
+    onEvent: (handler: (event: { event: string; payload?: unknown }) => void) => { handlers.add(handler); return () => { handlers.delete(handler); }; },
+  };
+}
+
 it("uses live turn state to open work and folds it as the official response begins", async () => {
-  const listeners = new Set<(event: { event: string; payload?: unknown }) => void>();
+  const events = sessionEvents();
   let subscriptionId = "";
   const messages = [
     { id: "c", turnId: "working", role: "assistant", phase: "commentary", content: "Live progress update" },
@@ -21,12 +30,12 @@ it("uses live turn state to open work and folds it as the official response begi
     if (method === "session.subscribe") subscriptionId = (params as { subscriptionId: string }).subscriptionId;
     return {};
   });
-  const client = { call, onEvent: (handler: (event: { event: string; payload?: unknown }) => void) => { listeners.add(handler); return () => { listeners.delete(handler); }; } };
+  const client = { call, onEvent: events.onEvent };
   render(React.createElement(ExistingSessionPanel, { client, threadId: "original" }));
   await waitFor(() => expect(subscriptionId).not.toBe(""));
   const push = async (version: number, items: unknown[]) => act(async () => {
     const event = { event: "session.stream", payload: { connected: true, version, threadId: "original", subscriptionId, activeTurnId: "working", approvals: [], items, features: { dictation: false, voice: false, prediction: false } } };
-    listeners.forEach(handler => handler(event));
+    events.emit(event);
   });
   await push(1, []);
   await screen.findByText("Live progress update");
@@ -52,7 +61,7 @@ describe("existing session history pagination", () => {
     fireEvent.click(screen.getByRole("button",{name:/Return to Earth/}));expect(onReturnToEarth).toHaveBeenCalledTimes(1);
   });
   it("does not append old bootstrap cache after the latest page, and catches up from canonical history", async () => {
-    const second = deferred(); let listener!: (event: { event: string; payload?: unknown }) => void, subscriptionId = "", reads = 0;
+    const second = deferred(); const events = sessionEvents(); let subscriptionId = "", reads = 0;
     const latest = { threadId: "original", nextCursor: "older", messages: [{ id: "apk", role: "assistant", content: "APK download is ready" }] };
     const call = vi.fn((method: string, params: unknown) => {
       if (method === "session.inspect") return Promise.resolve({ ...metadata(), controlsAvailable: true });
@@ -60,9 +69,9 @@ describe("existing session history pagination", () => {
       if (method === "session.history") return ++reads === 1 ? Promise.resolve(latest) : second.promise;
       return Promise.resolve({});
     });
-    render(React.createElement(ExistingSessionPanel, { client: { call, onEvent: h => { listener = h; return () => {}; } }, threadId: "original" }));
+    render(React.createElement(ExistingSessionPanel, { client: { call, onEvent: events.onEvent }, threadId: "original" }));
     await screen.findByText("APK download is ready");
-    await act(async () => listener({ event: "session.stream", payload: { connected: true, version: 10, threadId: "original", subscriptionId, activeTurnId: null, items: [
+    await act(async () => events.emit({ event: "session.stream", payload: { connected: true, version: 10, threadId: "original", subscriptionId, activeTurnId: null, items: [
       { id: "old", role: "assistant", content: "Old wrapper discussion", status: "completed" },
       { id: "start", role: "user", content: "Build it", status: "completed" },
       { ...latest.messages[0], status: "completed" },
@@ -75,15 +84,15 @@ describe("existing session history pagination", () => {
     expect(screen.getAllByRole("article").at(-1)?.textContent).toContain("APK download is ready");
   });
   it("keeps genuinely new live messages while canonical history is still loading", async () => {
-    const history = deferred(); let listener!: (event: { event: string; payload?: unknown }) => void, subscriptionId = "";
+    const history = deferred(); const events = sessionEvents(); let subscriptionId = "";
     const call = vi.fn((method: string, params: unknown) => {
       if (method === "session.inspect") return Promise.resolve({ ...metadata(), controlsAvailable: true });
       if (method === "session.subscribe") { subscriptionId = (params as { subscriptionId: string }).subscriptionId; return Promise.resolve({}); }
       return history.promise;
     });
-    render(React.createElement(ExistingSessionPanel, { client: { call, onEvent: h => { listener = h; return () => {}; } }, threadId: "original" }));
+    render(React.createElement(ExistingSessionPanel, { client: { call, onEvent: events.onEvent }, threadId: "original" }));
     await screen.findByRole("heading", { name: "Name original" });
-    const push = (version: number, items: unknown[]) => listener({ event: "session.stream", payload: { connected: true, version, threadId: "original", subscriptionId, activeTurnId: null, approvals: [], items } });
+    const push = (version: number, items: unknown[]) => events.emit({ event: "session.stream", payload: { connected: true, version, threadId: "original", subscriptionId, activeTurnId: null, approvals: [], items } });
     await act(async () => push(1, []));
     await act(async () => push(2, [{ id: "live", role: "assistant", content: "live reply" }]));
     await screen.findByText("live reply");
@@ -92,16 +101,16 @@ describe("existing session history pagination", () => {
     expect(screen.getByText("earlier reply")).toBeTruthy();
   });
   it("keeps an existing live message that completes during history catch-up", async () => {
-    const catchUp = deferred(); let listener!: (event: { event: string; payload?: unknown }) => void, subscriptionId = "", reads = 0;
+    const catchUp = deferred(); const events = sessionEvents(); let subscriptionId = "", reads = 0;
     const call = vi.fn((method: string, params: unknown) => {
       if (method === "session.inspect") return Promise.resolve({ ...metadata(), controlsAvailable: true });
       if (method === "session.subscribe") { subscriptionId = (params as { subscriptionId: string }).subscriptionId; return Promise.resolve({}); }
       if (method === "session.history") return ++reads === 1 ? Promise.resolve(page("earlier reply", null)) : catchUp.promise;
       return Promise.resolve({});
     });
-    render(React.createElement(ExistingSessionPanel, { client: { call, onEvent: h => { listener = h; return () => {}; } }, threadId: "original" }));
+    render(React.createElement(ExistingSessionPanel, { client: { call, onEvent: events.onEvent }, threadId: "original" }));
     await screen.findByText("earlier reply");
-    const push = (version: number, items: unknown[]) => listener({ event: "session.stream", payload: { connected: true, version, threadId: "original", subscriptionId, activeTurnId: null, approvals: [], items } });
+    const push = (version: number, items: unknown[]) => events.emit({ event: "session.stream", payload: { connected: true, version, threadId: "original", subscriptionId, activeTurnId: null, approvals: [], items } });
     const draft = { id: "live", role: "assistant", content: "draft reply", status: "inProgress" };
     const older = { id: "old", role: "assistant", content: "older live reply", status: "completed" };
     await act(async () => push(0, []));
@@ -151,15 +160,15 @@ describe("existing session history pagination", () => {
     expect(call.mock.calls.filter(([method]) => method === "session.inspect")).toHaveLength(2);
   });
   it("keeps a shorter authoritative live completion when stale history finishes later", async () => {
-    const history = deferred(); let listener!: (event: { event: string; payload?: unknown }) => void, subscriptionId = "";
+    const history = deferred(); const events = sessionEvents(); let subscriptionId = "";
     const call = vi.fn((method: string, params: unknown) => {
       if (method === "session.inspect") return Promise.resolve({ ...metadata(), controlsAvailable: true });
       if (method === "session.subscribe") { subscriptionId = (params as { subscriptionId: string }).subscriptionId; return Promise.resolve({}); }
       return history.promise;
     });
-    render(React.createElement(ExistingSessionPanel, { client: { call, onEvent: h => { listener = h; return () => {}; } }, threadId: "original" }));
+    render(React.createElement(ExistingSessionPanel, { client: { call, onEvent: events.onEvent }, threadId: "original" }));
     await screen.findByRole("heading", { name: "Name original" });
-    const push = (version: number, items: unknown[]) => listener({ event: "session.stream", payload: { connected: true, version, threadId: "original", subscriptionId, activeTurnId: null, approvals: [], items } });
+    const push = (version: number, items: unknown[]) => events.emit({ event: "session.stream", payload: { connected: true, version, threadId: "original", subscriptionId, activeTurnId: null, approvals: [], items } });
     await act(async () => push(0, []));
     await act(async () => push(1, [{ id: "m", role: "assistant", status: "completed", content: "final" }]));
     await screen.findByText("final");
@@ -184,20 +193,20 @@ describe("existing session history pagination", () => {
     expect(call).toHaveBeenLastCalledWith("session.history", { threadId: "original", cursor: "older" });
   });
   it("offers a jump back to latest while reading history and resumes following without another history read", async () => {
-    let listener!: (event: { event: string; payload?: unknown }) => void, subscriptionId = "", height = 1400;
+    const events = sessionEvents(); let subscriptionId = "", height = 1400;
     const call = vi.fn((method: string, params: unknown) => {
       if (method === "session.inspect") return Promise.resolve({ ...metadata(), controlsAvailable: true });
       if (method === "session.subscribe") { subscriptionId = (params as { subscriptionId: string }).subscriptionId; return Promise.resolve({ subscribed: true }); }
       return Promise.resolve(page("latest", null));
     });
-    const client = { call, onEvent: (handler: typeof listener) => { listener = handler; return () => {}; } };
+    const client = { call, onEvent: events.onEvent };
     render(React.createElement(ExistingSessionPanel, { client, threadId: "original" }));
     await screen.findByText("latest");
-    await act(async () => listener({ event: "session.stream", payload: { connected: true, version: 0, threadId: "original", subscriptionId, activeTurnId: null, approvals: [], items: [] } }));
+    await act(async () => events.emit({ event: "session.stream", payload: { connected: true, version: 0, threadId: "original", subscriptionId, activeTurnId: null, approvals: [], items: [] } }));
     const scroller = screen.getByLabelText("Session history");
     Object.defineProperty(scroller, "scrollHeight", { get: () => height });Object.defineProperty(scroller, "clientHeight", { value: 400 });
     scroller.scrollTop = 400;fireEvent.scroll(scroller);
-    const push = (version: number) => listener({ event: "session.stream", payload: { connected: true, version, threadId: "original", subscriptionId, activeTurnId: null, approvals: [], items: [{ id: "live", content: `live ${version}`, role: "assistant", phase: "final_answer", status: "inProgress" }] } });
+    const push = (version: number) => events.emit({ event: "session.stream", payload: { connected: true, version, threadId: "original", subscriptionId, activeTurnId: null, approvals: [], items: [{ id: "live", content: `live ${version}`, role: "assistant", phase: "final_answer", status: "inProgress" }] } });
     await act(async () => push(1));expect(scroller.scrollTop).toBe(400);
     expect(screen.getByRole("button", { name: "Go to latest message" })).toBeTruthy();
     const reads = call.mock.calls.filter(([method]) => method === "session.history").length;
