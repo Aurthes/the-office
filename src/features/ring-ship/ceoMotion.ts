@@ -3,15 +3,18 @@ import { cabinAngle, routeBetweenCabins, shipPoint, type ShipCabin, type ShipLay
 import { moveCharacter, occupiedWaypoint, type CharacterBody } from "./characterCollision";
 import { footingRadius, isWalkable, walkableSegment } from "./walkableSurface";
 import { monitorChairPose } from "./monitor-room-geometry";
+import { BREAK_ACTIONS, BREAK_ACTIVITIES, breakAction, breakSeatKey, breakSeatPose, type BreakVisit } from "./breakRoomLayout";
+import { freeBreakSeat, hasBreakPartner } from "./breakRoomMotion";
 
-export type CeoAction = "monitor" | "stretch" | "review" | "window" | "coffee" | "patrol" | "think" | "celebrate";
+export type CeoAction = "monitor" | "stretch" | "review" | "window" | "coffee" | "patrol" | "think" | "celebrate" | "break";
 export type CeoState = {
   action: CeoAction; time: number; elapsed: number; duration: number; routine: number; seed: number; tours: number;
   position: ShipPoint; facing: number; walking: boolean; radius: number;
   cabinId: string; destinationId: string; route: ShipPoint[]; waypoint: number; blocked: number;
+  breakVisit?: BreakVisit;
 };
 const ROUTINE: CeoAction[] = ["monitor", "stretch", "review", "window", "coffee", "patrol", "monitor", "think"];
-const DURATIONS: Record<CeoAction, number> = { monitor: 12, stretch: 4, review: 8, window: 6, coffee: 9, patrol: 5, think: 5, celebrate: 3 };
+const DURATIONS: Record<CeoAction, number> = { monitor: 12, stretch: 4, review: 8, window: 6, coffee: 9, patrol: 5, think: 5, celebrate: 3, break: 22 };
 export const CEO_ACTIVITIES: Record<CeoAction, string> = {
   monitor: "Watching the fleet monitors and checking the controls",
   stretch: "A very necessary executive stretch",
@@ -21,9 +24,11 @@ export const CEO_ACTIVITIES: Record<CeoAction, string> = {
   patrol: "Checking in on the crew",
   think: "Considering an extremely important decision",
   celebrate: "A tiny victory dance. Nobody saw that.",
+  break: "Taking a well-earned break with the crew",
 };
 export function ceoHome(layout: ShipLayout) { return layout.cabins.find(c => c.kind === "monitor") || layout.cabins.find(c => c.kind === "lounge") || layout.cabins[0]; }
-export function ceoBody(state: CeoState): CharacterBody { return { id: CEO_ID, position: state.position, radius: state.radius, deck: 0 }; }
+export function ceoBody(state: CeoState): CharacterBody { return { id: CEO_ID, position: state.position, radius: state.radius, deck: 0,
+  reservedSeat: state.breakVisit ? breakSeatKey(state.breakVisit.cabinId, state.breakVisit.seat) : undefined }; }
 function random(state: CeoState) { state.seed = (Math.imul(state.seed, 1664525) + 1013904223) >>> 0; return state.seed / 4294967296; }
 function point(layout: ShipLayout, cabin: ShipCabin, u: number, v: number) {
   const ring = layout.rings[cabin.ring];
@@ -43,12 +48,20 @@ export function createCeoState(layout: ShipLayout, seed: number, radius = .43): 
     position: { ...chair.point }, facing: chair.facing, walking: false, radius,
     cabinId: home.id, destinationId: home.id, route: [], waypoint: 0, blocked: 0 };
 }
-function nextAction(state: CeoState, layout: ShipLayout) {
+function nextAction(state: CeoState, layout: ShipLayout, others: readonly CharacterBody[]) {
   const home = ceoHome(layout), source = layout.cabins.find(c => c.id === state.cabinId) || home;
+  const previousBreak = state.breakVisit;
   if (state.action !== "celebrate") state.routine = (state.routine + 1) % ROUTINE.length;
-  const action = state.action === "think" && random(state) < .35 ? "celebrate" : ROUTINE[state.routine];
-  state.action = action; state.time = 0; state.duration = DURATIONS[action] * (.8 + random(state) * .4); state.blocked = 0;
+  let action = state.action === "think" && random(state) < .35 ? "celebrate" : ROUTINE[state.routine];
   let destination = home;
+  state.breakVisit = undefined;
+  const breakRoom = layout.cabins.find(c => c.kind === "break" && c.deck === 0);
+  const breakSeat = action === "coffee" && breakRoom ? freeBreakSeat(layout, breakRoom, ceoBody(state), others, Math.floor(random(state) * 4)) : undefined;
+  if (breakRoom && breakSeat !== undefined) {
+    action = "break"; destination = breakRoom;
+    state.breakVisit = { cabinId: breakRoom.id, seat: breakSeat, action: BREAK_ACTIONS[Math.floor(random(state) * BREAK_ACTIONS.length)], outward: [] };
+  }
+  state.action = action; state.time = 0; state.duration = DURATIONS[action] * (.8 + random(state) * .4); state.blocked = 0;
   if (action === "patrol") {
     const departments = layout.cabins.filter(c => c.deck === 0 && c.kind === "work" && c.agentIds.length);
     if (departments.length) destination = departments[state.tours++ % departments.length];
@@ -59,13 +72,17 @@ function nextAction(state: CeoState, layout: ShipLayout) {
   if (destination !== home) target = shipPoint(layout.rings[destination.ring].radius, cabinAngle(layout, destination.slot));
   const route: ShipPoint[] = [];
   if (source.id !== destination.id) {
+    if (previousBreak && source.kind === "break") route.push(breakSeatPose(layout, source, previousBreak.seat).approach);
     if (source.id === home.id) route.push(rear(layout, home), point(layout, home, -4, 1.3), door(layout, home));
     const start = route.at(-1) || state.position;
     const arrival = destination.id === home.id ? Math.atan2(door(layout, home).x, door(layout, home).z) : cabinAngle(layout, destination.slot);
     route.push(...routeBetweenCabins(layout, { ring: source.ring, angle: Math.atan2(start.x, start.z) }, destination, arrival));
     if (destination.id === home.id) route.push(point(layout, home, -4, 1.3), rear(layout, home));
   } else if (source.id === home.id) route.push(rear(layout, home));
-  route.push(target);
+  if (state.breakVisit) {
+    const pose = breakSeatPose(layout, destination, state.breakVisit.seat);
+    route.push(pose.approach, pose.point); state.breakVisit.outward = route.slice();
+  } else route.push(target);
   state.destinationId = destination.id; state.route = route; state.waypoint = 0;
 }
 
@@ -82,7 +99,7 @@ export function advanceCeo(state: CeoState, layout: ShipLayout, elapsed: number,
       && !occupiedWaypoint(body, before, others);
     if (nearbyCrew) {
       const canContinue = following && walkableSegment(before, following, layout, footingRadius(state.radius));
-      if (canContinue || (last && state.action !== "monitor")) {
+      if (canContinue || (last && state.action !== "monitor" && state.action !== "break")) {
         state.waypoint++; state.blocked = 0;
         if (state.waypoint === state.route.length) { state.route = []; state.cabinId = state.destinationId; }
       } else state.blocked += dt;
@@ -104,8 +121,10 @@ export function advanceCeo(state: CeoState, layout: ShipLayout, elapsed: number,
   }
   state.time += dt;
   const cabin = layout.cabins.find(c => c.id === state.cabinId) || ceoHome(layout);
-  const facing = cabinAngle(layout, cabin.slot) + (state.action === "review" ? .8 : state.action === "coffee" ? .3 : state.action === "window" || state.action === "celebrate" ? 0 : Math.PI);
+  if (state.breakVisit) state.breakVisit.chatting = hasBreakPartner(layout, cabin, state.breakVisit, others);
+  const facing = state.breakVisit ? breakSeatPose(layout, cabin, state.breakVisit.seat).facing
+    : cabinAngle(layout, cabin.slot) + (state.action === "review" ? .8 : state.action === "coffee" ? .3 : state.action === "window" || state.action === "celebrate" ? 0 : Math.PI);
   state.facing += Math.atan2(Math.sin(facing - state.facing), Math.cos(facing - state.facing)) * Math.min(1, dt * 4);
-  if (state.time >= state.duration) nextAction(state, layout);
+  if (state.time >= state.duration) nextAction(state, layout, others);
 }
-export function ceoActivity(state: CeoState) { return state.blocked > 1 ? "Patiently waiting for the corridor to clear" : state.route.length ? state.action === "patrol" ? "Taking a stroll to visit a department" : state.action === "monitor" ? "Heading back to the command chair" : "Stretching the legs between important decisions" : CEO_ACTIVITIES[state.action]; }
+export function ceoActivity(state: CeoState) { return state.blocked > 1 ? "Patiently waiting for the corridor to clear" : state.route.length ? state.action === "break" ? "Heading to the break room" : state.action === "patrol" ? "Taking a stroll to visit a department" : state.action === "monitor" ? "Heading back to the command chair" : "Stretching the legs between important decisions" : state.breakVisit ? BREAK_ACTIVITIES[breakAction(state.breakVisit)] : CEO_ACTIVITIES[state.action]; }

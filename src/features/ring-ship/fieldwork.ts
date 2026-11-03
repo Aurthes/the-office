@@ -10,6 +10,7 @@ const ALIASES: Partial<Record<ShipCabin["kind"], string[]>> = {
   garden: ["rainforest", "rainforest habitat", "rainforesthabitat", "雨林", "热带雨林"],
   hydroponics: ["hydroponics", "水培", "水耕"], bar: ["listening bar", "bar", "留声机", "吧台", "酒吧"],
   lounge: ["observation lounge", "lounge", "休息室", "休息区"], canteen: ["canteen", "dining", "食堂", "餐厅"],
+  break: ["break room", "茶水间", "休息间"],
   gym: ["gym", "健身房"], servers: ["server room", "serverroom", "机房", "服务器房"], ai: ["ai center", "ai中心", "ai 中心"],
   monitor: ["monitor room", "中控", "监控室"], maintenance: ["maintenance", "维修舱", "维修间"],
   cargo: ["cargo", "supply storage", "货舱", "仓库"], observatory: ["observatory", "天文台", "观测舱"],

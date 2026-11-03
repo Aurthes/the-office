@@ -10,7 +10,7 @@ type TerminalEvent = TerminalState & { threadId: string; reset?: boolean };
 const decode = (text: string) => Uint8Array.from(atob(text), character => character.charCodeAt(0));
 const encode = (bytes: Uint8Array) => btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(""));
 
-export function SessionTerminal({ client, threadId }: { client: SessionClient; threadId: string }) {
+export function SessionTerminal({ client, threadId, label = "Codex", autoFocus = false }: { client: SessionClient; threadId: string; label?: string; autoFocus?: boolean }) {
   const t = useUiText();
   const host = useRef<HTMLDivElement>(null);
   const write = useRef<((value: string) => void) | null>(null);
@@ -85,9 +85,10 @@ export function SessionTerminal({ client, threadId }: { client: SessionClient; t
       cleanup = () => { observer.disconnect(); unEvent?.(); unStatus?.(); input.dispose(); binary.dispose(); terminal.dispose();
         void client.call("session.terminal.unsubscribe", { threadId }).catch(() => {}); };
       await synchronize();
+      if (autoFocus && !disposed) terminal.focus();
     })().catch(cause => { if (!disposed) setError(String(cause)); });
     return () => { disposed = true; write.current = null; resync.current = null; focus.current = null; cleanup(); };
-  }, [client, threadId]);
+  }, [client, threadId, autoFocus]);
   const action = async (method: "start" | "stop") => {
     if (busy) return;
     setBusy(true); setError("");
@@ -97,7 +98,7 @@ export function SessionTerminal({ client, threadId }: { client: SessionClient; t
   };
   return <div className="session-terminal flex min-h-0 flex-1 flex-col" onKeyDown={event => event.stopPropagation()}>
     <div className="session-workspace-toolbar">
-      <span className="mr-auto text-xs text-white/50">Codex · {state?.running ? t("Running") : state ? t("Exited · {code}", { code: state.exitCode ?? "?" }) : t("No terminal")}</span>
+      <span className="mr-auto text-xs text-white/50">{label} · {state?.running ? t("Running") : state ? t("Exited · {code}", { code: state.exitCode ?? "?" }) : t("No terminal")}</span>
       {[['Tab', '\t'], ['Esc', '\x1b'], ['Ctrl C', '\x03']].map(([label, value]) => <button key={label} disabled={!state?.running || !connected} onClick={() => { write.current?.(value); focus.current?.(); }}>{label}</button>)}
       <button disabled={busy || !connected} onClick={() => void action(state?.running ? "stop" : "start")} aria-label={t(state?.running ? "Close terminal" : "Start terminal")}>{state?.running ? <Square size={14} /> : <Play size={14} />}{t(state?.running ? "Close" : "Start terminal")}</button>
     </div>

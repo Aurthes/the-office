@@ -157,7 +157,7 @@ the operations console. The gateway schedules them independently of browser tabs
 | Other files and previews | Uploaded host paths, workspace browsing/text reads and existing supported previews. Upload is not universal PDF/Word/Excel understanding; converters/tools must be available separately |
 | Workspace terminal | Public `command/exec` PTY, output, input, resize and terminate tested using the real engine; uses the session's sandbox policy |
 | Dictation | Optional public file-transcription API, recording/cancel/retry/Option/Enter UI. Disabled without a server API key. Mocked tests cover request/error handling and existing recording controls; real transcription, device/browser behavior and account access remain unvalidated |
-| Suggested prompts | Optional public Responses API, using recent visible messages, no tools and `store:false`. Disabled without a key. Request shape tested; quality, account access and latency not measured. Not native App prediction reuse |
+| Suggested prompts | Experimental Codex 0.166.0 `thread/sample` on the completed Office thread, using Office's ChatGPT login and loaded context. No API key or new turn. Real-account sampling, unchanged history and no tool execution verified; account availability and usage limits still apply. Not native App prediction reuse |
 | Live voice | Experimental Codex 0.166.0 WebRTC V3 on the selected Office thread, using Office's ChatGPT login. Browser audio travels directly to the voice service; tasks and approvals use the existing Office handlers. Real-account tests cover an empty chat, generated speech triggering a completed Codex task, received audio packets, and hangup. Physical microphone behavior and subjective voice quality still need manual testing |
 
 ## Optional speech and suggestions
@@ -166,20 +166,23 @@ OpenClaw transcription and ElevenLabs reply playback have been removed. Office
 keeps Codex session speech controls visible and disabled when the runtime reports
 those capabilities as unavailable. There is no fallback to an OpenClaw runtime.
 
-Configure `OPENAI_API_KEY` on the **gateway only**, then restart it. This enables
-dictation and suggested prompts. Defaults are `gpt-transcribe` for
-`/v1/audio/transcriptions` and `gpt-6.1-sol` for `/v1/responses`.
-`CLAW3D_TRANSCRIPTION_MODEL` and `CLAW3D_SUGGESTION_MODEL` override those models.
-API access, usage and billing are separate from the Codex account sign-in; no
-assumption is made that a ChatGPT subscription covers these requests.
+Suggested prompts use Office's existing ChatGPT sign-in through Codex's
+experimental `thread/sample` method. They require no API key and leave the native
+desktop App untouched. Sampling uses the latest completed turn and does not append
+a message, start a task or execute tools. One result is reused per completed turn
+while the gateway runs; a new user turn invalidates the suggestion. Unsupported
+sampling or account errors leave the composer without a suggestion. This is
+version-specific behavior verified with Codex 0.166.0, not a stable cross-version
+or native App prediction contract. Tab accepts the editable draft; Send submits it.
 
+Dictation remains a separate optional public API. Configure `OPENAI_API_KEY` on
+the **gateway only**, then restart it to enable `/v1/audio/transcriptions`.
+The default model is `gpt-transcribe`; `CLAW3D_TRANSCRIPTION_MODEL` overrides it.
+API access, usage and billing are separate from the Codex account sign-in.
 The [file-transcription guide](https://developers.openai.com/api/docs/guides/speech-to-text)
-documents the speech route. The
-[Responses API](https://developers.openai.com/api/docs/guides/text) supplies
-suggestions. No private dictation token, prediction-config endpoint,
-or `thread/sample` is used by this runtime.
-Transcription errors keep the recording; an HTML response becomes a readable
-service error rather than a JSON parse error. There is no automatic resend.
+documents this route. No private dictation token or prediction-config endpoint
+is used. Transcription errors keep the recording; an HTML response becomes a
+readable service error rather than a JSON parse error. There is no automatic resend.
 
 ## Experimental voice calls
 

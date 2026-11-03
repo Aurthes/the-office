@@ -1,3 +1,4 @@
+import type { PoolHost } from "@/lib/monitoring/types";
 import { translateUi, type UiTranslator } from "@/lib/i18n/messages";
 import { SHARED_PROJECT_ID } from "./layout";
 import * as THREE from "three";
@@ -6,6 +7,7 @@ import { addCabinDetails } from "./interior-details";
 import { addRainforest, addMachineRoom } from "./ship-biomes";
 import { addMonitorRoom } from "./monitor-room-geometry";
 import { addAiCenter } from "./ai-center-geometry";
+import { addBreakRoom } from "./break-room-geometry";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
 import workstationModels from "@/features/retro-office/core/workstation-models.json";
@@ -39,12 +41,12 @@ export class Builder {
   private activeObject?: ShipObject;
   private objectCounts = new Map<string, number>();
   constructor(private models: ModelTemplates) {}
-  object<T>(kind: ShipObjectKind, draw: () => T): T {
+  object<T>(kind: ShipObjectKind, draw: () => T, serverAlias?: string): T {
     if (!this.cabin) return draw();
     const key = `${this.cabin.id}:${kind}`, count = (this.objectCounts.get(key) || 0) + 1;
     this.objectCounts.set(key, count);
     const previous = this.activeObject;
-    const object: ShipObject = { id: `${key}:${count}`, kind, cabinId: this.cabin.id, cabinName: this.cabin.name, deck: this.cabin.deck, bounds: new THREE.Box3(), parts: [] };
+    const object: ShipObject = { id: serverAlias ? `${this.cabin.id}:server:${serverAlias}` : `${key}:${count}`, serverAlias, kind, cabinId: this.cabin.id, cabinName: this.cabin.name, deck: this.cabin.deck, bounds: new THREE.Box3(), parts: [] };
     this.activeObject = object;
     try { return draw(); }
     finally { this.activeObject = previous; if (!object.bounds.isEmpty()) this.objects.push(object); }
@@ -165,7 +167,7 @@ export function disposeShipGeometry(group: THREE.Group) {
   });
 }
 
-export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {}, t: UiTranslator = (text, values) => translateUi(text, "en", values)) {
+export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {}, t: UiTranslator = (text, values) => translateUi(text, "en", values), serverHosts?: readonly PoolHost[]) {
   const b = new Builder(models), step = TAU / layout.allocation.sectors;
   const spokeSlots = new Set(layout.spokes.map(angle => Math.round(angle / step)));
   for (const cabin of layout.cabins) {
@@ -219,7 +221,7 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
         });
         b.furniture("chairDesk", SHIP_WORKSTATION.chairWidth, seat.agent, 0.08, seat.facing);
       }
-    } else addAmenity(b, layout, cabin);
+    } else addAmenity(b, layout, cabin, serverHosts);
     addCabinDetails(b, layout, cabin);
   }
   b.cabin = undefined;
@@ -242,11 +244,13 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
   return b.finish();
 }
 
-function addAmenity(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
+function addAmenity(b: Builder, layout: ShipLayout, cabin: ShipCabin, serverHosts?: readonly PoolHost[]) {
   const ring = layout.rings[cabin.ring], width = ring.radius * TAU / layout.allocation.sectors;
   const local = (u: number, v: number) => shipPoint(ring.radius + v, cabinAngle(layout, cabin.slot) + u / ring.radius);
   if (cabin.kind === "ai") {
     addAiCenter(b, layout, cabin);
+  } else if (cabin.kind === "break") {
+    addBreakRoom(b, layout, cabin);
   } else if (cabin.kind === "monitor") {
     addMonitorRoom(b, layout, cabin);
   } else if (cabin.kind === "cloning") {
@@ -280,7 +284,7 @@ function addAmenity(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
       });
     }
   } else if (cabin.kind === "servers") {
-    addMachineRoom(b, layout, cabin);
+    addMachineRoom(b, layout, cabin, serverHosts);
   } else if (cabin.kind === "gym") {
     for (const u of [-width * 0.25, 0, width * 0.25]) {
       b.object("treadmill", () => {

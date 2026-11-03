@@ -8,6 +8,7 @@ import type { MonitorLink } from "@/lib/monitoring/types";
 import type { FirefightHandler } from "@/lib/monitoring/firefighter";
 import { openStrategyMonitor, strategyMonitorUrl } from "./strategyMonitor";
 import { MonitorIllustration } from "./MonitorIllustration";
+import type { ServerFleetState } from "./useServerSnapshot";
 import { ServerDashboard } from "./ServerDashboard";
 import "./monitor-dashboard.css";
 
@@ -105,7 +106,7 @@ export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: ()
 }
 
 
-export function ServerRoomDashboard({ open, onClose, onFirefight }: { open: boolean; onClose: () => void; onFirefight?: FirefightHandler }) {
+export function ServerRoomDashboard({ open, onClose, onFirefight, fleet }: { open: boolean; onClose: () => void; onFirefight?: FirefightHandler; fleet?: ServerFleetState }) {
   const t = useUiText(), dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const node = dialog.current;
@@ -121,7 +122,7 @@ export function ServerRoomDashboard({ open, onClose, onFirefight }: { open: bool
         <span className="monitor-header-detail">{t("SHIP SYSTEMS")}</span>
         <button className="monitor-icon-button" type="button" onClick={onClose} aria-label={t("Close monitoring dashboard")}><X size={19} /></button>
       </header>
-      <div className="monitor-content"><ServerDashboard active={open} onFirefight={onFirefight ? async (alert, id) => { await onFirefight(alert, id); onClose(); } : undefined} /></div>
+      <div className="monitor-content"><ServerDashboard active={open} fleet={fleet} onFirefight={onFirefight ? async (alert, id) => { await onFirefight(alert, id); onClose(); } : undefined} /></div>
       <footer className="monitor-frame-footer"><span>{t("Server room")}</span><span>{t("HOST RESOURCE OVERVIEW")}</span><span>{t("ESC TO RETURN")}</span></footer>
     </div>
   </dialog>, document.body);

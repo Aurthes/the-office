@@ -8,7 +8,7 @@ function fixture() {
   for (let i = 0; ; i++) {
     id = `runner-${i}`;
     // On L1, the second amenity in the existing deterministic roam order is the garden.
-    if (hash(id) % 5 === 1) break;
+    if (hash(id) % 5 === 1 && hash(id) % 3 === 0) break;
   }
   const layout = shipDeck(buildShipLayout({ projects: [{ id: "p", name: "Project" }], members: [{ id, projectId: "p" }] }), 0);
   const seat = layout.seats[id], home = { x: seat.x, z: seat.z }, point = canvasPoint(home);

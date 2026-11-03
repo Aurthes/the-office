@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildShipLayout, type ShipLayout } from "@/features/ring-ship/layout";
-import { advanceCrew, syncCrew, worldPoint, type MovingAgent } from "@/features/ring-ship/crewMotion";
+import { advanceCrew, canvasPoint, syncCrew, worldPoint, type MovingAgent } from "@/features/ring-ship/crewMotion";
 import { resolveWorksite } from "@/features/ring-ship/fieldwork";
 import { latestSiteTask } from "@/lib/office/fieldworkTask";
 import { isWalkable } from "@/features/ring-ship/walkableSurface";
@@ -44,7 +44,7 @@ describe("worksite assignment", () => {
     expect(a.fieldwork).toBeUndefined(); expect(a.interactionTarget).toBe("desk");
   });
 });
-it.each(["调整 rainforest 的灯光", "调整吧台留声机", "调整克隆舱的部件", "调整机房里的平台"])("runs to the real site, changes clothes and works there: %s", task => {
+it.each(["调整 rainforest 的灯光", "调整吧台留声机", "调整克隆舱的部件", "调整机房里的平台", "调整茶水间的桌子"])("runs to the real site, changes clothes and works there: %s", task => {
   const { a, layout } = fixture(task); until(a, layout, () => !!a.fieldwork?.geared);
   expect(a.interactionTarget).toBeUndefined(); expect(a.state).toBe("standing");
   const field = a.fieldwork; const before = worldPoint(a);
@@ -87,4 +87,13 @@ it("keeps camp while waiting for input and can retarget an equipped builder", ()
   expect(a.fieldwork).toBe(field); expect(a.interactionTarget).toBeUndefined();
   a = change(a, layout, { needsInput: false, siteTask: "调整克隆舱" }); until(a, layout, () => a.fieldwork?.phase === "blueprint" && a.fieldwork?.cabinId === layout.cabins.find(c => c.kind === "cloning")!.id);
   expect(a.fieldwork?.geared).toBe(true);
+});
+
+it("leaves a break-room seat and releases its reservation before a site task", async () => {
+  const { breakSeatPose } = await import("@/features/ring-ship/breakRoomLayout");
+  const { a, layout } = fixture(); const room = layout.cabins.find(c => c.kind === "break")!;
+  Object.assign(a, canvasPoint(breakSeatPose(layout, room, 0).point));
+  a.breakVisit = { cabinId: room.id, seat: 0, action: "coffee", outward: [] }; a.visiting = true;
+  until(a, layout, () => !!a.fieldwork?.geared);
+  expect(a.breakVisit).toBeUndefined();
 });

@@ -19,12 +19,13 @@ if(fs.realpathSync(process.execPath)!==fs.realpathSync(node)){
 }
 const {LocalOffice}=createRequire(path.join(office,"package.json"))("./desktop/launcher.cjs");
 const {chromium,webkit,expect}=createRequire(path.join(source,"package.json"))("@playwright/test");
+const {WebSocket}=createRequire(path.join(source,"package.json"))("ws");
 const browserName=option("--browser")||"chromium";
 if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose --browser chromium, chrome or webkit");
 (async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'office-mac-browser-')),data=path.join(root,'data'),foreign=path.join(root,'foreign'),workspace=path.join(root,'workspace');
  for(const dir of [foreign,workspace])fs.mkdirSync(dir);
- let local,browser,page,finishReply,liveSocket,lastStream;let requests=0;const errors=[];
+ let local,browser,page,finishReply,liveSocket,lastStream,rosterSocket,attentionFixture;let requests=0,snapshotResponses=0;const errors=[],snapshotRequests=new Set();
  const provider=http.createServer((req,res)=>{let raw='';req.on('data',part=>raw+=part);req.on('end',()=>{
   JSON.parse(raw);requests++;res.writeHead(200,{'content-type':'text/event-stream'});
   const id='response-'+requests,emit=value=>res.write('data: '+JSON.stringify(value)+'\n\n');
@@ -40,9 +41,13 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   browser=await (browserName==='webkit'?webkit:chromium).launch({headless:true,...(browserName==='webkit'?{}:{channel:browserName==='chrome'?'chrome':'chromium'})});
   console.log(JSON.stringify({browser:browserName,version:browser.version()}));
   const context=await browser.newContext({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
+  // Silent PCM exercises the real browser audio engine without private assets.
+  const wav=Buffer.alloc(44+1600);wav.write('RIFF');wav.writeUInt32LE(wav.length-8,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(8000,24);wav.writeUInt32LE(16000,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(1600,40);
+  await context.addInitScript(()=>{const Engine=window.AudioContext||window.webkitAudioContext;if(!Engine)return;const original=Engine.prototype.createBufferSource;Engine.prototype.createBufferSource=function(...args){const source=original.apply(this,args),start=source.start.bind(source);source.start=(...values)=>{window.__officeDuckStarts=(window.__officeDuckStarts||0)+1;return start(...values)};return source}});
   const origin=new URL(url).origin;
   await context.addInitScript(()=>document.addEventListener('click',event=>{const target=event.target instanceof Element?event.target.closest('button'):null;if(target)console.info('OFFICE_CHECK_CLICK '+target.textContent?.trim());},true));
   await context.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
+  await context.route('**/api/office/character-audio',route=>route.fulfill({json:{clips:[{id:'silent-browser-fixture',base64:wav.toString('base64')}]}}));
   // A fresh user has no music account. Do not read the test host's music credentials.
   await context.route('**/api/music/netease**',route=>{
    const action=new URL(route.request().url()).searchParams.get('action');
@@ -50,7 +55,7 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   });
   // Use the disposable folder as the file picker's initial location. All folder,
   // creation, settings, streaming and history calls go to the real bundled engine.
-  await context.routeWebSocket('**/api/gateway/ws',ws=>{const server=ws.connectToServer();ws.onMessage(message=>{let frame;try{frame=JSON.parse(String(message))}catch{return server.send(message)}if(frame.method==='project.folders.list'&&!frame.params?.path)frame.params={...frame.params,path:workspace};server.send(JSON.stringify(frame))});server.onMessage(message=>{const frame=JSON.parse(String(message));if(frame.event==='session.stream'){liveSocket=ws;lastStream=frame.payload}ws.send(message)})});
+  await context.routeWebSocket('**/api/gateway/ws',ws=>{const server=ws.connectToServer();ws.onMessage(message=>{let frame;try{frame=JSON.parse(String(message))}catch{return server.send(message)}if(frame.method==='project.folders.list'&&!frame.params?.path)frame.params={...frame.params,path:workspace};if(frame.method==='office.snapshot')snapshotRequests.add(frame.id);server.send(JSON.stringify(frame))});server.onMessage(message=>{const frame=JSON.parse(String(message));if(frame.event==='session.stream'){liveSocket=ws;lastStream=frame.payload}if(snapshotRequests.delete(frame.id)&&frame.ok){snapshotResponses++;if(attentionFixture)frame.payload.agents=frame.payload.agents.map(agent=>agent.id===attentionFixture.id?{...agent,...attentionFixture}:agent)}ws.send(JSON.stringify(frame))})});
   page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));page.on('console',message=>{if(message.text().startsWith('OFFICE_CHECK_CLICK '))console.log(message.text());});
   await page.goto(url,{waitUntil:'domcontentloaded'});
   if(browserName!=='webkit'){
@@ -78,6 +83,8 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   await page.getByRole('button',{name:'Use this folder',exact:true}).click();
   await page.getByRole('button',{name:'Recruit and create session',exact:true}).click();
   await page.getByLabel('Send to session',{exact:true}).waitFor({timeout:20000});
+  await expect(page.locator('#session-chat-list')).toBeVisible();
+  await expect(page.getByRole('combobox',{name:'Organize agents',exact:true})).toHaveValue('activity');
   await page.getByLabel('Send to session',{exact:true}).fill('Say hello for the disposable package check.');
   await page.getByRole('button',{name:'Send',exact:true}).click();
   const timer=page.getByRole('timer');await timer.waitFor({timeout:30000});
@@ -154,8 +161,63 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   await expect.poll(readMessageTimes).toEqual(messageTimes);
   const again=JSON.parse(fs.readFileSync(settingsFile));const reloaded=Object.values(again.avatars).flatMap(g=>Object.values(g)).find(p=>p.duck);
   if(JSON.stringify(reloaded.duck)!==saved)throw Error('Reload or canceled edit changed saved recruit style');
+  // Create metadata-only agents in this disposable Office; no extra model calls.
+  const config=JSON.parse(fs.readFileSync(path.join(data,'desktop.json'))),pending=new Map();let serial=0;
+  rosterSocket=new WebSocket('ws://127.0.0.1:'+config.gatewayPort);
+  rosterSocket.on('message',raw=>{const frame=JSON.parse(String(raw)),request=pending.get(frame.id);if(!request)return;clearTimeout(request.timer);pending.delete(frame.id);if(frame.ok)request.resolve(frame.payload);else request.reject(Error(frame.error?.message))});
+  await once(rosterSocket,'open');
+  const call=(method,params={})=>new Promise((resolve,reject)=>{const id=String(++serial),timer=setTimeout(()=>{pending.delete(id);reject(Error('Roster fixture RPC timed out: '+method))},5000);pending.set(id,{resolve,reject,timer});rosterSocket.send(JSON.stringify({type:'req',id,method,params}))});
+  await call('connect',{auth:{token:config.token}});
+  const alpha=(await call('project.create',{name:'Alpha team',rootPaths:[workspace],requestId:'roster-alpha-project'})).project;
+  const zebra=(await call('project.create',{name:'Zebra team',rootPaths:[workspace],requestId:'roster-zebra-project'})).project;
+  for(const [name,projectId] of [['Roster Alpha Old',alpha.id],['Roster Zebra',zebra.id],['Roster Alpha New',alpha.id]]){
+   await call('session.create',{name,projectId,requestId:name});await new Promise(resolve=>setTimeout(resolve,10));
+  }
+  const list=page.locator('#session-chat-list'),order=page.getByRole('combobox',{name:'Organize agents',exact:true});
+  const names=()=>list.getByRole('button').filter({hasText:'Roster '}).allTextContents();
+  await expect.poll(names).toEqual(['Roster Alpha New','Roster Zebra','Roster Alpha Old']);
+  await order.selectOption('project');
+  await expect(list.getByRole('heading')).toHaveText(['Alpha team','Open Workspace','Zebra team']);
+  await expect.poll(names).toEqual(['Roster Alpha New','Roster Alpha Old','Roster Zebra']);
+  await expect(page.getByRole('heading',{name:'Mac verification recruit',exact:true})).toBeVisible();
+  await page.getByRole('textbox',{name:'Search sessions',exact:true}).fill('Alpha team');
+  await expect.poll(names).toEqual(['Roster Alpha New','Roster Alpha Old']);
+  await order.selectOption('activity');
+  await expect.poll(names).toEqual(['Roster Alpha New','Roster Alpha Old']);
+  await page.getByRole('textbox',{name:'Search sessions',exact:true}).fill('');
+  await expect.poll(names).toEqual(['Roster Alpha New','Roster Zebra','Roster Alpha Old']);
+  await order.selectOption('project');
+  await page.getByRole('button',{name:'Close session list',exact:true}).click();
+  await expect(list).toBeHidden();
+  await page.getByRole('button',{name:'Close chat and return to office',exact:true}).click();
+  await page.getByRole('button',{name:'Open session: Mac verification recruit',exact:true}).first().click();
+  await expect(list).toBeVisible();await expect(order).toHaveValue('project');
+  if(option('--screenshots'))await page.screenshot({path:path.join(option('--screenshots'),browserName+'-agent-projects.png')});
+  await page.getByRole('button',{name:'Close chat and return to office',exact:true}).click();
+  const wholeShip=page.getByRole('button',{name:'Whole ship',exact:true});
+  if(await wholeShip.getAttribute('aria-pressed')!=='true')await wholeShip.click();
+  await expect(wholeShip).toHaveAttribute('aria-pressed','true');
+  const target=(await call('office.snapshot')).agents.find(agent=>agent.name==='Roster Alpha Old');
+  const soundCount=()=>page.evaluate(()=>window.__officeDuckStarts||0);
+  const baselineSounds=await soundCount();
+  const pushAttention=async patch=>{
+   attentionFixture={id:target.id,status:'idle',needsInput:false,completedResult:null,...patch};
+   const before=snapshotResponses;liveSocket.send(JSON.stringify({type:'event',event:'roster.updated',payload:{ts:Date.now()}}));
+   await expect.poll(()=>snapshotResponses).toBeGreaterThan(before);
+   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  };
+  // Exercise hidden-page delivery while keeping the browser test observable.
+  await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>'hidden'});document.dispatchEvent(new Event('visibilitychange'))});
+  await pushAttention({needsInput:true});await expect.poll(soundCount).toBe(baselineSounds+1);
+  await pushAttention({needsInput:true});expect(await soundCount()).toBe(baselineSounds+1);
+  await pushAttention({completedResult:{key:'attention-review-1',unread:true}});await expect.poll(soundCount).toBe(baselineSounds+2);
+  await page.evaluate(()=>{delete document.hidden;delete document.visibilityState;document.dispatchEvent(new Event('visibilitychange'))});
+  await page.getByRole('button',{name:'Mute duck voices',exact:true}).click();
+  await pushAttention({});await pushAttention({needsInput:true});expect(await soundCount()).toBe(baselineSounds+2);
+  await page.getByRole('button',{name:'Unmute duck voices',exact:true}).click();
+  expect(await soundCount()).toBe(baselineSounds+2);
   if(errors.length)throw Error(errors.join('\n'));
-  console.log(JSON.stringify({browser:browserName,browserRecruitment:true,workingFolder:true,randomStyleSaved:true,realBundledCodexReply:true,historyAfterReload:true,messageTimesPersisted:true,runningTimerTicks:true,timesDoNotOverlap:true,workProcessAutoOpens:true,toolBatchesDefaultClosed:true,workProcessFoldsOnOfficialReply:true,workUiStreamFixture:true,canceledEditPreserved:true,paidEndpoints:false,modelRequests:requests,pageErrors:0}));
+  console.log(JSON.stringify({browser:browserName,browserRecruitment:true,workingFolder:true,randomStyleSaved:true,realBundledCodexReply:true,historyAfterReload:true,messageTimesPersisted:true,runningTimerTicks:true,timesDoNotOverlap:true,workProcessAutoOpens:true,toolBatchesDefaultClosed:true,workProcessFoldsOnOfficialReply:true,workUiStreamFixture:true,canceledEditPreserved:true,agentListDefaultsOpen:true,agentOrderSwitches:true,departmentOrderAlphabetical:true,searchInBothOrders:true,yellowInputQuacks:true,yellowReviewQuacks:true,hiddenPageDelivery:true,repeatedMarkersStayQuiet:true,duckMuteRespected:true,paidEndpoints:false,modelRequests:requests,pageErrors:0}));
  }catch(error){console.error(error.stack);console.error(JSON.stringify({browser:browserName,pageErrors:errors,visiblePage:page?await page.locator('body').innerText().catch(()=>'(unavailable)'):null}));process.exitCode=1}
- finally{await browser?.close();await local?.close();provider.closeAllConnections();await new Promise(resolve=>provider.close(resolve));fs.rmSync(root,{recursive:true,force:true})}
+ finally{rosterSocket?.terminate();await browser?.close();await local?.close();provider.closeAllConnections();await new Promise(resolve=>provider.close(resolve));fs.rmSync(root,{recursive:true,force:true})}
 })();

@@ -1,18 +1,25 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Vector3 } from "three";
 import { Builder, disposeShipGeometry } from "@/features/ring-ship/geometry";
 import { buildShipLayout } from "@/features/ring-ship/layout";
 import { addMachineRoom } from "@/features/ring-ship/ship-biomes";
+import type { PoolHost } from "@/lib/monitoring/types";
 import { serverConsoleScreenPose } from "@/features/ring-ship/machineRoomLayout";
 
 describe("dense machine-room equipment", () => {
-  it("fills the main-deck room with racks and cooling, while keeping one shared console", () => {
+  it("maps every registered host to one rack while keeping cooling and one shared console", () => {
     const layout = buildShipLayout({ projects: [], members: [] });
     const cabin = layout.cabins.find(c => c.id === "public:server-room")!;
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ fillRect: vi.fn(), fillText: vi.fn() } as unknown as ReturnType<HTMLCanvasElement["getContext"]>);
     const builder = new Builder({}); builder.cabin = cabin;
-    addMachineRoom(builder, layout, cabin);
+    const hosts: PoolHost[] = ["S13", "S11", "S12", "YSTKO01", "YSTKO02", "preprod01", "preprod00-arm", "NJU06", "NJU11"].map(alias => ({ alias, group: "offline", active: alias !== "S12" }));
+    addMachineRoom(builder, layout, cabin, hosts);
     const group = builder.finish(), objects = builder.objects;
-    expect(objects.filter(o => o.kind === "serverRack").length).toBeGreaterThanOrEqual(36);
+    expect(objects.filter(o => o.kind === "serverRack")).toHaveLength(hosts.length);
+    expect(objects.filter(o => o.kind === "serverRack").map(o => o.serverAlias).sort()).toEqual(hosts.map(host => host.alias).sort());
+    const reversed = new Builder({}); reversed.cabin = cabin; addMachineRoom(reversed, layout, cabin, hosts.slice().reverse());
+    expect(reversed.objects.filter(o => o.serverAlias).map(o => [o.serverAlias, o.id]).sort()).toEqual(objects.filter(o => o.serverAlias).map(o => [o.serverAlias, o.id]).sort());
+    disposeShipGeometry(reversed.finish());
     expect(objects.filter(o => o.kind === "machineConsole")).toHaveLength(1);
     expect(objects.some(o => o.kind === "waterTank")).toBe(true);
     const screen = serverConsoleScreenPose(layout, cabin);

@@ -60,7 +60,7 @@ describe("three-ring ship allocation", () => {
       const cabin = layout.cabins.find(c => c.id === p.id);
       expect(cabin?.kind).toBe(p.kind); expect(cabin?.projectId).toBeUndefined();
     }
-    expect(layout.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length * DECKS.length - (DECKS.length-1)*2 + 3);
+    expect(layout.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length * DECKS.length - (DECKS.length-1)*2 + 4);
     checkSeats(layout, 100);
   });
   it("uses contiguous outer cabins for teams larger than one bay without shrinking furniture", () => {
@@ -128,7 +128,7 @@ it("fills ready decks before expanding and assigns every worker to exactly one d
     expect(floor.cabins).toHaveLength(24);
     expect(floor.cabins.every(c => c.deck === deck)).toBe(true);
     expect(floor.rings).toBe(layout.rings);
-    expect(floor.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length - (deck===0?0:2) + (layout.allocation.monitorRoom?.deck === deck ? 1 : 0) + (layout.allocation.cloningRoom?.deck === deck ? 1 : 0) + (layout.allocation.serverRoom?.deck === deck ? 1 : 0));
+    expect(floor.cabins.filter(c => c.kind !== "work" && c.kind !== "reserve")).toHaveLength(PUBLIC_CABINS.length - (deck===0?0:2) + (layout.allocation.monitorRoom?.deck === deck ? 1 : 0) + (layout.allocation.cloningRoom?.deck === deck ? 1 : 0) + (layout.allocation.serverRoom?.deck === deck ? 1 : 0) + (layout.allocation.breakRoom?.deck === deck ? 1 : 0));
     for (const seat of Object.values(floor.seats)) expect(floor.cabins.find(c => c.id === seat.cabinId)?.deck).toBe(deck);
   }
   checkSeats(layout, 64);

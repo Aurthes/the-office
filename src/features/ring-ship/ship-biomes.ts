@@ -1,3 +1,4 @@
+import type { PoolHost } from "@/lib/monitoring/types";
 import * as THREE from "three";
 import type { Builder, ModelName } from "./geometry";
 import { machineRoomPlan, SERVER_ACTIVITY_COLORS, SERVER_RACK } from "./machineRoomLayout";
@@ -168,12 +169,12 @@ export function addRainforest(b: Builder, layout: ShipLayout, cabin: ShipCabin) 
   }
 }
 
-export function addMachineRoom(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
-  const ring = layout.rings[cabin.ring], angle = cabinAngle(layout, cabin.slot), plan = machineRoomPlan(layout, cabin);
+export function addMachineRoom(b: Builder, layout: ShipLayout, cabin: ShipCabin, hosts?: readonly PoolHost[]) {
+  const ring = layout.rings[cabin.ring], angle = cabinAngle(layout, cabin.slot), plan = machineRoomPlan(layout, cabin, hosts);
   const point = (u: number, v: number) => shipPoint(ring.radius + v, angle + u / ring.radius);
   const xyz = (u: number, v: number, y: number): [number, number, number] => { const p = point(u, v); return [p.x, y, p.z]; };
   const box = (u: number, v: number, y: number, size: [number, number, number], color: string, glow = false) => b.localBox(layout, cabin, u, v, y, size, color, 0, glow);
-  const first = plan.racks[0].u, last = plan.racks[plan.racks.length - 1].u;
+  const { first, last } = plan;
 
   for (const side of [-1, 1]) {
     const bank = plan.rows.filter(row => row.v * side > 0).map(row => row.v);
@@ -186,22 +187,26 @@ export function addMachineRoom(b: Builder, layout: ShipLayout, cabin: ShipCabin)
   }
   for (const rack of plan.racks) {
     const { u, v, face, row, column } = rack, front = v + face * .455;
-    b.object("serverRack", () => {
+    const inactive = !rack.host?.active;
+    b.object(rack.host ? "serverRack" : "spareServerRack", () => {
       box(u, v, .16, [.9, .18, .94], "#52646f");
-      box(u, v, 1.19, [SERVER_RACK.width, SERVER_RACK.height, SERVER_RACK.depth], "#1b303f");
-      box(u, v, 2.3, [.88, .065, .91], "#536c78");
+      box(u, v, 1.19, [SERVER_RACK.width, SERVER_RACK.height, SERVER_RACK.depth], inactive ? "#46515a" : "#1b303f");
+      box(u, v, 2.3, [.88, .065, .91], rack.color || "#536c78");
       for (const edge of [-.39, .39]) box(u + edge, front, 1.22, [.035, 2.05, .05], "#6d8491");
       for (let slot = 0; slot < 9; slot++) {
         const y = .32 + slot * .216;
         box(u, front, y, [.73, .17, .045], slot % 2 ? "#2c4352" : "#223644");
         for (const vent of [-.25, -.15, -.05, .05]) box(u + vent, front + face * .027, y, [.035, .09, .015], "#0c1b27");
-        box(u + .25, front + face * .03, y + .025, [.055, .035, .025], SERVER_ACTIVITY_COLORS[(row + column + slot) % 4], true);
+        box(u + .25, front + face * .03, y + .025, [.055, .035, .025], inactive ? "#63717a" : SERVER_ACTIVITY_COLORS[(row + column + slot) % 4], !inactive);
         box(u + .25, front + face * .03, y - .04, [.04, .014, .025], "#5e9ccb", true);
       }
       // Exposed cold/hot risers connect the rack to the overhead coolant loop.
       for (const pipe of [-1, 1]) b.curve([xyz(u + pipe * .34, v, .22), xyz(u + pipe * .34, v, 2.38), xyz(u + pipe * .34, v - face * .26, 2.46)], .025, pipe < 0 ? "#4ba8bc" : "#a56e61");
-    });
+    }, rack.host?.alias);
     if (column % 4 === 1) b.furniture("machineFan", .52, point(u, v), 2.35, angle + u / ring.radius);
+  }
+  for (const family of plan.families) {
+    b.sign(family.id === "local" ? "LOCAL" : family.id.toUpperCase(), "", point(family.u, family.v), angle + family.u / ring.radius, Math.min(2.3, family.width), family.color);
   }
   for (const row of plan.rows) {
     const v = row.v - row.face * .26;
