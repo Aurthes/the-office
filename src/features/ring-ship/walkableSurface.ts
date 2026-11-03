@@ -4,6 +4,7 @@ import { circleHitsBox, projectOutside, segmentHitsBox } from "@/features/retro-
 import { cloningCollisionBoxes } from "./cloningGeometry";
 import { barCollisionBoxes } from "./barLayout";
 import { breakRoomCollisionBoxes } from "./breakRoomLayout";
+import { hibernationCollisionBoxes } from "./hibernationLayout";
 
 const EDGE = .02, TAU = Math.PI * 2;
 const DIAGONAL = Math.SQRT1_2;
@@ -32,13 +33,13 @@ function floorPoint(point: ShipPoint, layout: ShipLayout, deck: number) {
 
 export function isWalkable(point: ShipPoint, layout: ShipLayout, padding = 0, deck = 0) {
   if (!Number.isFinite(point.x) || !Number.isFinite(point.z) || !floorPoint(point, layout, deck)) return false;
-  if ([...cloningCollisionBoxes(layout,deck),...barCollisionBoxes(layout,deck),...breakRoomCollisionBoxes(layout,deck)].some(box=>circleHitsBox({x:point.x,y:point.z},box,Math.max(padding,EDGE)))) return false;
+  if ([...cloningCollisionBoxes(layout,deck),...barCollisionBoxes(layout,deck),...breakRoomCollisionBoxes(layout,deck),...hibernationCollisionBoxes(layout,deck)].some(box=>circleHitsBox({x:point.x,y:point.z},box,Math.max(padding,EDGE)))) return false;
   if (!padding) return true;
   return FOOT_SAMPLES.every(([x, z]) => floorPoint({ x: point.x + x * padding, z: point.z + z * padding }, layout, deck));
 }
 
 export function walkableSegment(start: ShipPoint, end: ShipPoint, layout: ShipLayout, padding = 0, deck = 0) {
-  if([...cloningCollisionBoxes(layout,deck),...barCollisionBoxes(layout,deck),...breakRoomCollisionBoxes(layout,deck)].some(box=>segmentHitsBox({x:start.x,y:start.z},{x:end.x,y:end.z},box,Math.max(padding,EDGE))))return false;
+  if([...cloningCollisionBoxes(layout,deck),...barCollisionBoxes(layout,deck),...breakRoomCollisionBoxes(layout,deck),...hibernationCollisionBoxes(layout,deck)].some(box=>segmentHitsBox({x:start.x,y:start.z},{x:end.x,y:end.z},box,Math.max(padding,EDGE))))return false;
   const distance = Math.hypot(end.x - start.x, end.z - start.z), samples = Math.max(1, Math.ceil(distance / .1));
   for (let i = 0; i <= samples; i++) {
     const t = i / samples;
@@ -52,7 +53,7 @@ export function walkableSegment(start: ShipPoint, end: ShipPoint, layout: ShipLa
 export function nearestWalkablePoint(point: ShipPoint, layout: ShipLayout, padding = 0, deck = 0, free: (point: ShipPoint) => boolean = () => true): ShipPoint {
   const candidates: ShipPoint[] = [], radius = Math.hypot(point.x, point.z), angle = Math.atan2(point.x, point.z);
   let recovered={x:point.x,y:point.z};
-  const pods=[...cloningCollisionBoxes(layout,deck),...barCollisionBoxes(layout,deck),...breakRoomCollisionBoxes(layout,deck)];
+  const pods=[...cloningCollisionBoxes(layout,deck),...barCollisionBoxes(layout,deck),...breakRoomCollisionBoxes(layout,deck),...hibernationCollisionBoxes(layout,deck)];
   for(let pass=0;pass<pods.length;pass++)for(const box of pods)if(circleHitsBox(recovered,box,Math.max(padding,EDGE)))recovered=projectOutside(recovered,box,Math.max(padding,EDGE));
   candidates.push({x:recovered.x,z:recovered.y});
   const sector = ((angle / TAU * layout.allocation.sectors) % 1 + 1) % 1;

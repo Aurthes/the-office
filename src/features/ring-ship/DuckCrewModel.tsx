@@ -32,6 +32,7 @@ export const DuckCrewModel = memo(function DuckCrewModel({
     breakPose.current.action = null;
     if (!group.current) return;
     const moving = agent as MovingAgent | undefined, field = moving?.fieldwork;
+    const sleep = moving?.sleepPose;
     const prank = moving?.kirbyPose, deck = moving?.deck ?? homeDeck;
     group.current.visible = !!agent && !prank?.hidden && (visibleDeck === undefined || deck === visibleDeck || (field?.phase === "lift" && field.legs[0]?.deck === visibleDeck));
     if (!agent || prank?.hidden) return;
@@ -43,7 +44,9 @@ export const DuckCrewModel = memo(function DuckCrewModel({
     const [x, , z] = toWorld(agent.x, agent.y), rate = 1 - Math.exp(-Math.min(delta, 0.1) * 12);
     // Motion already advances continuously; a second positional lerp could cut
     // across the collision-safe route and visually pass through another actor.
-    target.set(prank?.x ?? x, (moving?.deckY ?? deck * DECK_STEP) + (prank?.y ?? .08), prank?.z ?? z); group.current.position.copy(target);
+    target.set(prank?.x ?? sleep?.x ?? x, (moving?.deckY ?? deck * DECK_STEP) + (prank?.y ?? sleep?.y ?? .08), prank?.z ?? sleep?.z ?? z); group.current.position.copy(target);
+    group.current.userData.hibernation = moving?.hibernation;
+    group.current.rotation.order = "YXZ"; group.current.rotation.x = sleep?.tilt ?? 0;
     group.current.scale.setScalar(AGENT_SCALE * (prank?.scale ?? 1)); group.current.rotation.z = prank?.tilt ?? 0;
     group.current.rotation.y += Math.atan2(Math.sin(agent.facing - group.current.rotation.y), Math.cos(agent.facing - group.current.rotation.y)) * rate;
     const walking = agent.state === "walking", seated = agent.state === "sitting";
@@ -69,6 +72,11 @@ export const DuckCrewModel = memo(function DuckCrewModel({
       foot.rotation.x = walking ? step * 0.48 : seated ? -0.45 : 0;
       foot.position.y = 0.075 + (walking ? Math.max(0, step) * 0.022 : seated ? 0.015 : 0);
     });
+    if (sleep) {
+      rig.root.position.y = 0; rig.body.rotation.set(0, 0, 0);
+      rig.wings.forEach(wing => { wing.rotation.x = -.18; wing.rotation.z = 0; });
+      rig.feet.forEach(foot => { foot.rotation.x = 0; });
+    }
     if (takingBreak) {
       breakPose.current = { action: breakAction(visit), time: agent.frame / 60 };
       applyBreakPose(rig, breakPose.current.action!, breakPose.current.time);

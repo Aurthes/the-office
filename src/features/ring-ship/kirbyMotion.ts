@@ -20,7 +20,7 @@ export function createKirbyState(layout: ShipLayout, seed: number, radius?: numb
   return { actor: createCompanionState("kirby", layout, seed, radius), phase: "wander", since: 0, cooldownUntil: 0, victim: null };
 }
 function eligible(agent: MovingAgent, layout: ShipLayout, chatId?: string | null) {
-  return agent.status === "idle" && !agent.fieldwork && !agent.needsInput && agent.id !== chatId && (agent.deck ?? layout.seats[agent.id]?.deck) === 0;
+  return agent.status === "idle" && !agent.fieldwork && !agent.hibernation && !agent.needsInput && agent.id !== chatId && (agent.deck ?? layout.seats[agent.id]?.deck) === 0;
 }
 function landingPoint(state: KirbyState, agent: MovingAgent, layout: ShipLayout, others: readonly CharacterBody[]) {
   const actor = state.actor, radius = crewRadius(agent), body = { id: agent.id, position: actor.position, radius, deck: 0 };

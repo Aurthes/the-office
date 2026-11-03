@@ -35,6 +35,7 @@ import { buildShell } from "./shell";
 import { LiftEntry, LiftJourney, LiftOverlay, type LiftTrip } from "./ShipLift";
 import { ReturnPodBay, ReturnPodJourney, type ReturnFlight } from "./ReturnPodBay";
 import { CloningLab, type CloneFlight } from "./CloningLab";
+import { HibernationBay } from "./HibernationBay";
 import { CLONE_LABELS, cloningPoint, rejoinCrewAfterClone, type CloneArrival, type CloneRequest, type CloneResult, type CloneStage } from "./cloneMotion";
 import { returnRoute, RETURN_LABELS, type ArchiveResult, type ReturnStage, type ReturnTransfer } from "./returnPodMotion";
 import { FieldCamp } from "./FieldCamp";
@@ -328,7 +329,7 @@ function CrewLabel({ agent, lookupRef, placement, expanded, onOpen, deck, visibl
     const height = expanded ? 36 : agent.title ? 32 : 21;
     const zoom = state.camera.zoom;
     const seatedLift = value.state === "sitting" ? Math.max(0, (visit ? BREAK_ROOM.seatHeight : value.workstation?.seatHeight ?? .4) - .08 - .065 * AGENT_SCALE) : 0;
-    const headY = .16 + (moving?.fieldwork?.geared ? .75 : headwear === "none" ? .65 : .72 + Math.max(0, eyeHeight - 1) * .3) * bodyHeight * AGENT_SCALE + seatedLift;
+    const headY = moving?.sleepPose ? moving.sleepPose.y + 1.2 - Math.abs(Math.sin(moving.sleepPose.tilt)) * .6 : .16 + (moving?.fieldwork?.geared ? .75 : headwear === "none" ? .65 : .72 + Math.max(0, eyeHeight - 1) * .3) * bodyHeight * AGENT_SCALE + seatedLift;
     vectors.anchor.set(p.x, headY + (moving?.deckY ?? actualDeck * DECK_STEP), p.z);
     vectors.projected.copy(vectors.anchor).project(state.camera);
     const x = (vectors.projected.x + 1) * state.size.width / 2 - width / 2;
@@ -582,6 +583,7 @@ export function RingShipOffice(props: Props) {
         {index === 0 && props.organization?.ceoAvatar ? <CeoCharacter layout={value} profile={props.organization.ceoAvatar} active={!busy && (shipView || visibleDeck === 0)} enabled={objectEnabled && (shipView || visibleDeck === 0)} onSelect={inspectObject} onReady={ceoReady} bodyRef={ceoBodyRef} crewRef={crewLookupRef} companionsRef={companionsRef} /> : null}
         <StaticShip layout={value} serverHosts={serverHosts} enabled={objectEnabled && (shipView || index === visibleDeck)} selectedId={objectFocus?.id} onSelect={inspectObject} /><ReturnPodBay layout={value} active={!!returnFlight}/>
         {index === 0 ? <ShipCompanions layout={value} active={!busy && (shipView || visibleDeck === 0)} enabled={objectEnabled && (shipView || visibleDeck === 0)} selectedId={objectFocus?.id} onSelect={inspectObject} companionsRef={companionsRef} crewRef={shipView ? undefined : crewLookupRef} chatAgentId={props.activeChatAgentId} ceoBodyRef={ceoBodyRef} /> : null}
+        {value.cabins.filter(c => c.kind === "quarters").map(cabin => <HibernationBay key={cabin.id} layout={value} cabin={cabin} lookupRef={crewLookupRef} onOpen={open} interactive={objectEnabled && !shipView && index === visibleDeck} />)}
         {value.cabins.filter(c => c.kind === "ai").map(cabin => <AiComputationCore key={cabin.id} layout={value} cabin={cabin} interactive={objectEnabled && !shipView && index === visibleDeck} onOpen={() => select(cabin.id)} />)}
       </group>)}
       {!shipView && !busy ? <group position={[0, visibleDeck * DECK_STEP, 0]}>

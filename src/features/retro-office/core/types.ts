@@ -8,6 +8,7 @@ export type OfficeAgent = {
   title?: string;
   constructionWorker?: boolean;
   siteTask?: string | null;
+  lastActivityAt?: number;
   needsReview?: boolean;
   needsInput?: boolean;
   hasPendingSchedule?: boolean;

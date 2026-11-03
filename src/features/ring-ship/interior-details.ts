@@ -125,12 +125,7 @@ export function addCabinDetails(b: Builder, layout: ShipLayout, c: ShipCabin) {
       for (const v of [-1.5, 1.5]) locker(u, v);
     }
   } else if (c.kind === 'quarters') {
-    for (const u of [-width * .4, -width * .13, width * .13, width * .4]) {
-      model('bookcaseClosed', 1, u, 3);
-      model('loungeDesignChair', .7, u, -2.6);
-      model('tableCoffee', .8, u + 1.2, -2.6);
-      plant(u - 1.2, -2.6, .4);
-    }
+    // The compact sleeping capsules fill both rows; keep the aisle clear.
   } else if (c.kind === 'observatory') {
     for (const u of [-width * .36, 0, width * .36]) {
       console(u, 2.6); model('loungeDesignChair', .75, u, -2.6, .08, Math.PI);

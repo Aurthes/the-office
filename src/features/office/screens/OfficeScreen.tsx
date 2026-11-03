@@ -411,6 +411,7 @@ const mapAgentToOffice = (agent: AgentState): OfficeAgent => {
     name: agent.name || "Unknown",
     subtitle: agent.role ?? null,
     status: isWorking ? "working" : "idle",
+    lastActivityAt: Math.max(agent.lastActivityAt ?? 0, agent.lastAssistantMessageAt ?? 0),
     color: stringToColor(agent.agentId),
     item: getDeterministicItem(agent.agentId),
     avatarProfile: agent.avatarProfile ?? null,

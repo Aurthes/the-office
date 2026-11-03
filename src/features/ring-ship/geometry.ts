@@ -304,14 +304,7 @@ function addAmenity(b: Builder, layout: ShipLayout, cabin: ShipCabin, serverHost
       });
     }
   } else if (cabin.kind === "quarters") {
-    for (const u of [-width * 0.28, 0, width * 0.28]) {
-      b.object("bed", () => {
-        b.localBox(layout, cabin, u, 1.25, 0.35, [1.65, 0.55, 2.0], HULL);
-        b.localBox(layout, cabin, u, 1.25, 0.66, [1.45, 0.12, 1.8], "#a9bdc5");
-        b.localBox(layout, cabin, u, 1.9, 0.78, [1.2, 0.12, 0.35], "#ede2c7");
-      });
-      b.object("locker", () => b.localBox(layout, cabin, u, -1.7, 0.7, [1.0, 1.3, 0.65], "#9bafb4"));
-    }
+    // Compact capsules and their animated lids are rendered by HibernationBay.
   } else if (cabin.kind === "observatory") {
     for (const u of [-width * 0.25, width * 0.25]) {
       const p = local(u, 1.0);

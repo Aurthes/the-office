@@ -748,6 +748,8 @@ export const ZH_CN: Record<string, string> = {
   "Supply storage": "补给储物舱",
   "Observatory": "观星舱",
   "Crew quarters": "船员休息舱",
+  "Hibernation bay": "休眠舱区",
+  "Compact sleeping capsules. Idle crew rest here after one hour and wake when assigned a task.": "紧凑的胶囊休眠舱。船员空闲超过一小时后会来休息，收到任务后自动醒来。",
   "Maintenance": "飞船维修舱",
   "Shared workspace": "共享工作舱",
   "Reserve cabin": "预留舱",

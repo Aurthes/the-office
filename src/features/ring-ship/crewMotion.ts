@@ -1,15 +1,17 @@
 import type { OfficeAgent, RenderAgent } from "@/features/retro-office/core/types";
 import { CANVAS_W, CANVAS_H, SCALE } from "@/features/retro-office/core/constants";
 import { SHIP_WORKSTATION } from "./geometry";
-import { routeBetweenCabins, type DeckIndex, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
+import { routeBetweenCabins, shipPoint, type DeckIndex, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
 import { crewRadius, moveCharacter, occupiedWaypoint, separateCharacter, walkCharacter, type CharacterBody, type CharacterRecovery } from "./characterCollision";
 import { resolveWorksite, siteJourney, sitePoint, type FieldworkState } from "./fieldwork";
 import { footingRadius, walkableSegment } from "./walkableSurface";
 import { BREAK_ACTIONS, breakSeatKey, breakSeatPose, type BreakVisit } from "./breakRoomLayout";
 import { freeBreakSeat, hasBreakPartner, routeToBreakSeat } from "./breakRoomMotion";
+import { HIBERNATION_CAPACITY, HIBERNATION_IDLE_MS, hibernationPod } from "./hibernationLayout";
+import { insideHibernation, sleepPose, type HibernationState, type SleepPose } from "./hibernationMotion";
 
 export type KirbyCrewPose = ShipPoint & { y: number; scale: number; tilt: number; hidden: boolean };
-export type MovingAgent = RenderAgent & OfficeAgent & { deck: DeckIndex; homeDeck?: DeckIndex; deckY?: number; fieldwork?: FieldworkState; worksite?: ShipCabin; route: ShipPoint[]; routeIndex: number; pauseUntil: number; home: ShipPoint; visiting: boolean; kirbyPose?: KirbyCrewPose; recovery?: CharacterRecovery; breakVisit?: BreakVisit; outings?: number };
+export type MovingAgent = RenderAgent & OfficeAgent & { deck: DeckIndex; homeDeck?: DeckIndex; deckY?: number; fieldwork?: FieldworkState; worksite?: ShipCabin; route: ShipPoint[]; routeIndex: number; pauseUntil: number; home: ShipPoint; visiting: boolean; kirbyPose?: KirbyCrewPose; recovery?: CharacterRecovery; breakVisit?: BreakVisit; outings?: number; idleSince?: number; idleActivityAt?: number; hibernation?: HibernationState; sleepPose?: SleepPose };
 export function canvasPoint(point: ShipPoint) { return { x: point.x / SCALE + CANVAS_W / 2, y: point.z / SCALE + CANVAS_H / 2 }; }
 export function worldPoint(agent: RenderAgent): ShipPoint { return { x: (agent.x - CANVAS_W / 2) * SCALE, z: (agent.y - CANVAS_H / 2) * SCALE }; }
 export function hash(value: string) { let result = 0; for (const char of value) result = (result * 31 + char.charCodeAt(0)) >>> 0; return result; }
@@ -18,7 +20,7 @@ export function crewBodies(crew: readonly RenderAgent[], layout: ShipLayout): Ch
     const seat = layout.seats[agent.id];
     const pose = (agent as MovingAgent).kirbyPose;
     const deck = (agent as MovingAgent).deck ?? seat?.deck, visit = (agent as MovingAgent).breakVisit;
-    return deck !== undefined && !pose?.hidden && (agent as MovingAgent).fieldwork?.phase !== "lift" ? [{ id: agent.id, position: pose || worldPoint(agent), radius: crewRadius("avatarProfile" in agent ? agent : {}) * (pose?.scale ?? 1), deck,
+    return deck !== undefined && !pose?.hidden && !insideHibernation((agent as MovingAgent).hibernation) && (agent as MovingAgent).fieldwork?.phase !== "lift" ? [{ id: agent.id, position: pose || worldPoint(agent), radius: crewRadius("avatarProfile" in agent ? agent : {}) * (pose?.scale ?? 1), deck,
       reservedSeat: visit ? breakSeatKey(visit.cabinId, visit.seat) : undefined }] : [];
   });
 }
@@ -40,11 +42,85 @@ export function syncCrew(agents: OfficeAgent[], layout: ShipLayout, previousById
       worksite: agent.constructionWorker ? resolveWorksite(agent.siteTask, layout, seat.deck) : undefined,
       deck: unchanged ? previous.deck ?? seat.deck : seat.deck, deckY: unchanged ? previous.deckY : undefined, fieldwork: unchanged ? previous.fieldwork : undefined,
       kirbyPose: unchanged ? previous.kirbyPose : undefined, breakVisit: unchanged ? previous.breakVisit : undefined,
+      idleSince: previous?.idleSince, idleActivityAt: previous?.idleActivityAt,
+      hibernation: unchanged ? previous.hibernation : undefined, sleepPose: unchanged ? previous.sleepPose : undefined,
       recovery: unchanged ? previous.recovery : undefined, outings: previous?.outings ?? 0 }];
   });
 }
 
 const SITE_ROUTINE = ["blueprint", "notes", "survey", "measure", "patrol"] as const;
+function advanceHibernation(a: MovingAgent, crew: MovingAgent[], layout: ShipLayout, now: number, wallNow: number, dt: number, body: CharacterBody, others: readonly CharacterBody[]): boolean {
+  const idle = a.status === "idle" && !a.needsInput;
+  const activity = Number.isFinite(a.lastActivityAt) && a.lastActivityAt! > 0 ? Math.min(a.lastActivityAt!, wallNow) : 0;
+  if (!idle) a.idleSince = wallNow;
+  else if (a.idleSince === undefined) a.idleSince = activity || wallNow;
+  else if (activity > (a.idleActivityAt ?? 0)) a.idleSince = Math.max(a.idleSince, activity);
+  const refreshed = activity > (a.idleActivityAt ?? activity);
+  a.idleActivityAt = activity;
+  if (!a.hibernation && idle && !a.fieldwork && wallNow - a.idleSince! > HIBERNATION_IDLE_MS) {
+    const cabin = layout.cabins.find(c => c.kind === "quarters" && c.deck === a.deck);
+    if (cabin) {
+      const pod = Array.from({ length: HIBERNATION_CAPACITY }, (_, i) => i).find(index => !crew.some(other =>
+        other.hibernation?.cabinId === cabin.id && other.hibernation.pod === index && other.hibernation.phase !== "returning"));
+      if (pod !== undefined) {
+        a.hibernation = { cabinId: cabin.id, pod, phase: "travelling", time: 0 };
+        const berth = hibernationPod(layout, cabin, pod);
+        a.route = siteJourney(layout, worldPoint(a), a.deck, cabin, shipPoint(layout.rings[cabin.ring].radius, berth.angle))[0].points.concat([berth.entry]);
+        a.routeIndex = 0; a.visiting = false; a.breakVisit = undefined; a.recovery = undefined; body.reservedSeat = undefined;
+      }
+    }
+  }
+  const sleep = a.hibernation; if (!sleep) return false;
+  const cabin = layout.cabins.find(c => c.id === sleep.cabinId);
+  if (!cabin) { a.hibernation = undefined; a.sleepPose = undefined; return false; }
+  const pod = hibernationPod(layout, cabin, sleep.pod);
+  const goHome = () => {
+    sleep.phase = "returning"; sleep.time = 0; a.sleepPose = undefined;
+    const home = layout.cabins.find(c => c.id === layout.seats[a.id].cabinId)!;
+    a.route = siteJourney(layout, worldPoint(a), a.deck, home, a.home)[0].points; a.routeIndex = 0; a.recovery = undefined;
+  };
+  if ((!idle || refreshed) && !["waking", "leaving", "returning"].includes(sleep.phase)) {
+    if (sleep.phase === "travelling") goHome();
+    else { sleep.wakeFrom = sleepPose(sleep, pod); sleep.phase = "waking"; sleep.time = 0; }
+  }
+  a.interactionTarget = undefined;
+  if (sleep.phase === "returning" && a.status === "working" && a.worksite) { a.hibernation = undefined; return false; }
+  if (sleep.phase === "travelling" || sleep.phase === "returning") {
+    const target = a.route[a.routeIndex];
+    if (target) {
+      const before = worldPoint(a);
+      a.walkSpeed = sleep.phase === "returning" ? 2.15 : 1;
+      a.frame += dt * 60 * (a.walkSpeed - 1);
+      const next = walkCharacter(a, body, target, dt * 1.05 * a.walkSpeed, dt, others, layout);
+      Object.assign(a, canvasPoint(next)); body.position = next;
+      const moved = Math.hypot(next.x - before.x, next.z - before.z) > 1e-6;
+      a.state = moved ? "walking" : "standing";
+      if (moved) a.facing = Math.atan2(next.x - before.x, next.z - before.z);
+      if (Math.hypot(next.x - target.x, next.z - target.z) < 1e-5) a.routeIndex++;
+      if (a.routeIndex < a.route.length) return true;
+    }
+    a.route = []; a.routeIndex = 0;
+    if (sleep.phase === "returning") { a.hibernation = undefined; a.pauseUntil = now + 6000; return false; }
+    sleep.phase = "entering"; sleep.time = 0;
+  }
+  sleep.time += dt; a.facing = pod.facing; a.state = "standing";
+  // Entry/exit is a short, bounded animation within the reserved pod footprint.
+  // Ordinary walkers still collide with the pod, never the reclining body.
+  if (sleep.phase === "entering" && sleep.time >= 1.8) { sleep.phase = "sleeping"; sleep.time = 0; }
+  if (sleep.phase === "waking" && sleep.time >= 1) {
+    sleep.wakeFrom = sleepPose(sleep, pod); sleep.phase = "leaving"; sleep.time = 0;
+  }
+  const pose = sleepPose(sleep, pod);
+  if (sleep.phase === "leaving" && pose && occupiedWaypoint(body, pose, others)) { sleep.time = Math.max(0, sleep.time - dt); return true; }
+  if (sleep.phase === "leaving" && sleep.time >= 1) {
+    // Wait for a passer-by before stepping into the aisle.
+    if (occupiedWaypoint(body, pod.entry, others)) { sleep.time = 1; return true; }
+    Object.assign(a, canvasPoint(pod.entry)); body.position = pod.entry; goHome(); return true;
+  }
+  if (pose) { a.sleepPose = pose; Object.assign(a, canvasPoint(pose)); body.position = pose; }
+  return true;
+}
+
 function advanceFieldwork(a: MovingAgent, layout: ShipLayout, now: number, dt: number, body: CharacterBody, others: readonly CharacterBody[]): boolean {
   const seat = layout.seats[a.id];
   const desired = a.constructionWorker && a.status === "working" ? a.worksite : undefined;
@@ -124,7 +200,7 @@ function advanceFieldwork(a: MovingAgent, layout: ShipLayout, now: number, dt: n
 }
 
 // Native task state changes the destination and pace, never the current position.
-export function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number, delta: number, chatAgentId?: string | null, companions: readonly CharacterBody[] = []) {
+export function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number, delta: number, chatAgentId?: string | null, companions: readonly CharacterBody[] = [], wallNow = Date.now()) {
   const dt = Math.min(delta, 0.05), allAmenities = layout.cabins.filter(c => ["garden", "lounge", "canteen", "gym", "observatory"].includes(c.kind));
   const bodies = crewBodies(crew, layout), others = [...bodies, ...companions];
   const byId = new Map(bodies.map(body => [body.id, body]));
@@ -135,6 +211,7 @@ export function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number
     if (a.kirbyPose) continue;
     a.deck ??= seat.deck;
     const body = byId.get(a.id) || { id: a.id, position: worldPoint(a), radius: crewRadius(a), deck: a.deck };
+    if (advanceHibernation(a, crew, layout, now, wallNow, dt, body, others)) continue;
     if (advanceFieldwork(a, layout, now, dt, body, others)) continue;
     const amenities = allAmenities.filter(c => c.deck === a.deck);
     body.position = moveCharacter(body, body.position, 0, others, true, layout);

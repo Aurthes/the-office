@@ -14,7 +14,7 @@ const ALIASES: Partial<Record<ShipCabin["kind"], string[]>> = {
   gym: ["gym", "健身房"], servers: ["server room", "serverroom", "机房", "服务器房"], ai: ["ai center", "ai中心", "ai 中心"],
   monitor: ["monitor room", "中控", "监控室"], maintenance: ["maintenance", "维修舱", "维修间"],
   cargo: ["cargo", "supply storage", "货舱", "仓库"], observatory: ["observatory", "天文台", "观测舱"],
-  quarters: ["crew quarters", "宿舍", "生活舱"], return: ["return bay", "返航舱"], cloning: ["cloning", "克隆舱", "克隆实验室"],
+  quarters: ["hibernation bay", "hibernation", "sleeping pods", "休眠舱", "休眠区", "crew quarters", "宿舍", "生活舱"], return: ["return bay", "返航舱"], cloning: ["cloning", "克隆舱", "克隆实验室"],
 };
 function mentions(text: string, phrase: string) {
   if (!/^[a-z\d ]+$/i.test(phrase)) return text.includes(phrase.toLowerCase());

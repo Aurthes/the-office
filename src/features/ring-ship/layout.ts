@@ -43,7 +43,7 @@ export const PUBLIC_CABINS: ReadonlyArray<{ id: string; ring: RingIndex; slot: n
   { id: "public:gym", ring: 2, slot: 0, kind: "gym", name: "Gym", color: "#8da4d2" },
   { id: "public:cargo", ring: 2, slot: 1, kind: "cargo", name: "Supply storage", color: "#bdab83" },
   { id: "public:observatory", ring: 2, slot: 2, kind: "observatory", name: "Observatory", color: "#8fb9ce" },
-  { id: "public:quarters", ring: 2, slot: 3, kind: "quarters", name: "Crew quarters", color: "#b5a5c4" },
+  { id: "public:quarters", ring: 2, slot: 3, kind: "quarters", name: "Hibernation bay", color: "#b5a5c4" },
   { id: "public:maintenance", ring: 2, slot: 4, kind: "maintenance", name: "Maintenance", color: "#d3a47a" },
   { id: "public:return", ring: 2, slot: 7, kind: "return", name: "Return bay", color: "#f5bb68" },
 ];
@@ -284,5 +284,5 @@ export const PUBLIC_DESCRIPTIONS: Record<CabinKind, string> = {
   garden: "A rainforest habitat with layered tree canopies, broad leaves, ferns, and vines around water and paths.", hydroponics: "Hydroponic beds, grow lights, and circulating water for growing food.",
   canteen: "Crew dining tables, kitchen, and coffee area.", gym: "A shared cabin for running, strength training, and exercise.", servers: "Rows of server racks, overhead cooling fans, cooling pipes, and maintenance terminals with a central service aisle.",
   maintenance: "Tools, spare parts, and ship repairs.", lounge: "A shared space for stargazing, rest, and conversation.",
-  cargo: "Storage for ship supplies and spare equipment.", observatory: "A shared observation cabin for stars and distant routes.", quarters: "Crew bunks and personal storage.",
+  cargo: "Storage for ship supplies and spare equipment.", observatory: "A shared observation cabin for stars and distant routes.", quarters: "Compact sleeping capsules. Idle crew rest here after one hour and wake when assigned a task.",
 };
