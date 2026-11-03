@@ -90,16 +90,16 @@ export function addRainforest(b: Builder, layout: ShipLayout, cabin: ShipCabin) 
   for (let u = -width * .42; u < width * .42; u += .35) {
     box(u, 0, .061, [.31, .024, SHIP_AISLE_WIDTH], Math.round(u / .35) % 2 ? "#957c61" : "#86705a");
   }
-  const patches = Array.from({ length: 9 }, () => ({ u: between(-width * .35, width * .35), v: (random() < .55 ? 1 : -1) * between(1.5, 2.65) }));
+  const patches = Array.from({ length: 12 }, (_, i) => ({ u: (Math.floor(i / 2) / 5 - .5) * width * .7 + between(-.45, .45), v: (i % 2 ? -1 : 1) * between(2.5, 2.7) }));
   const trees: { u: number; v: number; height: number; spread: number }[] = [];
-  for (let attempt = 0; attempt < 400 && trees.length < 22; attempt++) {
+  for (let attempt = 0; attempt < 700 && trees.length < 22; attempt++) {
     const patch = patches[Math.floor(random() * patches.length)];
-    const u = patch.u + between(-1.65, 1.65), v = patch.v + between(-.65, .65);
-    if (!plantable(u, v) || Math.abs(v) < 2.45 || trees.some(tree => Math.hypot(tree.u - u, tree.v - v) < .95)) continue;
+    const u = patch.u + between(-1.65, 1.65), v = patch.v + between(-.18, .18);
+    if (!plantable(u, v) || Math.abs(v) < 2.45 || trees.some(tree => Math.hypot(tree.u - u, tree.v - v) < .9)) continue;
     const kind = trees.length % 3, yaw = between(0, Math.PI * 2), spread = Math.min(between(.95, 1.35), (Math.abs(v) - laneEdge) / 1.25);
     let height = between(1.7, 2.7);
     if (kind === 0) {
-      const size = between(1.7, 2.05);
+      const size = between(2.05, 2.9);
       b.object("rainforestTree", () => { if (!model("rainforestTree", size, u, v, .19, yaw)) {
         b.curve([xyz(u, v, .2), xyz(u + .08, v, 1.2), xyz(u - .12, v + .06, height)], .12, "#79644b");
         b.ball(spread, xyz(u, v, height), "#43764c", [1.15, .65, 1]);
