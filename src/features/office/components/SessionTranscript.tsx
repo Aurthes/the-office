@@ -1,5 +1,6 @@
 "use client";
 import { memo, useState } from "react";
+import { GitFork } from "lucide-react";
 import type { LiveSessionItem } from "./SessionControls";
 import { SessionMarkdown } from "./SessionMarkdown";
 import { useUiText } from "@/lib/i18n/ui-language";
@@ -65,10 +66,14 @@ function WorkProcess({ items, defaultOpen }: { items: LiveSessionItem[]; default
   </details>;
 }
 
-export const SessionTranscript = memo(function SessionTranscript({ messages, activeTurnId = null }: { messages: LiveSessionItem[]; activeTurnId?: string | null }) {
+export const SessionTranscript = memo(function SessionTranscript({ messages, activeTurnId = null, onForkFrom, forkDisabled = false }: { messages: LiveSessionItem[]; activeTurnId?: string | null; onForkFrom?: (lastTurnId: string) => void; forkDisabled?: boolean }) {
   const t = useUiText();
   const groups = new Map<string, { id: string; items: LiveSessionItem[] }>();
   const answeredTurns = new Set(messages.filter(message => message.role === "assistant" && message.phase === "final_answer").map(message => message.turnId));
+  const forkPoints = new Map<string, string>();
+  for (const message of messages) {
+    if (message.turnId && message.turnId !== activeTurnId && message.role === "assistant" && message.source !== "voice" && message.phase !== "commentary" && message.phase !== "partial_answer") forkPoints.set(message.turnId, message.id);
+  }
   const blocks: ({ message: LiveSessionItem } | { group: { id: string; items: LiveSessionItem[] } })[] = [];
   for (const message of messages) {
     if (message.role === "user" && !visibleUserText(message.content).trim() && !message.assets?.some(asset => asset.inline || asset.attached)) continue;
@@ -88,6 +93,7 @@ export const SessionTranscript = memo(function SessionTranscript({ messages, act
     return <article key={block.message.id} aria-label={block.message.role === "user" ? t("You") : "Codex"} className={block.message.role === "user" ? "session-user-message" : "mr-2 rounded-lg border border-slate-500/40 bg-[#242932] px-3 py-2.5 text-slate-100"}>
     {block.message.role !== "user" || block.message.source === "voice" ? <div className="mb-1 text-[10px] font-semibold text-slate-300">{block.message.role === "user" ? t("You") : "Codex"}{block.message.source === "voice" ? ` · ${t("Voice")}` : ""}</div> : null}
     <MessageBody message={block.message} truncatedLabel={t("This message is long. View the rest in the desktop app.")} />
+    {onForkFrom && block.message.turnId && forkPoints.get(block.message.turnId) === block.message.id ? <button type="button" disabled={forkDisabled} onClick={() => onForkFrom(block.message.turnId!)} className="mt-2 inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-[11px] text-slate-400 hover:bg-white/5 hover:text-teal-200 disabled:opacity-40" title={t("Keep this turn and earlier context; later messages are excluded.")}><GitFork size={13} aria-hidden="true" />{t("Fork from here")}</button> : null}
   </article>;
   });
 });

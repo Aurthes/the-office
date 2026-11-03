@@ -28,6 +28,25 @@ async function session(f: ReturnType<typeof fixture>) {
   return (await f.store.createSession({ name: "Own chat", projectId: project.id, requestId: "session" })).threadId;
 }
 describe("independent Office runtime", () => {
+  it("forwards an explicit historical fork boundary to Codex once and keeps the source configuration",async()=>{
+    const f=fixture(),id=await session(f),source=f.store.get(id);
+    Object.assign(source,{codexThreadId:"native-own-thread",hasTurns:true});source.settings.model="custom-model";
+    f.client.call.mockResolvedValueOnce({thread:{id:"native-past-fork"}});
+    const input={threadId:id,lastTurnId:"completed-past-turn",requestId:"fork-past"};
+    const result=await f.store.forkSession(input);expect(await f.store.forkSession(input)).toEqual(result);
+    expect(f.client.call.mock.calls).toEqual([["thread/fork",{threadId:"native-own-thread",lastTurnId:"completed-past-turn",excludeTurns:true,deferGoalContinuation:true}]]);
+    expect(f.store.get(result.threadId)).toMatchObject({codexThreadId:"native-past-fork",workspace:source.workspace,projectId:source.projectId,settings:source.settings});
+    expect(f.store.get(result.threadId).settings).not.toBe(source.settings);
+  });
+  it("rejects invalid historical boundaries and never falls back to cloning later context after a native rejection",async()=>{
+    const f=fixture(),id=await session(f);
+    expect(()=>f.store.forkSession({threadId:id,lastTurnId:"past",requestId:"empty"})).toThrow("completed turn");
+    Object.assign(f.store.get(id),{codexThreadId:"native-own-thread",hasTurns:true});
+    for(const lastTurnId of [null,"",123])expect(()=>f.store.forkSession({threadId:id,lastTurnId,requestId:"invalid"})).toThrow("completed turn");
+    f.client.call.mockRejectedValueOnce(new Error("The referenced turn cannot be in progress"));
+    await expect(f.store.forkSession({threadId:id,lastTurnId:"running",requestId:"running"})).rejects.toThrow("in progress");
+    expect(f.client.call).toHaveBeenCalledTimes(1);expect(f.store.list()).toHaveLength(1);
+  });
   it("persists an unassigned agent, scopes its turns and terminal roots to its chosen folder, and does not create a project", async () => {
     const f = fixture();
     const input = { name: "Open Space agent", projectId: null, workspace: f.workspace, requestId: "open-space" };

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { DECK_STEP, type DeckIndex } from "./layout";
 
 export const SHIP_OBJECT_INFO = {
+  cloningPod: ["Cloning pod", "A fresh appearance and a new conversation, carrying the source agent's context through the chosen turn."],
   ceo: ["CEO", "Your representative, overseeing the heads of every department."],
   kirby: ["Kirby", "A pink visitor with an appetite for fifteen-second breaks. One idle crew member at a time. Poyo!"],
   cat: ["Ship cat", "A curious little explorer with a talent for finding the best napping spots."],

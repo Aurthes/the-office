@@ -45,7 +45,7 @@ export const segmentHitsBox = (from: CanvasPoint, to: CanvasPoint, box: Collisio
   return false;
 };
 
-const projectOutside = (p: CanvasPoint, box: CollisionBox, radius: number) => {
+export const projectOutside = (p: CanvasPoint, box: CollisionBox, radius: number) => {
   const q = local(p, box);
   const near = { x: Math.max(-box.halfX, Math.min(box.halfX, q.x)), y: Math.max(-box.halfY, Math.min(box.halfY, q.y)) };
   const dx = q.x - near.x, dy = q.y - near.y, d = Math.hypot(dx, dy);

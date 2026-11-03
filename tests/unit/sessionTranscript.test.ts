@@ -1,8 +1,25 @@
 import React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { SessionTranscript } from "../../src/features/office/components/SessionTranscript";
 afterEach(cleanup);
+
+it("forks at the last answer of a completed turn, excluding work logs, user messages and the active turn",()=>{
+  const onForkFrom=vi.fn(),messages=[
+    {id:"u",turnId:"past",role:"user",content:"Earlier question"},
+    {id:"c",turnId:"past",role:"assistant",phase:"commentary",content:"Checking"},
+    {id:"p",turnId:"past",role:"assistant",phase:"partial_answer",content:"Partial"},
+    {id:"a",turnId:"past",role:"assistant",phase:"final_answer",content:"Earlier answer"},
+    {id:"b",turnId:"current",role:"assistant",phase:"final_answer",content:"Still streaming"},
+    {id:"v",source:"voice" as const,role:"assistant",content:"Voice without a turn boundary"},
+  ];
+  const view=render(React.createElement(SessionTranscript,{messages,activeTurnId:"current",onForkFrom}));
+  const buttons=screen.getAllByRole("button",{name:"Fork from here"});expect(buttons).toHaveLength(1);
+  expect(buttons[0].closest("article")).toHaveTextContent("Earlier answer");fireEvent.click(buttons[0]);expect(onForkFrom).toHaveBeenCalledWith("past");
+  view.rerender(React.createElement(SessionTranscript,{messages,onForkFrom,forkDisabled:true}));
+  expect(screen.getAllByRole("button",{name:"Fork from here"})).toHaveLength(2);
+  for(const button of screen.getAllByRole("button",{name:"Fork from here"}))expect(button).toBeDisabled();
+});
 
 it("defers native commentary and tools until expansion while leaving user, partial and final answers visible", async () => {
   render(React.createElement(SessionTranscript, { messages: [

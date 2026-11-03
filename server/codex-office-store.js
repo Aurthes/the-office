@@ -96,8 +96,9 @@ class CodexOfficeStore {
   renameSession(input) { const row = this.get(input.threadId), name = this.name(input.name); return this.once(input, async () => { if (row.codexThreadId) await this.client.call("thread/name/set", { threadId: row.codexThreadId, name }); row.name = name; return { threadId: row.id, name }; }); }
   forkSession(input) {
     const source = this.get(input.threadId), name = this.name(input.name || (source.name.slice(0, 110) + " (fork)"));
+    if (input.lastTurnId !== undefined && (typeof input.lastTurnId !== "string" || !input.lastTurnId.trim() || input.lastTurnId.length > 160 || !source.codexThreadId)) throw new Error("Choose a completed turn from this conversation");
     return this.once(input, async () => {
-      const result = source.codexThreadId ? await this.client.call("thread/fork", { threadId: source.codexThreadId, excludeTurns: true, deferGoalContinuation: true }) : null;
+      const result = source.codexThreadId ? await this.client.call("thread/fork", { threadId: source.codexThreadId, ...(input.lastTurnId === undefined ? {} : { lastTurnId: input.lastTurnId }), excludeTurns: true, deferGoalContinuation: true }) : null;
       const row = { id: crypto.randomUUID(), name, workspace: source.workspace, projectId: source.projectId, updatedAt: Date.now(), status: "idle", settings: { ...source.settings },
         ...(result ? { codexThreadId: result.thread.id, hasTurns: source.hasTurns, projectContext: source.projectContext, composerToolsVersion: source.composerToolsVersion } : {}) };
       this.data.sessions.push(row); return { threadId: row.id };

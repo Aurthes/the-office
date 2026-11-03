@@ -28,6 +28,8 @@ export const SHARED_PROJECT_ID = "open-workspace";
 export const RING_RADII = [12, 26, 42] as const;
 export const RING_DEPTHS = [5.6, 6.8, 8] as const;
 export const RING_CAPACITIES = [3, 6, 8] as const;
+export const CLONING_POD = { spacing: 2, v: 1.05, width: 1.9, length: 3.15 } as const;
+export const CLONING_AISLE_V = -2.1;
 export const PUBLIC_CABINS: ReadonlyArray<{ id: string; ring: RingIndex; slot: number; kind: CabinKind; name: string; color: string }> = [
   { id: "public:lounge", ring: 0, slot: 0, kind: "lounge", name: "Observation lounge", color: "#d6af71" },
   { id: "public:servers", ring: 0, slot: 4, kind: "ai", name: "AI Center", color: "#86e6de" },
@@ -50,6 +52,10 @@ export function projectColor(id: string) {
 }
 export function shipPoint(radius: number, angle: number): ShipPoint { return { x: Math.sin(angle) * radius, z: Math.cos(angle) * radius }; }
 export function cabinAngle(layout: Pick<ShipLayout, "allocation">, slot: number) { return (slot + 0.5) * TAU / layout.allocation.sectors; }
+export function cloningPoint(layout: ShipLayout, cabin: ShipCabin, u: number, v: number): ShipPoint {
+  const angle = cabinAngle(layout, cabin.slot), center = shipPoint(layout.rings[cabin.ring].radius, angle);
+  return { x: center.x + u * Math.cos(angle) + v * Math.sin(angle), z: center.z - u * Math.sin(angle) + v * Math.cos(angle) };
+}
 export function desiredRing(count: number): RingIndex { return count <= RING_CAPACITIES[0] ? 0 : count <= RING_CAPACITIES[1] ? 1 : 2; }
 
 export function parseShipAllocation(value: string | null): ShipAllocation | undefined {
@@ -196,15 +202,28 @@ export function areaBounds(layout: ShipLayout, id: string) {
 }
 
 function shortestAngle(from: number, to: number) { return Math.atan2(Math.sin(to - from), Math.cos(to - from)); }
-function arc(radius: number, from: number, to: number): ShipPoint[] {
+function arc(layout: ShipLayout, ringIndex: RingIndex, deck: DeckIndex, from: number, to: number): ShipPoint[] {
+  const radius=layout.rings[ringIndex].radius;
   const delta = shortestAngle(from, to), steps = Math.max(1, Math.ceil(Math.abs(delta) / 0.12));
-  return Array.from({ length: steps }, (_, i) => shipPoint(radius, from + delta * (i + 1) / steps));
+  const labs=layout.cabins.filter(c=>c.kind==="cloning"&&c.ring===ringIndex&&c.deck===deck);
+  if(!labs.length||Math.abs(delta)<1e-8)return Array.from({ length: steps }, (_, i) => shipPoint(radius, from + delta * (i + 1) / steps));
+  const boundary=(CLONING_POD.spacing+CLONING_POD.width/2+1)/radius;
+  const events: Array<{t:number;enter?:boolean}>=Array.from({length:steps+1},(_,i)=>({t:i/steps}));
+  for(const lab of labs)for(const wrap of [-TAU,0,TAU])for(const side of [-1,1]){
+    const t=(shortestAngle(from,cabinAngle(layout,lab.slot))+wrap+side*boundary)/delta;
+    if(t>0&&t<1)events.push({t,enter:side*Math.sign(delta)<0});
+  }
+  return events.sort((a,b)=>a.t-b.t).flatMap(event=>{
+    const angle=from+delta*event.t,inside=labs.some(lab=>Math.abs(shortestAngle(cabinAngle(layout,lab.slot),angle))<boundary-1e-8);
+    if(event.enter!==undefined){const outside=shipPoint(radius,angle),aisle=shipPoint(radius+CLONING_AISLE_V,angle);return event.enter?[outside,aisle]:[aisle,outside];}
+    return [shipPoint(radius+(inside?CLONING_AISLE_V:0),angle)];
+  });
 }
 export function routeBetweenCabins(layout: ShipLayout, from: Pick<ShipSeat, "ring" | "angle">, destination: ShipCabin, arrivalAngle = cabinAngle(layout, destination.slot)): ShipPoint[] {
   const a = layout.rings[from.ring], b = layout.rings[destination.ring], targetAngle = arrivalAngle;
-  if (a.index === b.index) return [shipPoint(a.radius, from.angle), ...arc(a.radius, from.angle, targetAngle)];
+  if (a.index === b.index) return [shipPoint(a.radius, from.angle), ...arc(layout,a.index,destination.deck,from.angle,targetAngle)];
   const spoke = [...layout.spokes].sort((x, y) => Math.abs(shortestAngle(from.angle, x)) + Math.abs(shortestAngle(x, targetAngle)) - Math.abs(shortestAngle(from.angle, y)) - Math.abs(shortestAngle(y, targetAngle)))[0];
-  return [shipPoint(a.radius, from.angle), ...arc(a.radius, from.angle, spoke), shipPoint(b.radius, spoke), ...arc(b.radius, spoke, targetAngle)];
+  return [shipPoint(a.radius, from.angle), ...arc(layout,a.index,destination.deck,from.angle,spoke), shipPoint(b.radius, spoke), ...arc(layout,b.index,destination.deck,spoke,targetAngle)];
 }
 
 export const PUBLIC_DESCRIPTIONS: Record<CabinKind, string> = {
