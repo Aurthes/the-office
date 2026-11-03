@@ -4,7 +4,7 @@ import workstationModels from "@/features/retro-office/core/workstation-models.j
 
 export function monitorChairPose(layout: ShipLayout, cabin: ShipCabin) {
   const model = workstationModels.chairDesk;
-  return { point: shipPoint(layout.rings[cabin.ring].radius + .85, cabinAngle(layout, cabin.slot)),
+  return { point: shipPoint(layout.rings[cabin.ring].radius + .2, cabinAngle(layout, cabin.slot)),
     facing: cabinAngle(layout, cabin.slot) + Math.PI,
     seatHeight: .08 + (model.seat[1] - model.min[1]) * .8 / (model.max[0] - model.min[0]) };
 }
@@ -19,16 +19,16 @@ export function addMonitorRoom(b: Builder, layout: ShipLayout, cabin: ShipCabin)
   const edge = -ring.depth / 2 + .65, main = monitorScreenPose(layout, cabin);
   const box = (u: number, v: number, y: number, size: [number, number, number], color: string, glow = false) => b.localBox(layout, cabin, u, v, y, size, color, 0, glow);
   // Raised central command desk, a large screen and banks of smaller displays.
-  box(0, -.85, .25, [5.3, .32, 2.4], "#435e6b");
+  box(0, -1.5, .25, [5.3, .32, 2.4], "#435e6b");
   b.object("controlDesk", () => {
-    box(0, -.5, .75, [3.4, .72, 1.15], "#d8e0dc");
-    box(0, -.5, 1.13, [3.55, .09, 1.25], "#30495b");
+    box(0, -1.15, .75, [3.4, .72, 1.15], "#d8e0dc");
+    box(0, -1.15, 1.13, [3.55, .09, 1.25], "#30495b");
   });
   for (const u of [-1.05, 0, 1.05]) {
     b.object("monitor", () => {
-      box(u, -.18, 1.55, [.95, .65, .12], "#182e3d");
-      box(u, -.105, 1.55, [.83, .51, .025], "#71d3c8", true);
-      box(u, -.75, 1.19, [.6, .04, .28], "#7da6ad");
+      box(u, -.83, 1.55, [.95, .65, .12], "#182e3d");
+      box(u, -.755, 1.55, [.83, .51, .025], "#71d3c8", true);
+      box(u, -1.4, 1.19, [.6, .04, .28], "#7da6ad");
     });
   }
   const chair = monitorChairPose(layout, cabin);
@@ -47,9 +47,9 @@ export function addMonitorRoom(b: Builder, layout: ShipLayout, cabin: ShipCabin)
   }
   for (const side of [-1, 1]) {
     b.object("controlDesk", () => {
-      box(side * 2.65, -.3, .75, [1.05, .95, 2.1], "#d8e0dc");
-      box(side * 2.65, -.3, 1.26, [.95, .08, 2], "#30495b");
-      box(side * 2.65, .18, 1.65, [.85, .65, .12], "#71d3c8", true);
+      box(side * 2.65, -.95, .75, [1.05, .95, 2.1], "#d8e0dc");
+      box(side * 2.65, -.95, 1.26, [.95, .08, 2], "#30495b");
+      box(side * 2.65, -.47, 1.65, [.85, .65, .12], "#71d3c8", true);
     });
   }
 }

@@ -2,7 +2,7 @@ import type { PoolHost } from "@/lib/monitoring/types";
 import * as THREE from "three";
 import type { Builder, ModelName } from "./geometry";
 import { machineRoomPlan, SERVER_ACTIVITY_COLORS, SERVER_RACK } from "./machineRoomLayout";
-import { cabinAngle, shipPoint, type ShipCabin, type ShipLayout } from "./layout";
+import { cabinAngle, shipPoint, SHIP_AISLE_WIDTH, type ShipCabin, type ShipLayout } from "./layout";
 
 const WATER = new THREE.MeshStandardMaterial({ roughness: .23, metalness: .02, transparent: true, opacity: .88 });
 const LEAF = new THREE.MeshStandardMaterial({ roughness: .96, metalness: 0, side: THREE.DoubleSide, vertexColors: true });
@@ -65,6 +65,7 @@ function hangingVine(b: Builder, points: [number, number, number][], seed: numbe
 export function addRainforest(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
   const ring = layout.rings[cabin.ring], step = Math.PI * 2 / layout.allocation.sectors;
   const width = ring.radius * step, angle = cabinAngle(layout, cabin.slot);
+  const laneEdge = SHIP_AISLE_WIDTH / 2 + .15;
   const point = (u: number, v: number) => shipPoint(ring.radius + v, angle + u / ring.radius);
   const xyz = (u: number, v: number, y: number): [number, number, number] => { const p = point(u, v); return [p.x, y, p.z]; };
   const model = (name: ModelName, size: number, u: number, v: number, y = .21, yaw = 0) => b.furniture(name, size, point(u, v), y, angle + u / ring.radius + yaw);
@@ -75,30 +76,30 @@ export function addRainforest(b: Builder, layout: ShipLayout, cabin: ShipCabin) 
   for (const char of cabin.id) seed = Math.imul(seed ^ char.charCodeAt(0), 16777619);
   const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
   const between = (min: number, max: number) => min + random() * (max - min);
-  const plantable = (u: number, v: number) => Math.abs(u) < width * .39 && Math.abs(v) > 1.08 && Math.abs(v) < ring.depth / 2 - .55 &&
+  const plantable = (u: number, v: number) => Math.abs(u) < width * .39 && Math.abs(v) > laneEdge + .15 && Math.abs(v) < ring.depth / 2 - .55 &&
     // Keep the pond, benches and service terminals accessible.
     (u / 1.65) ** 2 + ((v + 2.05) / .95) ** 2 > 1 &&
     !(Math.abs(Math.abs(u) - width * .39) < .9 && (v < 0 ? Math.abs(v + 1.25) < .65 : v > 2.05));
 
   // The ring's central circulation lane stays clear between two planted beds.
   for (const side of [-1, 1]) {
-    const inner = side > 0 ? ring.radius + .83 : ring.radius - ring.depth / 2 + .4;
-    const outer = side > 0 ? ring.radius + ring.depth / 2 - .4 : ring.radius - .83;
+    const inner = side > 0 ? ring.radius + laneEdge : ring.radius - ring.depth / 2 + .4;
+    const outer = side > 0 ? ring.radius + ring.depth / 2 - .4 : ring.radius - laneEdge;
     b.annulus(inner, outer, start, end, .07, .12, side > 0 ? "#465a3d" : "#3d5845");
   }
   for (let u = -width * .42; u < width * .42; u += .35) {
-    box(u, 0, .061, [.31, .024, 1.24], Math.round(u / .35) % 2 ? "#957c61" : "#86705a");
+    box(u, 0, .061, [.31, .024, SHIP_AISLE_WIDTH], Math.round(u / .35) % 2 ? "#957c61" : "#86705a");
   }
   const patches = Array.from({ length: 9 }, () => ({ u: between(-width * .35, width * .35), v: (random() < .55 ? 1 : -1) * between(1.5, 2.65) }));
   const trees: { u: number; v: number; height: number; spread: number }[] = [];
   for (let attempt = 0; attempt < 400 && trees.length < 22; attempt++) {
     const patch = patches[Math.floor(random() * patches.length)];
     const u = patch.u + between(-1.65, 1.65), v = patch.v + between(-.65, .65);
-    if (!plantable(u, v) || trees.some(tree => Math.hypot(tree.u - u, tree.v - v) < .95)) continue;
-    const kind = trees.length % 3, yaw = between(0, Math.PI * 2), spread = between(.95, 1.35);
+    if (!plantable(u, v) || Math.abs(v) < 2.45 || trees.some(tree => Math.hypot(tree.u - u, tree.v - v) < .95)) continue;
+    const kind = trees.length % 3, yaw = between(0, Math.PI * 2), spread = Math.min(between(.95, 1.35), (Math.abs(v) - laneEdge) / 1.25);
     let height = between(1.7, 2.7);
     if (kind === 0) {
-      const size = between(2.05, 2.9);
+      const size = between(1.7, 2.05);
       b.object("rainforestTree", () => { if (!model("rainforestTree", size, u, v, .19, yaw)) {
         b.curve([xyz(u, v, .2), xyz(u + .08, v, 1.2), xyz(u - .12, v + .06, height)], .12, "#79644b");
         b.ball(spread, xyz(u, v, height), "#43764c", [1.15, .65, 1]);
@@ -121,7 +122,7 @@ export function addRainforest(b: Builder, layout: ShipLayout, cabin: ShipCabin) 
     const u = clustered ? tree.u + Math.cos(a) * distance : between(-width * .39, width * .39);
     const v = clustered ? tree.v + Math.sin(a) * distance * .6 : (random() < .5 ? -1 : 1) * between(1.08, ring.depth / 2 - .55);
     if (!plantable(u, v)) continue;
-    const reach = Math.min(Math.abs(v) - .72, ring.depth / 2 - .3 - Math.abs(v));
+    const reach = Math.min(Math.abs(v) - laneEdge, ring.depth / 2 - .3 - Math.abs(v));
     const kind = random(), size = Math.min(between(.65, 1.35), reach * 1.5), spread = Math.min(size * .8, reach), yaw = between(0, Math.PI * 2);
     // Optional model loading must not leave holes in the understory.
     if (kind < .48) {
@@ -146,20 +147,20 @@ export function addRainforest(b: Builder, layout: ShipLayout, cabin: ShipCabin) 
     if (next && random() < .65) hangingVine(b, [xyz(tree.u, tree.v, tree.height * .8), xyz((tree.u + next.u) / 2, (tree.v + next.v) / 2, Math.min(tree.height, next.height) * .55), xyz(next.u, next.v, next.height * .8)], between(0, Math.PI * 2));
   }
   // A dark, shallow pool sits inside the planting, away from the walking lane.
-  const pond = point(0, -2.05);
+  const pond = point(0, -2.2);
   const matrix = new THREE.Matrix4().makeRotationY(angle).scale(new THREE.Vector3(1.25, 1, .58)).setPosition(pond.x, .205, pond.z);
   b.object("pond", () => b.add(new THREE.CylinderGeometry(1, 1, .025, 48), "#397e78", matrix, false, WATER));
   for (let i = 0; i < 11; i++) {
     const a = (i + between(-.3, .3)) / 11 * Math.PI * 2;
-    const u = Math.cos(a) * between(1.26, 1.4), v = -2.05 + Math.sin(a) * between(.6, .72);
+    const u = Math.cos(a) * between(1.26, 1.4), v = -2.2 + Math.sin(a) * between(.6, .72);
     b.object("rainforestRock", () => { if (!model("rainforestRock", between(.28, .55), u, v, .15, a)) b.ball(.2, xyz(u, v, .23), "#7b8270", [1, .6, 1]); });
   }
   for (const side of [-1, 1]) {
     const u = side * width * .39;
     model("rainforestBush", .35, u, -2.5, .2, side);
     b.object("bench", () => {
-      box(u, -1.25, .42, [1.15, .1, .43], "#a58a67");
-      for (const foot of [-.4, .4]) box(u + foot, -1.25, .24, [.09, .36, .32], "#435650");
+      box(u, -1.7, .42, [1.15, .1, .43], "#a58a67");
+      for (const foot of [-.4, .4]) box(u + foot, -1.7, .24, [.09, .36, .32], "#435650");
     });
     b.object("terminal", () => {
       box(u, 2.6, .73, [.08, 1.1, .09], "#658178");
@@ -222,8 +223,8 @@ export function addMachineRoom(b: Builder, layout: ShipLayout, cabin: ShipCabin,
       box(u + offset, -1.51, 1.13, [.13, 1.35, .035], "#5ed4da", true);
       b.curve([xyz(u + offset, -1.87, 2.05), xyz(u + offset, -2.5, 2.25), xyz(last + .65, -2.45, 2.47)], .06, "#5996a8");
     }
-    box(u, -1.16, .46, [1.65, .36, .39], "#263f50");
-    for (const x of [-.5, 0, .5]) box(u + x, -1.16, .66, [.18, .035, .22], "#9cb6bd");
+    box(u, -1.65, .46, [1.65, .36, .39], "#263f50");
+    for (const x of [-.5, 0, .5]) box(u + x, -1.65, .66, [.18, .035, .22], "#9cb6bd");
   });
   // One shared side console, with a central interactive screen and two wings.
   const console = plan.console, p = point(console.u, console.v);

@@ -7,7 +7,7 @@ export const BAR_LAYOUT = {
   width: 4.75, depth: .92,
   staffZ: .9,
   stoolXs: [-1.55, -.05, 1.45], stoolZ: -.9, stoolRadius: .29,
-  turntable: { x: -3.3, z: -2.75, width: .9, depth: 1.3 },
+  turntable: { x: -3.3, z: .6, width: .9, depth: 1.3 },
   aisle: -1.45, routeHalfWidth: 4.8,
   bottles: [
     { x: -1.95, height: .31, color: "#315b43" },

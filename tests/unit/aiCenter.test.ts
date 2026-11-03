@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
-import { buildShipLayout } from "@/features/ring-ship/layout";
-import { aiCorePose } from "@/features/ring-ship/ai-center-geometry";
+import { buildShipLayout, SHIP_AISLE_WIDTH } from "@/features/ring-ship/layout";
+import { AI_CORE_BASE_RADIUS, aiCorePose } from "@/features/ring-ship/ai-center-geometry";
 const require = createRequire(import.meta.url);
 const { readAiCenter } = require("../../server/ai-center.js");
 const { readOpenAiUsage } = require("../../server/ai-center-openai.js");
@@ -85,11 +85,11 @@ it("reuses the main-deck server bay and keeps the core footprint outside the wal
   const before = buildShipLayout(roster), layout = buildShipLayout(roster, before.allocation);
   const ai = layout.cabins.filter(c => c.kind === "ai"); expect(ai).toHaveLength(1);
   expect(ai[0]).toMatchObject({ id: "public:servers", deck: 0, ring: 0, slot: 4 });
-  expect(layout.cabins.filter(c => c.kind === "servers")).toHaveLength(2);
+  expect(layout.cabins.filter(c => c.kind === "servers")).toHaveLength(3);
   expect(layout.allocation.projects).toEqual(before.allocation.projects);
   const radius = Math.hypot(aiCorePose(layout, ai[0]).point.x, aiCorePose(layout, ai[0]).point.z);
-  expect(radius - .93).toBeGreaterThan(layout.rings[0].radius + .65);
-  expect(radius + .93).toBeLessThan(layout.rings[0].radius + layout.rings[0].depth / 2);
+  expect(radius - AI_CORE_BASE_RADIUS).toBeGreaterThan(layout.rings[0].radius + SHIP_AISLE_WIDTH / 2);
+  expect(radius + AI_CORE_BASE_RADIUS).toBeLessThan(layout.rings[0].radius + layout.rings[0].depth / 2);
 });
 
 it("publishes a provider-neutral snapshot with only the implemented OpenAI provider", async () => {
