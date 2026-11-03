@@ -53,7 +53,7 @@ export function ShipObjectCard({ object, customRoom, onClose, children }: { obje
     window.addEventListener("keydown", escape);
     return () => window.removeEventListener("keydown", escape);
   }, [onClose]);
-  return <section className="ship-object-card" aria-label={t("Object information")} data-object-id={object.id} data-object-kind={object.kind}>
+  return <section className="ship-object-card" aria-label={t("Object information")} data-object-id={object.id} data-object-kind={object.kind} data-server-alias={object.serverAlias}>
     <div className="ship-object-card-heading"><span><ScanLine size={13} />{t(object.space ? "Space discovery" : "Ship discovery")}</span><button type="button" aria-label={t("Close object information")} onClick={onClose}><X size={16} /></button></div>
     <h2>{object.serverAlias || object.npc?.name || t(name)}</h2>
     <p className="ship-object-location">{object.space ? t("Nearby space") : <>L{object.deck + 1} · {customRoom ? object.cabinName : t(object.cabinName)}</>}</p>

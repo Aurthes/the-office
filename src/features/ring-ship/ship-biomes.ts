@@ -206,7 +206,7 @@ export function addMachineRoom(b: Builder, layout: ShipLayout, cabin: ShipCabin,
     if (column % 4 === 1) b.furniture("machineFan", .52, point(u, v), 2.35, angle + u / ring.radius);
   }
   for (const family of plan.families) {
-    b.sign(family.id === "local" ? "LOCAL" : family.id.toUpperCase(), "", point(family.u, family.v), angle + family.u / ring.radius, Math.min(2.3, family.width), family.color);
+    b.sign(family.id === "local" ? "LOCAL" : family.id.toUpperCase(), "", point(family.u, family.v), angle + family.u / ring.radius, Math.min(3, Math.max(2, family.width)), family.color, .13);
   }
   for (const row of plan.rows) {
     const v = row.v - row.face * .26;
