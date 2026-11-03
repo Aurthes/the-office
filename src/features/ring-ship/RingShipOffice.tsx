@@ -365,7 +365,7 @@ function ActivityBadge({ agent }: { agent: OfficeAgent }) {
 }
 
 export function RingShipOffice(props: Props) {
-  const [renderProbeEnabled] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("renderProbe") === "1");
+  const [renderProbeEnabled] = useState(() => typeof window !== "undefined" && ["1", "shadows"].includes(new URLSearchParams(window.location.search).get("renderProbe") || ""));
   const t = useUiText();
   const { agents, companyRoster, companyActions, gatewayStatus = "disconnected", officeTitle = "Orbital Headquarters", storageNamespace = "default", gatewayUrl = "", officeCenterSignal = 0, navigationPreview = true } = props;
   const roster = companyRoster || EMPTY_ROSTER;

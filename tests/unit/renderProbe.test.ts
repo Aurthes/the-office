@@ -9,13 +9,13 @@ function fixture(disjointTimer = false) {
   const actor = new THREE.Group(); actor.name="duck-crew:private-agent-id"; actor.add(mesh); scene.add(actor); camera.position.z=5;camera.updateMatrixWorld();scene.updateMatrixWorld(true);
   const context = { getExtension: (name: string) => name === "EXT_disjoint_timer_query_webgl2" && disjointTimer ? { TIME_ELAPSED_EXT: 1, GPU_DISJOINT_EXT: 2 } : null, getParameter: (value: number) => value === 2 ? true : "test GPU", isContextLost: () => false, getContextAttributes: () => ({ antialias: true }), QUERY_RESULT_AVAILABLE: 3, QUERY_RESULT: 4, createQuery: () => ({}), beginQuery: vi.fn(), endQuery: vi.fn(), deleteQuery: vi.fn(), getQueryParameter: (_: unknown, value: number) => value === 3 ? true : 2_000_000 };
   let pixelRatio = 1.5;
-  const renderer = { domElement: canvas, getContext: () => context, getPixelRatio: () => pixelRatio, setPixelRatio: (value: number) => {pixelRatio=value;}, info: { render: { triangles: 12 }, memory: { geometries: 1, textures: 0 }, programs: [] }, renderBufferDirect: vi.fn(), render: (view: THREE.Scene, lens: THREE.Camera) => { renderer.renderBufferDirect(lens, view, mesh.geometry, mesh.material, mesh, null); } };
+  const renderer = { domElement: canvas, shadowMap: { enabled: true, autoUpdate: true, type: THREE.PCFSoftShadowMap }, getContext: () => context, getPixelRatio: () => pixelRatio, setPixelRatio: (value: number) => {pixelRatio=value;}, info: { render: { triangles: 12 }, memory: { geometries: 1, textures: 0 }, programs: [] }, renderBufferDirect: vi.fn(), render: (view: THREE.Scene, lens: THREE.Camera) => { renderer.renderBufferDirect(lens, view, mesh.geometry, mesh.material, mesh, null); } };
   const motion = { current: vi.fn() }, host = { current: () => renderer.render(scene, camera) };
   const state = { gl: renderer, scene, camera, internal: { subscribers: [{ref:motion,priority:0},{ref:host,priority:1}] } } as unknown as RootState;
   const fiber = { memoizedProps: { agents: [{ name: "PRIVATE CONVERSATION", id:"private-agent-id" }], arrivalsRef: {} }, memoizedState: { memoizedState: motion } };
   const original = { render: renderer.render, direct: renderer.renderBufferDirect, motion: motion.current, host: host.current };
   const frames = setInterval(() => { for (const sub of state.internal.subscribers) sub.ref.current(state,.016,undefined); },16);
-  return { state, renderer, context, fiber, original, motion, host, canvas, frames };
+  return { state, renderer, context, fiber, original, motion, host, canvas, frames, mesh };
 }
 
 beforeEach(() => { vi.useFakeTimers(); vi.spyOn(document,"hidden","get").mockReturnValue(false); });
@@ -41,6 +41,32 @@ describe("opt-in real-device render capture", () => {
     const rejection=expect(promise).rejects.toThrow("上下文丢失");
     f.canvas.dispatchEvent(new Event("webglcontextlost"));await vi.advanceTimersByTimeAsync(1000);await rejection;
     expect(f.renderer.render).toBe(f.original.render);expect(f.motion.current).toBe(f.original.motion);expect(f.renderer.getPixelRatio()).toBe(1.5);
+  });
+  it("compares only shadows without pausing motion or changing resolution, and restores shader variants", async () => {
+    const f=fixture(), version=f.mesh.material.version, probe=createRenderProbe(()=>f.state,()=>f.fiber);
+    const promise=probe.capture(()=>{},160,"shadows");await vi.advanceTimersByTimeAsync(3000);const report=await promise;
+    expect(report.mode).toBe("shadows");
+    expect(report.phases.map(p=>p.phase)).toEqual(["normal","shadows-off","normal-repeat"]);
+    expect(report.phases.map(p=>p.shadowMapEnabled)).toEqual([[true],[false],[true]]);
+    expect(report.phases.every(p=>p.actualDpr.length===1 && p.actualDpr[0]===1.5)).toBe(true);
+    expect(report.phases.every(p=>p.callbacks["crew-movement-and-collision"].calls>0)).toBe(true);
+    expect(f.renderer.shadowMap).toEqual({enabled:true,autoUpdate:true,type:THREE.PCFSoftShadowMap});
+    expect(f.mesh.material.version).toBe(version+2);
+    expect(f.renderer.render).toBe(f.original.render);expect(f.motion.current).toBe(f.original.motion);
+  });
+  it("restores shadows when capture is interrupted during the shadows-off phase", async () => {
+    const f=fixture(),probe=createRenderProbe(()=>f.state,()=>f.fiber),promise=probe.capture(()=>{},160,"shadows");
+    const rejection=expect(promise).rejects.toThrow("上下文丢失");
+    await vi.advanceTimersByTimeAsync(1600);expect(f.renderer.shadowMap.enabled).toBe(false);
+    f.canvas.dispatchEvent(new Event("webglcontextlost"));await vi.advanceTimersByTimeAsync(1000);await rejection;
+    expect(f.renderer.shadowMap.enabled).toBe(true);expect(f.renderer.getPixelRatio()).toBe(1.5);
+    expect(f.renderer.render).toBe(f.original.render);expect(f.motion.current).toBe(f.original.motion);
+  });
+  it("refuses an already-disabled baseline rather than reporting a false comparison", async () => {
+    const f=fixture();f.renderer.shadowMap.enabled=false;
+    const probe=createRenderProbe(()=>f.state,()=>f.fiber);
+    await expect(probe.capture(()=>{},160,"shadows")).rejects.toThrow("阴影已经关闭");
+    expect(f.renderer.shadowMap.enabled).toBe(false);expect(f.renderer.render).toBe(f.original.render);
   });
   it("discards disjoint GPU timer results", async () => {
     const f=fixture(true),probe=createRenderProbe(()=>f.state,()=>f.fiber),promise=probe.capture(()=>{},160);

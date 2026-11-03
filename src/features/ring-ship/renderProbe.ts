@@ -1,15 +1,17 @@
 import * as THREE from "three";
 import type { RootState } from "@react-three/fiber";
 
-export type ProbePhase = "normal" | "animations-paused" | "half-resolution" | "normal-repeat";
+export type ProbePhase = "normal" | "animations-paused" | "half-resolution" | "shadows-off" | "normal-repeat";
+export type ProbeMode = "overview" | "shadows";
 type Counter = { calls: number; totalMs: number; maxMs: number };
 type Fiber = { memoizedProps?: Record<string, unknown>; memoizedState?: Hook; child?: Fiber; sibling?: Fiber };
 type Hook = { memoizedState?: unknown; next?: Hook };
 type FrameRef = RootState["internal"]["subscribers"][number]["ref"];
-export type PhaseResult = { phase: ProbePhase; durationMs: number; frames: number; fps: number; frameIntervalMs: { mean: number | null; p95: number | null; max: number | null }; rendererCpuMsPerFrame: number | null; callbacks: Record<string, Counter>; drawGroups: Record<string, Counter & { triangles: number; timedCalls: number }>; timedDrawFrames: number; submissionsPerFrame: number | null; trianglesPerFrame: number | null; gpuIntervalMs: { mean: number | null; samples: number }; longTasks: number[]; actualDpr: number[]; errors: string[] };
-type Sample = { phase: ProbePhase; start: number; frames: number; last: number; intervals: number[]; rendererMs: number; callbacks: Record<string, Counter>; drawGroups: Record<string, Counter & { triangles: number; timedCalls: number }>; submissions: number; timedDrawFrames: number; triangles: number; gpu: number[]; longTasks: number[]; dpr: Set<number>; errors: string[] };
-export type ProbeReport = { schema: 1; id: string; createdAt: string; hardware: ReturnType<typeof hardwareInfo>; scene: ReturnType<typeof sceneInventory>; phases: PhaseResult[]; cameraStable: boolean; notes: string[] };
+export type PhaseResult = { phase: ProbePhase; durationMs: number; frames: number; fps: number; frameIntervalMs: { mean: number | null; p95: number | null; max: number | null }; rendererCpuMsPerFrame: number | null; callbacks: Record<string, Counter>; drawGroups: Record<string, Counter & { triangles: number; timedCalls: number }>; timedDrawFrames: number; submissionsPerFrame: number | null; trianglesPerFrame: number | null; gpuIntervalMs: { mean: number | null; samples: number }; longTasks: number[]; actualDpr: number[]; shadowMapEnabled: boolean[]; errors: string[] };
+type Sample = { phase: ProbePhase; start: number; frames: number; last: number; intervals: number[]; rendererMs: number; callbacks: Record<string, Counter>; drawGroups: Record<string, Counter & { triangles: number; timedCalls: number }>; submissions: number; timedDrawFrames: number; triangles: number; gpu: number[]; longTasks: number[]; dpr: Set<number>; shadows: Set<boolean>; errors: string[] };
+export type ProbeReport = { schema: 1; mode: ProbeMode; id: string; createdAt: string; hardware: ReturnType<typeof hardwareInfo>; scene: ReturnType<typeof sceneInventory>; phases: PhaseResult[]; cameraStable: boolean; notes: string[] };
 export const PROBE_PHASES: readonly ProbePhase[] = ["normal", "animations-paused", "half-resolution", "normal-repeat"];
+export const SHADOW_PROBE_PHASES: readonly ProbePhase[] = ["normal", "shadows-off", "normal-repeat"];
 const mean = (values: number[]) => values.length ? values.reduce((sum, n) => sum + n, 0) / values.length : null;
 export function intervalStats(values: number[]) {
   const sorted = [...values].sort((a, b) => a - b);
@@ -112,6 +114,17 @@ function frameOwners(root?: Fiber) {
 // Opt-in, disposable instrumentation. Never persists quality settings or samples content.
 export function createRenderProbe(getState: () => RootState, getFiber: () => unknown) {
   const state = getState(), renderer = state.gl, context = renderer.getContext() as WebGL2RenderingContext, initialDpr = renderer.getPixelRatio();
+  const initialShadows = renderer.shadowMap.enabled;
+  function setShadows(enabled: boolean) {
+    if (renderer.shadowMap.enabled === enabled) return;
+    renderer.shadowMap.enabled = enabled;
+    // Re-select shader variants as well as skipping the shadow-map render pass.
+    const materials = new Set<THREE.Material>();
+    getState().scene.traverse(object => {
+      if (object instanceof THREE.Mesh) for (const material of Array.isArray(object.material) ? object.material : [object.material]) materials.add(material);
+    });
+    for (const material of materials) material.needsUpdate = true;
+  }
   const originalRender = renderer.render, originalDirect = renderer.renderBufferDirect;
   const wrappers = new Map<FrameRef, { original: FrameRef["current"]; wrapper: FrameRef["current"] }>(), labels = new WeakMap<THREE.Object3D, string>();
   const gpuExtension = context.getExtension("EXT_disjoint_timer_query_webgl2") as { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null;
@@ -182,7 +195,7 @@ export function createRenderProbe(getState: () => RootState, getFiber: () => unk
       depth--;
       if (query) { context.endQuery(gpuExtension!.TIME_ELAPSED_EXT); pending.push({ query, sample: current! }); }
       if (main && current) {
-        const now = performance.now(); current.frames++; current.rendererMs += now - start; current.triangles += this.info.render.triangles; current.dpr.add(this.getPixelRatio());
+        const now = performance.now(); current.frames++; current.rendererMs += now - start; current.triangles += this.info.render.triangles; current.dpr.add(this.getPixelRatio()); current.shadows.add(this.shadowMap.enabled);
         if (current.last) current.intervals.push(now - current.last); current.last = now;
       }
     }
@@ -193,30 +206,34 @@ export function createRenderProbe(getState: () => RootState, getFiber: () => unk
     document.removeEventListener("visibilitychange", visibility); window.removeEventListener("resize", resize); renderer.domElement.removeEventListener("webglcontextlost", lost);
     for (const [ref, entry] of wrappers) if (ref.current === entry.wrapper) ref.current = entry.original;
     renderer.render = originalRender; renderer.renderBufferDirect = originalDirect;
+    setShadows(initialShadows);
     if (!context.isContextLost()) { if (renderer.getPixelRatio() !== initialDpr) renderer.setPixelRatio(initialDpr); for (const item of pending) context.deleteQuery(item.query); }
   }
   return {
     dispose,
-    async capture(progress: (phase: ProbePhase, seconds: number) => void, durationMs = 5000): Promise<ProbeReport> {
-      const report: ProbeReport = { schema: 1, id: crypto.randomUUID(), createdAt: new Date().toISOString(), hardware: hardwareInfo(getState()), scene: sceneInventory(getState()), phases: [], cameraStable: true, notes: ["FPS measures the render loop, not Android compositor presentation.", "Renderer CPU timing includes command submission and possible driver waits; it is not GPU utilization.", "Callback timers are inclusive. The render controller includes renderer time and must not be added to it.", "Draw CPU timings sample every eighth root frame; totalMs uses timedDrawFrames, not all frames. Calls/triangles count all frames.", "Model triangle counts are geometry rankings, not proof of GPU cost. Shared material batches contain multiple furniture kinds.", "Half resolution and paused animations are temporary diagnostic controls, restored before upload. No quality preference is saved."] };
+    async capture(progress: (phase: ProbePhase, seconds: number) => void, durationMs = 5000, mode: ProbeMode = "overview"): Promise<ProbeReport> {
+      const report: ProbeReport = { schema: 1, mode, id: crypto.randomUUID(), createdAt: new Date().toISOString(), hardware: hardwareInfo(getState()), scene: sceneInventory(getState()), phases: [], cameraStable: true, notes: ["FPS measures the render loop, not Android compositor presentation.", "Renderer CPU timing includes command submission and possible driver waits; it is not GPU utilization.", "Callback timers are inclusive. The render controller includes renderer time and must not be added to it.", "Draw CPU timings sample every eighth root frame; totalMs uses timedDrawFrames, not all frames. Calls/triangles count all frames.", "Model triangle counts are geometry rankings, not proof of GPU cost. Shared material batches contain multiple furniture kinds.", mode === "shadows" ? "Shadow-only comparison: normal, shadows off, normal repeat. Resolution and animations remain unchanged; shadows are restored before upload." : "Half resolution and paused animations are temporary diagnostic controls, restored before upload. No quality preference is saved."] };
       try {
         if (document.hidden || context.isContextLost()) throw new Error("请保持 Office 在前台，等飞船正常显示后再采样。");
-        for (const next of PROBE_PHASES) {
+        if (mode === "shadows" && !initialShadows) throw new Error("当前画面阴影已经关闭，无法进行开／关对照。");
+        for (const next of mode === "shadows" ? SHADOW_PROBE_PHASES : PROBE_PHASES) {
           phase = next; progress(next, Math.ceil(durationMs / 1000));
+          if (mode === "shadows") setShadows(next === "shadows-off" ? false : initialShadows);
           // Let resize/material/animation transitions settle before counting frames.
           if (!warmed || next !== "normal") await new Promise(resolve => setTimeout(resolve, 700)); warmed = true;
           if (disposed || abortReason) throw new Error(abortReason || "采样已取消。");
-          const current: Sample = { phase: next, start: performance.now(), frames: 0, last: 0, intervals: [], rendererMs: 0, callbacks: {}, drawGroups: {}, submissions: 0, timedDrawFrames: 0, triangles: 0, gpu: [], longTasks: [], dpr: new Set(), errors: [] }; sample = current;
+          const current: Sample = { phase: next, start: performance.now(), frames: 0, last: 0, intervals: [], rendererMs: 0, callbacks: {}, drawGroups: {}, submissions: 0, timedDrawFrames: 0, triangles: 0, gpu: [], longTasks: [], dpr: new Set(), shadows: new Set(), errors: [] }; sample = current;
           const countdown = setInterval(() => progress(next, Math.max(0, Math.ceil((durationMs - performance.now() + current.start) / 1000))), 1000);
           try { await new Promise(resolve => setTimeout(resolve, durationMs)); } finally { clearInterval(countdown); sample = null; }
           if (disposed || abortReason) throw new Error(abortReason || "采样已取消。");
           const elapsed = performance.now() - current.start, n = current.frames;
-          report.phases.push({ phase: next, durationMs: elapsed, frames: n, fps: n / elapsed * 1000, frameIntervalMs: intervalStats(current.intervals), rendererCpuMsPerFrame: n ? current.rendererMs / n : null, callbacks: current.callbacks, drawGroups: current.drawGroups, timedDrawFrames: current.timedDrawFrames, submissionsPerFrame: n ? current.submissions / n : null, trianglesPerFrame: n ? current.triangles / n : null, gpuIntervalMs: { mean: mean(current.gpu), samples: current.gpu.length }, longTasks: current.longTasks, actualDpr: [...current.dpr], errors: current.errors });
+          report.phases.push({ phase: next, durationMs: elapsed, frames: n, fps: n / elapsed * 1000, frameIntervalMs: intervalStats(current.intervals), rendererCpuMsPerFrame: n ? current.rendererMs / n : null, callbacks: current.callbacks, drawGroups: current.drawGroups, timedDrawFrames: current.timedDrawFrames, submissionsPerFrame: n ? current.submissions / n : null, trianglesPerFrame: n ? current.triangles / n : null, gpuIntervalMs: { mean: mean(current.gpu), samples: current.gpu.length }, longTasks: current.longTasks, actualDpr: [...current.dpr], shadowMapEnabled: [...current.shadows], errors: current.errors });
         }
         const finalPose = cameraPose(); report.cameraStable = pose.every((n, i) => Math.abs(n - finalPose[i]) < .01);
         if (!report.cameraStable) report.notes.push("Camera changed during capture; controlled comparisons may not be comparable.");
         if (!report.hardware.gpuTimerSupported) report.notes.push("This device does not expose GPU timer queries. GPU time is unavailable; CPU render duration is not a substitute.");
         if (report.phases.some(p => p.frames < 5)) throw new Error("有效渲染帧不足，请关闭监控面板并回到飞船后重试。");
+        if (mode === "shadows" && report.phases.some(p => p.shadowMapEnabled.length !== 1 || p.shadowMapEnabled[0] !== (p.phase !== "shadows-off"))) throw new Error("采样期间阴影状态被其他设置改变，请重试。");
         return report;
       } finally { dispose(); }
     },
