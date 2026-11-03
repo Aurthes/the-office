@@ -36,7 +36,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
   headerEnd?: ReactNode;
   onOpenWorkspace?: () => void;
   onOpenThread?: (id: string) => void | Promise<void>;
-  onFork?: (name?: string) => void;
+  onFork?: (name?: string, lastTurnId?: string) => void;
   forkDisabled?: boolean;
   threadId: string;
   onReturnToEarth?: () => void;
@@ -250,7 +250,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
         {loading ? <span role="status">{t("Loading messages…")}</span> : olderCursor ? <button onClick={() => void load.current?.("older")} className="px-3 py-1 text-cyan-200">{t("↑ Load older messages")}</button> : loaded ? t("Start of history") : null}
       </div>
       {loaded && messages.length === 0 ? <p className="text-center text-xs text-white/50">{t("No chat text on this page (tool activity omitted).")}{olderCursor ? t("Scroll up or use the button above to load older messages.") : ""}</p> : null}
-      <SessionTranscript messages={messages} activeTurnId={activeTurnId} />
+      <SessionTranscript messages={messages} activeTurnId={activeTurnId} onForkFrom={onFork ? lastTurnId => onFork(undefined, lastTurnId) : undefined} forkDisabled={forkDisabled || !data?.controlsAvailable} />
       </div>
     </div>
     {showLatest ? <button aria-label={t("Go to latest message")} onClick={() => {

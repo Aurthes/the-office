@@ -10,7 +10,7 @@ import type { RetroOffice3D } from "@/features/retro-office/RetroOffice3D";
 import type { OfficeAgent, RenderAgent } from "@/features/retro-office/core/types";
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
 import { AGENT_SCALE } from "@/features/retro-office/core/constants";
-import { normalizeDuckAppearance } from "@/lib/avatars/duck";
+import { createDuckAppearanceFromSeed, normalizeDuckAppearance } from "@/lib/avatars/duck";
 import { CEO_ID } from "@/lib/office/organization";
 import { CeoCharacter } from "./CeoCharacter";
 import type { CharacterBody } from "./characterCollision";
@@ -56,7 +56,7 @@ import { shipObjectCameraPose, type ShipObject } from "./shipObjects";
 import { useDuckFocusAudio } from "./useDuckFocusAudio";
 
 type Props = ComponentProps<typeof RetroOffice3D> & { navigationPreview?: boolean; musicPreview?: boolean; onFirefight?: FirefightHandler;
-  cloneRequest?: CloneRequest | null; onForkSession?: (id: string, requestId: string, name?: string) => Promise<string>; onCloneFinished?: () => void;
+  cloneRequest?: CloneRequest | null; onForkSession?: (id: string, requestId: string, name?: string, lastTurnId?: string) => Promise<string>; onCloneFinished?: () => void;
 };
 type Controls = ComponentRef<typeof OrbitControls>;
 const EMPTY_ROSTER: CompanyRoster = { projects: [], members: [] };
@@ -393,8 +393,9 @@ export function RingShipOffice(props: Props) {
       setDeck(cloningCabin.deck);setWhole(false);setTrip(null);setLiftOpen(false);setFleetOpen(false);setInspectedObject(null);
       setMonitorOpen(false);setTasksOpen(false);setMusicOpen(false);setAiOpen(false);setSettingsOpen(false);
       setFocus(previous=>({id:cloningCabin.id,request:previous.request+1}));
-      void onForkSession(source.id,cloneRequest.requestId,cloneRequest.name).then(threadId=>{
+      void onForkSession(source.id,cloneRequest.requestId,cloneRequest.name,cloneRequest.lastTurnId).then(threadId=>{
         cloneResultRef.current={status:"confirmed",threadId,at:performance.now()};
+        setCloneFlight(previous=>previous?{...previous,cloneAppearance:createDuckAppearanceFromSeed(threadId)}:previous);
         setClonedAgentId(threadId);
       },cause=>{cloneResultRef.current={status:"failed",error:cause instanceof Error?cause.message:t("Cloning was not confirmed")};});
     });
@@ -404,8 +405,8 @@ export function RingShipOffice(props: Props) {
     if(!cloneFlight)return;
     const result=cloneResultRef.current;
     if(result.status==="confirmed"&&cloningCabin){
-      cloneArrivals.current.set(cloneFlight.agentId,{point:points[0],deck:cloningCabin.deck});
-      cloneArrivals.current.set(result.threadId,{point:points[1],deck:cloningCabin.deck});
+      cloneArrivals.current.set(cloneFlight.agentId,{point:points[0],deck:cloningCabin.deck,cabinId:cloningCabin.id});
+      cloneArrivals.current.set(result.threadId,{point:points[1],deck:cloningCabin.deck,cabinId:cloningCabin.id});
     }else{
       if(cloneOrigin.current)cloneArrivals.current.set(cloneFlight.agentId,cloneOrigin.current);
       if(result.status==="failed")setCloneError(result.error);
@@ -555,7 +556,7 @@ export function RingShipOffice(props: Props) {
         </group>)}
         <Crew agents={visibleAgents.filter(a=>a.id!==returnFlight?.agentId&&a.id!==cloneFlight?.agentId&&!(cloneFlight&&a.id===clonedAgentId))} layout={currentLayout} focus={validFocus} onOpen={open} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} companionsRef={companionsRef} ceoBodyRef={ceoBodyRef} arrivalsRef={cloneArrivals} />
       </group> : null}
-      {cloningCabin ? <group visible={shipView||visibleDeck===cloningCabin.deck}><CloningLab layout={layout} cabin={cloningCabin} flight={cloneFlight} resultRef={cloneResultRef} onStage={setCloneState} onComplete={cloneComplete}/></group>:null}
+      {cloningCabin ? <group visible={shipView||visibleDeck===cloningCabin.deck}><CloningLab layout={layout} cabin={cloningCabin} flight={cloneFlight} resultRef={cloneResultRef} onStage={setCloneState} onComplete={cloneComplete} interactive={objectEnabled&&(shipView||visibleDeck===cloningCabin.deck)} selectedId={objectFocus?.id} onSelect={inspectObject}/></group>:null}
       {returnFlight ? <group visible={!shipView}>
         <ReturnPodJourney key={returnFlight.requestId} flight={returnFlight} resultRef={archiveResultRef} transferRef={returnTransferRef} displayDeck={visibleDeck} onStage={returnPhaseChanged} onComplete={returnComplete}/>
       </group>:null}
@@ -622,7 +623,7 @@ export function RingShipOffice(props: Props) {
     <ScheduledTasks open={tasksOpen} onClose={() => setTasksOpen(false)} onOpenSession={open} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
     <AiCenterDashboard open={aiOpen} onClose={() => setAiOpen(false)} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
     <LiftOverlay trip={trip} overlayRef={overlayRef} />
-    {cloneFlight ? <div role="status" aria-live="polite" data-clone-stage={cloneState} className="absolute bottom-20 sm:bottom-5 left-1/2 z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-teal-200/30 bg-[#101e29]/95 px-4 py-3 text-center shadow-xl"><div className="text-xs text-teal-100">{cloneFlight.name}</div><p className="mt-1 text-xs text-teal-100">{t(CLONE_LABELS[cloneState])}</p><p className="mt-1 text-[10px] text-white/55">{t("Conversation and personal settings are inherited. Scheduled tasks are not copied.")}</p></div>:null}
+    {cloneFlight ? <div role="status" aria-live="polite" data-clone-stage={cloneState} className="absolute bottom-20 sm:bottom-5 left-1/2 z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-teal-200/30 bg-[#101e29]/95 px-4 py-3 text-center shadow-xl"><div className="text-xs text-teal-100">{cloneFlight.name}</div><p className="mt-1 text-xs text-teal-100">{t(CLONE_LABELS[cloneState])}</p><p className="mt-1 text-[10px] text-white/55">{t("Context and settings are inherited. Appearance is randomized. Scheduled tasks are not copied.")}</p></div>:null}
     {cloneError ? <div role="alert" className="absolute bottom-20 left-1/2 z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-rose-200/30 bg-[#101e29]/95 p-4 text-xs text-rose-100">{t(cloneError)}<button type="button" className="ml-3 underline" onClick={()=>setCloneError("")}>{t("Dismiss")}</button></div>:null}
     {returnFlight ? <div role="status" aria-live="polite" className="absolute bottom-20 sm:bottom-4 left-1/2 z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-amber-200/25 bg-[#101e29]/95 px-4 py-3 text-center shadow-xl">
       <div className="truncate text-xs text-amber-100">{returnFlight.name}</div>

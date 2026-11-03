@@ -809,7 +809,7 @@ export function OfficeScreen({
 
   const [chatOpen, setChatOpen] = useState(false);
   const [returnRequest, setReturnRequest] = useState<{ agentId: string; requestId: string } | null>(null);
-  const [cloneRequest, setCloneRequest] = useState<{ agentId: string; requestId: string; name?: string } | null>(null);
+  const [cloneRequest, setCloneRequest] = useState<{ agentId: string; requestId: string; name?: string; lastTurnId?: string } | null>(null);
   const cloneFinished = useCallback(() => setCloneRequest(null), [setCloneRequest]);
   const archiveSession = useCallback(async (threadId: string, requestId: string) => {
     const result = await client.call("session.archive", { threadId, requestId }) as {threadId:string;archived:boolean};
@@ -3278,14 +3278,13 @@ export function OfficeScreen({
       handleOpenAgentChat(threadId);
     }
   };
-  const forkSession = async (threadId: string, requestId: string, name?: string) => {
+  const forkSession = async (threadId: string, requestId: string, name?: string, lastTurnId?: string) => {
     const settings = await settingsCoordinator.loadSettings({ force: true });
     if (!settings) throw new Error(t("Connection unavailable. Please reconnect before saving."));
-    const source = stateRef.current.agents.find(agent => agent.agentId === threadId);
-    const result = await client.call("session.fork", { threadId, requestId, ...(name ? { name } : {}) }) as { threadId: string };
+    const result = await client.call("session.fork", { threadId, requestId, ...(name ? { name } : {}), ...(lastTurnId ? { lastTurnId } : {}) }) as { threadId: string };
     if (!result.threadId || result.threadId === threadId) throw new Error(t("Cloning was not confirmed"));
     try {
-      const patch = cloneAgentPreferences(settings, gatewayUrl.trim(), threadId, result.threadId, source?.avatarProfile);
+      const patch = cloneAgentPreferences(settings, gatewayUrl.trim(), threadId, result.threadId);
       if (Object.keys(patch).length) await settingsCoordinator.applyPatchNow(patch);
       await loadAgents({ silent: true, forceSettings: true });
     } catch {
@@ -3808,9 +3807,9 @@ export function OfficeScreen({
                 sessionView ? <ExistingSessionPanel onOpenWorkspace={openSessionWorkspace} key={focusedChatAgent.agentId} client={client} threadId={focusedChatAgent.agentId}
                   headerStart={sessionListToggle} headerEnd={sessionWindowActions} voice={voice} onOpenThread={acceptCreatedSession}
                   forkDisabled={!!cloneRequest || !!returnRequest || status !== "connected"}
-                  onFork={name => {
+                  onFork={(name, lastTurnId) => {
                     if (cloneRequest || returnRequest || status !== "connected") return;
-                    setCloneRequest({ agentId: focusedChatAgent.agentId, requestId: crypto.randomUUID(), ...(name ? { name } : {}) }); setChatOpen(false);
+                    setCloneRequest({ agentId: focusedChatAgent.agentId, requestId: crypto.randomUUID(), ...(name ? { name } : {}), ...(lastTurnId ? { lastTurnId } : {}) }); setChatOpen(false);
                   }}
                   projects={companyRoster?.projects} organization={organization}
                   agentName={focusedChatAgent.name} onSessionRenamed={name => dispatch({ type: "updateAgent", agentId: focusedChatAgent.agentId, patch: { name, sessionDisplayName: name } })}

@@ -27,6 +27,14 @@ it("offers Fork agent through the cloning scene without archiving or sending to 
   expect(screen.getByRole("button",{name:"Fork agent"})).toBeDisabled();
 });
 
+it("passes the chosen historical turn from a reply into the shared cloning workflow",async()=>{
+  const messages=[{id:"a",turnId:"turn-a",role:"assistant",phase:"final_answer",content:"Earlier reply"},{id:"b",turnId:"turn-b",role:"assistant",phase:"final_answer",content:"Later reply"}];
+  const call=vi.fn(async(method:string)=>method==="session.inspect"?{...metadata(),controlsAvailable:true}:{threadId:"original",messages,nextCursor:null});
+  const onFork=vi.fn();render(React.createElement(ExistingSessionPanel,{client:{call},threadId:"original",onFork}));
+  const buttons=await screen.findAllByRole("button",{name:"Fork from here"});fireEvent.click(buttons[0]);
+  expect(onFork).toHaveBeenCalledWith(undefined,"turn-a");expect(call.mock.calls.some(([method])=>method==="session.fork")).toBe(false);
+});
+
 it("uses live turn state to open work and folds it as the official response begins", async () => {
   const events = sessionEvents();
   let subscriptionId = "";

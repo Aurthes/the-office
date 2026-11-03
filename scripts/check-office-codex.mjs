@@ -150,6 +150,16 @@ try {
   await client.call("project.update", { projectId: project.id, name: "Updated project", rootPaths: [secondary], workspaces: { [threadId]: fs.realpathSync(secondary) }, requestId: "replace-cwd" });
   check("cwd replacement keeps conversation identity", (await client.call("session.inspect", { threadId, includeHistory: false })).workspace === fs.realpathSync(secondary));
   check("restart retains model-visible history and identity", JSON.stringify(payloads.at(-1).input).includes("OFFICE_FIRST_MARKER") && JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].codexThreadId === originalNativeId);
+  const firstTurnId=timedHistory.find(message=>message.role==="user"&&message.content.includes("OFFICE_FIRST_MARKER"))?.turnId;
+  check("history exposes an official completed-turn fork boundary", Boolean(firstTurnId));
+  const past=await client.call("session.fork",{threadId,lastTurnId:firstTurnId,requestId:"fork-at-first-turn"});
+  const pastHistory=(await client.call("session.history",{threadId:past.threadId})).messages;
+  check("historical fork keeps earlier messages and excludes later messages",pastHistory.some(message=>message.content.includes("OFFICE_FIRST_MARKER"))&&!pastHistory.some(message=>message.content.includes("OFFICE_SECOND_MARKER")));
+  await client.call("session.send",{threadId:past.threadId,message:"OFFICE_PAST_FORK_PROBE",requestId:"past-fork-probe"});
+  await until(()=>JSON.stringify(payloads.at(-1).input).includes("OFFICE_PAST_FORK_PROBE")&&JSON.parse(fs.readFileSync(path.join(data,"office.json"))).sessions.find(row=>row.id===past.threadId)?.status==="idle","Historical fork probe did not finish");
+  check("actual forked model context excludes conversation after the selected turn",JSON.stringify(payloads.at(-1).input).includes("OFFICE_FIRST_MARKER")&&!JSON.stringify(payloads.at(-1).input).includes("OFFICE_SECOND_MARKER"));
+  check("historical fork does not add its new messages to the source",!(await client.call("session.history",{threadId})).messages.some(message=>message.content.includes("OFFICE_PAST_FORK_PROBE")));
+  await client.call("session.archive",{threadId:past.threadId,requestId:"archive-past-fork"});
   await client.call("session.send", { threadId, message: "OFFICE_QUESTION", requestId: "send-question" });
   await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].pendingQuestions?.length > 0, "No structured async question from actual Codex");
   await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].status === "idle", "Question turn did not finish");
@@ -176,6 +186,9 @@ try {
   await client.call("session.send", { threadId, message: "OFFICE_HOLD", requestId: "send-3" });
   await until(() => JSON.stringify(payloads.at(-1)).includes("OFFICE_HOLD"), "Hold did not start");
   const runningTiming = await client.call("session.attach", { threadId });
+  let runningForkRejected=false;
+  try{await client.call("session.fork",{threadId,lastTurnId:runningTiming.activeTurnId,requestId:"fork-at-running-turn"});}catch{runningForkRejected=true;}
+  check("in-progress historical fork is rejected without creating an Office agent",runningForkRejected&&(await client.call("office.snapshot")).agents.length===1);
   check("running task exposes its original native start time", Boolean(runningTiming.activeTurnId) && Number.isFinite(runningTiming.activeTurnStartedAt) && runningTiming.activeTurnStartedAt > 0 && runningTiming.activeTurnStartedAt <= Date.now());
   await client.call("session.subscribe", { threadId, subscriptionId: "timing-resubscribe" });
   await until(() => client.events.some(event => event.event === "session.stream" && event.payload.subscriptionId === "timing-resubscribe"), "No timing resubscription snapshot");
