@@ -475,7 +475,7 @@ export function RingShipOffice(props: Props) {
   const selected = currentLayout.cabins.find(c => c.id === validFocus || c.projectId === validFocus);
   const objectEnabled = !busy && !cloneFlight && !navigationOpen && !props.activeChatAgentId && !returnFlight && !monitorOpen && !tasksOpen && !musicOpen && !settingsOpen && !aiOpen;
   const objectFocus = objectEnabled && inspectedObject && (inspectedObject.space ? inspectedObject.space.seed === system.seed : !shipView && inspectedObject.deck === visibleDeck && currentLayout.cabins.some(c => c.id === inspectedObject.cabinId)) ? inspectedObject : null;
-  const duckFocus = !busy && !navigationOpen && !returnFlight && !monitorOpen && !tasksOpen && !musicOpen && !settingsOpen && !aiOpen && !shipView
+  const duckFocus = !busy && !cloneFlight && !navigationOpen && !returnFlight && !monitorOpen && !tasksOpen && !musicOpen && !settingsOpen && !aiOpen && !shipView
     ? props.activeChatAgentId || (objectFocus?.kind === "ceo" ? objectFocus.id : !objectFocus && currentLayout.seats[validFocus] ? validFocus : null) : null;
   const duckAudio = useDuckFocusAudio(duckFocus);
   const inspectObject = useCallback((object: ShipObject) => {
