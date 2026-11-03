@@ -157,7 +157,7 @@ the operations console. The gateway schedules them independently of browser tabs
 | Other files and previews | Uploaded host paths, workspace browsing/text reads and existing supported previews. Upload is not universal PDF/Word/Excel understanding; converters/tools must be available separately |
 | Workspace terminal | Public `command/exec` PTY, output, input, resize and terminate tested using the real engine; uses the session's sandbox policy |
 | Dictation | Optional public file-transcription API, recording/cancel/retry/Option/Enter UI. Disabled without a server API key. Mocked tests cover request/error handling and existing recording controls; real transcription, device/browser behavior and account access remain unvalidated |
-| Suggested prompts | Experimental Codex 0.166.0 `thread/sample` on a disposable GPT-6 Luna copy of the completed Office thread, using Office's ChatGPT login. Low effort; no API key or new turn. The copy is deleted after sampling; the source model/settings/history stay unchanged. Real-account sampling, unchanged history and no tool execution verified; account availability and usage limits still apply. Not native App prediction reuse |
+| Suggested prompts | Experimental Codex 0.166.0 `thread/sample` on the completed Office thread, using Office's ChatGPT login and loaded context. No API key or new turn. Real-account sampling, unchanged history and no tool execution verified; account availability and usage limits still apply. Not native App prediction reuse |
 | Live voice | Experimental Codex 0.166.0 WebRTC V3 on the selected Office thread, using Office's ChatGPT login. Browser audio travels directly to the voice service; tasks and approvals use the existing Office handlers. Real-account tests cover an empty chat, generated speech triggering a completed Codex task, received audio packets, and hangup. Physical microphone behavior and subjective voice quality still need manual testing |
 
 ## Optional speech and suggestions
@@ -168,13 +168,9 @@ those capabilities as unavailable. There is no fallback to an OpenClaw runtime.
 
 Suggested prompts use Office's existing ChatGPT sign-in through Codex's
 experimental `thread/sample` method. They require no API key and leave the native
-desktop App untouched. Suggestions use GPT-6 Luna with low effort independently
-of the main session's selected model and effort. The gateway forks through the
-latest completed turn, samples without appending a message, starting a task or
-executing tools, then deletes this disposable copy. Goal continuation is deferred
-on the copy. Codex 0.166.0 requires a persisted root for sampling, so an in-memory
-fork cannot serve this path. The source thread's settings and history are unchanged.
-One result is reused per completed turn while the gateway runs; a new user turn invalidates the suggestion. Unsupported
+desktop App untouched. Sampling uses the latest completed turn and does not append
+a message, start a task or execute tools. One result is reused per completed turn
+while the gateway runs; a new user turn invalidates the suggestion. Unsupported
 sampling or account errors leave the composer without a suggestion. This is
 version-specific behavior verified with Codex 0.166.0, not a stable cross-version
 or native App prediction contract. Tap or Tab accepts the editable draft; Send submits it.
