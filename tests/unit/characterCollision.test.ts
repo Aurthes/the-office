@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { moveCharacter, type CharacterBody } from "@/features/ring-ship/characterCollision";
-import { advanceCrew, canvasPoint, crewBodies, worldPoint, type MovingAgent } from "@/features/ring-ship/crewMotion";
+import { moveCharacter, walkCharacter, type CharacterBody, type CharacterRecovery } from "@/features/ring-ship/characterCollision";
+import { advanceCrew, canvasPoint, crewBodies, syncCrew, worldPoint, type MovingAgent } from "@/features/ring-ship/crewMotion";
 import { advanceCompanion, companionBody, createCompanionState } from "@/features/ring-ship/companionMotion";
 import { buildShipLayout, shipDeck, shipPoint, type ShipPoint } from "@/features/ring-ship/layout";
 import { footingRadius, isWalkable } from "@/features/ring-ship/walkableSurface";
@@ -15,7 +15,7 @@ function crewFixture(count: number) {
   const crew = ids.map(id => {
     const seat = layout.seats[id], point = canvasPoint(seat);
     return { id, name: id, status: "idle", color: "#abc", item: "", ...point, targetX: point.x, targetY: point.y,
-      path: [], facing: 0, frame: 0, state: "standing", walkSpeed: 1, phaseOffset: 0,
+      deck: seat.deck, path: [], facing: 0, frame: 0, state: "standing", walkSpeed: 1, phaseOffset: 0,
       home: { x: seat.x, z: seat.z }, route: [], routeIndex: 0, visiting: false, pauseUntil: 0 } as MovingAgent;
   });
   return { crew, layout };
@@ -90,5 +90,50 @@ describe("ship character collision volumes", () => {
     }
     expect(distance(worldPoint(agent), { x: -12, z: 0 })).toBeLessThan(1e-8);
     expect([...arrived].sort()).toEqual(["cat", "dog"]);
+  });
+  it("lets an idle crewmate yield out of a bridge bottleneck so a large NPC can finish crossing",()=>{
+    const {crew,layout}=crewFixture(1),agent=crew[0];
+    Object.assign(agent,canvasPoint({x:0,z:19}));agent.pauseUntil=Infinity;
+    const npc=createCompanionState("dog",layout,12,.8);
+    Object.assign(npc,{position:{x:0,z:16},route:[{x:0,z:22}],waypoint:0,duration:Infinity,speed:1});
+    for(let frame=0;frame<2400&&npc.route.length;frame++){
+      const before=worldPoint(agent);advanceCrew(crew,layout,frame*20,.02,undefined,[companionBody(npc)]);
+      advanceCompanion(npc,layout,.02,crewBodies(crew,layout));
+      expect(distance(before,worldPoint(agent))).toBeLessThanOrEqual(.021001);
+      expectSeparated([...crewBodies(crew,layout),companionBody(npc)]);
+      for(const body of [...crewBodies(crew,layout),companionBody(npc)])expect(isWalkable(body.position,layout,footingRadius(body.radius))).toBe(true);
+    }
+    expect(npc.route).toHaveLength(0);expect(distance(npc.position,{x:0,z:22})).toBeLessThan(.01);
+    expect(distance(worldPoint(agent),{x:0,z:19})).toBeGreaterThan(.3);
+  });
+  it("commits to a safe retreat, keeps it through metadata refresh and resumes the same route once a blockage clears",()=>{
+    const {crew,layout}=crewFixture(1);let actor=crew[0];
+    const walker=body(actor.id,0,16),obstacle={...body("stationary",0,19),radius:.8},goal={x:0,z:24};
+    actor.route=[goal];actor.pauseUntil=Infinity;Object.assign(actor,canvasPoint(walker.position));
+    let best=distance(walker.position,goal),backoff=0,refreshed=false;
+    for(let frame=0;frame<1000&&distance(walker.position,goal)>.001;frame++){
+      const before={...walker.position},others=frame<400?[walker,obstacle]:[walker];
+      walker.position=walkCharacter(actor,walker,goal,.02,.02,others,layout);Object.assign(actor,canvasPoint(walker.position));
+      expect(distance(before,walker.position)).toBeLessThanOrEqual(.020001);
+      expect(isWalkable(walker.position,layout,footingRadius(walker.radius))).toBe(true);
+      if(frame<400){best=Math.min(best,distance(walker.position,goal));backoff=Math.max(backoff,distance(walker.position,goal)-best);expectSeparated(others);}
+      if(!refreshed&&actor.recovery?.retreat){
+        const old=actor;actor=syncCrew([actor],layout,new Map([[actor.id,actor]]),3000)[0];
+        expect(actor.recovery).toBe(old.recovery);expect(worldPoint(actor)).toEqual(worldPoint(old));refreshed=true;
+      }
+    }
+    expect(refreshed).toBe(true);expect(backoff).toBeGreaterThan(.5);
+    expect(distance(walker.position,goal)).toBeLessThan(.001);expect(actor.route).toEqual([goal]);
+    const snapshot=structuredClone(actor.recovery);walkCharacter(actor,walker,goal,.02,0,[walker],layout);expect(actor.recovery).toEqual(snapshot);
+  });
+  it("clears a dense crossing repeatedly without overlap, floor escapes or permanent circling",()=>{
+    const {layout}=crewFixture(1),center={x:0,z:26},count=8;
+    const bodies=Array.from({length:count},(_,i)=>{const angle=i*Math.PI*2/count;return{...body(`crossing-${i}`,center.x+Math.sin(angle)*2.2,center.z+Math.cos(angle)*2.2),radius:.6};});
+    const goals=bodies.map(b=>({x:center.x*2-b.position.x,z:center.z*2-b.position.z})),owners: {recovery?:CharacterRecovery}[]=bodies.map(()=>({}));
+    for(let frame=0;frame<3000&&bodies.some((b,i)=>distance(b.position,goals[i])>.01);frame++){
+      bodies.forEach((b,i)=>{const before=b.position;b.position=walkCharacter(owners[i],b,goals[i],.025,.025,bodies,layout);expect(distance(before,b.position)).toBeLessThanOrEqual(.025001);expect(isWalkable(b.position,layout,.4)).toBe(true);});
+      expectSeparated(bodies);
+    }
+    bodies.forEach((b,i)=>expect(distance(b.position,goals[i]),JSON.stringify({i,bodies,owners})).toBeLessThan(.01));
   });
 });

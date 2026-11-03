@@ -1,6 +1,6 @@
 import { CEO_ID } from "@/lib/office/organization";
 import { cabinAngle, routeBetweenCabins, shipPoint, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
-import { moveCharacter, occupiedWaypoint, type CharacterBody } from "./characterCollision";
+import { occupiedWaypoint, walkCharacter, type CharacterBody, type CharacterRecovery } from "./characterCollision";
 import { footingRadius, isWalkable, walkableSegment } from "./walkableSurface";
 import { monitorChairPose } from "./monitor-room-geometry";
 import { BREAK_ACTIONS, BREAK_ACTIVITIES, breakAction, breakSeatKey, breakSeatPose, type BreakVisit } from "./breakRoomLayout";
@@ -11,6 +11,7 @@ export type CeoState = {
   action: CeoAction; time: number; elapsed: number; duration: number; routine: number; seed: number; tours: number;
   position: ShipPoint; facing: number; walking: boolean; radius: number;
   cabinId: string; destinationId: string; route: ShipPoint[]; waypoint: number; blocked: number;
+  recovery?: CharacterRecovery;
   breakVisit?: BreakVisit;
 };
 const ROUTINE: CeoAction[] = ["monitor", "stretch", "review", "window", "coffee", "patrol", "monitor", "think"];
@@ -105,7 +106,7 @@ export function advanceCeo(state: CeoState, layout: ShipLayout, elapsed: number,
       } else state.blocked += dt;
       return;
     }
-    const next = moveCharacter(body, target, dt * .9, others, true, layout);
+    const next = walkCharacter(state,body,target,dt*.9,dt,others,layout);
     const moved = Math.hypot(next.x - before.x, next.z - before.z);
     state.position = next; state.walking = moved > 1e-6;
     if (state.walking) {

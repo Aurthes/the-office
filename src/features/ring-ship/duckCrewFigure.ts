@@ -33,10 +33,11 @@ function shapedBill() {
 
 // Original ship crew artwork: rounded waterfowl silhouettes and matte feathers.
 // The rig uses the same height, facing and workstation coordinates as the crew.
-export function createDuckCrewFigure(appearance?: DuckAppearance) {
-  const style = normalizeDuckAppearance(appearance);
+export function createDuckCrewFigure(appearance?: DuckAppearance, construction = false) {
+  const original = normalizeDuckAppearance(appearance);
+  const style: DuckAppearance = construction ? { ...original, headwear: "helmet", headwearColor: "#f6c94a", outfit: "firefighter", outfitColor: "#ec7629", wingColor: "#ec7629", backpack: true, backpackStyle: "pack", footStyle: "boots", footColor: "#303c42" } : original;
   const root = new THREE.Group();
-  root.name = "duck-crew";
+  root.name = construction ? "construction-worker" : "duck-crew";
   // Cancel the original flattened barrel proportions. At 100%, the body has a
   // circular horizontal section; equipment and face scale with the same rig.
   root.scale.set(style.bodyWidth / 1.14, style.bodyHeight, style.bodyDepth / .93);
@@ -178,6 +179,11 @@ export function createDuckCrewFigure(appearance?: DuckAppearance) {
     add(headgear, new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), uniform, hatColor,
       [0, (helmet ? .566 : .565) + eyeLift, 0], [.173 * style.headScale, helmet ? .15 : .118, .148 * style.headScale]);
     add(headgear, new THREE.TorusGeometry(1, .025, 6, 36), uniform, "#25333a", [0, (helmet ? .566 : .565) + eyeLift, 0], [.174 * style.headScale, .15 * style.headScale, .149], [Math.PI / 2, 0, 0]);
+    if (construction) {
+      headgear.name = "construction-hard-hat";
+      add(headgear, new THREE.CylinderGeometry(.198, .205, .018, 28), uniform, hatColor, [0, .566 + eyeLift, .014], [style.headScale, 1, .84 * style.headScale]);
+      for (const x of [-.065, 0, .065]) add(headgear, new THREE.BoxGeometry(.012, .018, .15), uniform, hatColor, [x * style.headScale, .706 + eyeLift, 0]);
+    }
     if (style.headwear === "firefighter") {
       add(headgear, new THREE.CylinderGeometry(.21, .215, .014, 28), uniform, hatColor, [0, .565 + eyeLift, -.025], [style.headScale, 1, .84 * style.headScale]);
       add(headgear, new THREE.BoxGeometry(.014, .06, .18), uniform, hatColor, [0, .694 + eyeLift, 0]);
@@ -223,6 +229,33 @@ export function createDuckCrewFigure(appearance?: DuckAppearance) {
     return foot;
   });
 
+  let fieldTools: { notebook: THREE.Group; blueprint: THREE.Group; pencil: THREE.Group; tape: THREE.Group } | undefined;
+  if (construction) {
+    const notebook = gear("site-notebook", [0, .335, .22]); notebook.rotation.x = -.65;
+    add(notebook, new THREE.BoxGeometry(.19, .145, .013), uniform, "#8a6545", [0, 0, 0]);
+    add(notebook, new THREE.BoxGeometry(.166, .122, .003), uniform, "#f5ebcf", [0, 0, .009]);
+    add(notebook, new THREE.BoxGeometry(.055, .018, .008), uniform, "#b9c3c5", [0, .066, .013]);
+    for (let y = -.04; y < .04; y += .021) add(notebook, new THREE.BoxGeometry(.11, .002, .002), uniform, "#72878e", [-.012, y, .012]);
+    const blueprint = gear("site-blueprint", [0, .335, .24]); blueprint.rotation.x = -.9;
+    add(blueprint, new THREE.BoxGeometry(.29, .18, .005), uniform, "#2d6b94", [0, 0, 0]);
+    for (let x = -.12; x <= .12; x += .04) add(blueprint, new THREE.BoxGeometry(.001, .15, .002), uniform, "#739fb5", [x, 0, .004]);
+    for (let y = -.06; y <= .06; y += .03) add(blueprint, new THREE.BoxGeometry(.26, .001, .002), uniform, "#739fb5", [0, y, .004]);
+    for (const x of [-.075, .04]) {
+      add(blueprint, new THREE.BoxGeometry(.002, .09, .002), uniform, "#e7f0da", [x, 0, .006]);
+      add(blueprint, new THREE.BoxGeometry(.07, .002, .002), uniform, "#e7f0da", [x + .034, .044, .006]);
+    }
+    for (const x of [-.148, .148]) add(blueprint, new THREE.CylinderGeometry(.011, .011, .185, 8), uniform, "#c9e0dd", [x, 0, 0]);
+    const pencil = gear("site-pencil", [.055, .35, .25]); pencil.rotation.z = -.4;
+    add(pencil, new THREE.CylinderGeometry(.004, .004, .095, 6), uniform, "#f5c85b", [0, 0, 0]);
+    add(pencil, new THREE.ConeGeometry(.004, .012, 6), uniform, "#3b4040", [0, -.052, 0], [1, 1, 1], [Math.PI, 0, 0]);
+    const tape = gear("site-tape-measure", [.18, .27, .19]);
+    add(tape, new THREE.BoxGeometry(.055, .055, .035), uniform, "#e8b63d", [0, 0, 0]);
+    add(tape, new THREE.BoxGeometry(.015, .19, .004), uniform, "#e5d9a4", [0, -.12, 0]);
+    for (let y = -.04; y > -.21; y -= .025) add(tape, new THREE.BoxGeometry(.008, .002, .002), uniform, "#383b35", [.003, y, .004]);
+    fieldTools = { notebook, blueprint, pencil, tape };
+    Object.values(fieldTools).forEach(tool => { tool.visible = false; });
+  }
+
   // Merge fixed parts by material, while retaining the animated pivots.
   for (const group of [body, face, ...wingParts, ...feet, ...equipment]) {
     const batches = new Map<THREE.Material, THREE.BufferGeometry[]>();
@@ -241,7 +274,7 @@ export function createDuckCrewFigure(appearance?: DuckAppearance) {
     }
   }
 
-  return { root, body, wings, feet, dispose() {
+  return { root, body, wings, feet, fieldTools, dispose() {
     root.traverse(object => { if (object instanceof THREE.Mesh) object.geometry.dispose(); });
     for (const material of [feather, bill, eyes, uniform]) material.dispose();
   } };

@@ -37,6 +37,8 @@ import { ReturnPodBay, ReturnPodJourney, type ReturnFlight } from "./ReturnPodBa
 import { CloningLab, type CloneFlight } from "./CloningLab";
 import { CLONE_LABELS, cloningPoint, rejoinCrewAfterClone, type CloneArrival, type CloneRequest, type CloneResult, type CloneStage } from "./cloneMotion";
 import { returnRoute, RETURN_LABELS, type ArchiveResult, type ReturnStage, type ReturnTransfer } from "./returnPodMotion";
+import { FieldCamp } from "./FieldCamp";
+import { SITE_ACTIVITIES } from "./fieldwork";
 import { advanceCrew, syncCrew, worldPoint, type MovingAgent } from "./crewMotion";
 import { BREAK_CHATTER, BREAK_ROOM, breakAction } from "./breakRoomLayout";
 import { useUiText } from "@/lib/i18n/ui-language";
@@ -252,7 +254,7 @@ function placeNameplate(frame: NameplatePlacement, time: number, x: number, y: n
   return lift;
 }
 
-function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId, companionsRef, ceoBodyRef, arrivalsRef }: { arrivalsRef: RefObject<Map<string, CloneArrival>>; agents: OfficeAgent[]; layout: ShipLayout; focus: string; onOpen: (id: string) => void; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null; companionsRef: RefObject<Map<CompanionKind, CompanionState>>; ceoBodyRef: RefObject<CharacterBody | null> }) {
+function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId, companionsRef, ceoBodyRef, arrivalsRef, visibleDeck, onDeckChange }: { visibleDeck: number; onDeckChange: (id: string, deck: DeckIndex) => void; arrivalsRef: RefObject<Map<string, CloneArrival>>; agents: OfficeAgent[]; layout: ShipLayout; focus: string; onOpen: (id: string) => void; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null; companionsRef: RefObject<Map<CompanionKind, CompanionState>>; ceoBodyRef: RefObject<CharacterBody | null> }) {
   const agentsRef = useRef<RenderAgent[]>([]);
   const nameplatePlacement = useRef<NameplatePlacement>({ frame: -1, rects: [] });
   const [hovered, setHovered] = useState<string | null>(null);
@@ -264,22 +266,26 @@ function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId, companion
       const arrival=arrivalsRef.current.get(agent.id);
       if(arrival){rejoinCrewAfterClone(agent,layout,arrival);arrivalsRef.current.delete(agent.id);}
     }
+    for (const a of values) { const prior = lookupRef.current.get(a.id) as MovingAgent | undefined; if (prior && prior.deck !== a.deck) onDeckChange(a.id, a.deck); }
     agentsRef.current = values; lookupRef.current = new Map(values.map(a => [a.id, a]));
-  }, [agents, layout, lookupRef, arrivalsRef]);
+  }, [agents, layout, lookupRef, arrivalsRef, onDeckChange]);
   useFrame((state, delta) => {
-    advanceCrew(agentsRef.current as MovingAgent[], layout, performance.now(), delta, chatAgentId, [...companionsRef.current.values()].map(companionBody).concat(ceoBodyRef.current ? [ceoBodyRef.current] : []));
+    const crew = agentsRef.current as MovingAgent[], prior = crew.map(a => a.deck);
+    advanceCrew(crew, layout, performance.now(), delta, chatAgentId, [...companionsRef.current.values()].map(companionBody).concat(ceoBodyRef.current ? [ceoBodyRef.current] : []));
+    crew.forEach((a, i) => { if (a.deck !== prior[i]) onDeckChange(a.id, a.deck); });
   }, -1);
   return <>{agents.map(agent => {
     const seat = layout.seats[agent.id]; if (!seat) return null;
     return <group key={agent.id}>
-      <DuckCrewModel agentId={agent.id} appearance={agent.avatarProfile?.duck}
+      <DuckCrewModel agentId={agent.id} appearance={agent.avatarProfile?.duck} constructionWorker={agent.constructionWorker} homeDeck={seat.deck} visibleDeck={visibleDeck}
         agentsRef={agentsRef} agentLookupRef={lookupRef} initialPosition={initialPositions[agent.id]}
         onHover={setHovered} onUnhover={unhover} onClick={onOpen} />
-      <CrewLabel deck={seat.deck} agent={agent} lookupRef={lookupRef} placement={nameplatePlacement} onOpen={onOpen} expanded={hovered === agent.id || focus === seat.projectId || !!agent.needsInput || !!agent.needsReview} />
+      {agent.constructionWorker ? <FieldCamp agentId={agent.id} lookup={lookupRef} layout={layout} visibleDeck={visibleDeck} /> : null}
+      <CrewLabel visibleDeck={visibleDeck} deck={seat.deck} agent={agent} lookupRef={lookupRef} placement={nameplatePlacement} onOpen={onOpen} expanded={hovered === agent.id || focus === seat.projectId || !!agent.needsInput || !!agent.needsReview} />
     </group>;
   })}</>;
 }
-function CrewLabel({ agent, lookupRef, placement, expanded, onOpen, deck }: { deck: DeckIndex; agent: OfficeAgent; lookupRef: RefObject<Map<string, RenderAgent>>; placement: RefObject<NameplatePlacement>; expanded: boolean; onOpen: (id: string) => void }) {
+function CrewLabel({ agent, lookupRef, placement, expanded, onOpen, deck, visibleDeck }: { visibleDeck: number; deck: DeckIndex; agent: OfficeAgent; lookupRef: RefObject<Map<string, RenderAgent>>; placement: RefObject<NameplatePlacement>; expanded: boolean; onOpen: (id: string) => void }) {
   const ref = useRef<THREE.Sprite>(null);
   const leader = useRef<THREE.BufferGeometry>(null);
   const leaderLine = useRef<THREE.LineSegments>(null);
@@ -301,15 +307,17 @@ function CrewLabel({ agent, lookupRef, placement, expanded, onOpen, deck }: { de
     const value = lookupRef.current.get(agent.id); if (!ref.current) return;
     // Identity is always shown for every placed crew member. Alert state only
     // adds a marker/details; it must never decide whether a name exists.
-    ref.current.visible = !!value && !(value as MovingAgent).kirbyPose;
+    const moving = value as MovingAgent | undefined, actualDeck = moving?.deck ?? deck;
+    ref.current.visible = !!value && !moving?.kirbyPose && actualDeck === visibleDeck;
     if (leaderLine.current) leaderLine.current.visible = ref.current.visible;
     if (!value || !ref.current.visible) return;
-    const visit = (value as MovingAgent).breakVisit;
-    const casual = activity.kind === "idle" && value.state === "sitting" && !!visit;
+    const field = moving?.fieldwork, visit = moving?.breakVisit;
+    const casual = !field && activity.kind === "idle" && value.state === "sitting" && !!visit;
     if (activity.kind === "working" || casual || lastBubble.current) {
       const seconds = state.clock.elapsedTime + value.phaseOffset;
       const smallTalk = casual && seconds % 14 < 3 ? BREAK_CHATTER[breakAction(visit)][Math.floor(seconds / 14) % 2] : "";
-      const bubble = t(activity.kind === "working" ? workChatter(agent.id, state.clock.elapsedTime * 1000) : smallTalk);
+      const work = field ? field.time < 2.2 ? SITE_ACTIVITIES[field.phase] : "" : workChatter(agent.id, state.clock.elapsedTime * 1000);
+      const bubble = t(activity.kind === "working" ? work : smallTalk);
       const currentTexture = textureRef.current, tick = Math.floor(state.clock.elapsedTime * 10);
       if (currentTexture && (bubble !== lastBubble.current || (!bubble && tick !== lastPaint.current))) {
         paintCrewNameplate(currentTexture.image as HTMLCanvasElement, agent, expanded, bubble, state.clock.elapsedTime * Math.PI * 2 / 3, t, casual);
@@ -320,9 +328,9 @@ function CrewLabel({ agent, lookupRef, placement, expanded, onOpen, deck }: { de
     const height = expanded ? 36 : agent.title ? 32 : 21;
     const zoom = state.camera.zoom;
     const seatedLift = value.state === "sitting" ? Math.max(0, (visit ? BREAK_ROOM.seatHeight : value.workstation?.seatHeight ?? .4) - .08 - .065 * AGENT_SCALE) : 0;
-    const headY = .16 + (headwear === "none" ? .65 : .72 + Math.max(0, eyeHeight - 1) * .3) * bodyHeight * AGENT_SCALE + seatedLift;
-    vectors.anchor.set(p.x, headY, p.z);
-    vectors.projected.set(p.x, headY + deck * DECK_STEP, p.z).project(state.camera);
+    const headY = .16 + (moving?.fieldwork?.geared ? .75 : headwear === "none" ? .65 : .72 + Math.max(0, eyeHeight - 1) * .3) * bodyHeight * AGENT_SCALE + seatedLift;
+    vectors.anchor.set(p.x, headY + (moving?.deckY ?? actualDeck * DECK_STEP), p.z);
+    vectors.projected.copy(vectors.anchor).project(state.camera);
     const x = (vectors.projected.x + 1) * state.size.width / 2 - width / 2;
     const y = (1 - vectors.projected.y) * state.size.height / 2 - height - 6;
     const lift = placeNameplate(placement.current, state.clock.elapsedTime, x, y, width, height);
@@ -389,7 +397,9 @@ export function RingShipOffice(props: Props) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const pendingFocus = useRef("");
   const busy = !!trip;
-  const chatDeck = props.activeChatAgentId ? layout.seats[props.activeChatAgentId]?.deck : undefined;
+  const [crewDecks, setCrewDecks] = useState<Record<string, DeckIndex>>({});
+  const crewDeckChanged = useCallback((id: string, value: DeckIndex) => setCrewDecks(previous => previous[id] === value ? previous : { ...previous, [id]: value }), []);
+  const chatDeck = props.activeChatAgentId ? crewDecks[props.activeChatAgentId] ?? layout.seats[props.activeChatAgentId]?.deck : undefined;
   const visibleDeck = cloneFlight && cloningCabin ? cloningCabin.deck : !busy && chatDeck !== undefined ? chatDeck : deck;
   const shipView = whole && !props.activeChatAgentId && !cloneFlight;
   const decks = useMemo(() => DECKS.map(d => shipDeck(layout, d)), [layout]);
@@ -414,7 +424,7 @@ export function RingShipOffice(props: Props) {
       const source=agents.find(a=>a.id===cloneRequest.agentId),seat=layout.seats[cloneRequest.agentId];
       if(!source||!seat||!cloningCabin){setCloneError(t("Cloning laboratory is not ready"));onCloneFinished?.();return;}
       const previous=crewLookupRef.current.get(source.id);
-      cloneOrigin.current={point:previous?worldPoint(previous):seat,deck:seat.deck};
+      cloneOrigin.current={point:previous?worldPoint(previous):seat,deck:(previous as MovingAgent | undefined)?.deck ?? seat.deck};
       cloneResultRef.current={status:"pending"};setCloneState("synchronizing");setCloneError("");setClonedAgentId(null);
       setCloneFlight({requestId:cloneRequest.requestId,agentId:source.id,name:source.name,appearance:source.avatarProfile?.duck});
       setDeck(cloningCabin.deck);setWhole(false);setTrip(null);setLiftOpen(false);setFleetOpen(false);setInspectedObject(null);
@@ -462,8 +472,9 @@ export function RingShipOffice(props: Props) {
     const agent = agents.find(a => a.id === request.agentId), seat = layout.seats[request.agentId];
     if (!agent || !seat) { onReturnFinished?.(); return; }
     const rendered = crewLookupRef.current.get(agent.id);
-    const route = returnRoute(layout, seat, rendered ? worldPoint(rendered) : seat);
-    setInspectedObject(null);setDeck(seat.deck);setWhole(false);setFleetOpen(false);setLiftOpen(false);
+    const sourceDeck = (rendered as MovingAgent | undefined)?.deck ?? seat.deck;
+    const route = returnRoute(layout, { ...seat, deck: sourceDeck }, rendered ? worldPoint(rendered) : seat);
+    setInspectedObject(null);setDeck(sourceDeck);setWhole(false);setFleetOpen(false);setLiftOpen(false);
     setReturnFlight({...route,agentId:agent.id,requestId:request.requestId,name:agent.name,appearance:agent.avatarProfile?.duck});
     setReturnStage("walking");setReturnError("");archiveResultRef.current={status:"pending"};
     returnTransferRef.current={};returnRideRef.current=null;
@@ -582,14 +593,14 @@ export function RingShipOffice(props: Props) {
           {navigationPreview ? <NavigationConsole layout={currentLayout} cabin={cabin} state={navigation} onAction={action => { closeObject(); navigate(action); }} disabled={busy || !!returnFlight || !!props.activeChatAgentId || navigation.phase === "warp"} /> : null}
         </group>)}
         {visibleDeck === 0 && !navigationOpen ? currentLayout.cabins.filter(c => c.kind === "servers").map(cabin => <ServerRoomScreen key={cabin.id} layout={currentLayout} cabin={cabin} hosts={serverHosts} onOpen={openServers} />) : null}
-        <Crew agents={visibleAgents.filter(a=>a.id!==returnFlight?.agentId&&a.id!==cloneFlight?.agentId&&!(cloneFlight&&a.id===clonedAgentId))} layout={currentLayout} focus={validFocus} onOpen={open} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} companionsRef={companionsRef} ceoBodyRef={ceoBodyRef} arrivalsRef={cloneArrivals} />
       </group> : null}
+      {!busy ? <Crew agents={agents.filter(a=>a.id!==returnFlight?.agentId&&a.id!==cloneFlight?.agentId&&!(cloneFlight&&a.id===clonedAgentId))} layout={layout} visibleDeck={shipView ? -1 : visibleDeck} onDeckChange={crewDeckChanged} focus={validFocus} onOpen={open} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} companionsRef={companionsRef} ceoBodyRef={ceoBodyRef} arrivalsRef={cloneArrivals} /> : null}
       {cloningCabin ? <group visible={shipView||visibleDeck===cloningCabin.deck}><CloningLab layout={layout} cabin={cloningCabin} flight={cloneFlight} resultRef={cloneResultRef} onStage={setCloneState} onComplete={cloneComplete} interactive={objectEnabled&&(shipView||visibleDeck===cloningCabin.deck)} selectedId={objectFocus?.id} onSelect={inspectObject}/></group>:null}
       {returnFlight ? <group visible={!shipView}>
         <ReturnPodJourney key={returnFlight.requestId} flight={returnFlight} resultRef={archiveResultRef} transferRef={returnTransferRef} displayDeck={visibleDeck} onStage={returnPhaseChanged} onComplete={returnComplete}/>
       </group>:null}
       <OrbitControls ref={controlsRef} makeDefault enabled={!busy && !cloneFlight && !(navigationPreview && (navigation.phase === "confirm" || navigation.phase === "warp"))} enableDamping={!busy} dampingFactor={0.15} minZoom={0.15} maxZoom={110} minPolarAngle={0.12} maxPolarAngle={Math.PI * 0.72} />
-      <CameraRig layout={currentLayout} focus={cameraFocus} controlsRef={controlsRef} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} chatExpanded={props.chatExpanded} deck={visibleDeck} whole={shipView} busy={busy}
+      <CameraRig layout={layout} focus={cameraFocus} controlsRef={controlsRef} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} chatExpanded={props.chatExpanded} deck={visibleDeck} whole={shipView} busy={busy}
         podFocus={returnCamera} navigationFocus={navigationFocus} objectFocus={objectFocus} cloneFocus={cloneFocus}/>
       <LiftEntry deck={visibleDeck} whole={shipView} open={liftOpen} disabled={busy || !!props.activeChatAgentId || navigationOpen} counts={counts} onOpen={() => { closeObject(); setLiftOpen(true); }} onClose={() => setLiftOpen(false)} onTravel={travel} />
       <LiftJourney trip={trip} layout={layout} controlsRef={controlsRef} overlayRef={overlayRef} onArrive={arrive} onComplete={complete} />
