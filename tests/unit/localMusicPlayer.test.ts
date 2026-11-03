@@ -90,14 +90,33 @@ it("loops through the library in order and remembers the mode", async () => {
   fireEvent.ended(audio); await waitFor(() => expect(audio).toHaveAttribute("src", "/api/music/local?id=two"));
   fireEvent.ended(audio); await waitFor(() => expect(audio).toHaveAttribute("src", "/api/music/local?id=one"));
 });
-it("uses native single-track looping while manual next still advances", async () => {
+it("keeps native looping and restarts the same track if the browser reports an end, while manual next still advances", async () => {
   render(createElement(MusicPlayerDialog, props)); await selectLocal(); fireEvent.click(screen.getByRole("button", { name: "Play One" }));
   const audio = document.querySelector("audio")!; fireEvent.loadedMetadata(audio); fireEvent.play(audio);
   const calls = vi.mocked(audio.play).mock.calls.length;
   fireEvent.click(screen.getByRole("button", { name: "Repeat one" })); expect(audio.loop).toBe(true);
   expect(audio).toHaveAttribute("src", "/api/music/local?id=one"); expect(audio.play).toHaveBeenCalledTimes(calls);
+  audio.currentTime = 600;
   fireEvent.ended(audio); expect(audio).toHaveAttribute("src", "/api/music/local?id=one");
+  expect(audio.currentTime).toBe(0); expect(audio.play).toHaveBeenCalledTimes(calls + 1);
   fireEvent.click(screen.getByRole("button", { name: "Next track" })); await waitFor(() => expect(audio).toHaveAttribute("src", "/api/music/local?id=two")); expect(audio.loop).toBe(true);
+});
+it("repeats with the panel closed after the browser pauses at EOF, then respects an explicit pause", async () => {
+  localStorage.setItem(MUSIC_PROVIDER_KEY, "local"); localStorage.setItem("claw3d:music:local:mode", "repeat-one");
+  render(createElement(MusicPlayerDialog, { ...props, autoPlay: true, open: false }));
+  const audio = await waitFor(() => { const a = document.querySelector("audio")!; expect(a).toHaveAttribute("src", "/api/music/local?id=one"); return a; });
+  Object.defineProperty(audio, "ended", { configurable: true, get: () => audio.currentTime >= 600 });
+  fireEvent.loadedMetadata(audio); fireEvent.play(audio);
+  for (let cycle = 0; cycle < 2; cycle++) {
+    const calls = vi.mocked(audio.play).mock.calls.length;
+    audio.currentTime = 600; fireEvent.pause(audio); fireEvent.ended(audio);
+    expect(audio.play).toHaveBeenCalledTimes(calls + 1); expect(audio.currentTime).toBe(0);
+    expect(audio).toHaveAttribute("src", "/api/music/local?id=one"); fireEvent.play(audio);
+  }
+  fireEvent.click(screen.getByRole("button", { name: "Pause music" })); fireEvent.pause(audio);
+  const calls = vi.mocked(audio.play).mock.calls.length;
+  fireEvent.ended(audio); expect(audio.play).toHaveBeenCalledTimes(calls);
+  expect(audio).toHaveAttribute("src", "/api/music/local?id=one");
 });
 it("keeps a pause across mode changes and restores the saved choice on remount", async () => {
   localStorage.setItem(MUSIC_PROVIDER_KEY, "local"); const view = render(createElement(MusicPlayerDialog, { ...props, autoPlay: true, open: false }));

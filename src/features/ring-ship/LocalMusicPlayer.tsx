@@ -99,7 +99,13 @@ export function LocalMusicPlayer({ autoPlay, controlsTarget, minimized, onOpen, 
         onLoadedMetadata={() => { switching.current = false; }}
         onPlay={() => { switching.current = false; wantsPlayback.current = true; setPlaying(true); setPlayHint(false); if (selected) { try { localStorage.setItem(LAST_TRACK, selected.id); } catch {} } }}
         onPause={() => { setPlaying(false); if (!switching.current && !audio.current?.ended) { wantsPlayback.current = false; setBuffering(false); } }}
-        onEnded={() => { setPlaying(false); if (wantsPlayback.current && mode !== "repeat-one") next(); }}
+        onEnded={() => {
+          setPlaying(false);
+          if (!wantsPlayback.current) return;
+          // If native looping reports an end, restart without changing tracks.
+          if (modeRef.current === "repeat-one" && selected) play(selected);
+          else next();
+        }}
         onVolumeChange={() => { if (audio.current) setVolume(audio.current.muted ? 0 : audio.current.volume); }}
         onError={() => { wantsPlayback.current = false; switching.current = false; setBuffering(false); setPlaying(false); setError("This track could not be played. Try another track."); }} />
       {buffering && !playHint ? <p role="status">{t("Buffering music…")}</p> : null}
