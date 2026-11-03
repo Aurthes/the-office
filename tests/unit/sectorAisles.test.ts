@@ -59,6 +59,7 @@ it.each([8,12,20])('keeps a continuous two-person passage through every sector o
       const unregister=registerFurniture(layout,boxes);
       try {
         for(const cabin of layout.cabins)expect.soft(passage(layout,cabin),`${cabin.id} (${cabin.kind}) on deck ${deck}`).toBeDefined();
+        for(const cabin of layout.cabins.filter(c=>c.kind==='garden'))expect(scene.userData.shipObjects.filter((o:{cabinId:string;kind:string})=>o.cabinId===cabin.id&&o.kind==='rainforestTree').length).toBeGreaterThanOrEqual(18);
       } finally {unregister();disposeShipGeometry(scene);}
     }
 },30000);
