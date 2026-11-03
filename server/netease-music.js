@@ -5,11 +5,26 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const QRCode = require("qrcode");
 
-const SCENE_QUERIES = {
-  "deep-space": "太空 纯音乐", "blue-nebula": "冰川 氛围 纯音乐", "amber-nebula": "desert ambient instrumental",
-  "jade-nebula": "海洋 氛围 纯音乐", "violet-rift": "科幻 游戏 纯音乐",
-  "black-hole": "dark ambient 纯音乐",
+// Scenes describe a place to inhabit, rather than a genre or a song title.
+const SCENE_PROFILES = {
+  "deep-space": { queries: ["太空 宇宙 氛围 配乐", "space ambient cinematic instrumental"], match: /太空|宇宙|星际|银河|深空|space|cosmic|interstellar/i },
+  "blue-nebula": { queries: ["冰川 极地 氛围 纯音乐", "arctic glacier ambient soundscape"], match: /冰川|极地|冰雪|雪原|冰原|glacier|arctic|polar|frost|ice/i },
+  "amber-nebula": { queries: ["沙漠 风声 氛围 配乐", "desert ambient soundscape"], match: /沙漠|荒漠|沙丘|desert|dune/i },
+  "jade-nebula": { queries: ["热带雨林 自然 白噪音", "森林 鸟鸣 氛围 纯音乐"], match: /雨林|森林|丛林|林间|鸟鸣|自然|rainforest|forest|jungle|nature|wildlife/i },
+  "violet-rift": { queries: ["异星 神秘 科幻 氛围 配乐", "mysterious sci-fi ambient soundtrack"], match: /异星|神秘|科幻|裂隙|sci.?fi|myster|rift|void/i },
+  "black-hole": { queries: ["黑洞 深空 暗黑 氛围 配乐", "dark space ambient soundtrack"], match: /黑洞|深空|暗黑|黑暗|black.?hole|dark|space|cosmic/i },
 };
+const AMBIENCE = /氛围|环境|声景|音景|白噪|自然|实录|电影|影视|游戏|配乐|原声|ambient|soundscape|field.?recording|nature|cinematic|soundtrack|score/i;
+const UNSUITABLE_STYLE = /摇滚|金属|说唱|流行|舞曲|劲爆|蹦迪|电音|鼓打贝斯|双耳节拍|机械|\b(metal|rock|rap|dance|pop|DJ|EDM|dnb|binaural)\b|\b\d+(?:\.\d+)?\s*hz\b|hip.?hop|k.?pop|drum.?and.?bass/i;
+const description = item => [item.name, item.album?.name || item.albumName, ...(item.tags || [])].filter(Boolean).join(" ");
+const backgroundStyle = item => !UNSUITABLE_STYLE.test(description(item));
+function hasSungLyrics(data) {
+  const texts = [data?.lyric, data?.lyric?.lyric, data?.lrc?.lyric, data?.txtLyric].filter(value => typeof value === "string");
+  return texts.some(text => text.split(/\r?\n/).some(line => {
+    const content = line.replace(/\[[^\]]*\]/g, "").trim();
+    return content && !/^(纯音乐|此歌曲为没有填词的纯音乐|instrumental|no lyrics|作词|作曲|编曲|制作|音乐|混音|母带|录音|出品|发行|词[：:]|曲[：:]|lyrics?\s*[:：]|compos|arrang|produc|copyright)/i.test(content);
+  }));
+}
 const songView = song => ({ id: song.id, name: song.name, artists: (song.artists?.length ? song.artists : song.fullArtists || []).map(artist => artist.name).filter(Boolean).join(" / "), album: song.album?.name || song.albumName || "", playable: song.visible !== false && song.playFlag !== false });
 
 function musicError(message, status = 502, code = "MUSIC_UNAVAILABLE") {
@@ -18,6 +33,7 @@ function musicError(message, status = 502, code = "MUSIC_UNAVAILABLE") {
 
 function createNeteaseMusic({ directory = path.join(os.homedir(), ".config/the-office/netease"), fetchImpl = fetch, now = Date.now } = {}) {
   let refreshing = null;
+  const backgroundChecks = new Map();
   async function read(name) {
     try { return JSON.parse(await fs.readFile(path.join(directory, name), "utf8")); }
     catch (error) {
@@ -98,42 +114,64 @@ function createNeteaseMusic({ directory = path.join(os.homedir(), ".config/the-o
     const data = await request(app, "/openapi/music/basic/search/song/get/v3", { keyword: query.trim(), limit: 20, offset: 0 }, auth.device, auth.accessToken);
     return { songs: (data?.records || []).map(songView) };
   }
+  async function isBackground(songId, app, auth) {
+    const cached = backgroundChecks.get(songId);
+    if (cached && cached.expiresAt > now()) return cached.allowed;
+    const data = await request(app, "/openapi/music/basic/song/lyric/get/v2", { songId }, auth.device, auth.accessToken);
+    // An explicit flag is required; missing lyrics alone do not establish a soundscape.
+    // Actual lyrics override a contradictory flag. Wordless/ambient voices are fine.
+    const allowed = (data?.pureMusic === true || data?.noLyric === true) && !hasSungLyrics(data);
+    if (backgroundChecks.size >= 512) backgroundChecks.delete(backgroundChecks.keys().next().value);
+    backgroundChecks.set(songId, { allowed, expiresAt: now() + 300000 });
+    return allowed;
+  }
+  async function backgroundSongs(records, app, auth) {
+    const candidates = [...new Map(records.filter(song => song.visible !== false && song.playFlag !== false && backgroundStyle(song)).map(song => [song.id, song])).values()].slice(0, 24);
+    const accepted = [];
+    // Bound provider requests and check before showing a recommendation, not only at play time.
+    for (let index = 0; index < candidates.length && accepted.length < 12; index += 4) {
+      const group = candidates.slice(index, index + 4);
+      const checks = await Promise.all(group.map(song => isBackground(song.id, app, auth)));
+      accepted.push(...group.filter((_, item) => checks[item]).map(songView));
+    }
+    return accepted.slice(0, 12);
+  }
   async function recommendations({ scene = "deep-space", source = "scene", batch = 0 } = {}) {
     const { app, auth } = await session();
     const call = (endpoint, business) => request(app, endpoint, business, auth.device, auth.accessToken);
-    // freeTrailFlag means preview support, not that this user is limited to a preview.
-    const availableSongs = songs => songs.filter(song => song.visible !== false && song.playFlag !== false).map(songView);
+    const profile = Object.hasOwn(SCENE_PROFILES, scene) ? SCENE_PROFILES[scene] : SCENE_PROFILES["deep-space"];
     if (source === "daily") {
       const data = await call("/openapi/music/basic/recommend/songlist/get/v2", { limit: 30 });
-      return { songs: availableSongs(Array.isArray(data) ? data : data?.records || []), playlists: [] };
+      const candidates = (Array.isArray(data) ? data : data?.records || []).filter(song => profile.match.test(description(song)) && AMBIENCE.test(description(song)));
+      const songs = await backgroundSongs(candidates, app, auth);
+      if (songs.length) return { songs, playlists: [] };
+      // Account taste must not replace the current setting with pop when no daily soundscapes fit.
     }
-    const keyword = Object.hasOwn(SCENE_QUERIES, scene) ? SCENE_QUERIES[scene] : SCENE_QUERIES["deep-space"];
-    const found = await call("/openapi/music/basic/search/playlist/get/v2", { keyword, limit: 10, offset: 0 });
-    const playlists = (found?.records || []).filter(list => {
-      const description = [list.name, ...(list.tags || [])].join(" ");
-      return /纯音|无人声|器乐|instrumental|no[-\s]+vocals?/i.test(description)
-        && !/摇滚|金属|说唱|流行|舞曲|劲爆|\b(metal|rock|rap|dance|pop|vocal|DJ)\b|hip.?hop|k.?pop/i.test(description.replace(/no[-\s]+vocals?/gi, ""));
-    });
-    const start = (Math.trunc(Math.max(0, Math.min(10000, Number(batch) || 0))) * 2) % (playlists.length || 1);
-    const chosen = playlists.length ? [playlists[start], playlists[(start + 1) % playlists.length]].filter((list, index, all) => all.findIndex(item => item.id === list.id) === index) : [];
-    const lists = await Promise.all(chosen.map(async list => {
-      const data = await call("/openapi/music/basic/playlist/song/list/get/v3", { playlistId: list.id, limit: 60, offset: 0 });
-      return availableSongs(Array.isArray(data) ? data : data?.records || []);
-    }));
-    const songs = [...new Map(lists.flat().map(song => [song.id, song])).values()];
-    if (!songs.length && keyword !== SCENE_QUERIES["deep-space"]) return recommendations({ scene: "deep-space", batch });
-    return { songs, playlists: chosen.map(list => ({ id: list.id, name: list.name })) };
+    const page = Math.trunc(Math.max(0, Math.min(10000, Number(batch) || 0)));
+    for (const keyword of profile.queries) {
+      const found = await call("/openapi/music/basic/search/playlist/get/v2", { keyword, limit: 10, offset: 0 });
+      const playlists = (found?.records || []).filter(list => profile.match.test(description(list)) && AMBIENCE.test(description(list)) && backgroundStyle(list));
+      const start = (page * 2) % (playlists.length || 1);
+      const chosen = playlists.length ? [playlists[start], playlists[(start + 1) % playlists.length]].filter((list, index, all) => all.findIndex(item => item.id === list.id) === index) : [];
+      const lists = await Promise.all(chosen.map(async list => {
+        const data = await call("/openapi/music/basic/playlist/song/list/get/v3", { playlistId: list.id, limit: 60, offset: 0 });
+        const songs = Array.isArray(data) ? data : data?.records || [];
+        const offset = (page * 12) % (songs.length || 1);
+        return [...songs.slice(offset), ...songs.slice(0, offset)];
+      }));
+      const songs = await backgroundSongs(lists.flat(), app, auth);
+      if (songs.length) return { songs, playlists: chosen.map(list => ({ id: list.id, name: list.name })) };
+    }
+    // Silence is preferable to switching to unrelated music from another scene.
+    return { songs: [], playlists: [] };
   }
   async function track(songId, { instrumentalOnly = false } = {}) {
     if (typeof songId !== "string" || !songId || songId.length > 128) throw musicError("Choose a song to play.", 400);
     const { app, auth } = await session();
-    if (instrumentalOnly) {
-      const lyric = await request(app, "/openapi/music/basic/song/lyric/get/v2", { songId }, auth.device, auth.accessToken);
-      // Missing lyrics are not proof. NetEase explicitly marks instrumentals with these booleans.
-      if (lyric?.pureMusic !== true && lyric?.noLyric !== true) throw musicError("This track is not marked as instrumental.", 403, "NOT_INSTRUMENTAL");
-    }
+    if (instrumentalOnly && !await isBackground(songId, app, auth)) throw musicError("This track is not marked as instrumental.", 403, "NOT_INSTRUMENTAL");
     // Personal apps receive audio through song detail; the standalone playurl API may be unavailable.
     const data = await request(app, "/openapi/music/basic/song/detail/get/v2", { songId, withUrl: true, bitrate: 128 }, auth.device, auth.accessToken);
+    if (instrumentalOnly && !backgroundStyle(data || {})) throw musicError("This track is not marked as instrumental.", 403, "NOT_INSTRUMENTAL");
     let url;
     try { url = new URL(data?.playUrl); if (!["http:", "https:"].includes(url.protocol)) throw new Error(); url.protocol = "https:"; }
     catch { throw musicError("This song is not available in this player.", 403, "TRACK_UNAVAILABLE"); }

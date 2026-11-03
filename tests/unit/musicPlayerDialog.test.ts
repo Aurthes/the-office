@@ -278,3 +278,13 @@ it("waits for authorization instead of starting a login flow during Office entry
   await waitFor(() => expect(screen.getByRole("button", { name: "Sign in to NetEase", hidden: true })).toBeInTheDocument());
   expect(document.querySelector("dialog")?.open).toBe(false); expect(fetchMock).toHaveBeenCalledOnce(); expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
 });
+
+it("keeps background verification on when a daily mix is played", async () => {
+  render(createElement(MusicPlayerDialog, { onOpen: vi.fn(), onClose: vi.fn() }));
+  fireEvent.click(screen.getByRole("button", { name: /网易云音乐.*NetEase Cloud Music/ }));
+  await screen.findByRole("button", { name: "Play Track One" });
+  fireEvent.click(screen.getByRole("button", { name: "Daily recommendations" }));
+  await screen.findByRole("button", { name: "Play Track One" });
+  fireEvent.click(screen.getByRole("button", { name: "Play mix" }));
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes("action=track&id=song-1&instrumental=1"))).toBe(true));
+});
