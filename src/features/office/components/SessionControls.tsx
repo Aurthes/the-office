@@ -30,16 +30,18 @@ type Upload = { id: string; name: string; size: number; ref?: string; error?: st
 const sessionDrafts = new Map<string, string>();
 const attachmentDrafts = new Map<string, Upload[]>();
 
-export function SessionControls({ client, threadId, onItems, onHistorySync, voice: sharedVoice, onOpenThread, onRenamed }: {
+export function SessionControls({ client, threadId, onItems, onHistorySync, onActiveTurnChange, voice: sharedVoice, onOpenThread, onRenamed }: {
   client: SessionClient;
   threadId: string; onItems: (items: LiveSessionItem[]) => void;
   onHistorySync?: () => void;
+  onActiveTurnChange?: (turnId: string | null) => void;
   voice?: SessionVoiceController;
   onOpenThread?: (id: string) => void | Promise<void>;
   onRenamed?: (name: string) => void;
 }) {
   const t = useUiText();
   const [state, setState] = useState<Snapshot | null>(null);
+  useEffect(() => { onActiveTurnChange?.(state?.connected ? state.activeTurnId : null); }, [onActiveTurnChange, state?.connected, state?.activeTurnId]);
   const [retrySeconds, setRetrySeconds] = useState(0);
   useEffect(() => {
     if (!state?.retryAt) return;

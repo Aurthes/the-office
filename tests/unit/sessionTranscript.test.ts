@@ -20,6 +20,9 @@ it("defers native commentary and tools until expansion while leaving user, parti
   for (const text of ["Question", "Stable answer", "Final answer", "Legacy answer"]) expect(screen.getByText(text).closest("details")).toBeNull();
   fireEvent.click(screen.getByText("Work process · 2 items"));
   await screen.findByText("Investigating");
+  expect(screen.queryByText("echo fixture")).toBeNull();
+  fireEvent.click(screen.getByText("Tool calls · 1 items"));
+  await screen.findByText("echo fixture");
   expect(screen.getByText("echo fixture")).toBeTruthy();
   expect(screen.getAllByLabelText("Work process")).toHaveLength(1);
 });
@@ -31,6 +34,9 @@ it("keeps large folded logs out of the DOM and renders the latest items when reo
   expect(view.container.querySelectorAll("*")).toHaveLength(2);
   expect(view.container.querySelector("img")).toBeNull();
   fireEvent.click(screen.getByText("Work process · 501 items"));
+  await screen.findByText("Tool calls · 500 items");
+  expect(screen.queryByText("Command 499")).toBeNull();
+  fireEvent.click(screen.getByText("Tool calls · 500 items"));
   await screen.findByText("Command 499");
   expect(view.container.querySelector("pre")).toBeNull();
   expect(view.container.querySelector("img")).not.toBeNull();
@@ -40,34 +46,98 @@ it("keeps large folded logs out of the DOM and renders the latest items when reo
   view.rerender(React.createElement(SessionTranscript, { messages: [...messages.slice(0, -1), { ...messages[499], content: "Updated result" }, image] }));
   expect(screen.queryByText("Updated result")).toBeNull();
   fireEvent.click(screen.getByText("Work process · 501 items"));
+  await screen.findByText("Tool calls · 500 items");
+  fireEvent.click(screen.getByText("Tool calls · 500 items"));
   await screen.findByText("Updated result");
   expect(screen.queryByText("Command 499")).toBeNull();
   expect(view.container.querySelector("pre")).toBeNull();
 });
 
-it("shows only a one-line tool or command summary with status, omitting parameters and output", async () => {
+it("keeps tool parameters and output folded until their tool group is opened", async () => {
   const view = render(React.createElement(SessionTranscript, { messages: [
     { id: "tool", turnId: "t", role: "tool", content: '\nfunctions.exec_command\n{"cmd":"FULL_ARGUMENTS_MARKER"}\nFULL_OUTPUT_MARKER', status: "inProgress", truncated: true },
     { id: "shell", turnId: "t", role: "tool", content: 'rg  -n "pattern" src\r\nSECOND_COMMAND_MARKER', status: "failed" },
   ] }));
   fireEvent.click(screen.getByText("Work process · 2 items"));
+  await screen.findByText("Tool calls · 2 items");
+  expect(view.container.textContent).not.toMatch(/FULL_ARGUMENTS_MARKER|FULL_OUTPUT_MARKER|SECOND_COMMAND_MARKER|This message is long/);
+  expect(view.container.querySelector("pre, code")).toBeNull();
+  fireEvent.click(screen.getByText("Tool calls · 2 items"));
   await screen.findByText("functions.exec_command");
   expect(screen.getByText('rg -n "pattern" src')).toBeInTheDocument();
   expect(screen.getByText("· In progress")).toBeInTheDocument();
   expect(screen.getByText("· Failed")).toBeInTheDocument();
-  expect(view.container.textContent).not.toMatch(/FULL_ARGUMENTS_MARKER|FULL_OUTPUT_MARKER|SECOND_COMMAND_MARKER|This message is long/);
-  expect(view.container.querySelector("pre, code")).toBeNull();
+  expect(view.container.textContent).toContain("FULL_ARGUMENTS_MARKER");
+  expect(view.container.textContent).toContain("FULL_OUTPUT_MARKER");
+  expect(view.container.textContent).toContain("SECOND_COMMAND_MARKER");
+  expect(view.container.querySelectorAll("pre")).toHaveLength(2);
 });
 
-it("bounds long single-line calls instead of hiding full payloads in the DOM or hover text", async () => {
+it("defers long call payloads and keeps their headings short when expanded", async () => {
   const full = `functions.exec ${"argument ".repeat(1000)}HIDDEN_TAIL_MARKER`;
   const view = render(React.createElement(SessionTranscript, { messages: [{ id: "long", role: "tool", content: full }] }));
   fireEvent.click(screen.getByText("Work process · 1 items"));
-  const summary = await screen.findByText(/^functions\.exec/);
-  expect(summary.textContent?.length).toBeLessThanOrEqual(120);
-  expect(summary.textContent).toMatch(/…$/);
+  await screen.findByText("Tool calls · 1 items");
   expect(view.container.innerHTML).not.toContain("HIDDEN_TAIL_MARKER");
   expect(view.container.innerHTML).not.toContain(full);
+  fireEvent.click(screen.getByText("Tool calls · 1 items"));
+  const summary = await screen.findByText(/^functions\.exec.*…$/);
+  expect(summary.textContent?.length).toBeLessThanOrEqual(120);
+  expect(summary.textContent).toMatch(/…$/);
+  expect(view.container.querySelector("pre")?.textContent).toBe(full);
+});
+
+it("opens current work, separates tool batches between commentary, and folds when the official answer starts", async () => {
+  const messages = [
+    { id: "c1", turnId: "running", role: "assistant", phase: "commentary", content: "Checking the files" },
+    { id: "t1", turnId: "running", role: "tool", content: "First command\nFIRST_RESULT" },
+    { id: "t2", turnId: "running", role: "tool", content: "Second command" },
+    { id: "c2", turnId: "running", role: "assistant", phase: "commentary", content: "Now verifying the result" },
+    { id: "t3", turnId: "running", role: "tool", content: "Third command" },
+  ];
+  const view = render(React.createElement(SessionTranscript, { messages, activeTurnId: "running" }));
+  expect((screen.getByLabelText("Work process") as HTMLDetailsElement).open).toBe(true);
+  expect(screen.getByText("Checking the files")).toBeVisible();
+  expect(screen.getByText("Now verifying the result")).toBeVisible();
+  expect(screen.getAllByLabelText("Tool calls").map(node => (node as HTMLDetailsElement).open)).toEqual([false, false]);
+  expect(screen.queryByText("First command")).toBeNull();
+  fireEvent.click(screen.getByText("Tool calls · 2 items"));
+  await screen.findByText("First command");
+  expect(view.container.textContent).toContain("FIRST_RESULT");
+  expect(screen.queryByText("Third command")).toBeNull();
+  const final = { id: "final", turnId: "running", role: "assistant", phase: "final_answer", content: "" };
+  view.rerender(React.createElement(SessionTranscript, { messages: [...messages, final], activeTurnId: "running" }));
+  expect((screen.getByLabelText("Work process") as HTMLDetailsElement).open).toBe(false);
+  expect(screen.queryByText("Checking the files")).toBeNull();
+  view.rerender(React.createElement(SessionTranscript, { messages: [...messages, { ...final, content: "Official response" }], activeTurnId: "running" }));
+  expect(screen.getByText("Official response")).toBeVisible();
+  fireEvent.click(screen.getByText("Work process · 5 items"));
+  await screen.findByText("Checking the files");
+  view.rerender(React.createElement(SessionTranscript, { messages: [...messages, { ...final, content: "Official response continues" }], activeTurnId: null }));
+  expect((screen.getByLabelText("Work process") as HTMLDetailsElement).open).toBe(true);
+});
+
+it("respects a manual fold during streaming and closes unfinished work when the task stops", async () => {
+  const messages = [{ id: "c", turnId: "t", role: "assistant", phase: "commentary", content: "In progress" }];
+  const view = render(React.createElement(SessionTranscript, { messages, activeTurnId: "t" }));
+  fireEvent.click(screen.getByText("Work process · 1 items"));
+  await waitFor(() => expect((screen.getByLabelText("Work process") as HTMLDetailsElement).open).toBe(false));
+  view.rerender(React.createElement(SessionTranscript, { messages: [{ ...messages[0], content: "Still in progress" }], activeTurnId: "t" }));
+  expect(screen.queryByText("Still in progress")).toBeNull();
+  fireEvent.click(screen.getByText("Work process · 1 items"));
+  await screen.findByText("Still in progress");
+  view.rerender(React.createElement(SessionTranscript, { messages, activeTurnId: null }));
+  expect((screen.getByLabelText("Work process") as HTMLDetailsElement).open).toBe(false);
+});
+
+it("leaves historical turns folded when a different turn is running", () => {
+  render(React.createElement(SessionTranscript, { activeTurnId: "new", messages: [
+    { id: "old", turnId: "old", role: "assistant", phase: "commentary", content: "Old work" },
+    { id: "new", turnId: "new", role: "assistant", phase: "commentary", content: "Current work" },
+  ] }));
+  expect(screen.getAllByLabelText("Work process").map(node => (node as HTMLDetailsElement).open)).toEqual([false, true]);
+  expect(screen.queryByText("Old work")).toBeNull();
+  expect(screen.getByText("Current work")).toBeVisible();
 });
 
 it("shows voice questions without protocol wrappers or a duplicate call-end bubble", () => {

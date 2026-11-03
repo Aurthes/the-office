@@ -1175,6 +1175,8 @@ export const ZH_CN: Record<string, string> = {
   "Retry took {seconds} seconds": "本次重试耗时 {seconds} 秒",
   "Transcription took {seconds} seconds": "停止后出字 {seconds} 秒",
   "Work process · {count} items": "工作过程 · {count} 项",
+  "Tool calls": "工具调用",
+  "Tool calls · {count} items": "工具调用 · {count} 项",
   "Image failed to load. Click to retry · {name}": "图片加载失败，点击重试 · {name}",
   "Session ID": "会话编号",
   "Whole company · {count} sessions": "全公司 · {count} 个会话",

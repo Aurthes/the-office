@@ -24,7 +24,7 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
 (async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'office-mac-browser-')),data=path.join(root,'data'),foreign=path.join(root,'foreign'),workspace=path.join(root,'workspace');
  for(const dir of [foreign,workspace])fs.mkdirSync(dir);
- let local,browser,page,finishReply;let requests=0;const errors=[];
+ let local,browser,page,finishReply,liveSocket,lastStream;let requests=0;const errors=[];
  const provider=http.createServer((req,res)=>{let raw='';req.on('data',part=>raw+=part);req.on('end',()=>{
   JSON.parse(raw);requests++;res.writeHead(200,{'content-type':'text/event-stream'});
   const id='response-'+requests,emit=value=>res.write('data: '+JSON.stringify(value)+'\n\n');
@@ -50,7 +50,7 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   });
   // Use the disposable folder as the file picker's initial location. All folder,
   // creation, settings, streaming and history calls go to the real bundled engine.
-  await context.routeWebSocket('**/api/gateway/ws',ws=>{const server=ws.connectToServer();ws.onMessage(message=>{let frame;try{frame=JSON.parse(String(message))}catch{return server.send(message)}if(frame.method==='project.folders.list'&&!frame.params?.path)frame.params={...frame.params,path:workspace};server.send(JSON.stringify(frame))})});
+  await context.routeWebSocket('**/api/gateway/ws',ws=>{const server=ws.connectToServer();ws.onMessage(message=>{let frame;try{frame=JSON.parse(String(message))}catch{return server.send(message)}if(frame.method==='project.folders.list'&&!frame.params?.path)frame.params={...frame.params,path:workspace};server.send(JSON.stringify(frame))});server.onMessage(message=>{const frame=JSON.parse(String(message));if(frame.event==='session.stream'){liveSocket=ws;lastStream=frame.payload}ws.send(message)})});
   page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));page.on('console',message=>{if(message.text().startsWith('OFFICE_CHECK_CLICK '))console.log(message.text());});
   await page.goto(url,{waitUntil:'domcontentloaded'});
   if(browserName!=='webkit'){
@@ -95,6 +95,32 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
    if(!layout.inline||!layout.visible||!layout.clear)throw Error('Running timer must share the status row without overlapping controls at '+width+'px');
    if(option('--screenshots')){fs.mkdirSync(option('--screenshots'),{recursive:true});await page.screenshot({path:path.join(option('--screenshots'),browserName+'-running-'+width+'.png')})}
   }
+  // Exercise progressive disclosure in the real UI without extra model calls.
+  // Fractional fixture versions sit between the native hold and completion.
+  await page.setViewportSize({width:1440,height:1000});
+  const turnId=lastStream.activeTurnId,workItems=[
+   {id:'work-ui-comment-1',turnId,role:'assistant',phase:'commentary',content:'OFFICE_PROGRESS_BEFORE_TOOLS'},
+   {id:'work-ui-tool-1',turnId,role:'tool',content:'First command\nOFFICE_TOOL_DETAIL'},
+   {id:'work-ui-tool-2',turnId,role:'tool',content:'Second command'},
+   {id:'work-ui-comment-2',turnId,role:'assistant',phase:'commentary',content:'OFFICE_PROGRESS_AFTER_TOOLS'},
+   {id:'work-ui-tool-3',turnId,role:'tool',content:'Third command'},
+  ];
+  const pushWork=(step,items)=>liveSocket.send(JSON.stringify({type:'event',event:'session.stream',payload:{...lastStream,version:lastStream.version+step,items}}));
+  pushWork(.1,workItems);
+  const workProcess=page.getByLabel('Work process',{exact:true});
+  await expect(workProcess).toHaveAttribute('open','');
+  await expect(page.getByText('OFFICE_PROGRESS_BEFORE_TOOLS',{exact:true})).toBeVisible();
+  await expect(page.getByText('OFFICE_PROGRESS_AFTER_TOOLS',{exact:true})).toBeVisible();
+  await expect(page.getByLabel('Tool calls',{exact:true})).toHaveCount(2);
+  await expect(page.getByText('First command',{exact:true})).toHaveCount(0);
+  await page.getByText('Tool calls · 2 items',{exact:true}).click();
+  await expect(page.locator('pre').filter({hasText:'OFFICE_TOOL_DETAIL'})).toBeVisible();
+  await expect(page.getByText('Third command',{exact:true})).toHaveCount(0);
+  if(option('--screenshots')){fs.mkdirSync(option('--screenshots'),{recursive:true});await page.screenshot({path:path.join(option('--screenshots'),browserName+'-working-process.png')})}
+  pushWork(.2,[...workItems,{id:'work-ui-final',turnId,role:'assistant',phase:'final_answer',content:'OFFICE_OFFICIAL_RESPONSE_START'}]);
+  await expect(workProcess).not.toHaveAttribute('open','');
+  await expect(page.getByText('OFFICE_OFFICIAL_RESPONSE_START',{exact:true})).toBeVisible();
+  await expect(timer).toHaveCount(1); // Fold on answer start while the turn is still active.
   await expect.poll(()=>typeof finishReply).toBe('function');finishReply();
   await page.getByText('OFFICE_MAC_PACKAGE_REPLY_OK',{exact:true}).first().waitFor({timeout:30000});
   await expect(timer).toHaveCount(0);
@@ -129,7 +155,7 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   const again=JSON.parse(fs.readFileSync(settingsFile));const reloaded=Object.values(again.avatars).flatMap(g=>Object.values(g)).find(p=>p.duck);
   if(JSON.stringify(reloaded.duck)!==saved)throw Error('Reload or canceled edit changed saved recruit style');
   if(errors.length)throw Error(errors.join('\n'));
-  console.log(JSON.stringify({browser:browserName,browserRecruitment:true,workingFolder:true,randomStyleSaved:true,realBundledCodexReply:true,historyAfterReload:true,messageTimesPersisted:true,runningTimerTicks:true,timesDoNotOverlap:true,canceledEditPreserved:true,paidEndpoints:false,modelRequests:requests,pageErrors:0}));
+  console.log(JSON.stringify({browser:browserName,browserRecruitment:true,workingFolder:true,randomStyleSaved:true,realBundledCodexReply:true,historyAfterReload:true,messageTimesPersisted:true,runningTimerTicks:true,timesDoNotOverlap:true,workProcessAutoOpens:true,toolBatchesDefaultClosed:true,workProcessFoldsOnOfficialReply:true,workUiStreamFixture:true,canceledEditPreserved:true,paidEndpoints:false,modelRequests:requests,pageErrors:0}));
  }catch(error){console.error(error.stack);console.error(JSON.stringify({browser:browserName,pageErrors:errors,visiblePage:page?await page.locator('body').innerText().catch(()=>'(unavailable)'):null}));process.exitCode=1}
  finally{await browser?.close();await local?.close();provider.closeAllConnections();await new Promise(resolve=>provider.close(resolve));fs.rmSync(root,{recursive:true,force:true})}
 })();

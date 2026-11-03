@@ -56,6 +56,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
   const characterOpen = characterMode !== "chat";
   const [data, setData] = useState<SessionInspection | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [olderCursor, setOlderCursor] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -114,6 +115,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
     setData(null); setMessages([]); setOlderCursor(null); setLoaded(false); setError(""); setMetadataError("");
     follow.current = true; anchor.current = null; lastTop.current = 0;
     liveItems.current.clear();
+    setActiveTurnId(null);
     const readMetadata = async () => {
       if (metadataBusy || stopped) return;
       metadataBusy = true;
@@ -245,7 +247,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
         {loading ? <span role="status">{t("Loading messages…")}</span> : olderCursor ? <button onClick={() => void load.current?.("older")} className="px-3 py-1 text-cyan-200">{t("↑ Load older messages")}</button> : loaded ? t("Start of history") : null}
       </div>
       {loaded && messages.length === 0 ? <p className="text-center text-xs text-white/50">{t("No chat text on this page (tool activity omitted).")}{olderCursor ? t("Scroll up or use the button above to load older messages.") : ""}</p> : null}
-      <SessionTranscript messages={messages} />
+      <SessionTranscript messages={messages} activeTurnId={activeTurnId} />
       </div>
     </div>
     {showLatest ? <button aria-label={t("Go to latest message")} onClick={() => {
@@ -256,7 +258,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
     }} className="absolute bottom-3 left-1/2 z-10 min-h-10 -translate-x-1/2 rounded-full border border-white/20 bg-[#243346] px-4 text-xs text-white shadow-xl hover:bg-[#30445c]">{t("↓ Latest messages")}</button> : null}
     </div>
     {data?.runtime === "office" ? <OfficeCodexAccount client={client} quiet /> : null}
-    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} voice={voice} onOpenThread={onOpenThread} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
+    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onActiveTurnChange={setActiveTurnId} voice={voice} onOpenThread={onOpenThread} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
     </div>
     {workspaceOpen ? <SessionWorkspace key={threadId} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
       assets={[...new Map(messages.flatMap(message => message.assets || []).map(asset => [asset.url, asset])).values()].slice(-40)}

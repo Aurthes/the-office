@@ -33,21 +33,42 @@ const ToolSummary = memo(function ToolSummary({ message }: { message: LiveSessio
   </p>;
 });
 
-function WorkProcess({ items }: { items: LiveSessionItem[] }) {
+function ToolCalls({ items }: { items: LiveSessionItem[] }) {
   const t = useUiText();
   const [open, setOpen] = useState(false);
-  return <details onToggle={event => setOpen(event.currentTarget.open)} className="rounded-lg border border-white/10 bg-white/[0.025] px-3 py-2" aria-label={t("Work process")}>
-    <summary className="cursor-pointer text-xs text-white/50">{t("Work process · {count} items", { count: items.length })}</summary>
-    {/* Hidden work logs can contain hundreds of Markdown blocks and images. */}
-    {open ? <div className="mt-2 space-y-2 border-l border-white/15 pl-3">{items.map(message => message.role === "tool" ? <ToolSummary key={message.id} message={message} /> : <div key={message.id}>
-      <MessageBody message={message} truncatedLabel={t("This message is long. View the rest in the desktop app.")} />
+  return <details open={open} onToggle={event => setOpen(event.currentTarget.open)} aria-label={t("Tool calls")}>
+    <summary className="cursor-pointer text-xs text-white/45">{t("Tool calls · {count} items", { count: items.length })}</summary>
+    {open ? <div className="mt-2 space-y-3">{items.map(message => <div key={message.id}>
+      <ToolSummary message={message} />
+      {message.content.includes("\n") || message.content.length > 120 ? <pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap break-all text-xs text-white/50">{message.content}</pre> : null}
+      {message.truncated ? <p className="mt-1 text-[10px] text-amber-200/70">{t("This message is long. View the rest in the desktop app.")}</p> : null}
     </div>)}</div> : null}
   </details>;
 }
 
-export const SessionTranscript = memo(function SessionTranscript({ messages }: { messages: LiveSessionItem[] }) {
+function WorkProcess({ items, defaultOpen }: { items: LiveSessionItem[]; defaultOpen: boolean }) {
+  const t = useUiText();
+  const [open, setOpen] = useState(defaultOpen);
+  const blocks: ({ message: LiveSessionItem } | { tools: LiveSessionItem[] })[] = [];
+  for (const message of items) {
+    const previous = blocks.at(-1);
+    if (message.role !== "tool") blocks.push({ message });
+    else if (previous && "tools" in previous) previous.tools.push(message);
+    else blocks.push({ tools: [message] });
+  }
+  return <details open={open} onToggle={event => setOpen(event.currentTarget.open)} className="rounded-lg border border-white/10 bg-white/[0.025] px-3 py-2" aria-label={t("Work process")}>
+    <summary className="cursor-pointer text-xs text-white/50">{t("Work process · {count} items", { count: items.length })}</summary>
+    {/* Hidden work logs can contain hundreds of Markdown blocks and images. */}
+    {open ? <div className="mt-2 space-y-2 border-l border-white/15 pl-3">{blocks.map(block => "tools" in block ? <ToolCalls key={block.tools[0].id} items={block.tools} /> : <div key={block.message.id}>
+      <MessageBody message={block.message} truncatedLabel={t("This message is long. View the rest in the desktop app.")} />
+    </div>)}</div> : null}
+  </details>;
+}
+
+export const SessionTranscript = memo(function SessionTranscript({ messages, activeTurnId = null }: { messages: LiveSessionItem[]; activeTurnId?: string | null }) {
   const t = useUiText();
   const groups = new Map<string, { id: string; items: LiveSessionItem[] }>();
+  const answeredTurns = new Set(messages.filter(message => message.role === "assistant" && message.phase === "final_answer").map(message => message.turnId));
   const blocks: ({ message: LiveSessionItem } | { group: { id: string; items: LiveSessionItem[] } })[] = [];
   for (const message of messages) {
     if (message.role === "user" && !visibleUserText(message.content).trim() && !message.assets?.some(asset => asset.inline || asset.attached)) continue;
@@ -58,8 +79,15 @@ export const SessionTranscript = memo(function SessionTranscript({ messages }: {
       group.items.push(message);
     } else blocks.push({ message });
   }
-  return blocks.map(block => "group" in block ? <WorkProcess key={`process:${block.group.id}`} items={block.group.items} /> : <article key={block.message.id} aria-label={block.message.role === "user" ? t("You") : "Codex"} className={block.message.role === "user" ? "session-user-message" : "mr-2 rounded-lg border border-slate-500/40 bg-[#242932] px-3 py-2.5 text-slate-100"}>
+  return blocks.map(block => {
+    if ("group" in block) {
+      const working = block.group.id === activeTurnId && !answeredTurns.has(block.group.id);
+      // Reset the default only when work starts or the official answer begins.
+      return <WorkProcess key={`process:${block.group.id}:${working}`} items={block.group.items} defaultOpen={working} />;
+    }
+    return <article key={block.message.id} aria-label={block.message.role === "user" ? t("You") : "Codex"} className={block.message.role === "user" ? "session-user-message" : "mr-2 rounded-lg border border-slate-500/40 bg-[#242932] px-3 py-2.5 text-slate-100"}>
     {block.message.role !== "user" || block.message.source === "voice" ? <div className="mb-1 text-[10px] font-semibold text-slate-300">{block.message.role === "user" ? t("You") : "Codex"}{block.message.source === "voice" ? ` · ${t("Voice")}` : ""}</div> : null}
     <MessageBody message={block.message} truncatedLabel={t("This message is long. View the rest in the desktop app.")} />
-  </article>);
+  </article>;
+  });
 });

@@ -8,6 +8,38 @@ const metadata = (id = "original") => ({ id, name: `Name ${id}`, workspace: "/re
 const page = (text: string, nextCursor: string | null, threadId = "original") => ({ threadId, nextCursor, messages: [{ id: text, content: text, role: "assistant" }] });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
+it("uses live turn state to open work and folds it as the official response begins", async () => {
+  const listeners = new Set<(event: { event: string; payload?: unknown }) => void>();
+  let subscriptionId = "";
+  const messages = [
+    { id: "c", turnId: "working", role: "assistant", phase: "commentary", content: "Live progress update" },
+    { id: "tool", turnId: "working", role: "tool", content: "command\nTOOL_RESULT" },
+  ];
+  const call = vi.fn(async (method: string, params: unknown) => {
+    if (method === "session.inspect") return { ...metadata(), controlsAvailable: true };
+    if (method === "session.history") return { threadId: "original", messages, nextCursor: null };
+    if (method === "session.subscribe") subscriptionId = (params as { subscriptionId: string }).subscriptionId;
+    return {};
+  });
+  const client = { call, onEvent: (handler: (event: { event: string; payload?: unknown }) => void) => { listeners.add(handler); return () => { listeners.delete(handler); }; } };
+  render(React.createElement(ExistingSessionPanel, { client, threadId: "original" }));
+  await waitFor(() => expect(subscriptionId).not.toBe(""));
+  const push = async (version: number, items: unknown[]) => act(async () => {
+    const event = { event: "session.stream", payload: { connected: true, version, threadId: "original", subscriptionId, activeTurnId: "working", approvals: [], items, features: { dictation: false, voice: false, prediction: false } } };
+    listeners.forEach(handler => handler(event));
+  });
+  await push(1, []);
+  await screen.findByText("Live progress update");
+  expect((screen.getByLabelText("Work process") as HTMLDetailsElement).open).toBe(true);
+  expect(screen.queryByText("TOOL_RESULT")).toBeNull();
+  const final = { id: "f", turnId: "working", role: "assistant", phase: "final_answer", content: "" };
+  await push(2, [final]);
+  expect((screen.getByLabelText("Work process") as HTMLDetailsElement).open).toBe(false);
+  expect(screen.queryByText("Live progress update")).toBeNull();
+  await push(3, [{ ...final, content: "The official response" }]);
+  expect(screen.getByText("The official response")).toBeVisible();
+});
+
 describe("existing session history pagination", () => {
   it("exposes return-to-Earth for an interactive original session and disables it while busy", async () => {
     const call=vi.fn(async(method:string)=>method==="session.inspect"?{...metadata(),controlsAvailable:true}:method==="session.history"?page("latest",null):{connected:true,version:1,activeTurnId:null,items:[],approvals:[]});
