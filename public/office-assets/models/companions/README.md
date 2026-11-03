@@ -69,10 +69,25 @@ back out of crowded spots instead of stepping back and forth in place.
 
 嘟母 (white Maltese) and 嘟父 (golden retriever) are code-native 3D interpretations
 of Moonlab Studio's [Maltese & Retriever / 线条小狗](https://weibo.com/u/7776232700)
-characters. Their rounded geometry, black outlines and articulated parts are
-created by `duduFigure.ts`; no third-party mesh, texture or animation download is
-used. Each model reuses its sphere geometry and materials, adds no lights or
-shadows, and releases its resources on unmount.
+characters. Their sculpted body is baked with
+`node scripts/generate-dudu-body.mjs` into `duduBody.generated.json`.
+`duduFigure.ts` adds thick heads, printed faces, rounded ears and smooth matte
+materials. The Maltese's cartoon fluff comes from unevenly spaced, differently
+sized contour arcs, without hair strands, surface noise or bump textures. These
+arcs fade toward the smooth face. A six-joint rig smoothly changes between upright and four-legged
+poses. No third-party mesh, texture or animation download is used; the models
+reuse materials, add no lights, use existing ship shadows and release their
+geometry, skeletons and materials on unmount. The torso lengthens moderately for four-legged
+poses, with front legs below the chest and rear legs below the rump. A larger
+corner radius gently curves the torso while preserving its overall dimensions.
+The body rig adds chest and belly depth without lengthening the torso or changing
+the sculpted legs; a small height adjustment keeps the leg outlines clear.
+The tapered limbs share the same sculpted mesh. Rear thighs have more depth than
+forelegs and taper into narrower rounded calves. The head moves
+independently of the torso, with a short neck joining them. The tail root stays
+embedded in the rump and follows the body's posture, breathing and walking sway.
+The retriever's red collar follows its lower head contour, staying visible in
+both poses instead of sinking into the chest.
 
 Their pair controller reuses the existing companion routes, floor checks and
 character collision circles. Independent strolls and gestures alternate with
