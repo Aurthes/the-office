@@ -90,18 +90,46 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   const timer=page.getByRole('timer');await timer.waitFor({timeout:30000});
   const initialTime=await timer.textContent();
   await expect(timer).not.toHaveText(initialTime,{timeout:5000});
-  for(const width of [1440,390,320]){
-   await page.setViewportSize({width,height:1000});
-   const layout=await timer.evaluate(element=>{
-    const time=element.getBoundingClientRect(),actions=element.closest('.session-composer-actions');
-    if(!actions)return {inline:false,visible:false,clear:false};
-    const row=actions.getBoundingClientRect();
-    const clear=[...actions.querySelectorAll('button')].every(button=>{const rect=button.getBoundingClientRect();return time.right<=rect.left||time.left>=rect.right||time.bottom<=rect.top||time.top>=rect.bottom});
-    return {inline:time.top>=row.top&&time.bottom<=row.bottom,visible:time.left>=0&&time.right<=innerWidth&&time.bottom<=innerHeight,clear};
+  // Fit the real controls within the conversation panel, including when the
+  // agent list takes up part of a phone or landscape viewport.
+  const checkComposer=async scenario=>{
+   const layout=await page.locator('.session-composer-actions').evaluate(actions=>{
+    const row=actions.getBoundingClientRect(),tools=actions.querySelector('.session-composer-tools'),submit=actions.querySelector('.session-composer-submit'),status=actions.querySelector('.session-composer-status');
+    const right=submit.getBoundingClientRect(),left=tools.getBoundingClientRect(),middle=status.getBoundingClientRect();
+    const buttons=[...actions.querySelectorAll('button')],center=rect=>(rect.top+rect.bottom)/2;
+    const inline=[left,right,middle].every(rect=>Math.abs(center(rect)-center(row))<1);
+    const bounded=right.right<=row.right+1&&right.left>=row.left-1&&right.top>=row.top-1&&right.bottom<=row.bottom+1;
+    const readable=buttons.every(button=>{const rect=button.getBoundingClientRect(),style=getComputedStyle(button);return rect.width>=32&&rect.height>=32&&parseFloat(style.fontSize)>=11;});
+    const hitTests=[...submit.querySelectorAll('button')].every(button=>{const rect=button.getBoundingClientRect(),hit=document.elementFromPoint((rect.left+rect.right)/2,center(rect));return hit?.closest('button')===button;});
+    const overlap=right.left<left.right-.5;
+    const timer=actions.querySelector('[role="timer"]')?.getBoundingClientRect();
+    const timerVisible=!timer||middle.width<timer.width||timer.left>=middle.left-1&&timer.right<=Math.min(middle.right,right.left)+1;
+    return {inline,bounded,readable,hitTests,timerVisible,overlap,panel:row.width,toolSize:buttons[0].getBoundingClientRect().width,height:row.height};
    });
-   if(!layout.inline||!layout.visible||!layout.clear)throw Error('Running timer must share the status row without overlapping controls at '+width+'px');
-   if(option('--screenshots')){fs.mkdirSync(option('--screenshots'),{recursive:true});await page.screenshot({path:path.join(option('--screenshots'),browserName+'-running-'+width+'.png')})}
+   if(!layout.inline||!layout.bounded||!layout.readable||!layout.hitTests||!layout.timerVisible)throw Error('Composer must stay in one readable, clickable row: '+JSON.stringify({scenario,...layout}));
+   console.log(JSON.stringify({composerLayout:scenario,...layout}));
+   if(option('--screenshots')){fs.mkdirSync(option('--screenshots'),{recursive:true});await page.screenshot({path:path.join(option('--screenshots'),browserName+'-composer-'+scenario+'.png')})}
+   return layout;
+  };
+  let overlayChecked=false;
+  for(const pointer of ['mouse','touch']){
+   if(pointer==='touch'&&browserName==='webkit')continue;
+   const touch=pointer==='touch'?await context.newCDPSession(page):null;
+   try{
+    if(touch){await touch.send('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:1});expect(await page.evaluate(()=>matchMedia('(pointer: coarse)').matches)).toBe(true);}
+    for(const [width,height] of [[1440,1000],[844,390],[768,1000],[390,844],[320,740]]){
+     await page.setViewportSize({width,height});
+     // A voice-capable session has the fourth tool shown in the user's screenshot.
+     // Add the identical-sized tool only to the browser layout fixture.
+     const tools=page.locator('.session-composer-tools');
+     await tools.evaluate(element=>{if(element.children.length<4){const button=element.firstElementChild.cloneNode(true);button.dataset.layoutFixture='true';button.setAttribute('aria-label','Voice settings layout fixture');element.append(button);}});
+     const result=await checkComposer(pointer+'-'+width+'x'+height);
+     overlayChecked ||= result.overlap;
+    }
+   }finally{if(touch){await touch.send('Emulation.setTouchEmulationEnabled',{enabled:false});await touch.detach();}}
   }
+  if(!overlayChecked)throw Error('The narrowest panel must exercise right-hand overlap at minimum button size');
+  await page.locator('[data-layout-fixture]').evaluateAll(elements=>elements.forEach(element=>element.remove()));
   // Exercise progressive disclosure in the real UI without extra model calls.
   // Fractional fixture versions sit between the native hold and completion.
   await page.setViewportSize({width:1440,height:1000});
@@ -217,7 +245,7 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   await page.getByRole('button',{name:'Unmute duck voices',exact:true}).click();
   expect(await soundCount()).toBe(baselineSounds+2);
   if(errors.length)throw Error(errors.join('\n'));
-  console.log(JSON.stringify({browser:browserName,browserRecruitment:true,workingFolder:true,randomStyleSaved:true,realBundledCodexReply:true,historyAfterReload:true,messageTimesPersisted:true,runningTimerTicks:true,timesDoNotOverlap:true,workProcessAutoOpens:true,toolBatchesDefaultClosed:true,workProcessFoldsOnOfficialReply:true,workUiStreamFixture:true,canceledEditPreserved:true,agentListDefaultsOpen:true,agentOrderSwitches:true,departmentOrderAlphabetical:true,searchInBothOrders:true,yellowInputQuacks:true,yellowReviewQuacks:true,hiddenPageDelivery:true,repeatedMarkersStayQuiet:true,duckMuteRespected:true,paidEndpoints:false,modelRequests:requests,pageErrors:0}));
+  console.log(JSON.stringify({browser:browserName,browserRecruitment:true,workingFolder:true,randomStyleSaved:true,realBundledCodexReply:true,historyAfterReload:true,messageTimesPersisted:true,runningTimerTicks:true,composerSingleRow:true,composerButtonSizeBounded:true,composerRightControlsClickable:true,composerNarrowOverlap:true,timesDoNotOverlap:true,workProcessAutoOpens:true,toolBatchesDefaultClosed:true,workProcessFoldsOnOfficialReply:true,workUiStreamFixture:true,canceledEditPreserved:true,agentListDefaultsOpen:true,agentOrderSwitches:true,departmentOrderAlphabetical:true,searchInBothOrders:true,yellowInputQuacks:true,yellowReviewQuacks:true,hiddenPageDelivery:true,repeatedMarkersStayQuiet:true,duckMuteRespected:true,paidEndpoints:false,modelRequests:requests,pageErrors:0}));
  }catch(error){console.error(error.stack);console.error(JSON.stringify({browser:browserName,pageErrors:errors,visiblePage:page?await page.locator('body').innerText().catch(()=>'(unavailable)'):null}));process.exitCode=1}
  finally{rosterSocket?.terminate();await browser?.close();await local?.close();provider.closeAllConnections();await new Promise(resolve=>provider.close(resolve));fs.rmSync(root,{recursive:true,force:true})}
 })();

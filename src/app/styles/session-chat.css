@@ -44,11 +44,36 @@
 
 @container (max-width: 260px) {
   .session-panel-header :is(.session-header-button, .session-actions-trigger, .session-workspace-toggle) { width: 32px; min-height: 36px; }
-  .session-composer-actions > div:first-child { gap: 0; }
 }
 
-.session-composer-actions { flex-wrap: wrap; }
-.session-composer-actions > div:last-child { margin-left: auto; }
+.session-composer-actions {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 8px;
+  isolation: isolate;
+}
+.session-composer-tools { width: max-content; }
+.session-composer-status { white-space: nowrap; }
+.session-composer-tools > button, .session-composer-submit > button { min-width: 32px; min-height: 32px; flex-shrink: 0; white-space: nowrap; }
+/* Keep the right controls anchored and opaque when even minimum-sized tools
+   cannot fit. The first grid track can shrink; its tools keep their tap size. */
+.session-composer-submit { position: relative; z-index: 1; background: #111b27; }
+
+@container (max-width: 440px) {
+  .session-composer-actions { gap: 4px; }
+  .session-composer-tools, .session-composer-submit { gap: 2px; }
+  .session-composer-tools > button, .session-composer-stop { max-width: 36px; max-height: 36px; }
+  .session-composer-submit > button { min-height: min(36px, calc(var(--spacing) * 10)); padding-inline: 10px; font-size: 12px; }
+}
+
+@container (max-width: 300px) {
+  .session-composer-actions { gap: 2px; }
+  .session-composer-tools, .session-composer-submit { gap: 0; }
+  .session-composer-tools > button, .session-composer-stop { width: 32px; }
+  .session-composer-tools > button > svg { width: 17px; height: 17px; }
+  .session-composer-submit > button { padding-inline: 8px; }
+}
 
 @media (pointer: coarse) {
   .session-list-divider { flex-basis: 12px; }

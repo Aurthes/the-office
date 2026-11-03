@@ -364,26 +364,26 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, onAc
         event.preventDefault(); setText(event.currentTarget.value); composer.onSelect();
       }
     }} disabled={inputDisabled} className="session-composer-input w-full resize-none overflow-y-auto rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50" />
-    <div className="session-composer-actions mt-2 flex items-center justify-between gap-2">
-      <div className="flex shrink-0 items-center gap-1">
+    <div className="session-composer-actions mt-2">
+      <div className="session-composer-tools flex shrink-0 items-center gap-1">
         {dictation.busy ? <button aria-label={t("Cancel recording")} title={t("Cancel recording (Esc)")} onClick={dictation.discard} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5"><X size={19} /></button> :
           <button aria-label={t("Add attachments")} title={t("Add attachments, drag files, or paste images")} disabled={busy || settingsBusy || !state?.connected} onClick={() => picker.current?.click()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Paperclip size={19} /></button>}
         <button aria-label={recording ? t("Stop recording and transcribe") : t("Dictation")} title={state?.features?.dictation === false ? t("Dictation needs an OpenAI API key on the Office server") : dictationShortcut === "off" ? t("Click to record. Enter: transcribe and send. Esc: cancel.") : t("Click to record. {shortcut}: tap to toggle, hold to dictate. Enter: transcribe and send. Esc: cancel.", { shortcut: dictationShortcutLabel(dictationShortcut) })} disabled={state?.features?.dictation === false || dictation.phase === "transcribing" || (!recording && (busy || settingsBusy || !state?.connected || voice.status !== "off"))} onClick={() => { if (recording) void stopDictation(); else void dictation.start(); }} className={"grid h-10 w-10 place-items-center rounded-lg disabled:opacity-40 " + (dictation.phase === "recording" ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65 hover:bg-white/5")}><Mic size={19} /></button>
         {!dictation.busy ? <button aria-label={t("Voice chat")} title={state?.features?.voice === false ? t("Live voice is not connected to the Office runtime yet") : t("Start an experimental voice call in this session")} disabled={state?.features?.voice === false || busy || settingsBusy || !state?.connected || dictation.busy || voice.status !== "off"} onClick={() => void voice.start(threadId)} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button> : null}
         {state?.features?.voice !== false ? <button aria-label={t("Voice settings")} aria-expanded={voiceSettingsOpen} title={t("Voice settings")} onClick={() => setVoiceSettingsOpen(value => !value)} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5"><SlidersHorizontal size={18} /></button> : null}
       </div>
-      {dictation.busy ? <span role="status" className="min-w-0 flex-1 truncate text-xs text-rose-200">
+      {dictation.busy ? <span role="status" className="session-composer-status min-w-0 truncate text-xs text-rose-200">
         {dictation.phase === "starting" ? t("Preparing microphone…") : dictation.phase === "transcribing" ? t("Transcribing…") : t("Recording · {time}", { time: `${Math.floor(dictation.seconds / 60)}:${String(Math.floor(dictation.seconds % 60)).padStart(2, "0")}` })}
-      </span> : <span className="flex flex-1 items-center gap-1 text-xs text-white/45">
+      </span> : <span className="session-composer-status flex min-w-0 items-center gap-1 overflow-hidden text-xs text-white/45">
         <span className="hidden min-w-0 truncate sm:inline">{state?.connected ? state.activeTurnId ? t("Codex is working…") : state.turnStatus === "interrupted" ? t("Stopped") : t("Codex · Connected") : connectionError ? t("Codex unavailable") : t("Connecting to Codex…")}</span>
         {state?.connected && state.activeTurnId && typeof state.activeTurnStartedAt === "number" && Number.isFinite(state.activeTurnStartedAt) ? <span className="flex shrink-0 items-center gap-1">
           <span aria-hidden="true" className="hidden sm:inline">·</span>
           <SessionRunTimer key={`${threadId}:${state.activeTurnId}`} startedAt={state.activeTurnStartedAt} />
         </span> : null}
       </span>}
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="session-composer-submit flex shrink-0 items-center gap-2">
         {!state?.settings && state?.tokenUsage ? <SessionContextUsage usage={state.tokenUsage} above /> : null}
-        {(state?.activeTurnId || state?.retryAt) && !dictation.busy ? <button aria-label={t("Stop")} title={t("Stop")} disabled={busy || settingsBusy} onClick={() => void action("session.stop", {})} className="grid h-10 w-10 place-items-center rounded-lg text-rose-200 hover:bg-white/5 disabled:opacity-40"><Square size={15} fill="currentColor" aria-hidden="true" /></button> : null}
+        {(state?.activeTurnId || state?.retryAt) && !dictation.busy ? <button aria-label={t("Stop")} title={t("Stop")} disabled={busy || settingsBusy} onClick={() => void action("session.stop", {})} className="session-composer-stop grid h-10 w-10 place-items-center rounded-lg text-rose-200 hover:bg-white/5 disabled:opacity-40"><Square size={15} fill="currentColor" aria-hidden="true" /></button> : null}
         <button aria-label={canContinue ? t("Continue interrupted task") : recording ? t("Transcribe and send") : undefined} title={canContinue ? t("Continue interrupted task") : recording ? t("Transcribe and send (Enter)") : undefined} disabled={busy || settingsBusy || !state?.connected || !readyToSend} onClick={send} className="min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40">{busy ? t("Submitting…") : canContinue ? <Play size={18} fill="currentColor" aria-hidden="true" /> : dictation.busy ? t("Send") : state?.activeTurnId ? t("Steer") : t("Send")}</button>
       </div>
     </div>
