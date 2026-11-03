@@ -4,7 +4,7 @@ import { Builder, disposeShipGeometry } from "@/features/ring-ship/geometry";
 import { buildShipLayout } from "@/features/ring-ship/layout";
 import { addMachineRoom } from "@/features/ring-ship/ship-biomes";
 import type { PoolHost } from "@/lib/monitoring/types";
-import { serverConsoleScreenPose } from "@/features/ring-ship/machineRoomLayout";
+import { machineRoomPlan, serverConsoleScreenPose } from "@/features/ring-ship/machineRoomLayout";
 
 describe("dense machine-room equipment", () => {
   it("maps every registered host to one rack while keeping cooling and one shared console", () => {
@@ -13,6 +13,11 @@ describe("dense machine-room equipment", () => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ fillRect: vi.fn(), fillText: vi.fn() } as unknown as ReturnType<HTMLCanvasElement["getContext"]>);
     const builder = new Builder({}); builder.cabin = cabin;
     const hosts: PoolHost[] = ["cluster-a-03", "cluster-a-01", "cluster-a-02", "cluster-b-01", "cluster-b-02", "cluster-c-01", "cluster-c-02-arm", "cluster-d-01", "cluster-d-02"].map(alias => ({ alias, group: "offline", active: alias !== "cluster-a-02" }));
+    const customHosts: PoolHost[] = ["WORKER01", "worker02-arm", "R1", "R2", "lab-01"].map(alias => ({ alias, group: "offline", active: true }));
+    const plan = machineRoomPlan(layout, cabin, customHosts);
+    expect(plan.families.map(family => [family.label, family.count])).toEqual(expect.arrayContaining([["WORKER", 2], ["R", 2], ["LAB", 1]]));
+    expect(plan.families).toHaveLength(3);
+    expect(plan.racks.map(rack => rack.host?.alias).sort()).toEqual(customHosts.map(host => host.alias).sort());
     addMachineRoom(builder, layout, cabin, hosts);
     const group = builder.finish(), objects = builder.objects;
     expect(objects.filter(o => o.kind === "serverRack")).toHaveLength(hosts.length);
