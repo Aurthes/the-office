@@ -77,7 +77,7 @@ export function advanceDudu(state: DuduState, layout: ShipLayout, elapsed: numbe
   if (state.phase === "solo" || state.phase === "tour") {
     for (const dog of state.dogs) {
       if (state.phase !== "tour" || dog.route.length) advanceCompanion(dog, layout, dt, bodies);
-      else { dog.time += dt; Object.assign(dog.position, separateCharacter(companionBody(dog), dt, bodies, layout)); }
+      else { dog.time += dt; Object.assign(dog.position, separateCharacter(companionBody(dog), dt, bodies, layout,.2)); }
       if (!dog.route.length) dog.duration = Math.min(dog.duration, dog.action === "sleep" ? 7 : dog.kind === "dumu" ? 3 : 4);
     }
     if (state.phase === "tour") {

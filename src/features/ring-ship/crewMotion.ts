@@ -2,11 +2,11 @@ import type { OfficeAgent, RenderAgent } from "@/features/retro-office/core/type
 import { CANVAS_W, CANVAS_H, SCALE } from "@/features/retro-office/core/constants";
 import { SHIP_WORKSTATION } from "./geometry";
 import { routeBetweenCabins, type ShipLayout, type ShipPoint } from "./layout";
-import { crewRadius, moveCharacter, occupiedWaypoint, separateCharacter, type CharacterBody } from "./characterCollision";
+import { crewRadius, moveCharacter, occupiedWaypoint, separateCharacter, walkCharacter, type CharacterBody, type CharacterRecovery } from "./characterCollision";
 import { footingRadius, walkableSegment } from "./walkableSurface";
 
 export type KirbyCrewPose = ShipPoint & { y: number; scale: number; tilt: number; hidden: boolean };
-export type MovingAgent = RenderAgent & OfficeAgent & { route: ShipPoint[]; routeIndex: number; pauseUntil: number; home: ShipPoint; visiting: boolean; kirbyPose?: KirbyCrewPose };
+export type MovingAgent = RenderAgent & OfficeAgent & { route: ShipPoint[]; routeIndex: number; pauseUntil: number; home: ShipPoint; visiting: boolean; kirbyPose?: KirbyCrewPose; recovery?: CharacterRecovery };
 export function canvasPoint(point: ShipPoint) { return { x: point.x / SCALE + CANVAS_W / 2, y: point.z / SCALE + CANVAS_H / 2 }; }
 export function worldPoint(agent: RenderAgent): ShipPoint { return { x: (agent.x - CANVAS_W / 2) * SCALE, z: (agent.y - CANVAS_H / 2) * SCALE }; }
 export function hash(value: string) { let result = 0; for (const char of value) result = (result * 31 + char.charCodeAt(0)) >>> 0; return result; }
@@ -31,7 +31,7 @@ export function syncCrew(agents: OfficeAgent[], layout: ShipLayout, previousById
       workstation: { ...p, deskUid: seat.cabinId + agent.id, facing: seat.facing, pose: "sitting" as const, seatHeight: SHIP_WORKSTATION.seatHeight, surfaceHeight: SHIP_WORKSTATION.surfaceHeight },
       home: { x: seat.x, z: seat.z }, route: keepRoute ? previous.route : [], routeIndex: keepRoute ? previous.routeIndex : 0,
       visiting: keepRoute ? previous.visiting : false, pauseUntil: keepRoute ? previous.pauseUntil : now + 7000 + hash(agent.id) % 18000,
-      kirbyPose: unchanged ? previous.kirbyPose : undefined }];
+      kirbyPose: unchanged ? previous.kirbyPose : undefined, recovery: unchanged ? previous.recovery : undefined }];
   });
 }
 
@@ -49,7 +49,8 @@ export function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number
     Object.assign(a, canvasPoint(body.position));
     if (a.id === chatAgentId && a.status === "idle" && !a.needsInput) { a.state = "standing"; continue; }
     const needsDesk = a.status === "working" || a.status === "error" || a.needsInput;
-    const p = !needsDesk && !a.route.length ? separateCharacter(body, dt * 1.05, others, layout) : worldPoint(a);
+    const before=body.position;
+    const p = !needsDesk && !a.route.length ? separateCharacter(body, dt * 1.05, others, layout,.2) : worldPoint(a);
     Object.assign(a, canvasPoint(p)); body.position = p;
     if (needsDesk && Math.hypot(p.x - a.home.x, p.z - a.home.z) < 0.02) {
       a.route = []; a.visiting = false; Object.assign(a, canvasPoint(a.home)); a.facing = seat.facing;
@@ -71,15 +72,19 @@ export function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number
       a.visiting = !a.visiting; a.routeIndex = 0;
     }
     const target = a.route[a.routeIndex];
-    if (!target) { a.state = "standing"; continue; }
+    if (!target) {
+      a.recovery=undefined;const moved=Math.hypot(p.x-before.x,p.z-before.z)>.00001;
+      a.state=moved?"walking":"standing";if(moved)a.facing=Math.atan2(p.x-before.x,p.z-before.z);continue;
+    }
     a.walkSpeed = needsDesk ? 2 : 1;
     a.frame += dt * 60 * (a.walkSpeed - 1);
     const dx = target.x - p.x, dz = target.z - p.z, distance = Math.hypot(dx, dz), stride = dt * 1.05 * a.walkSpeed;
     a.state = "walking"; a.facing = Math.atan2(dx, dz);
-    const next = moveCharacter(body, target, stride, others, true, layout);
+    const next = walkCharacter(a, body, target, stride, dt, others, layout);
     Object.assign(a, canvasPoint(next));
     body.position = next;
     if (Math.hypot(next.x - p.x, next.z - p.z) < 1e-6) a.state = "standing";
+    else a.facing=Math.atan2(next.x-p.x,next.z-p.z);
     const remaining = Math.hypot(next.x - target.x, next.z - target.z), reached = remaining < 1e-6;
     // Shared amenity waypoints can be occupied. Stop nearby, or continue to the
     // next waypoint, rather than walking into the character already there.
