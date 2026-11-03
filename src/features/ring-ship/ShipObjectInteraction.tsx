@@ -2,7 +2,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useThree, type ThreeEvent } from "@react-three/fiber";
-import { useCursor } from "@react-three/drei";
+import { Html, useCursor } from "@react-three/drei";
 import type { Group } from "three";
 import { ScanLine, X } from "lucide-react";
 import { useUiText } from "@/lib/i18n/ui-language";
@@ -34,6 +34,7 @@ export function ShipObjectScene({ group, enabled, selectedId, onSelect }: {
       } : undefined}>
     <primitive object={group} dispose={null} />
     {highlight ? <primitive object={highlight} dispose={null} /> : null}
+    {object?.serverAlias ? <Html center position={[(object.bounds.min.x + object.bounds.max.x) / 2, object.bounds.max.y + .25, (object.bounds.min.z + object.bounds.max.z) / 2]} style={{ pointerEvents: "none" }}><span className="whitespace-nowrap rounded border border-blue-200/40 bg-[#102a36] px-2 py-1 text-xs text-blue-100">{object.serverAlias}</span></Html> : null}
   </group>;
 }
 
@@ -54,10 +55,10 @@ export function ShipObjectCard({ object, customRoom, onClose, children }: { obje
   }, [onClose]);
   return <section className="ship-object-card" aria-label={t("Object information")} data-object-id={object.id} data-object-kind={object.kind}>
     <div className="ship-object-card-heading"><span><ScanLine size={13} />{t(object.space ? "Space discovery" : "Ship discovery")}</span><button type="button" aria-label={t("Close object information")} onClick={onClose}><X size={16} /></button></div>
-    <h2>{object.npc?.name || t(name)}</h2>
+    <h2>{object.serverAlias || object.npc?.name || t(name)}</h2>
     <p className="ship-object-location">{object.space ? t("Nearby space") : <>L{object.deck + 1} · {customRoom ? object.cabinName : t(object.cabinName)}</>}</p>
-    <p>{t(description)}</p>
+    {!object.serverAlias ? <p>{t(description)}</p> : null}
     {children}
-    <div className="ship-object-note"><span>{t(object.npc ? "Current activity" : "Crew note")}</span><p>{t(object.npc ? activity : shipObjectNote(object.id))}</p></div>
+    {!object.serverAlias ? <div className="ship-object-note"><span>{t(object.npc ? "Current activity" : "Crew note")}</span><p>{t(object.npc ? activity : shipObjectNote(object.id))}</p></div> : null}
   </section>;
 }

@@ -96,7 +96,7 @@ it("shows Local Mac and newly registered compute hosts in separate groups with s
   ] }));
   render(createElement(ServerDashboard, { active: true }));
   expect(within(await screen.findByRole("region", { name: "Local machine" })).getByText("Local Mac")).toBeInTheDocument();
-  expect(within(screen.getByRole("region", { name: "Research and compute servers" })).getByText("compute-new")).toBeInTheDocument();
+  expect(within(screen.getByRole("region", { name: "Other servers" })).getByText("compute-new")).toBeInTheDocument();
   expect(screen.getByText("2 / 2")).toBeInTheDocument();
   expect(screen.getByText("4.0 / 16")).toBeInTheDocument();
 });

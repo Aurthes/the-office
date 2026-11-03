@@ -58,6 +58,7 @@ export const SHIP_OBJECT_INFO = {
   vine: ["Hanging vine", "A slow-motion acrobat."],
   pond: ["Garden pond", "The smallest ocean on board."],
   bench: ["Garden bench", "A good place to pause the countdown."],
+  spareServerRack: ["Spare server cabinet", "An empty cabinet awaiting a registered server."],
   serverRack: ["Server rack", "A tall stack of very busy little thoughts."],
   cables: ["Cable bundle", "The ship's surprisingly tidy nervous system."],
   monitor: ["Display", "A bright little window onto a bigger mission."],
@@ -67,6 +68,7 @@ export const SHIP_OBJECT_INFO = {
 export type ShipObjectKind = keyof typeof SHIP_OBJECT_INFO;
 export type ShipObject = {
   id: string; kind: ShipObjectKind; cabinId: string; cabinName: string; deck: DeckIndex;
+  serverAlias?: string;
   bounds: THREE.Box3;
   parts: Array<{ mesh: THREE.Mesh; start: number; count: number }>;
   space?: { kind: "asteroid" | "ship"; index: number; generation: number; seed: number };
@@ -109,10 +111,10 @@ export function shipObjectHighlight(object: ShipObject) {
   return mesh;
 }
 
-export function shipObjectCameraPose(object: Pick<ShipObject, "bounds" | "deck">, width: number, height: number, position: THREE.Vector3, target: THREE.Vector3) {
+export function shipObjectCameraPose(object: Pick<ShipObject, "bounds" | "deck" | "serverAlias">, width: number, height: number, position: THREE.Vector3, target: THREE.Vector3) {
   const center = object.bounds.getCenter(new THREE.Vector3()).add(new THREE.Vector3(0, object.deck * DECK_STEP, 0));
   const span = Math.max(1, object.bounds.getSize(new THREE.Vector3()).length());
-  const side = width >= 768 ? 300 : 0, bottom = width < 768 ? 250 : 0;
+  const side = width >= 768 ? 300 : 0, bottom = width < 768 ? (object.serverAlias ? 380 : 250) : 0;
   const zoom = Math.max(.2, Math.min(110, Math.max(64, width - side - 32) / (span + 2), Math.max(64, height - bottom - 48) / (span + 2)));
   const direction = position.clone().sub(target).normalize();
   const right = new THREE.Vector3(0, 1, 0).cross(direction).normalize(), up = direction.clone().cross(right).normalize();

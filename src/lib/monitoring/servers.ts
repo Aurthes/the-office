@@ -1,27 +1,14 @@
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
+import { parseServerPool, loadServerRegistry, sshTransportOptions } from "../../../server/server-registry";
 import { probeLocalMac } from "./local-mac";
 import type { PoolHost, ServerMetrics, ServerRow, ServerSnapshot } from "./types";
 
-const exec = promisify(execFile);
 export const SERVER_REFRESH_MS = 30_000;
 
-export function parseServerPool(text: string): PoolHost[] {
-  const hosts: PoolHost[] = [], seen = new Set<string>();
-  for (const line of text.split(/\r?\n/)) {
-    if (!line.trim() || line.trim().startsWith("#")) continue;
-    const [alias, group, params = ""] = line.split("|").map(value => value.trim());
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(alias) || !["online", "offline"].includes(group) || seen.has(alias)) throw new Error("Invalid server registry.");
-    seen.add(alias);
-    const active = !params.split(",").some(value => /^active\s*=\s*no$/i.test(value.trim()));
-    hosts.push({ alias, group: group as PoolHost["group"], active });
-  }
-  if (hosts.length > 128) throw new Error("Server registry is too large.");
-  return hosts;
-}
+export { parseServerPool } from "../../../server/server-registry";
 
 export function monitoringHosts(text: string, platform: NodeJS.Platform = os.platform()): PoolHost[] {
   const hosts = parseServerPool(text);
@@ -42,16 +29,7 @@ function metricsFromJson(stdout: string): ServerMetrics {
 
 export async function probeServer(host: PoolHost): Promise<ServerMetrics> {
   if (host.group === "local") return probeLocalMac();
-  const { stdout: effective } = await exec("ssh", ["-G", host.alias], { timeout: 1500, maxBuffer: 128_000 });
-  const configuredPath = /^controlpath (.+)$/m.exec(effective)?.[1];
-  const options = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=4", "-o", "ServerAliveInterval=2", "-o", "ServerAliveCountMax=1", "-o", "ControlMaster=auto", "-o", "ControlPersist=600"];
-  if (!configuredPath || configuredPath === "none") {
-    const directory = path.join(os.homedir(), ".ssh", "controlmasters");
-    await fs.mkdir(directory, { recursive: true, mode: 0o700 });
-    options.push("-o", `ControlPath=${path.join(directory, "%C")}`);
-  }
-  // Check/reuse an existing host transport. Never stop another task's master.
-  await exec("ssh", [...options, "-O", "check", host.alias], { timeout: 1000 }).catch(() => undefined);
+  const options = [...await sshTransportOptions(host.alias), "-o", "ConnectTimeout=4", "-o", "ServerAliveInterval=2", "-o", "ServerAliveCountMax=1"];
   const script = await fs.readFile(path.join(process.cwd(), "server", "monitoring-probe.py"), "utf8");
   const stdout = await new Promise<string>((resolve, reject) => {
     const child = spawn("ssh", [...options, host.alias, "timeout", "6s", "python3", "-"], { stdio: ["pipe", "pipe", "pipe"], timeout: 8500, killSignal: "SIGKILL" });
@@ -105,13 +83,6 @@ export function createServerStatusStore(probe: (host: PoolHost) => Promise<Serve
 
 const snapshot = createServerStatusStore();
 export async function getServerSnapshot(): Promise<ServerSnapshot> {
-  const file = process.env.CLAW3D_SERVER_POOL_FILE?.trim();
-  let text = "";
-  if (file) {
-    const stat = await fs.stat(file);
-    if (stat.size > 80_000) throw new Error("Server registry is too large.");
-    text = await fs.readFile(file, "utf8");
-  }
-  const hosts = monitoringHosts(text);
-  return file || hosts.length ? snapshot(hosts) : { configured: false, refreshing: false, updatedAt: null, servers: [] };
+  const { configured, hosts } = await loadServerRegistry();
+  return configured ? snapshot(hosts) : { configured: false, refreshing: false, updatedAt: null, servers: [] };
 }
