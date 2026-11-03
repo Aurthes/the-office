@@ -1,6 +1,6 @@
 import { cabinAngle, routeBetweenCabins, shipPoint, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
 import { BAR_LAYOUT, barPoint } from "./barLayout";
-import { moveCharacter, occupiedWaypoint, separateCharacter, type CharacterBody } from "./characterCollision";
+import { moveCharacter, occupiedWaypoint, separateCharacter, walkCharacter, type CharacterBody, type CharacterRecovery } from "./characterCollision";
 import { footingRadius, walkableSegment } from "./walkableSurface";
 
 export type CompanionKind = "cat" | "dog" | "drone" | "bartender" | "kirby" | "dumu" | "dufu";
@@ -11,6 +11,7 @@ export type CompanionState = {
   cabinId: string; destinationId: string; route: ShipPoint[]; waypoint: number;
   seed: number; cycles: number; radius: number;
   progress?: { position: ShipPoint; elapsed: number };
+  recovery?: CharacterRecovery; walking?: boolean;
 };
 export const COMPANION_NAMES: Record<CompanionKind, string> = { cat: "MOCHI", dog: "BISCUIT", drone: "PATCH-7", bartender: "C.O.R.E.", kirby: "Kirby", dumu: "嘟母", dufu: "嘟父" };
 const RADII: Record<CompanionKind, number> = { cat: .42, dog: .5, drone: .62, bartender: .55, kirby: .78, dumu: .56, dufu: .56 };
@@ -106,13 +107,13 @@ function nextAction(state: CompanionState, layout: ShipLayout, others: readonly 
 export function advanceCompanion(state: CompanionState, layout: ShipLayout, elapsed: number, others: readonly CharacterBody[] = []) {
   const dt = Math.min(Math.max(elapsed, 0), .05), target = state.route[state.waypoint];
   if (!dt) return;
+  const before={...state.position};
   Object.assign(state.position, moveCharacter(companionBody(state), state.position, 0, others, true, layout));
   if (target) {
     const dx = target.x - state.position.x, dz = target.z - state.position.z, distance = Math.hypot(dx, dz), step = state.speed * dt;
     if (distance > .001) {
-      const facing = Math.atan2(dx, dz), difference = Math.atan2(Math.sin(facing - state.facing), Math.cos(facing - state.facing));
-      state.facing += difference * Math.min(1, dt * 10);
-      const next = moveCharacter(companionBody(state), target, step, others, state.kind !== "bartender", layout);
+      const next = state.kind === "bartender" ? moveCharacter(companionBody(state),target,step,others,false,layout)
+        : walkCharacter(state,companionBody(state),target,step,dt,others,layout);
       state.position.x = next.x; state.position.z = next.z;
     }
     const body = companionBody(state);
@@ -145,8 +146,9 @@ export function advanceCompanion(state: CompanionState, layout: ShipLayout, elap
       }
     }
   } else {
+    state.recovery=undefined;
     if (state.kind !== "bartender") {
-      const next = separateCharacter(companionBody(state), state.speed * dt, others, layout);
+      const next = separateCharacter(companionBody(state), state.speed * dt, others, layout,.2);
       state.position.x = next.x; state.position.z = next.z;
     }
     state.time += dt;
@@ -159,6 +161,8 @@ export function advanceCompanion(state: CompanionState, layout: ShipLayout, elap
   }
   const targetY = state.kind === "drone" ? state.action === "charge" && !state.route.length ? .2 : .65 : state.kind === "bartender" ? .8 : .09;
   state.y += (targetY - state.y) * Math.min(1, dt * 3);
+  state.walking=Math.hypot(state.position.x-before.x,state.position.z-before.z)>.00001;
+  if(state.walking){const facing=Math.atan2(state.position.x-before.x,state.position.z-before.z);state.facing+=Math.atan2(Math.sin(facing-state.facing),Math.cos(facing-state.facing))*Math.min(1,dt*10);}
 }
 
 const ACTIVITY: Record<CompanionAction, string> = {

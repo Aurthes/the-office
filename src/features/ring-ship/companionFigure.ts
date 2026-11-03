@@ -33,7 +33,7 @@ export function createCompanionFigure(source: GLTF, kind: CompanionKind, height:
       // Restore the previous authored pose before applying additive gestures.
       // Constant animation tracks may otherwise leave the last gesture in place.
       for (const rest of modified) { rest.node.position.copy(rest.position); rest.node.quaternion.copy(rest.quaternion); rest.node.scale.copy(rest.scale); }
-      const moving = !!state.route.length;
+      const moving = state.walking ?? !!state.route.length;
       const clip = kind === "drone" ? source.animations[0]?.name
         : moving ? state.action === "run" ? "run" : "walk" : state.action === "sniff" || state.action === "groom" ? "eat" : "idle";
       const next = clip ? actions.get(clip) : undefined;
