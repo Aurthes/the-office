@@ -130,7 +130,7 @@ export function ListeningBar({ layout, cabin, onOpen, interactive = true, onSele
   const ring = layout.rings[cabin.ring], angle = cabinAngle(layout, cabin.slot), point = shipPoint(ring.radius, angle);
   return <group name={`listening-bar:${cabin.id}`} position={[point.x, 0, point.z]} rotation={[0, angle, 0]}><Suspense fallback={null}><Surfaces>{(wood, marble) => <>
     <group position={[0, 0, BAR_LAYOUT.radial]}><BarModel wood={wood} marble={marble} cabin={cabin} interactive={interactive} onSelect={onSelect} /></group>
-    <group name="bar-turntable" position={[BAR_LAYOUT.turntable.x, 0, BAR_LAYOUT.radial+BAR_LAYOUT.turntable.z]} rotation={[0, Math.PI, 0]}>
+    <group name="bar-turntable" position={[BAR_LAYOUT.turntable.x, 0, BAR_LAYOUT.radial+BAR_LAYOUT.turntable.z]} rotation={[0, Math.PI/2, 0]}>
       <RoundedBox args={[1.3, .1, .9]} radius={.035} smoothness={3} position={[0, .95, 0]} material={wood} castShadow receiveShadow />
       {[-.49, .49].flatMap(x => [-.27, .27].map(z => <mesh key={`${x}:${z}`} position={[x, .49, z]} material={wood} castShadow><boxGeometry args={[.09, .82, .09]} /></mesh>))}
       {[-.27, .27].map(z => <mesh key={z} position={[0, .3, z]} material={wood}><boxGeometry args={[1.05, .045, .045]} /></mesh>)}

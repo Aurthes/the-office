@@ -25,7 +25,11 @@ describe("separate listening bar",()=>{
     for(const x of BAR_LAYOUT.stoolXs)expect(isWalkable(barPoint(layout,bar,x,BAR_LAYOUT.stoolZ),layout,.4,bar.deck)).toBe(false);
     expect(isWalkable(barPoint(layout,bar,BAR_LAYOUT.turntable.x,BAR_LAYOUT.turntable.z),layout,.4,bar.deck)).toBe(false);
     expect(walkableSegment(barPoint(layout,bar,-1.65,BAR_LAYOUT.staffZ),barPoint(layout,bar,1.65,BAR_LAYOUT.staffZ),layout,.4,bar.deck)).toBe(true);
-    expect(walkableSegment(barPoint(layout,bar,-4,-2.5),barPoint(layout,bar,4,-2.5),layout,.4,bar.deck)).toBe(true);
+    const angle=cabinAngle(layout,bar.slot);
+    for(const direction of [-1,1]){
+      const route=routeBetweenCabins(layout,{ring:bar.ring,angle:angle-direction*.6},bar,angle+direction*.6);
+      for(let i=1;i<route.length;i++)expect(walkableSegment(route[i-1],route[i],layout,.4,bar.deck),JSON.stringify({i,from:route[i-1],to:route[i]})).toBe(true);
+    }
     expect(isWalkable(barPoint(layout,bar,0,0),layout,.4,1)).toBe(true);
     const center=barPoint(layout,bar,0,0),recovered=moveCharacter({id:"recovery",position:center,radius:.4,deck:bar.deck},center,0,[],true,layout);
     expect(isWalkable(recovered,layout,.4,bar.deck)).toBe(true);

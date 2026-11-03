@@ -7,7 +7,7 @@ import { monitorScreenPose } from "./monitor-room-geometry";
 import { MonitorIllustration } from "./MonitorIllustration";
 import { CalendarClock, Server } from "lucide-react";
 import { cabinAngle, shipPoint } from "./layout";
-import { serverConsoleScreenPose } from "./ship-biomes";
+import { serverConsoleScreenPose } from "./machineRoomLayout";
 
 export function TaskRoomScreen({ layout, cabin, onOpen }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void }) {
   const t = useUiText(), ring = layout.rings[cabin.ring];
@@ -41,8 +41,8 @@ export function ServerRoomScreen({ layout, cabin, onOpen }: { layout: ShipLayout
     <Html transform rotation={[screen.tilt, 0, 0]} distanceFactor={4} zIndexRange={[12, 11]}>
       <button type="button" aria-label={t("Open server fleet status")} title={t("Server fleet")}
         onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onOpen(); }}
-        className="flex cursor-pointer flex-col items-center justify-center rounded-sm border border-blue-200/70 bg-[#102a36] text-[#9db8e9] shadow-[0_0_8px_#9db8e970] hover:bg-[#235168] focus-visible:outline-2 focus-visible:outline-amber-200" style={{ width: 46, height: 28 }}>
-        <Server size={18} strokeWidth={1.3} />
+        className="flex cursor-pointer flex-col items-center justify-center rounded-sm border border-blue-200/70 bg-[#102a36] text-[#9db8e9] shadow-[0_0_8px_#9db8e970] hover:bg-[#235168] focus-visible:outline-2 focus-visible:outline-amber-200" style={{ width: screen.width * 100, height: screen.screenHeight * 100 }}>
+        <Server size={20} strokeWidth={1.3} /><span className="mt-1 text-[5px] uppercase tracking-wider">{t("Server fleet")}</span>
       </button>
     </Html>
   </group>;
