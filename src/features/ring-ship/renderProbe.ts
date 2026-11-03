@@ -112,10 +112,11 @@ function frameOwners(root?: Fiber) {
 }
 
 // Opt-in, disposable instrumentation. Never persists quality settings or samples content.
-export function createRenderProbe(getState: () => RootState, getFiber: () => unknown) {
+export function createRenderProbe(getState: () => RootState, getFiber: () => unknown, onShadowsChange?: (enabled: boolean) => void) {
   const state = getState(), renderer = state.gl, context = renderer.getContext() as WebGL2RenderingContext, initialDpr = renderer.getPixelRatio();
   const initialShadows = renderer.shadowMap.enabled;
   function setShadows(enabled: boolean) {
+    onShadowsChange?.(enabled);
     if (renderer.shadowMap.enabled === enabled) return;
     renderer.shadowMap.enabled = enabled;
     // Re-select shader variants as well as skipping the shadow-map render pass.

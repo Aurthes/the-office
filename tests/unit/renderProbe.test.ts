@@ -43,7 +43,11 @@ describe("opt-in real-device render capture", () => {
     expect(f.renderer.render).toBe(f.original.render);expect(f.motion.current).toBe(f.original.motion);expect(f.renderer.getPixelRatio()).toBe(1.5);
   });
   it("compares only shadows without pausing motion or changing resolution, and restores shader variants", async () => {
-    const f=fixture(), version=f.mesh.material.version, probe=createRenderProbe(()=>f.state,()=>f.fiber);
+    const f=fixture(), version=f.mesh.material.version;
+    let canvasShadows=true;
+    const configure=setInterval(()=>{f.renderer.shadowMap.enabled=canvasShadows;},8);
+    const applyShadows=vi.fn((enabled:boolean)=>{canvasShadows=enabled;});
+    const probe=createRenderProbe(()=>f.state,()=>f.fiber,applyShadows);
     const promise=probe.capture(()=>{},160,"shadows");await vi.advanceTimersByTimeAsync(3000);const report=await promise;
     expect(report.mode).toBe("shadows");
     expect(report.phases.map(p=>p.phase)).toEqual(["normal","shadows-off","normal-repeat"]);
@@ -53,6 +57,7 @@ describe("opt-in real-device render capture", () => {
     expect(f.renderer.shadowMap).toEqual({enabled:true,autoUpdate:true,type:THREE.PCFSoftShadowMap});
     expect(f.mesh.material.version).toBe(version+2);
     expect(f.renderer.render).toBe(f.original.render);expect(f.motion.current).toBe(f.original.motion);
+    expect(applyShadows).toHaveBeenCalledWith(false);expect(canvasShadows).toBe(true);clearInterval(configure);
   });
   it("restores shadows when capture is interrupted during the shadows-off phase", async () => {
     const f=fixture(),probe=createRenderProbe(()=>f.state,()=>f.fiber),promise=probe.capture(()=>{},160,"shadows");

@@ -4,7 +4,7 @@ import { _roots } from "@react-three/fiber";
 import { createRenderProbe, type ProbeMode, type ProbePhase, type ProbeReport } from "./renderProbe";
 
 const PHASE: Record<ProbePhase, string> = { normal: "记录当前画面", "animations-paused": "临时暂停动作作对照", "half-resolution": "临时降低分辨率作对照", "shadows-off": "只关闭阴影作对照", "normal-repeat": "恢复原样复测" };
-export default function RenderProbe() {
+export default function RenderProbe({ onShadowsChange }: { onShadowsChange: (enabled: boolean) => void }) {
   const [mode] = useState<ProbeMode>(() => new URLSearchParams(window.location.search).get("renderProbe") === "shadows" ? "shadows" : "overview");
   const [ready, setReady] = useState(false), [running, setRunning] = useState(false), [progress, setProgress] = useState(""), [error, setError] = useState("");
   const [report, setReport] = useState<ProbeReport | null>(null), [receipt, setReceipt] = useState("");
@@ -35,7 +35,7 @@ export default function RenderProbe() {
     setRunning(true); setError(""); setReceipt(""); setReport(null);
     let probe: ReturnType<typeof createRenderProbe> | null = null;
     try {
-      probe = createRenderProbe(root.store.getState, () => root.fiber.current); active.current = probe;
+      probe = createRenderProbe(root.store.getState, () => root.fiber.current, onShadowsChange); active.current = probe;
       const value = await probe.capture((phase, seconds) => { if (alive.current) setProgress(`${PHASE[phase]} · ${seconds} 秒`); }, 5000, mode);
       if (!alive.current) return;
       setReport(value); setProgress("正在保存报告…"); await save(value);
