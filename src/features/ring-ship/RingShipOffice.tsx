@@ -114,8 +114,11 @@ export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, 
   const followed = useRef<{ id: string; x: number; z: number } | null>(null);
   const move = useRef<{ target: THREE.Vector3; position: THREE.Vector3; zoom: number } | null>(null);
   const followSpace = useRef(false);
+  const npcCenter = useRef<THREE.Vector3 | null>(null);
+  const npcDelta = useRef(new THREE.Vector3());
   useEffect(() => {
-    followSpace.current = !!(objectFocus?.space || objectFocus?.npc);
+    followSpace.current = !!objectFocus?.space;
+    npcCenter.current = null;
     if (busy) { move.current = null; return; }
     const controls = controlsRef.current;
     if (navigationFocus && controls) {
@@ -149,6 +152,10 @@ export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, 
     }
     if (objectFocus && controls) {
       move.current = shipObjectCameraPose(objectFocus, size.width, size.height, camera.position, controls.target);
+      if (objectFocus.npc) {
+        npcCenter.current = objectFocus.bounds.getCenter(new THREE.Vector3());
+        npcCenter.current.y += objectFocus.deck * DECK_STEP;
+      }
       return;
     }
     move.current = shipCameraPose(layout, size.width, size.height, deck, whole, focus.id);
@@ -161,8 +168,16 @@ export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, 
   }, [controlsRef, chatAgentId]);
   useFrame((state, delta) => {
     if (busy) return;
-    if ((objectFocus?.space || objectFocus?.npc) && followSpace.current && controlsRef.current) move.current = shipObjectCameraPose(objectFocus, size.width, size.height, state.camera.position, controlsRef.current.target);
-    const camera = state.camera;
+    const camera = state.camera, controls = controlsRef.current;
+    if (objectFocus?.npc && npcCenter.current && controls) {
+      // Translate with the NPC while preserving the user's orbit, zoom and offset.
+      const offset = objectFocus.bounds.getCenter(npcDelta.current);
+      offset.y += objectFocus.deck * DECK_STEP;
+      offset.sub(npcCenter.current); npcCenter.current.add(offset);
+      camera.position.add(offset); controls.target.add(offset);
+      move.current?.position.add(offset); move.current?.target.add(offset);
+    }
+    if (objectFocus?.space && followSpace.current && controls) move.current = shipObjectCameraPose(objectFocus, size.width, size.height, camera.position, controls.target);
     const person = followed.current && lookupRef.current.get(followed.current.id);
     if (person && followed.current) {
       const point = worldPoint(person);
@@ -172,7 +187,7 @@ export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, 
         followed.current = { ...followed.current, x: point.x, z: point.z };
       }
     }
-    const next = move.current, controls = controlsRef.current;
+    const next = move.current;
     if (!next || !controls) return;
     const rate = 1 - Math.exp(-delta * 7);
     camera.position.lerp(next.position, rate); controls.target.lerp(next.target, rate);

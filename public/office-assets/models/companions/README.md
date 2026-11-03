@@ -49,8 +49,9 @@ checking stock, pouring drinks and wiping the counter. Small visual effects use
 ordinary geometry and alpha materials, without extra lights or transmission.
 
 These five asset-based NPCs use the existing selection camera and information card, with live
-activity text. A selected moving NPC stays in view until the user moves the
-camera. Behaviour and animation pause on hidden decks; changing views preserves
+activity text. A selected moving NPC stays tracked while the user orbits or zooms
+the camera; closing the card or selecting another target ends that tracking.
+Behaviour and animation pause on hidden decks; changing views preserves
 their current routine. Animation mixers, cloned skeletons and procedural buffers
 are released when the scene unmounts. There is one cat, one dog, one drone and
 one bartender, plus one Kirby; no external services are needed at runtime.
