@@ -1,5 +1,8 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Organize agents": "排列成员",
+  "Recently active": "最近活动",
+  "Department / project (A–Z)": "部门 / 项目（A–Z）",
   "嘟母": "嘟母",
   "嘟父": "嘟父",
   "A little white cloud with very loud opinions. Professional zoomies director; 嘟父's favourite troublemaker.": "小小白云，大大脾气。飞船蹦迪总导演，也是嘟父最爱的捣蛋鬼。",
