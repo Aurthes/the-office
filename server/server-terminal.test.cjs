@@ -7,7 +7,7 @@ const { spawn } = require('node:child_process');
 const path = require('node:path');
 const WebSocket = require('ws');
 const { createServerTerminals } = require('./server-terminal');
-const hosts = [{ alias: 'S13', group: 'offline', active: true }, { alias: 'S12', group: 'offline', active: false }];
+const hosts = [{ alias: 'cluster-a-03', group: 'offline', active: true }, { alias: 'cluster-a-02', group: 'offline', active: false }];
 async function fixture(t, overrides = {}) {
   const children = [], commands = [];
   const terminals = createServerTerminals({ verifyClient: info => info.req.headers['x-test-auth'] === 'ok', registry: async () => ({ hosts }), transportOptions: async () => ['-o', 'ControlMaster=auto'],
@@ -27,24 +27,24 @@ async function denied(url, auth='ok') {const ws=new WebSocket(url,{headers:{'x-t
 
 test('rejects unauthenticated, unknown, disabled and injected host aliases before spawning a shell', async t=>{
  const f=await fixture(t);
- for(const [alias,auth] of [['S13','bad'],['S12','ok'],['unknown','ok'],['S13; touch /tmp/injected','ok']]) assert.match(await denied(f.url+'?terminalHost='+encodeURIComponent(alias),auth),/403|404/);
+ for(const [alias,auth] of [['cluster-a-03','bad'],['cluster-a-02','ok'],['unknown','ok'],['cluster-a-03; touch /tmp/injected','ok']]) assert.match(await denied(f.url+'?terminalHost='+encodeURIComponent(alias),auth),/403|404/);
  assert.equal(f.commands.length,0);
 });
 test('opens exactly the selected allowlisted host, deduplicates start, streams bytes and validates handles and sizes', async t=>{
- const f=await fixture(t),ws=await connect(f.url+'?terminalHost=S13');t.after(()=>ws.close());
- const [a,b]=await Promise.all([call(ws,'session.terminal.subscribe',{threadId:'S13'}),call(ws,'session.terminal.start',{threadId:'S13'})]);assert.equal(a.handle,b.handle);assert.equal(f.commands.length,1);assert.equal(f.commands[0].at(-1),'S13');assert(f.commands[0].includes('-tt'));
- await assert.rejects(call(ws,'session.terminal.write',{threadId:'S12',handle:a.handle,dataBase64:'YQ=='}),/Invalid/);
- await assert.rejects(call(ws,'session.terminal.write',{threadId:'S13',handle:'wrong',dataBase64:'YQ=='}),/ended/);
- await assert.rejects(call(ws,'session.terminal.resize',{threadId:'S13',handle:a.handle,cols:10000,rows:24}),/size/);
- await assert.rejects(call(ws,'session.terminal.write',{threadId:'S13',handle:a.handle,dataBase64:'!bad'}),/input/);
+ const f=await fixture(t),ws=await connect(f.url+'?terminalHost=cluster-a-03');t.after(()=>ws.close());
+ const [a,b]=await Promise.all([call(ws,'session.terminal.subscribe',{threadId:'cluster-a-03'}),call(ws,'session.terminal.start',{threadId:'cluster-a-03'})]);assert.equal(a.handle,b.handle);assert.equal(f.commands.length,1);assert.equal(f.commands[0].at(-1),'cluster-a-03');assert(f.commands[0].includes('-tt'));
+ await assert.rejects(call(ws,'session.terminal.write',{threadId:'cluster-a-02',handle:a.handle,dataBase64:'YQ=='}),/Invalid/);
+ await assert.rejects(call(ws,'session.terminal.write',{threadId:'cluster-a-03',handle:'wrong',dataBase64:'YQ=='}),/ended/);
+ await assert.rejects(call(ws,'session.terminal.resize',{threadId:'cluster-a-03',handle:a.handle,cols:10000,rows:24}),/size/);
+ await assert.rejects(call(ws,'session.terminal.write',{threadId:'cluster-a-03',handle:a.handle,dataBase64:'!bad'}),/input/);
  const event=once(ws,'message');f.children[0].stdout.write(JSON.stringify({dataBase64:Buffer.from('hello\r\n').toString('base64')})+'\n');const [raw]=await event;const frame=JSON.parse(String(raw));assert.equal(frame.event,'session.terminal');assert.equal(Buffer.from(frame.payload.dataBase64,'base64').toString(),'hello\r\n');assert.equal(frame.payload.offset,7);
- await call(ws,'session.terminal.stop',{threadId:'S13',handle:a.handle});ws.close();await once(ws,'close');
+ await call(ws,'session.terminal.stop',{threadId:'cluster-a-03',handle:a.handle});ws.close();await once(ws,'close');
 });
 test('enforces the shared terminal limit and releases only connection-owned shells', async t=>{
  const f=await fixture(t),clients=[];t.after(()=>clients.forEach(ws=>ws.close()));
- for(let i=0;i<8;i++){const ws=await connect(f.url+'?terminalHost=S13');clients.push(ws);await call(ws,'session.terminal.subscribe',{threadId:'S13'});}
- const ninth=await connect(f.url+'?terminalHost=S13');clients.push(ninth);await assert.rejects(call(ninth,'session.terminal.subscribe',{threadId:'S13'}),/Too many/);
- clients[0].close();await once(clients[0],'close');await new Promise(r=>setTimeout(r,30));await call(ninth,'session.terminal.subscribe',{threadId:'S13'});assert.equal(f.commands.length,9);
+ for(let i=0;i<8;i++){const ws=await connect(f.url+'?terminalHost=cluster-a-03');clients.push(ws);await call(ws,'session.terminal.subscribe',{threadId:'cluster-a-03'});}
+ const ninth=await connect(f.url+'?terminalHost=cluster-a-03');clients.push(ninth);await assert.rejects(call(ninth,'session.terminal.subscribe',{threadId:'cluster-a-03'}),/Too many/);
+ clients[0].close();await once(clients[0],'close');await new Promise(r=>setTimeout(r,30));await call(ninth,'session.terminal.subscribe',{threadId:'cluster-a-03'});assert.equal(f.commands.length,9);
 });
 test('the real disposable PTY supports interactive input, resize and exits without a shell process left behind', {timeout:10000}, async()=>{
  const child=spawn('python3',[path.join(__dirname,'server-terminal-pty.py'),'/bin/sh','-l'],{stdio:['pipe','pipe','pipe']});let output='';child.stdout.on('data',chunk=>{for(const line of String(chunk).trim().split('\n')){try{const f=JSON.parse(line);if(f.dataBase64)output+=Buffer.from(f.dataBase64,'base64').toString();}catch{}}});

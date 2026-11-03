@@ -2,8 +2,12 @@
 
 `CLAW3D_SERVER_POOL_FILE` points to the existing `alias|class|params|notes`
 registry. SSH aliases come from the host's SSH configuration. The monitor and
-terminal use the same registry parser. Prefix families (S, YSTKO, preprod, NJU)
-are display groups; they do not change online/offline workload classifications.
+terminal use the same registry parser. Generic prefix families (`cluster-a-`,
+`cluster-b-`, `cluster-c-`, `cluster-d-`) appear as Cluster A–D; for example,
+`cluster-a-01` belongs to Cluster A. Matching is case-insensitive; other remote
+aliases appear under Other servers. These display groups do not change
+online/offline workload classifications. Keep real host inventories and SSH
+configuration outside the repository; documentation and tests use example aliases.
 
 L1 has one selectable server model per registered host, including disabled hosts.
 Its model ID uses the alias, so sorting and refreshes cannot change its identity.

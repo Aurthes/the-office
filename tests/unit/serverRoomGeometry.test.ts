@@ -12,7 +12,7 @@ describe("dense machine-room equipment", () => {
     const cabin = layout.cabins.find(c => c.id === "public:server-room")!;
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ fillRect: vi.fn(), fillText: vi.fn() } as unknown as ReturnType<HTMLCanvasElement["getContext"]>);
     const builder = new Builder({}); builder.cabin = cabin;
-    const hosts: PoolHost[] = ["S13", "S11", "S12", "YSTKO01", "YSTKO02", "preprod01", "preprod00-arm", "NJU06", "NJU11"].map(alias => ({ alias, group: "offline", active: alias !== "S12" }));
+    const hosts: PoolHost[] = ["cluster-a-03", "cluster-a-01", "cluster-a-02", "cluster-b-01", "cluster-b-02", "cluster-c-01", "cluster-c-02-arm", "cluster-d-01", "cluster-d-02"].map(alias => ({ alias, group: "offline", active: alias !== "cluster-a-02" }));
     addMachineRoom(builder, layout, cabin, hosts);
     const group = builder.finish(), objects = builder.objects;
     expect(objects.filter(o => o.kind === "serverRack")).toHaveLength(hosts.length);

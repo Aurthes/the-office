@@ -88,6 +88,7 @@ test-results
 .understand-anything/
 
 # Local authentication and runtime data
+/.codex-attachments/
 /.claw3d/
 /.claw3d-private/
 /uploads/
