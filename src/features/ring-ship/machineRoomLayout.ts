@@ -15,8 +15,8 @@ export function machineRoomPlan(layout: ShipLayout, cabin: ShipCabin, hosts?: re
   const ring = layout.rings[cabin.ring], width = ring.radius * Math.PI * 2 / layout.allocation.sectors;
   const count = Math.max(3, Math.floor(width * .56 / SERVER_RACK.pitch) + 1);
   const rows = ring.depth >= 6.4
-    ? [{ v: -2.45, face: -1 }, { v: -1.45, face: 1 }, { v: 1.45, face: -1 }, { v: 2.45, face: 1 }]
-    : [{ v: -1.58, face: 1 }, { v: 1.58, face: -1 }];
+    ? [{ v: -2.75, face: -1 }, { v: -1.75, face: 1 }, { v: 1.75, face: -1 }, { v: 2.75, face: 1 }]
+    : [{ v: -1.85, face: 1 }, { v: 1.85, face: -1 }];
   let racks: Array<{u:number;v:number;face:number;row:number;column:number;host?:PoolHost;color?:string}> = rows.flatMap((row, rowIndex) => Array.from({ length: count }, (_, column) => ({
     ...row, u: -width * .4 + column * SERVER_RACK.pitch, row: rowIndex, column,
   })));
@@ -46,7 +46,7 @@ export function machineRoomPlan(layout: ShipLayout, cabin: ShipCabin, hosts?: re
     });
   }
   const consoleWidth = Math.min(2.8, ring.depth * .38);
-  const console = { u: width * .34, v: ring.depth / 2 - consoleWidth / 2 - .3, width: consoleWidth,
+  const console = { u: width * .34, v: ring.depth / 2 - .85, width: consoleWidth,
     angle: cabinAngle(layout, cabin.slot) + width * .34 / ring.radius };
   return { width, racks, rows, console, families, first: -width * .4, last: width * .16 };
 }

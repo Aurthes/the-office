@@ -399,7 +399,7 @@ export function RingShipOffice(props: Props) {
   const [serversOpen, setServersOpen] = useState(false);
   const [terminalHost, setTerminalHost] = useState<string | null>(null);
   const serverFleet = useServerSnapshot(true);
-  const serverHostKey = JSON.stringify(serverFleet.snapshot?.servers.map(({ alias, group, active }) => ({ alias, group, active })) ?? []);
+  const serverHostKey = JSON.stringify(serverFleet.snapshot?.servers.map(({ alias, group, active, family }) => ({ alias, group, active, family })) ?? []);
   const serverHosts = useMemo(() => JSON.parse(serverHostKey) as PoolHost[], [serverHostKey]);
   const [tasksOpen, setTasksOpen] = useState(false);
   const [musicOpen, setMusicOpen] = useState(false);

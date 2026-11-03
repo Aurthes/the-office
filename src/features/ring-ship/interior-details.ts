@@ -78,7 +78,7 @@ export function addCabinDetails(b: Builder, layout: ShipLayout, c: ShipCabin) {
       const u = side * width * .41;
       locker(u, -edge); console(u, edge);
       b.object('waterTank', () => {
-        const q = p(u, -1.15); b.cylinder(.36, .9, [q.x, .55, q.z], '#87a6a5', 14);
+        const q = p(u, -1.9); b.cylinder(.36, .9, [q.x, .55, q.z], '#87a6a5', 14);
         b.cylinder(.38, .08, [q.x, 1.04, q.z], '#d9e4da', 14);
       });
     }
@@ -95,7 +95,7 @@ export function addCabinDetails(b: Builder, layout: ShipLayout, c: ShipCabin) {
       b.object('dish', () => { const q = p(u, -1.85); b.cylinder(.16, .08, [q.x, .88, q.z], '#e4d9bf', 12); });
     }
     model('kitchenFridgeSmall', .8, width * .42, 2.2);
-    model('kitchenCabinet', 2.4, -width * .33, 2.2);
+    model('kitchenCabinet', 1.2, -width * .33, 2.4);
     model('kitchenCoffeeMachine', .4, -width * .33, 2.2, 1.1);
     for (const u of [-width * .1, width * .1]) plant(u, 2.6);
   } else if (c.kind === 'gym') {
@@ -108,11 +108,11 @@ export function addCabinDetails(b: Builder, layout: ShipLayout, c: ShipCabin) {
         }
       });
     }
-    for (const u of [-width * .42, width * .42]) { locker(u, 2.6); locker(u + .8, 2.6); console(u, -1.1); }
+    for (const u of [-width * .42, width * .42]) { locker(u, 2.6); locker(u + .8, 2.6); console(u, -2); }
     for (const u of [-width * .37, width * .37]) {
       b.object('bench', () => {
-        box(u, 1.1, .35, [1.2, .55, 1.1], '#8da9b2');
-        box(u, 1.1, .8, [.22, .4, .65], '#d2e0df');
+        box(u, 2, .35, [1.2, .55, 1.1], '#8da9b2');
+        box(u, 2, .8, [.22, .4, .65], '#d2e0df');
       });
     }
   } else if (c.kind === 'cargo') {
@@ -122,7 +122,7 @@ export function addCabinDetails(b: Builder, layout: ShipLayout, c: ShipCabin) {
         box(u, 2.7, 1.04, [2.05, .08, 1.35], '#d8ab70');
       });
       b.object('crate', () => box(u, -2.7, .4, [1.3, .6, .9], '#bcc9bd'));
-      for (const v of [-1.5, 1.5]) locker(u, v);
+      for (const v of [-2, 2]) locker(u, v);
     }
   } else if (c.kind === 'quarters') {
     // The compact sleeping capsules fill both rows; keep the aisle clear.
@@ -137,9 +137,9 @@ export function addCabinDetails(b: Builder, layout: ShipLayout, c: ShipCabin) {
       for (const j of [-.5, 0, .5]) b.object('tools', () => box(u + j, 2.2, .67, [.2, .12, .15], j ? '#729793' : '#dca66b'));
     }
   } else if (c.kind === 'lounge') {
-    model('tableCoffee', 1.05, 0, -1.35);
-    model('loungeDesignChair', .65, -1.1, -1.5, .08, .5);
-    model('loungeDesignChair', .65, 1.1, -1.5, .08, -.5);
+    model('tableCoffee', 1.05, 0, -1.8);
+    model('loungeDesignChair', .65, -1.1, -2, .08, .5);
+    model('loungeDesignChair', .65, 1.1, -2, .08, -.5);
     bookcase(-width * .37, -edge);
     for (const side of [-1, 1]) plant(side * width * .37, edge);
   }

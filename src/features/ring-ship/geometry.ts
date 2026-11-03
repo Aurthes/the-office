@@ -15,7 +15,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
 import workstationModels from "@/features/retro-office/core/workstation-models.json";
 import { CHAIR_SEAT, DESK_SURFACE_HEIGHT, WORKSTATION_SCALE } from "@/features/retro-office/core/geometry";
-import { cabinAngle, CLONING_LAB_WIDTH, seatPosition, shipPoint, SHIP_CORRIDOR_START, SHIP_CORRIDOR_WIDTH, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
+import { cabinAngle, CLONING_LAB_WIDTH, seatPosition, shipPoint, SHIP_AISLE_WIDTH, SHIP_CORRIDOR_START, SHIP_CORRIDOR_WIDTH, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
 import { type ShipObject, type ShipObjectKind, type ShipObjectRange } from "./shipObjects";
 
 export const FURNITURE_MODELS = ["desk", "chairDesk", "pottedPlant", "plantSmall1", "loungeSofa", "tableRound", "kitchenCoffeeMachine", "kitchenCabinet", "bookcaseClosed", "lampRoundFloor", "kitchenFridgeSmall", "chairModernCushion", "tableCoffee", "table", "loungeDesignChair"] as const;
@@ -207,7 +207,8 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
       const angle = (cabin.slot + 1) * step;
       // A central opening keeps the ring's circulation lane unobstructed.
       for (const side of [-1, 1]) {
-        const length = ring.depth / 2 * .79 - 0.65, p = shipPoint(ring.radius + side * (0.65 + length / 2), angle);
+        const halfAisle = SHIP_AISLE_WIDTH / 2;
+        const length = ring.depth / 2 * .79 - halfAisle, p = shipPoint(ring.radius + side * (halfAisle + length / 2), angle);
         b.box([0.14, 0.42, length], [p.x, 0.21, p.z], HULL, angle);
       }
     }
@@ -289,7 +290,7 @@ function addAmenity(b: Builder, layout: ShipLayout, cabin: ShipCabin, serverHost
   } else if (cabin.kind === "garden") {
     addRainforest(b, layout, cabin);
   } else if (cabin.kind === "hydroponics") {
-    for (const u of [-width * 0.27, 0, width * 0.27]) for (const v of [-1.35, 1.35]) {
+    for (const u of [-width * 0.27, 0, width * 0.27]) for (const v of [-2.05, 2.05]) {
       b.object("growingBed", () => {
         b.localBox(layout, cabin, u, v, 0.4, [2, 0.65, 0.9], HULL);
         b.localBox(layout, cabin, u, v, 0.74, [1.85, 0.05, 0.78], "#456f67");
@@ -306,15 +307,15 @@ function addAmenity(b: Builder, layout: ShipLayout, cabin: ShipCabin, serverHost
   } else if (cabin.kind === "gym") {
     for (const u of [-width * 0.25, 0, width * 0.25]) {
       b.object("treadmill", () => {
-        b.localBox(layout, cabin, u, 1.2, 0.19, [1.5, 0.3, 2.2], METAL);
-        b.localBox(layout, cabin, u, 1.2, 0.36, [1.12, 0.04, 1.7], "#72878b");
-        for (const side of [-0.62, 0.62]) b.localBox(layout, cabin, u + side, 1.8, 1.0, [0.07, 1.4, 0.07], HULL);
-        b.localBox(layout, cabin, u, 1.85, 1.55, [1.35, 0.22, 0.2], TEAL);
+        b.localBox(layout, cabin, u, 2.5, 0.19, [1.5, 0.3, 2.2], METAL);
+        b.localBox(layout, cabin, u, 2.5, 0.36, [1.12, 0.04, 1.7], "#72878b");
+        for (const side of [-0.62, 0.62]) b.localBox(layout, cabin, u + side, 3.1, 1.0, [0.07, 1.4, 0.07], HULL);
+        b.localBox(layout, cabin, u, 3.15, 1.55, [1.35, 0.22, 0.2], TEAL);
       });
     }
     for (const u of [-1.3, 1.3]) b.object("exerciseMat", () => b.localBox(layout, cabin, u, -1.7, 0.08, [2.0, 0.035, 0.8], "#849eaf"));
   } else if (cabin.kind === "cargo") {
-    for (const u of [-width * 0.28, 0, width * 0.28]) for (const v of [-1.6, 1.6]) {
+    for (const u of [-width * 0.28, 0, width * 0.28]) for (const v of [-2.15, 2.15]) {
       b.object("crate", () => {
         b.localBox(layout, cabin, u, v, 0.55, [1.6, 1, 1.35], "#a7b7b8");
         b.localBox(layout, cabin, u, v, 1.08, [1.68, 0.1, 1.4], ORANGE);
@@ -325,19 +326,19 @@ function addAmenity(b: Builder, layout: ShipLayout, cabin: ShipCabin, serverHost
     // Compact capsules and their animated lids are rendered by HibernationBay.
   } else if (cabin.kind === "observatory") {
     for (const u of [-width * 0.25, width * 0.25]) {
-      const p = local(u, 1.0);
+      const p = local(u, 2.0);
       b.object("telescope", () => {
         b.cylinder(0.18, 1.1, [p.x, 0.62, p.z], METAL);
-        b.localBox(layout, cabin, u, 1.25, 1.24, [0.6, 0.5, 1.25], HULL);
-        b.localBox(layout, cabin, u, 1.9, 1.24, [0.45, 0.38, 0.05], "#7ea8ba", 0, true);
+        b.localBox(layout, cabin, u, 2.25, 1.24, [0.6, 0.5, 1.25], HULL);
+        b.localBox(layout, cabin, u, 2.9, 1.24, [0.45, 0.38, 0.05], "#7ea8ba", 0, true);
       });
-      b.furniture("loungeSofa", 1.8, local(u, -1.6), 0.08, cabinAngle(layout, cabin.slot) + Math.PI);
+      b.furniture("loungeSofa", 1.8, local(u, -2.1), 0.08, cabinAngle(layout, cabin.slot) + Math.PI);
     }
   } else if (cabin.kind === "maintenance") {
     for (const u of [-width * 0.27, 0, width * 0.27]) {
       b.object("workbench", () => {
-        b.localBox(layout, cabin, u, 1.6, 0.5, [2.0, 0.9, 0.8], HULL);
-        b.localBox(layout, cabin, u, 1.6, 0.98, [2.1, 0.09, 1], ORANGE);
+        b.localBox(layout, cabin, u, 1.8, 0.5, [2.0, 0.9, 0.8], HULL);
+        b.localBox(layout, cabin, u, 1.8, 0.98, [2.1, 0.09, 1], ORANGE);
       });
       b.object("toolbox", () => {
         b.localBox(layout, cabin, u, -1.8, 0.45, [1, 0.8, 0.85], "#a1b0b3");
@@ -347,12 +348,11 @@ function addAmenity(b: Builder, layout: ShipLayout, cabin: ShipCabin, serverHost
   } else {
     const canteen = cabin.kind === "canteen";
     for (const u of [-width * 0.22, width * 0.22]) {
-      b.furniture(canteen ? "tableRound" : "loungeSofa", canteen ? 1.4 : 2.1, local(u, 1.1), 0.08, cabinAngle(layout, cabin.slot));
-      b.furniture("chairDesk", 0.6, local(u, -0.6), 0.08, cabinAngle(layout, cabin.slot));
-      b.furniture("pottedPlant", 0.6, local(u, -1.4), 0.08);
+      b.furniture(canteen ? "tableRound" : "loungeSofa", canteen ? 1.4 : 2.1, local(u, canteen ? 2.2 : 1.85), 0.08, cabinAngle(layout, cabin.slot));
+      b.furniture("pottedPlant", 0.6, local(u, -2.1), 0.08);
     }
     if (canteen) {
-      const p = local(0, 1.55); b.furniture("kitchenCabinet", 1.9, p, 0.08, cabinAngle(layout, cabin.slot));
+      const p = local(0, 2.35); b.furniture("kitchenCabinet", 1.1, p, 0.08, cabinAngle(layout, cabin.slot));
       b.furniture("kitchenCoffeeMachine", 0.55, p, 0.95, cabinAngle(layout, cabin.slot));
     }
   }
