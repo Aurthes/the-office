@@ -17,6 +17,16 @@ function sessionEvents() {
   };
 }
 
+it("offers Fork agent through the cloning scene without archiving or sending to the source",async()=>{
+  const call=vi.fn(async(method:string)=>method==="session.inspect"?{...metadata(),controlsAvailable:true}:page("History",null));
+  const onFork=vi.fn(),view=render(React.createElement(ExistingSessionPanel,{client:{call},threadId:"original",onFork}));
+  const button=await screen.findByRole("button",{name:"Fork agent"});await waitFor(()=>expect(button).toBeEnabled());
+  fireEvent.click(button);expect(onFork).toHaveBeenCalledOnce();
+  expect(call.mock.calls.some(([method])=>["session.fork","session.send","session.archive"].includes(method))).toBe(false);
+  view.rerender(React.createElement(ExistingSessionPanel,{client:{call},threadId:"original",onFork,forkDisabled:true}));
+  expect(screen.getByRole("button",{name:"Fork agent"})).toBeDisabled();
+});
+
 it("uses live turn state to open work and folds it as the official response begins", async () => {
   const events = sessionEvents();
   let subscriptionId = "";

@@ -30,7 +30,7 @@ type Upload = { id: string; name: string; size: number; ref?: string; error?: st
 const sessionDrafts = new Map<string, string>();
 const attachmentDrafts = new Map<string, Upload[]>();
 
-export function SessionControls({ client, threadId, onItems, onHistorySync, onActiveTurnChange, voice: sharedVoice, onOpenThread, onRenamed }: {
+export function SessionControls({ client, threadId, onItems, onHistorySync, onActiveTurnChange, voice: sharedVoice, onOpenThread, onRenamed, onFork }: {
   client: SessionClient;
   threadId: string; onItems: (items: LiveSessionItem[]) => void;
   onHistorySync?: () => void;
@@ -38,6 +38,7 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, onAc
   voice?: SessionVoiceController;
   onOpenThread?: (id: string) => void | Promise<void>;
   onRenamed?: (name: string) => void;
+  onFork?: (name?: string) => void;
 }) {
   const t = useUiText();
   const [state, setState] = useState<Snapshot | null>(null);
@@ -289,6 +290,7 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, onAc
       composer.open(command === "mention" ? "file" : command === "skills" ? "skill" : command === "apps" ? "app" : "chat", command === "agents" || command === "resume" ? "switch" : "reference"); return;
     }
     if (command === "compact") { await action("session.compact", { requestId: crypto.randomUUID() }); return; }
+    if (command === "fork" && onFork) { setText(""); onFork(argument || undefined); return; }
     if (command === "new" || command === "fork") { await action(command === "new" ? "session.new" : "session.fork", { ...(argument ? { name: argument } : {}), requestId: crypto.randomUUID() }); return; }
     if (command === "rename") {
       if (!argument) { setText("/rename "); setNotice("Type /rename followed by the new name"); return; }

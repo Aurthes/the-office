@@ -63,6 +63,7 @@ import {
   isHeartbeatPrompt,
 } from "@/lib/text/message-extract";
 import { resolveOfficeIntentSnapshot } from "@/lib/office/deskDirectives";
+import { cloneAgentPreferences } from "@/lib/office/clone";
 import { type CompanyRoster } from "@/features/retro-office/core/companyLayout";
 import { OfficeFloorNav } from "@/features/office/components/OfficeFloorNav";
 import { OfficeSceneBoundary } from "@/features/office/components/OfficeSceneBoundary";
@@ -808,6 +809,8 @@ export function OfficeScreen({
 
   const [chatOpen, setChatOpen] = useState(false);
   const [returnRequest, setReturnRequest] = useState<{ agentId: string; requestId: string } | null>(null);
+  const [cloneRequest, setCloneRequest] = useState<{ agentId: string; requestId: string; name?: string } | null>(null);
+  const cloneFinished = useCallback(() => setCloneRequest(null), [setCloneRequest]);
   const archiveSession = useCallback(async (threadId: string, requestId: string) => {
     const result = await client.call("session.archive", { threadId, requestId }) as {threadId:string;archived:boolean};
     if (result.threadId !== threadId || !result.archived) throw new Error("原会话归档尚未确认");
@@ -3275,6 +3278,21 @@ export function OfficeScreen({
       handleOpenAgentChat(threadId);
     }
   };
+  const forkSession = async (threadId: string, requestId: string, name?: string) => {
+    const settings = await settingsCoordinator.loadSettings({ force: true });
+    if (!settings) throw new Error(t("Connection unavailable. Please reconnect before saving."));
+    const source = stateRef.current.agents.find(agent => agent.agentId === threadId);
+    const result = await client.call("session.fork", { threadId, requestId, ...(name ? { name } : {}) }) as { threadId: string };
+    if (!result.threadId || result.threadId === threadId) throw new Error(t("Cloning was not confirmed"));
+    try {
+      const patch = cloneAgentPreferences(settings, gatewayUrl.trim(), threadId, result.threadId, source?.avatarProfile);
+      if (Object.keys(patch).length) await settingsCoordinator.applyPatchNow(patch);
+      await loadAgents({ silent: true, forceSettings: true });
+    } catch {
+      throw new Error(t("The clone was created, but its personal settings could not be confirmed. Refresh the session list before forking again."));
+    }
+    return result.threadId;
+  };
   const companyActions = sessionView && companyRoster ? (areaId: string) => {
     const projectId = areaId === SHARED_PROJECT_ID ? null : companyRoster.projects.find(project => project.id === areaId)?.id;
     return <CompanyActions key={projectId === null ? "open-space" : projectId || "whole-company"} client={client} projects={companyRoster.projects} selectedProjectId={projectId} showAccount={!showOnboardingWizard}
@@ -3388,6 +3406,9 @@ export function OfficeScreen({
           returnRequest={returnRequest}
           onArchiveSession={sessionView ? archiveSession : undefined}
           onReturnFinished={returnFinished}
+          cloneRequest={cloneRequest}
+          onForkSession={sessionView ? forkSession : undefined}
+          onCloneFinished={cloneFinished}
           onAddAgent={sessionView ? undefined : handleOpenCreateAgentWizard}
           onAgentEdit={(agentId) => {
             if (sessionView) handleOpenAgentChat(agentId);
@@ -3786,6 +3807,11 @@ export function OfficeScreen({
               {focusedChatAgent ? (
                 sessionView ? <ExistingSessionPanel onOpenWorkspace={openSessionWorkspace} key={focusedChatAgent.agentId} client={client} threadId={focusedChatAgent.agentId}
                   headerStart={sessionListToggle} headerEnd={sessionWindowActions} voice={voice} onOpenThread={acceptCreatedSession}
+                  forkDisabled={!!cloneRequest || !!returnRequest || status !== "connected"}
+                  onFork={name => {
+                    if (cloneRequest || returnRequest || status !== "connected") return;
+                    setCloneRequest({ agentId: focusedChatAgent.agentId, requestId: crypto.randomUUID(), ...(name ? { name } : {}) }); setChatOpen(false);
+                  }}
                   projects={companyRoster?.projects} organization={organization}
                   agentName={focusedChatAgent.name} onSessionRenamed={name => dispatch({ type: "updateAgent", agentId: focusedChatAgent.agentId, patch: { name, sessionDisplayName: name } })}
                   avatarProfile={focusedChatAgent.avatarProfile} agentStatus={focusedChatAgent.needsInput ? "needsInput" : focusedChatAgent.status} agentModel={focusedChatAgent.model}
@@ -3795,7 +3821,7 @@ export function OfficeScreen({
                     await settingsCoordinator.applyPatchNow({ avatars: { [key]: { [focusedChatAgent.agentId]: profile } } });
                     dispatch({ type: "updateAgent", agentId: focusedChatAgent.agentId, patch: { avatarProfile: profile, avatarSeed: profile.seed } });
                   }}
-                  returnDisabled={!!returnRequest || focusedChatAgent.status === "running" || status !== "connected"}
+                  returnDisabled={!!returnRequest || !!cloneRequest || focusedChatAgent.status === "running" || status !== "connected"}
                   onReturnToEarth={() => {
                     if (returnRequest || focusedChatAgent.status === "running") return;
                     setReturnRequest({agentId:focusedChatAgent.agentId,requestId:crypto.randomUUID()});setChatOpen(false);

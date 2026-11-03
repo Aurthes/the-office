@@ -18,7 +18,7 @@ import { OrganizationPanel } from "./OrganizationPanel";
 import { DuckCrewModel } from "./DuckCrewModel";
 import { CompanyWorkAreaMenu } from "@/features/office/components/CompanyWorkAreaMenu";
 import { SettingsPanel } from "@/features/office/components/panels/SettingsPanel";
-import { DECK_NAMES, DECK_STEP, DECKS, PUBLIC_DESCRIPTIONS, SHARED_PROJECT_ID, shipDeck, type DeckIndex, type ShipLayout, type ShipPoint } from "./layout";
+import { cabinAngle, DECK_NAMES, DECK_STEP, DECKS, PUBLIC_DESCRIPTIONS, SHARED_PROJECT_ID, shipDeck, type DeckIndex, type ShipLayout, type ShipPoint } from "./layout";
 import { buildShipGeometry, disposeShipGeometry, SHIP_MODELS, shipModelUrl, type ModelTemplates } from "./geometry";
 import { useShipLayout } from "./useShipLayout";
 import { getAgentActivity, workChatter } from "@/features/retro-office/core/agentActivity";
@@ -29,6 +29,8 @@ import { shipCameraPose } from "./cameraPose";
 import { buildShell } from "./shell";
 import { LiftEntry, LiftJourney, LiftOverlay, type LiftTrip } from "./ShipLift";
 import { ReturnPodBay, ReturnPodJourney, type ReturnFlight } from "./ReturnPodBay";
+import { CloningLab, type CloneFlight } from "./CloningLab";
+import { CLONE_LABELS, cloningPoint, rejoinCrewAfterClone, type CloneArrival, type CloneRequest, type CloneResult, type CloneStage } from "./cloneMotion";
 import { returnRoute, RETURN_LABELS, type ArchiveResult, type ReturnStage, type ReturnTransfer } from "./returnPodMotion";
 import { advanceCrew, syncCrew, worldPoint, type MovingAgent } from "./crewMotion";
 import { useUiText } from "@/lib/i18n/ui-language";
@@ -53,7 +55,9 @@ import { ShipObjectScene, ShipObjectCard } from "./ShipObjectInteraction";
 import { shipObjectCameraPose, type ShipObject } from "./shipObjects";
 import { useDuckFocusAudio } from "./useDuckFocusAudio";
 
-type Props = ComponentProps<typeof RetroOffice3D> & { navigationPreview?: boolean; musicPreview?: boolean; onFirefight?: FirefightHandler };
+type Props = ComponentProps<typeof RetroOffice3D> & { navigationPreview?: boolean; musicPreview?: boolean; onFirefight?: FirefightHandler;
+  cloneRequest?: CloneRequest | null; onForkSession?: (id: string, requestId: string, name?: string) => Promise<string>; onCloneFinished?: () => void;
+};
 type Controls = ComponentRef<typeof OrbitControls>;
 const EMPTY_ROSTER: CompanyRoster = { projects: [], members: [] };
 let modelCache: ModelTemplates | undefined;
@@ -108,18 +112,24 @@ function Lighting({ radius, dimmed = false }: { radius: number; dimmed?: boolean
     <directionalLight position={[25, 12, -25]} intensity={0.65 * intensity} color="#a0d7ed" />
   </>;
 }
-export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy, podFocus, navigationFocus, objectFocus }: { objectFocus?: ShipObject | null; navigationFocus?: { point: ShipPoint; deck: DeckIndex } | null; podFocus?: { point: ShipPoint; launch: boolean } | null; deck: DeckIndex; whole: boolean; busy: boolean; layout: ShipLayout; focus: { id: string; request: number }; controlsRef: RefObject<Controls | null>; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null; chatExpanded?: boolean }) {
+export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy, podFocus, navigationFocus, objectFocus, cloneFocus }: { cloneFocus?: { point: ShipPoint; angle: number; deck: DeckIndex } | null; objectFocus?: ShipObject | null; navigationFocus?: { point: ShipPoint; deck: DeckIndex } | null; podFocus?: { point: ShipPoint; launch: boolean } | null; deck: DeckIndex; whole: boolean; busy: boolean; layout: ShipLayout; focus: { id: string; request: number }; controlsRef: RefObject<Controls | null>; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null; chatExpanded?: boolean }) {
   const { size, camera, gl } = useThree();
   const previousView = useRef<{ target: THREE.Vector3; position: THREE.Vector3; zoom: number } | null>(null);
   const previousNavigationView = useRef<{ target: THREE.Vector3; position: THREE.Vector3; zoom: number } | null>(null);
   const followed = useRef<{ id: string; x: number; z: number } | null>(null);
-  const move = useRef<{ target: THREE.Vector3; position: THREE.Vector3; zoom: number } | null>(null);
+  const move = useRef<{ target: THREE.Vector3; position: THREE.Vector3; zoom: number; instant?: boolean } | null>(null);
   const followSpace = useRef(false);
   const npcCenter = useRef<THREE.Vector3 | null>(null);
   const npcDelta = useRef(new THREE.Vector3());
   useEffect(() => {
     followSpace.current = !!objectFocus?.space;
     npcCenter.current = null;
+    if (cloneFocus && controlsRef.current) {
+      const target = new THREE.Vector3(cloneFocus.point.x, cloneFocus.deck * DECK_STEP + .9, cloneFocus.point.z);
+      const offset = new THREE.Vector3(8,7,-11).applyAxisAngle(new THREE.Vector3(0,1,0),cloneFocus.angle);
+      move.current={target,position:target.clone().add(offset),zoom:Math.min(size.width/10,size.height/8,100),instant:true};
+      previousView.current=null;previousNavigationView.current=null;followed.current=null;return;
+    }
     if (busy) { move.current = null; return; }
     const controls = controlsRef.current;
     if (navigationFocus && controls) {
@@ -160,7 +170,7 @@ export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, 
       return;
     }
     move.current = shipCameraPose(layout, size.width, size.height, deck, whole, focus.id);
-  }, [layout, focus, size.width, size.height, camera, gl, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy, podFocus, navigationFocus, objectFocus]);
+  }, [layout, focus, size.width, size.height, camera, gl, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy, podFocus, navigationFocus, objectFocus, cloneFocus]);
   useEffect(() => {
     const controls = controlsRef.current;
     const stop = () => { move.current = null; followSpace.current = false; if (!chatAgentId) followed.current = null; };
@@ -190,6 +200,7 @@ export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, 
     }
     const next = move.current;
     if (!next || !controls) return;
+    if(next.instant){camera.position.copy(next.position);controls.target.copy(next.target);camera.zoom=next.zoom;camera.updateProjectionMatrix();controls.update();move.current=null;return;}
     const rate = 1 - Math.exp(-delta * 7);
     camera.position.lerp(next.position, rate); controls.target.lerp(next.target, rate);
     camera.zoom = THREE.MathUtils.lerp(camera.zoom, next.zoom, rate); camera.updateProjectionMatrix();
@@ -224,7 +235,7 @@ function placeNameplate(frame: NameplatePlacement, time: number, x: number, y: n
   return lift;
 }
 
-function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId, companionsRef, ceoBodyRef }: { agents: OfficeAgent[]; layout: ShipLayout; focus: string; onOpen: (id: string) => void; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null; companionsRef: RefObject<Map<CompanionKind, CompanionState>>; ceoBodyRef: RefObject<CharacterBody | null> }) {
+function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId, companionsRef, ceoBodyRef, arrivalsRef }: { arrivalsRef: RefObject<Map<string, CloneArrival>>; agents: OfficeAgent[]; layout: ShipLayout; focus: string; onOpen: (id: string) => void; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null; companionsRef: RefObject<Map<CompanionKind, CompanionState>>; ceoBodyRef: RefObject<CharacterBody | null> }) {
   const agentsRef = useRef<RenderAgent[]>([]);
   const nameplatePlacement = useRef<NameplatePlacement>({ frame: -1, rects: [] });
   const [hovered, setHovered] = useState<string | null>(null);
@@ -232,8 +243,12 @@ function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId, companion
   const initialPositions = useMemo(() => Object.fromEntries(Object.values(layout.seats).map(seat => [seat.agentId, [seat.x, 0, seat.z] as [number, number, number]])), [layout]);
   useEffect(() => {
     const values = syncCrew(agents, layout, lookupRef.current, performance.now());
+    for (const agent of values) {
+      const arrival=arrivalsRef.current.get(agent.id);
+      if(arrival){rejoinCrewAfterClone(agent,layout,arrival);arrivalsRef.current.delete(agent.id);}
+    }
     agentsRef.current = values; lookupRef.current = new Map(values.map(a => [a.id, a]));
-  }, [agents, layout, lookupRef]);
+  }, [agents, layout, lookupRef, arrivalsRef]);
   useFrame((state, delta) => {
     advanceCrew(agentsRef.current as MovingAgent[], layout, performance.now(), delta, chatAgentId, [...companionsRef.current.values()].map(companionBody).concat(ceoBodyRef.current ? [ceoBodyRef.current] : []));
   }, -1);
@@ -335,6 +350,10 @@ export function RingShipOffice(props: Props) {
   const [tasksOpen, setTasksOpen] = useState(false);
   const [musicOpen, setMusicOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [cloneFlight,setCloneFlight]=useState<CloneFlight|null>(null),[cloneState,setCloneState]=useState<CloneStage>("synchronizing"),[cloneError,setCloneError]=useState(""),[clonedAgentId,setClonedAgentId]=useState<string|null>(null);
+  const cloneResultRef=useRef<CloneResult>({status:"pending"}),cloneSeen=useRef("");
+  const cloneArrivals=useRef(new Map<string,CloneArrival>()),cloneOrigin=useRef<CloneArrival|null>(null);
+  const cloningCabin=layout.cabins.find(c=>c.kind==="cloning");
   const [inspectedObject, setInspectedObject] = useState<ShipObject | null>(null);
   const closeObject = useCallback(() => setInspectedObject(null), []);
   const openMonitor = () => { closeObject(); setMonitorOpen(true); };
@@ -344,8 +363,8 @@ export function RingShipOffice(props: Props) {
   const pendingFocus = useRef("");
   const busy = !!trip;
   const chatDeck = props.activeChatAgentId ? layout.seats[props.activeChatAgentId]?.deck : undefined;
-  const visibleDeck = !busy && chatDeck !== undefined ? chatDeck : deck;
-  const shipView = whole && !props.activeChatAgentId;
+  const visibleDeck = cloneFlight && cloningCabin ? cloningCabin.deck : !busy && chatDeck !== undefined ? chatDeck : deck;
+  const shipView = whole && !props.activeChatAgentId && !cloneFlight;
   const decks = useMemo(() => DECKS.map(d => shipDeck(layout, d)), [layout]);
   const currentLayout = decks[visibleDeck];
   const visibleAgents = useMemo(() => agents.filter(a => currentLayout.seats[a.id]), [agents, currentLayout]);
@@ -360,6 +379,40 @@ export function RingShipOffice(props: Props) {
   const [menuOpen, setMenuOpen] = useState(false), [settingsOpen, setSettingsOpen] = useState(false), [fleetOpen, setFleetOpen] = useState(false);
   const controlsRef = useRef<Controls>(null);
   const crewLookupRef = useRef(new Map<string, RenderAgent>());
+  const cloneRequest=props.cloneRequest,onForkSession=props.onForkSession,onCloneFinished=props.onCloneFinished;
+  useEffect(()=>{
+    if(!cloneRequest||cloneSeen.current===cloneRequest.requestId||!onForkSession)return;
+    const frame=requestAnimationFrame(()=>{
+      cloneSeen.current=cloneRequest.requestId;
+      const source=agents.find(a=>a.id===cloneRequest.agentId),seat=layout.seats[cloneRequest.agentId];
+      if(!source||!seat||!cloningCabin){setCloneError(t("Cloning laboratory is not ready"));onCloneFinished?.();return;}
+      const previous=crewLookupRef.current.get(source.id);
+      cloneOrigin.current={point:previous?worldPoint(previous):seat,deck:seat.deck};
+      cloneResultRef.current={status:"pending"};setCloneState("synchronizing");setCloneError("");setClonedAgentId(null);
+      setCloneFlight({requestId:cloneRequest.requestId,agentId:source.id,name:source.name,appearance:source.avatarProfile?.duck});
+      setDeck(cloningCabin.deck);setWhole(false);setTrip(null);setLiftOpen(false);setFleetOpen(false);setInspectedObject(null);
+      setMonitorOpen(false);setTasksOpen(false);setMusicOpen(false);setAiOpen(false);setSettingsOpen(false);
+      setFocus(previous=>({id:cloningCabin.id,request:previous.request+1}));
+      void onForkSession(source.id,cloneRequest.requestId,cloneRequest.name).then(threadId=>{
+        cloneResultRef.current={status:"confirmed",threadId,at:performance.now()};
+        setClonedAgentId(threadId);
+      },cause=>{cloneResultRef.current={status:"failed",error:cause instanceof Error?cause.message:t("Cloning was not confirmed")};});
+    });
+    return()=>cancelAnimationFrame(frame);
+  },[cloneRequest,onForkSession,onCloneFinished,agents,layout,cloningCabin,t]);
+  const cloneComplete=useCallback((points:ShipPoint[])=>{
+    if(!cloneFlight)return;
+    const result=cloneResultRef.current;
+    if(result.status==="confirmed"&&cloningCabin){
+      cloneArrivals.current.set(cloneFlight.agentId,{point:points[0],deck:cloningCabin.deck});
+      cloneArrivals.current.set(result.threadId,{point:points[1],deck:cloningCabin.deck});
+    }else{
+      if(cloneOrigin.current)cloneArrivals.current.set(cloneFlight.agentId,cloneOrigin.current);
+      if(result.status==="failed")setCloneError(result.error);
+    }
+    setCloneFlight(null);onCloneFinished?.();
+  },[cloneFlight,cloningCabin,onCloneFinished]);
+  const cloneFocus=useMemo(()=>cloneFlight&&cloningCabin?{point:cloningPoint(layout,cloningCabin,0,.1),angle:cabinAngle(layout,cloningCabin.slot),deck:cloningCabin.deck}:null,[cloneFlight,cloningCabin,layout]);
   const ceoObject = useRef<ShipObject | null>(null);
   const ceoBodyRef = useRef<CharacterBody | null>(null);
   const ceoReady = useCallback((object: ShipObject | null) => { ceoObject.current = object; }, []);
@@ -420,7 +473,7 @@ export function RingShipOffice(props: Props) {
   const validFocus = currentLayout.seats[focus.id] || currentLayout.cabins.some(c => c.id === focus.id || c.projectId === focus.id) ? focus.id : "";
   const cameraFocus = useMemo(() => ({ id: validFocus, request: focus.request + officeCenterSignal }), [validFocus, focus.request, officeCenterSignal]);
   const selected = currentLayout.cabins.find(c => c.id === validFocus || c.projectId === validFocus);
-  const objectEnabled = !busy && !navigationOpen && !props.activeChatAgentId && !returnFlight && !monitorOpen && !tasksOpen && !musicOpen && !settingsOpen && !aiOpen;
+  const objectEnabled = !busy && !cloneFlight && !navigationOpen && !props.activeChatAgentId && !returnFlight && !monitorOpen && !tasksOpen && !musicOpen && !settingsOpen && !aiOpen;
   const objectFocus = objectEnabled && inspectedObject && (inspectedObject.space ? inspectedObject.space.seed === system.seed : !shipView && inspectedObject.deck === visibleDeck && currentLayout.cabins.some(c => c.id === inspectedObject.cabinId)) ? inspectedObject : null;
   const duckFocus = !busy && !navigationOpen && !returnFlight && !monitorOpen && !tasksOpen && !musicOpen && !settingsOpen && !aiOpen && !shipView
     ? props.activeChatAgentId || (objectFocus?.kind === "ceo" ? objectFocus.id : !objectFocus && currentLayout.seats[validFocus] ? validFocus : null) : null;
@@ -500,19 +553,20 @@ export function RingShipOffice(props: Props) {
           {!navigationOpen ? <TaskRoomScreen layout={currentLayout} cabin={cabin} onOpen={openTasks} /> : null}
           {navigationPreview ? <NavigationConsole layout={currentLayout} cabin={cabin} state={navigation} onAction={action => { closeObject(); navigate(action); }} disabled={busy || !!returnFlight || !!props.activeChatAgentId || navigation.phase === "warp"} /> : null}
         </group>)}
-        <Crew agents={visibleAgents.filter(a=>a.id!==returnFlight?.agentId)} layout={currentLayout} focus={validFocus} onOpen={open} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} companionsRef={companionsRef} ceoBodyRef={ceoBodyRef} />
+        <Crew agents={visibleAgents.filter(a=>a.id!==returnFlight?.agentId&&a.id!==cloneFlight?.agentId&&!(cloneFlight&&a.id===clonedAgentId))} layout={currentLayout} focus={validFocus} onOpen={open} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} companionsRef={companionsRef} ceoBodyRef={ceoBodyRef} arrivalsRef={cloneArrivals} />
       </group> : null}
+      {cloningCabin ? <group visible={shipView||visibleDeck===cloningCabin.deck}><CloningLab layout={layout} cabin={cloningCabin} flight={cloneFlight} resultRef={cloneResultRef} onStage={setCloneState} onComplete={cloneComplete}/></group>:null}
       {returnFlight ? <group visible={!shipView}>
         <ReturnPodJourney key={returnFlight.requestId} flight={returnFlight} resultRef={archiveResultRef} transferRef={returnTransferRef} displayDeck={visibleDeck} onStage={returnPhaseChanged} onComplete={returnComplete}/>
       </group>:null}
-      <OrbitControls ref={controlsRef} makeDefault enabled={!busy && !(navigationPreview && (navigation.phase === "confirm" || navigation.phase === "warp"))} enableDamping={!busy} dampingFactor={0.15} minZoom={0.15} maxZoom={110} minPolarAngle={0.12} maxPolarAngle={Math.PI * 0.72} />
+      <OrbitControls ref={controlsRef} makeDefault enabled={!busy && !cloneFlight && !(navigationPreview && (navigation.phase === "confirm" || navigation.phase === "warp"))} enableDamping={!busy} dampingFactor={0.15} minZoom={0.15} maxZoom={110} minPolarAngle={0.12} maxPolarAngle={Math.PI * 0.72} />
       <CameraRig layout={currentLayout} focus={cameraFocus} controlsRef={controlsRef} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} chatExpanded={props.chatExpanded} deck={visibleDeck} whole={shipView} busy={busy}
-        podFocus={returnCamera} navigationFocus={navigationFocus} objectFocus={objectFocus}/>
+        podFocus={returnCamera} navigationFocus={navigationFocus} objectFocus={objectFocus} cloneFocus={cloneFocus}/>
       <LiftEntry deck={visibleDeck} whole={shipView} open={liftOpen} disabled={busy || !!props.activeChatAgentId || navigationOpen} counts={counts} onOpen={() => { closeObject(); setLiftOpen(true); }} onClose={() => setLiftOpen(false)} onTravel={travel} />
       <LiftJourney trip={trip} layout={layout} controlsRef={controlsRef} overlayRef={overlayRef} onArrive={arrive} onComplete={complete} />
     </Canvas>
     {activityEnabled ? <SpaceTrafficNotice key={system.id} motion={spaceMotion} seed={system.seed} paused={!objectEnabled} /> : null}
-    <fieldset className="contents" disabled={busy}>
+    <fieldset className="contents" disabled={busy||!!cloneFlight}>
     <div className="ship-heading pointer-events-none absolute left-1/2 top-5 z-10 -translate-x-1/2 text-center">
       <div className="truncate text-xs font-semibold uppercase tracking-[0.28em] text-[#e3c894]">{officeTitle}</div>
       <div className="mt-1 text-[9px] tracking-[0.3em] text-[#9bb8bf]">{shipView ? t("Whole ship · 3 decks") : t("L{0} · {1} · {2} sessions", { "0": visibleDeck + 1, "1": t(DECK_NAMES[visibleDeck]), "2": visibleAgents.length })}</div>
@@ -568,6 +622,8 @@ export function RingShipOffice(props: Props) {
     <ScheduledTasks open={tasksOpen} onClose={() => setTasksOpen(false)} onOpenSession={open} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
     <AiCenterDashboard open={aiOpen} onClose={() => setAiOpen(false)} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
     <LiftOverlay trip={trip} overlayRef={overlayRef} />
+    {cloneFlight ? <div role="status" aria-live="polite" data-clone-stage={cloneState} className="absolute bottom-20 sm:bottom-5 left-1/2 z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-teal-200/30 bg-[#101e29]/95 px-4 py-3 text-center shadow-xl"><div className="text-xs text-teal-100">{cloneFlight.name}</div><p className="mt-1 text-xs text-teal-100">{t(CLONE_LABELS[cloneState])}</p><p className="mt-1 text-[10px] text-white/55">{t("Conversation and personal settings are inherited. Scheduled tasks are not copied.")}</p></div>:null}
+    {cloneError ? <div role="alert" className="absolute bottom-20 left-1/2 z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-rose-200/30 bg-[#101e29]/95 p-4 text-xs text-rose-100">{t(cloneError)}<button type="button" className="ml-3 underline" onClick={()=>setCloneError("")}>{t("Dismiss")}</button></div>:null}
     {returnFlight ? <div role="status" aria-live="polite" className="absolute bottom-20 sm:bottom-4 left-1/2 z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-amber-200/25 bg-[#101e29]/95 px-4 py-3 text-center shadow-xl">
       <div className="truncate text-xs text-amber-100">{returnFlight.name}</div>
       <p className="mt-1 text-xs text-amber-100">{t(RETURN_LABELS[returnStage])}</p>

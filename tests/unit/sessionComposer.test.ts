@@ -4,16 +4,24 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionControls } from "../../src/features/office/components/SessionControls";
 const snapshot = { connected: true, version: 1, activeTurnId: null, items: [], approvals: [], features: { composer: true, chatReferences: true, dictation: false, voice: false, prediction: false } };
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-function fixture(id: string, extra = {}) {
+function fixture(id: string, extra = {}, props: Partial<React.ComponentProps<typeof SessionControls>> = {}) {
   const call = vi.fn(async (method: string, params: unknown) => {
     const p = params as { kind?: string; query?: string };
     if (method === "session.composer.options") return { options: (p.kind === "command" ? [{ kind: "command", id: "compact", name: "/compact", description: "Compact context" }] : [{ kind: "chat", id: "target", name: "Target worker", description: "Project" }]).filter(item => item.name.includes(p.query || "")) };
     return { ...snapshot, ...extra };
   });
-  render(React.createElement(SessionControls, { client: { call }, threadId: id, onItems: vi.fn() }));
+  render(React.createElement(SessionControls, { client: { call }, threadId: id, onItems: vi.fn(), ...props }));
   return call;
 }
 describe("native composer menu", () => {
+  it("routes slash fork through the cloning scene owner without a duplicate RPC or model message", async () => {
+    const onFork=vi.fn(),call=fixture("source",{}, {onFork});
+    const input=screen.getByLabelText("Send to session");await waitFor(()=>expect(input).toBeEnabled());
+    fireEvent.change(input,{target:{value:"/fork New explorer"}});fireEvent.keyDown(input,{key:"Enter"});
+    await waitFor(()=>expect(onFork).toHaveBeenCalledWith("New explorer"));
+    expect(call.mock.calls.some(([method])=>["session.fork","session.send"].includes(method))).toBe(false);
+    expect(input).toHaveValue("");
+  });
   it("executes compact through its RPC on selection, never as a model prompt", async () => {
     const call = fixture("native-compact");
     const input = screen.getByLabelText("Send to session"); await waitFor(() => expect(input).toBeEnabled());

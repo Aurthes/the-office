@@ -245,6 +245,8 @@ function addAmenity(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
     addAiCenter(b, layout, cabin);
   } else if (cabin.kind === "monitor") {
     addMonitorRoom(b, layout, cabin);
+  } else if (cabin.kind === "cloning") {
+    // The animated pods are rendered by CloningLab on the same ready cabin floor.
   } else if (cabin.kind === "return") {
     // The launch collar is hollow; no solid pad may cover the boarding hole.
     for(const u of [-1.5,1.5]) {
