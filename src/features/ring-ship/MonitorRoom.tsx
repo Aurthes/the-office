@@ -36,7 +36,7 @@ export function MonitorRoomScreen({ layout, cabin, onOpen }: { layout: ShipLayou
   </Html>;
 }
 
-export function ServerRoomScreen({ layout, cabin, onOpen, hosts }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void; hosts?: readonly PoolHost[] }) {
+export function ServerRoomScreen({ layout, cabin, onOpen, hosts, showLabels = false }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void; hosts?: readonly PoolHost[]; showLabels?: boolean }) {
   const t = useUiText(), screen = serverConsoleScreenPose(layout, cabin);
   return <><group position={[screen.point.x, screen.height, screen.point.z]} rotation={[0, screen.angle, 0]}>
     <Html transform rotation={[screen.tilt, 0, 0]} distanceFactor={4} zIndexRange={[12, 11]}>
@@ -47,11 +47,11 @@ export function ServerRoomScreen({ layout, cabin, onOpen, hosts }: { layout: Shi
       </button>
     </Html>
   </group>
-    {machineRoomPlan(layout, cabin, hosts).families.map(family => {
+    {showLabels ? machineRoomPlan(layout, cabin, hosts).families.map(family => {
       const point = machineRoomPoint(layout, cabin, family.u, family.v);
       return <Html key={family.id} center position={[point.x, 2.95, point.z]} zIndexRange={[12, 11]} style={{ pointerEvents: "none" }}>
         <span data-server-family-label={family.id} className="whitespace-nowrap rounded border bg-[#102a36]/95 px-2 py-1 text-[10px] shadow-md" style={{ color: family.color, borderColor: family.color }}>{t(family.label)} · {family.count}</span>
       </Html>;
-    })}
+    }) : null}
   </>;
 }
