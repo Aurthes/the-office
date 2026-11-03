@@ -11,7 +11,8 @@ const { CodexSessionStream } = require("./codex-session-stream");
 const { CodexSessionWorkspace } = require("./codex-session-workspace");
 const { CodexOfficeVoice } = require("./codex-office-voice");
 const { loadSessionHistoryPage } = require("./codex-session-history");
-const { createOfficeDictation, suggestNextMessage } = require("./office-model-services");
+const { createOfficeDictation } = require("./office-model-services");
+const { CodexSessionPredictions } = require("./codex-session-predictions");
 const { readAiCenter } = require("./ai-center");
 const { questionReplyMessage } = require("./codex-session-questions");
 const { OfficeSchedules } = require("./office-schedules");
@@ -21,7 +22,7 @@ const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
 const directory = officeEnvironment(path.resolve(process.env.CLAW3D_OFFICE_DATA_DIR || path.join(process.env.CLAW3D_DATA_DIR || path.join(os.homedir(), ".local/share/claw3d"), "office-runtime"))).home;
 const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer;
-const features = { dictation: Boolean(process.env.OPENAI_API_KEY), dictationHTTP: true, voice: true, prediction: Boolean(process.env.OPENAI_API_KEY), terminal: true, schedules: true, composer: true, accountVersion: 0 };
+const features = { dictation: Boolean(process.env.OPENAI_API_KEY), dictationHTTP: true, voice: true, prediction: true, terminal: true, schedules: true, composer: true, accountVersion: 0 };
 const broadcast = (event, payload) => { const frame = JSON.stringify({ type: "event", event, seq: seq++, payload }); for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame); };
 function changed() { if (!rosterTimer) rosterTimer = setTimeout(() => { rosterTimer = null; broadcast("roster.updated", { ts: Date.now() }); }, 150); }
 const native = new CodexOfficeClient({ home: process.env.CLAW3D_OFFICE_CODEX_HOME || path.join(directory, "codex"), onFrame(frame) {
@@ -43,6 +44,7 @@ controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { s
     && (await account()).loggedIn,
 });
 stream = new CodexSessionStream(controls);
+const predictions = new CodexSessionPredictions(store, controls);
 workspace = new CodexSessionWorkspace(native, { commandExec: true, policy: id => store.overrides(id).sandboxPolicy, roots: row => store.sessionFolders(row) });
 composer = new CodexSessionComposer(store, workspace); controls.options.composer = composer;
 voice = new CodexOfficeVoice(store, controls, (ws, payload) => {
@@ -138,7 +140,7 @@ const methods = {
   "session.prediction": async (p, ws) => {
     store.get(p.threadId); if (!features.prediction) return null;
     if (typeof p.requestId !== "string" || p.requestId.length > 100) throw new Error("Invalid suggestion request");
-    void history(p.threadId).then(h => suggestNextMessage(h.messages)).then(prediction => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: "event", event: "session.prediction", payload: { threadId: p.threadId, requestId: p.requestId, prediction } })); }, () => {});
+    void predictions.suggest(p.threadId).then(prediction => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: "event", event: "session.prediction", payload: { threadId: p.threadId, requestId: p.requestId, prediction } })); }, () => {});
     return { pending: true };
   },
   "models.list": async () => ({ models: (await native.call("model/list", {})).data.map(m => ({ id: m.model, name: m.displayName, provider: "openai" })) }),
