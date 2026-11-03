@@ -121,7 +121,7 @@ export class Builder {
     if (this.activeObject) draw(); else this.object(name, draw);
     return true;
   }
-  sign(text: string, subtitle: string, point: ShipPoint, angle: number, width: number, accent: string, y = .095) {
+  sign(text: string, subtitle: string, point: ShipPoint, angle: number, width: number, accent: string) {
     const canvas = document.createElement("canvas"); canvas.width = 1024; canvas.height = 192;
     const ctx = canvas.getContext("2d")!;
     ctx.fillStyle = "#17313c"; ctx.fillRect(0, 0, 1024, 192);
@@ -129,7 +129,7 @@ export class Builder {
     ctx.fillStyle = "#ecf2eb"; ctx.font = "600 60px system-ui"; ctx.textAlign = "center";
     ctx.fillText(text, 512, 83, 960); ctx.fillStyle = accent; ctx.font = "32px system-ui"; ctx.fillText(subtitle, 512, 148, 950);
     const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
-    this.labels.push({ texture, position: new THREE.Vector3(point.x, y, point.z), rotation: new THREE.Euler(-Math.PI / 2, 0, angle), width, height: width * 192 / 1024 });
+    this.labels.push({ texture, position: new THREE.Vector3(point.x, .095, point.z), rotation: new THREE.Euler(-Math.PI / 2, 0, angle), width, height: width * 192 / 1024 });
   }
   finish() {
     const group = new THREE.Group();

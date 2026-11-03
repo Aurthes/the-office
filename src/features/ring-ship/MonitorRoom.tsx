@@ -1,5 +1,6 @@
 "use client";
 
+import type { PoolHost } from "@/lib/monitoring/types";
 import { Html } from "@react-three/drei";
 import { useUiText } from "@/lib/i18n/ui-language";
 import type { ShipCabin, ShipLayout } from "./layout";
@@ -7,7 +8,7 @@ import { monitorScreenPose } from "./monitor-room-geometry";
 import { MonitorIllustration } from "./MonitorIllustration";
 import { CalendarClock, Server } from "lucide-react";
 import { cabinAngle, shipPoint } from "./layout";
-import { serverConsoleScreenPose } from "./machineRoomLayout";
+import { serverConsoleScreenPose, machineRoomPlan, machineRoomPoint } from "./machineRoomLayout";
 
 export function TaskRoomScreen({ layout, cabin, onOpen }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void }) {
   const t = useUiText(), ring = layout.rings[cabin.ring];
@@ -35,9 +36,9 @@ export function MonitorRoomScreen({ layout, cabin, onOpen }: { layout: ShipLayou
   </Html>;
 }
 
-export function ServerRoomScreen({ layout, cabin, onOpen }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void }) {
+export function ServerRoomScreen({ layout, cabin, onOpen, hosts }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void; hosts?: readonly PoolHost[] }) {
   const t = useUiText(), screen = serverConsoleScreenPose(layout, cabin);
-  return <group position={[screen.point.x, screen.height, screen.point.z]} rotation={[0, screen.angle, 0]}>
+  return <><group position={[screen.point.x, screen.height, screen.point.z]} rotation={[0, screen.angle, 0]}>
     <Html transform rotation={[screen.tilt, 0, 0]} distanceFactor={4} zIndexRange={[12, 11]}>
       <button type="button" aria-label={t("Open server fleet status")} title={t("Server fleet")}
         onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onOpen(); }}
@@ -45,5 +46,12 @@ export function ServerRoomScreen({ layout, cabin, onOpen }: { layout: ShipLayout
         <Server size={20} strokeWidth={1.3} /><span className="mt-1 text-[5px] uppercase tracking-wider">{t("Server fleet")}</span>
       </button>
     </Html>
-  </group>;
+  </group>
+    {machineRoomPlan(layout, cabin, hosts).families.map(family => {
+      const point = machineRoomPoint(layout, cabin, family.u, family.v);
+      return <Html key={family.id} center position={[point.x, 2.95, point.z]} zIndexRange={[12, 11]} style={{ pointerEvents: "none" }}>
+        <span data-server-family-label={family.id} className="whitespace-nowrap rounded border bg-[#102a36]/95 px-2 py-1 text-[10px] shadow-md" style={{ color: family.color, borderColor: family.color }}>{t(family.label)} · {family.count}</span>
+      </Html>;
+    })}
+  </>;
 }

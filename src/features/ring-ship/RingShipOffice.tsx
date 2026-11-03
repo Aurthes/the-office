@@ -581,7 +581,7 @@ export function RingShipOffice(props: Props) {
           {!navigationOpen ? <TaskRoomScreen layout={currentLayout} cabin={cabin} onOpen={openTasks} /> : null}
           {navigationPreview ? <NavigationConsole layout={currentLayout} cabin={cabin} state={navigation} onAction={action => { closeObject(); navigate(action); }} disabled={busy || !!returnFlight || !!props.activeChatAgentId || navigation.phase === "warp"} /> : null}
         </group>)}
-        {visibleDeck === 0 && !navigationOpen ? currentLayout.cabins.filter(c => c.kind === "servers").map(cabin => <ServerRoomScreen key={cabin.id} layout={currentLayout} cabin={cabin} onOpen={openServers} />) : null}
+        {visibleDeck === 0 && !navigationOpen ? currentLayout.cabins.filter(c => c.kind === "servers").map(cabin => <ServerRoomScreen key={cabin.id} layout={currentLayout} cabin={cabin} hosts={serverHosts} onOpen={openServers} />) : null}
         <Crew agents={visibleAgents.filter(a=>a.id!==returnFlight?.agentId&&a.id!==cloneFlight?.agentId&&!(cloneFlight&&a.id===clonedAgentId))} layout={currentLayout} focus={validFocus} onOpen={open} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} companionsRef={companionsRef} ceoBodyRef={ceoBodyRef} arrivalsRef={cloneArrivals} />
       </group> : null}
       {cloningCabin ? <group visible={shipView||visibleDeck===cloningCabin.deck}><CloningLab layout={layout} cabin={cloningCabin} flight={cloneFlight} resultRef={cloneResultRef} onStage={setCloneState} onComplete={cloneComplete} interactive={objectEnabled&&(shipView||visibleDeck===cloningCabin.deck)} selectedId={objectFocus?.id} onSelect={inspectObject}/></group>:null}

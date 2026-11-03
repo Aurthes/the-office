@@ -20,7 +20,7 @@ export function machineRoomPlan(layout: ShipLayout, cabin: ShipCabin, hosts?: re
   let racks: Array<{u:number;v:number;face:number;row:number;column:number;host?:PoolHost;color?:string}> = rows.flatMap((row, rowIndex) => Array.from({ length: count }, (_, column) => ({
     ...row, u: -width * .4 + column * SERVER_RACK.pitch, row: rowIndex, column,
   })));
-  const families: Array<{id:string;label:string;color:string;u:number;v:number;width:number}> = [];
+  const families: Array<{id:string;label:string;color:string;u:number;v:number;width:number;count:number}> = [];
   if (cabin.id === "public:server-room") {
     const banks: Array<Array<ReturnType<typeof groupServers<PoolHost>>[number]>> = [[], []];
     const columns = [0, 0], rowsPerBank = rows.length / 2;
@@ -36,7 +36,7 @@ export function machineRoomPlan(layout: ShipLayout, cabin: ShipCabin, hosts?: re
       let cursor = -width * .4;
       for (const family of groups) {
         const count = Math.ceil(family.hosts.length / rowsPerBank), span = count * pitch;
-        families.push({ ...family, u: cursor + (span - pitch) / 2, v: bank ? .62 : -.62, width: Math.max(1.1, span) });
+        families.push({ ...family, count: family.hosts.length, u: cursor + (span - pitch) / 2, v: rows.slice(bank * rowsPerBank, (bank + 1) * rowsPerBank).reduce((sum, row) => sum + row.v, 0) / rowsPerBank, width: Math.max(1.1, span) });
         family.hosts.forEach((host, i) => {
           const rowIndex = bank * rowsPerBank + i % rowsPerBank;
           racks.push({ ...rows[rowIndex], u: cursor + Math.floor(i / rowsPerBank) * pitch, row: rowIndex, column: Math.floor(i / rowsPerBank), host, color: family.color });
