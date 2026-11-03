@@ -6,19 +6,20 @@ import { resolveStateDir } from "@/lib/clawdbot/paths";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-type Track = { id: string; file: string; name: string; artists?: string; album?: string };
+type Track = { id: string; file: string; name: string; artists?: string; album?: string; sha256?: string };
 const noStore = { "Cache-Control": "no-store" };
 
 export async function GET(request: Request) {
-  const id = new URL(request.url).searchParams.get("id");
+  const query = new URL(request.url).searchParams, id = query.get("id");
   try {
     const directory = path.join(resolveStateDir(), "claw3d", "music-library");
     const library = JSON.parse(await fs.readFile(path.join(directory, "library.json"), "utf8")) as { name?: string; tracks: Track[] };
     const types: Record<string, string> = { ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".wav": "audio/wav", ".m4a": "audio/mp4" };
     if (!Array.isArray(library.tracks) || library.tracks.some(track => typeof track.id !== "string" || typeof track.name !== "string" || typeof track.file !== "string" || path.basename(track.file) !== track.file || !types[path.extname(track.file).toLowerCase()])) throw new Error("Invalid library");
-    if (id === null) return Response.json({ name: library.name || "Local music", songs: library.tracks.map(track => ({ id: track.id, name: track.name, artists: track.artists || "", album: track.album || "" })) }, { headers: noStore });
+    if (id === null) return Response.json({ name: library.name || "Local music", songs: library.tracks.map(track => ({ id: track.id, name: track.name, artists: track.artists || "", album: track.album || "", ...(track.sha256 ? { revision: track.sha256 } : {}) })) }, { headers: noStore });
     const track = library.tracks.find(song => song.id === id);
     if (!track) return new Response("Track not found", { status: 404, headers: noStore });
+    if (query.has("v") && track.sha256 && query.get("v") !== track.sha256) return new Response("Track version has changed", { status: 404, headers: noStore });
     const root = await fs.realpath(directory), file = await fs.realpath(path.join(directory, track.file));
     if (path.dirname(file) !== root) return new Response("Track not found", { status: 404, headers: noStore });
     const size = (await fs.stat(file)).size;

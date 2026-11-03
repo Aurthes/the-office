@@ -10,10 +10,13 @@ beforeEach(() => {
   localStorage.clear(); vi.spyOn(Math, "random").mockReturnValue(.999);
   Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.open = true; } });
   Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.open = false; } });
+  vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(4);
+  vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(600);
+  vi.spyOn(HTMLMediaElement.prototype, "buffered", "get").mockReturnValue({ length: 1, start: () => 0, end: () => 600 });
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined); vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {}); vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
   fetchMock.mockReset().mockImplementation(async (url: string) => reply(url === "/api/music/local" ? { name: "Duckov Soundtrack", songs } : { configured: true, authorized: false })); vi.stubGlobal("fetch", fetchMock);
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const props = { onOpen: vi.fn(), onClose: vi.fn() };
 async function selectLocal() { fireEvent.click(screen.getByRole("button", { name: /Local music.*Local library/ })); await screen.findByRole("button", { name: "Play One" }); }
 it("offers two real sources and streams the local selection in the existing player", async () => {
@@ -21,6 +24,14 @@ it("offers two real sources and streams the local selection in the existing play
   await selectLocal(); expect(screen.getByRole("dialog", { name: "Local music" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Play One" })); await waitFor(() => expect(document.querySelector("audio")).toHaveAttribute("src", "/api/music/local?id=one"));
   expect(HTMLMediaElement.prototype.play).toHaveBeenCalledOnce(); expect(localStorage.getItem(MUSIC_PROVIDER_KEY)).toBe("local");
+});
+it("preloads versioned audio and shows when playback is buffering", async () => {
+  fetchMock.mockResolvedValue(reply({ name: "Duckov", songs: songs.map(song => ({ ...song, revision: "new-encoding" })) }));
+  localStorage.setItem(MUSIC_PROVIDER_KEY, "local"); render(createElement(MusicPlayerDialog, { ...props, autoPlay: true, open: false }));
+  const audio = await waitFor(() => { const a = document.querySelector("audio")!; expect(a).toHaveAttribute("src", "/api/music/local?id=one&v=new-encoding"); return a; });
+  expect(audio.preload).toBe("auto"); expect(audio.play).toHaveBeenCalledOnce();
+  fireEvent.waiting(audio); expect(screen.getAllByText("Buffering music…")).toHaveLength(2);
+  fireEvent.playing(audio); expect(screen.queryAllByText("Buffering music…")).toHaveLength(0);
 });
 it("uses the saved provider on entry and avoids starting with the last heard local track", async () => {
   localStorage.setItem(MUSIC_PROVIDER_KEY, "local"); localStorage.setItem("claw3d:music:local:last-track", "one");
@@ -58,4 +69,14 @@ it("shows a play hint for blocked autoplay, and cancels a late library response 
   render(createElement(MusicPlayerDialog, props)); fireEvent.click(screen.getByRole("button", { name: /Local music.*Local library/ }));
   fireEvent.click(screen.getByRole("button", { name: "Players" })); fireEvent.click(screen.getByRole("button", { name: /网易云音乐/ }));
   await act(async () => finish(reply({ name: "Duckov", songs }))); await screen.findByRole("button", { name: "Sign in to NetEase" }); expect(document.querySelector("audio")).not.toHaveAttribute("src");
+});
+
+it.each([false, true])("gives an incomplete stream a download reserve and honors cancellation: %s", async canceled => {
+  vi.mocked(Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "readyState")!.get!).mockReturnValue(0);
+  vi.mocked(Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "buffered")!.get!).mockReturnValue({ length: 1, start: () => 0, end: () => 2 });
+  localStorage.setItem(MUSIC_PROVIDER_KEY, "local"); render(createElement(MusicPlayerDialog, { ...props, autoPlay: true, open: false }));
+  const audio = await waitFor(() => { const a = document.querySelector("audio")!; expect(a).toHaveAttribute("src", "/api/music/local?id=one"); return a; });
+  vi.useFakeTimers(); fireEvent.loadedMetadata(audio); fireEvent.canPlay(audio); expect(audio.play).not.toHaveBeenCalled();
+  if (canceled) { fireEvent.click(screen.getByRole("button", { name: "Stop music" })); }
+  await act(async () => { vi.advanceTimersByTime(2000); }); expect(audio.play).toHaveBeenCalledTimes(canceled ? 0 : 1);
 });

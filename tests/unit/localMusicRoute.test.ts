@@ -17,6 +17,12 @@ it("lists track metadata without exposing paths or source records", async () => 
   await library(); const response = await GET(request()); expect(response.headers.get("cache-control")).toBe("no-store");
   expect(await response.json()).toEqual({ name: "Music", songs: [{ id: "one", name: "One", artists: "Artist", album: "" }] });
 });
+it("versions playback URLs when an encoding changes and rejects stale explicit revisions", async () => {
+  await library(); const p = path.join(directory, "library.json"), manifest = JSON.parse(await fs.readFile(p, "utf8")); manifest.tracks[0].sha256 = "new-sha"; await fs.writeFile(p, JSON.stringify(manifest));
+  const catalog = await (await GET(request())).json(); expect(catalog.songs[0].revision).toBe("new-sha");
+  const stale = await GET(request("?id=one&v=old-sha")); expect(stale.status).toBe(404); expect(stale.headers.get("cache-control")).toBe("no-store");
+  const current = await GET(request("?id=one&v=new-sha")); expect(current.status).toBe(200); expect(await current.text()).toBe("0123456789");
+});
 it.each([
   [undefined, 200, "0123456789", null], ["bytes=0-1", 206, "01", "bytes 0-1/10"],
   ["bytes=7-", 206, "789", "bytes 7-9/10"], ["bytes=-3", 206, "789", "bytes 7-9/10"],

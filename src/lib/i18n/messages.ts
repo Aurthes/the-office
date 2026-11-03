@@ -305,6 +305,7 @@ export const ZH_CN: Record<string, string> = {
   "Local library · No sign-in needed": "本地曲库 · 无需登录",
   "Choose your music source.": "选择你想听的音乐来源。",
   "Loading local music…": "正在加载本地音乐…",
+  "Buffering music…": "正在缓冲音乐…",
   "No local tracks installed.": "本地曲库里还没有歌曲。",
   "Local music is unavailable. Please retry.": "本地音乐暂时无法播放，请重试。",
   "This track could not be played. Try another track.": "这首歌暂时无法播放，试试另一首。",

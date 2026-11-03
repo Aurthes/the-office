@@ -32,6 +32,15 @@ resolution when the environment variable is unset. `library.json` contains:
 ```
 
 Files must be direct children of that directory, in MP3, WAV, Ogg or M4A format.
+Prepare mobile-friendly streaming copies offline; high-bitrate originals can
+outpace a remote connection even though the files are local to the server. Constant-bitrate
+MP3 at 96 kbps is one suitable option with modest, predictable transfer needs. The player preloads audio and allows a two-second download reserve after an
+incomplete stream becomes playable. Already buffered tracks start immediately;
+an explicit resume tap always calls play directly. Buffering status is shown
+while waiting for data.
+An optional per-track `sha256` field becomes the playback URL's revision, so a
+replacement encoding does not reuse an older cached file. Outdated explicit
+revisions return 404 instead of mixing bytes from different encodings.
 Source and rights metadata can be retained in extra private manifest fields.
 Music files are not committed or bundled into the open-source repository.
 
