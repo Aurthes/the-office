@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useEffectEvent, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { ExternalLink, Pause, Play, RotateCw, Search, SkipForward, Square, Volume2 } from "lucide-react";
+import { ExternalLink, Play, RotateCw, Search, SkipForward } from "lucide-react";
 import { useUiText } from "@/lib/i18n/ui-language";
+import { MusicMiniPlayer, type MusicPlayerProps } from "./MusicMiniPlayer";
+import { shuffledSongs } from "./musicQueue";
 
 const API = "/api/music/netease";
 type Connection = { configured: boolean; authorized: boolean };
@@ -16,13 +18,8 @@ const lastSceneTrackKey = (scene: string) => `claw3d:music:last-scene-track:${sc
 function shuffledSceneSongs(songs: Song[], scene: string, previousId?: string): Song[] {
   let lastId = previousId;
   try { lastId ||= localStorage.getItem(lastSceneTrackKey(scene)) || undefined; } catch { /* Playback works without storage. */ }
-  const shuffled = [...songs];
-  for (let index = shuffled.length - 1; index > 0; index--) {
-    const other = Math.floor(Math.random() * (index + 1));
-    [shuffled[index], shuffled[other]] = [shuffled[other], shuffled[index]];
-  }
   // Keep the previous song as a fallback if the other tracks cannot play.
-  return [...shuffled.filter(song => song.id !== lastId), ...shuffled.filter(song => song.id === lastId)];
+  return shuffledSongs(songs, lastId);
 }
 async function request<T>(url: string, signal: AbortSignal, method = "GET"): Promise<T> {
   const response = await fetch(url, { method, signal, cache: "no-store" });
@@ -31,9 +28,7 @@ async function request<T>(url: string, signal: AbortSignal, method = "GET"): Pro
   return result;
 }
 
-export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget, minimized, onOpen, onStop }: {
-  autoPlay: boolean; scene: string; sceneName: string; controlsTarget: HTMLElement | null; minimized: boolean; onOpen: () => void; onStop: () => void;
-}) {
+export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget, minimized, onOpen, onStop }: MusicPlayerProps) {
   const t = useUiText();
   const audio = useRef<HTMLAudioElement>(null);
   const activeRequest = useRef<AbortController | null>(null);
@@ -57,7 +52,6 @@ export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget,
   const [playHint, setPlayHint] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [volume, setVolume] = useState(1);
-  const [volumeOpen, setVolumeOpen] = useState(false);
   const [loadingTrack, setLoadingTrack] = useState(false);
   const failed = (cause: unknown) => {
     const failure = cause as { name?: string; message?: string; code?: string };
@@ -256,24 +250,9 @@ export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget,
       {playHint ? <p role="status">{t("Press play to start listening.")}</p> : null}
     </footer>
   </section>
-    {controlsTarget && minimized && track && selected ? createPortal(<section className="music-mini" aria-label={t("Background music")}>
-      <button type="button" className="music-mini-track" onClick={onOpen} aria-label={t("Open music player")} title={t("Open music player")}>
-        <span><strong>{selected.name}</strong><small role={playHint ? "status" : undefined}>{playHint ? t("Tap to start music") : selected.artists}</small></span>
-      </button>
-      <button type="button" className="music-mini-button" aria-label={t(playing ? "Pause music" : "Resume music")} onClick={() => {
-        if (!audio.current) return;
-        if (audio.current.paused) resume(); else pause();
-      }}>{playing ? <Pause size={18} /> : <Play size={18} />}</button>
-      <button type="button" className="music-mini-button music-mini-next" aria-label={t("Next track")} disabled={loadingTrack} onClick={() => { void next(true); }}><SkipForward size={16} /></button>
-      <div className="music-mini-volume">
-        <button type="button" className="music-mini-button" aria-label={t("Music volume")} aria-expanded={volumeOpen} onClick={() => setVolumeOpen(value => !value)}><Volume2 size={16} /></button>
-        {volumeOpen ? <label className="music-mini-volume-popover"><input type="range" aria-label={t("Music volume")} min="0" max="1" step="0.01" value={volume} onChange={event => {
-          const next = Number(event.target.value);
-          if (audio.current) { audio.current.volume = next; audio.current.muted = false; }
-          setVolume(next);
-        }} /></label> : null}
-      </div>
-      <button type="button" className="music-mini-button" aria-label={t("Stop music")} onClick={() => { wantsPlayback.current = false; onStop(); }}><Square size={15} /></button>
-    </section>, controlsTarget) : null}
+    {controlsTarget && minimized && track && selected ? createPortal(<MusicMiniPlayer title={selected.name} subtitle={selected.artists} playing={playing} loading={loadingTrack} playHint={playHint} volume={volume} onOpen={onOpen}
+      onTogglePlay={() => { if (!audio.current) return; if (audio.current.paused) resume(); else pause(); }} onNext={() => { void next(true); }}
+      onVolumeChange={value => { if (audio.current) { audio.current.volume = value; audio.current.muted = false; } setVolume(value); }}
+      onStop={() => { wantsPlayback.current = false; onStop(); }} />, controlsTarget) : null}
   </>;
 }

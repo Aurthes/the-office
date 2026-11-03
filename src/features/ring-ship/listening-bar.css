@@ -64,6 +64,7 @@
 .music-intro { margin:0 0 18px; font-size:15px; color:#bdc6ba; }
 .music-provider { display:flex; align-items:center; gap:16px; width:100%; min-height:98px; padding:18px; text-align:left; border:1px solid #d4be8c40; border-radius:14px; background:#ffffff06; cursor:pointer; text-decoration:none; color:inherit; transition:background .15s,border-color .15s; }
 .music-provider:hover { border-color:#d4be8ca0; background:#ffffff0b; }
+.music-provider + .music-provider { margin-top:12px; }
 .music-provider-icon { display:grid; place-items:center; flex-shrink:0; width:52px; height:52px; border-radius:13px; background:#c8433d; color:#fff5e9; }
 .music-provider-name { display:flex; flex-direction:column; flex:1; gap:5px; }
 .music-provider-name strong { font-size:18px; font-weight:500; }
