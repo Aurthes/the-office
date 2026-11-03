@@ -39,5 +39,7 @@ first promotion, peers in the same department that share those upstream managers
 report to it instead; their other reporting lines and their own reports remain.
 Other departments and already designated managers are preserved. New hires join
 the existing department manager, or report to CEO when the department is flat.
-The CEO tree can display nested reporting layers. Entirely new departments keep
-the existing initial Head assignment.
+The CEO tree groups direct reports by department ID, so a department with several
+people reporting to CEO still has one department heading. Nested reporting layers
+remain visible within each group. Entirely new departments keep the existing
+initial Head assignment.
