@@ -33,6 +33,7 @@ import { paintCrewNameplate } from "./crewNameplate";
 import { chatCameraPose } from "./chatCamera";
 import { shipCameraPose } from "./cameraPose";
 import { buildShell } from "./shell";
+import { createShipShadowSchedule } from "./shipShadows";
 import { LiftEntry, LiftJourney, LiftOverlay, type LiftTrip } from "./ShipLift";
 import { ReturnPodBay, ReturnPodJourney, type ReturnFlight } from "./ReturnPodBay";
 import { CloningLab, type CloneFlight } from "./CloningLab";
@@ -121,7 +122,21 @@ function StaticShip({ layout, enabled, selectedId, onSelect, serverHosts }: { la
   });
   return <ShipObjectScene group={group} enabled={enabled} selectedId={selectedId} onSelect={onSelect} />;
 }
-function Lighting({ radius, dimmed = false }: { radius: number; dimmed?: boolean }) {
+function Lighting({ radius, view, travelling, dimmed = false }: { radius: number; view: number; travelling: boolean; dimmed?: boolean }) {
+  const sunlight = useRef<THREE.DirectionalLight>(null);
+  const schedule = useMemo(() => createShipShadowSchedule(), []);
+  useFrame(({ camera, clock, size }) => {
+    const shadow = sunlight.current?.shadow;
+    if (!shadow) return;
+    const pixelsPerUnit = size.height * camera.projectionMatrix.elements[5] / 2;
+    const next = schedule(clock.elapsedTime, pixelsPerUnit, view, travelling);
+    if (shadow.mapSize.x !== next.size) {
+      shadow.mapSize.set(next.size, next.size);
+      shadow.map?.setSize(next.size, next.size);
+      shadow.needsUpdate = true;
+    }
+    if (next.update || !shadow.map) shadow.needsUpdate = true;
+  }, 0.5);
   const intensity = dimmed ? .12 : 1;
   return <>
     <Environment resolution={64} frames={1} environmentIntensity={0.6 * intensity}>
@@ -129,7 +144,7 @@ function Lighting({ radius, dimmed = false }: { radius: number; dimmed?: boolean
       <Lightformer intensity={1.3} position={[-8, 3, 0]} rotation={[0, Math.PI / 2, 0]} scale={[8, 6, 1]} />
     </Environment>
     <hemisphereLight args={["#c9e4f1", "#667078", 0.85 * intensity]} />
-    <directionalLight position={[-45, 80, 55]} intensity={2.6 * intensity} color="#ffe7c7" castShadow shadow-mapSize={[2048, 2048]}
+    <directionalLight ref={sunlight} position={[-45, 80, 55]} intensity={2.6 * intensity} color="#ffe7c7" castShadow shadow-autoUpdate={false} shadow-mapSize={[2048, 2048]}
       shadow-camera-left={-radius - 3} shadow-camera-right={radius + 3} shadow-camera-top={radius + 3} shadow-camera-bottom={-radius - 3} shadow-camera-far={250} shadow-normalBias={0.035} />
     <directionalLight position={[25, 12, -25]} intensity={0.65 * intensity} color="#a0d7ed" />
   </>;
@@ -583,7 +598,7 @@ export function RingShipOffice(props: Props) {
       gl={{ antialias: true, powerPreference: "high-performance" }} onPointerMissed={() => { setLiftOpen(false); closeObject(); }} onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.95; gl.domElement.dataset.shipReady = "true"; }}>
       <GalaxyBackdrop system={system} motion={activityEnabled ? spaceMotion : undefined} />
       {activityEnabled ? <SpaceActivity radius={layout.radius} seed={system.seed} paused={navigationOpen || busy} motion={spaceMotion} caption={spaceCaption} enabled={objectEnabled} selected={objectFocus} onSelect={inspectObject} onExpire={closeObject} /> : null}
-      <Lighting radius={layout.radius} dimmed={navigationOpen && navigation.phase !== "warp"} />
+      <Lighting radius={layout.radius} view={shipView || busy ? -1 : visibleDeck} travelling={busy} dimmed={navigationOpen && navigation.phase !== "warp"} />
       <ShipHull layout={layout} deck={visibleDeck} whole={shipView} busy={busy} />
       {decks.map((value, index) => <group key={index} position={[0, index * DECK_STEP, 0]} visible={shipView || busy || index === visibleDeck}>
         {index === 0 && props.organization?.ceoAvatar ? <CeoCharacter layout={value} profile={props.organization.ceoAvatar} active={!busy && (shipView || visibleDeck === 0)} enabled={objectEnabled && (shipView || visibleDeck === 0)} onSelect={inspectObject} onReady={ceoReady} bodyRef={ceoBodyRef} crewRef={crewLookupRef} companionsRef={companionsRef} /> : null}
