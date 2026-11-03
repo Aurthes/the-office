@@ -11,7 +11,7 @@ import { createDuduFigure, duduHeartGeometry } from "./duduFigure";
 import type { ShipCompanionProps } from "./ShipCompanions";
 import type { ShipObject } from "./shipObjects";
 
-export function ShipDuduDogs({ layout, active, enabled, selectedId, onSelect, companionsRef, crewRef }: ShipCompanionProps) {
+export function ShipDuduDogs({ layout, active, enabled, selectedId, onSelect, companionsRef, crewRef, ceoBodyRef }: ShipCompanionProps) {
   const [seed] = useState(() => crypto.getRandomValues(new Uint32Array(1))[0]);
   const state = useMemo(() => createDuduState(layout, seed), [layout, seed]);
   const figures = useMemo(() => [createDuduFigure("dumu"), createDuduFigure("dufu")], []);
@@ -41,7 +41,7 @@ export function ShipDuduDogs({ layout, active, enabled, selectedId, onSelect, co
   useFrame(({ camera }, elapsed) => {
     if (!active) return;
     const dt = Math.min(elapsed, .05);
-    const bodies = [...crewBodies([...(crewRef?.current.values() || [])], layout), ...[...companionsRef.current.values()].map(companionBody)];
+    const bodies = [...crewBodies([...(crewRef?.current.values() || [])], layout), ...[...companionsRef.current.values()].map(companionBody), ...(ceoBodyRef?.current ? [ceoBodyRef.current] : [])];
     advanceDudu(state, layout, dt, bodies);
     for (const [i, dog] of state.dogs.entries()) {
       const actor = groups.current[i]; if (!actor) continue;

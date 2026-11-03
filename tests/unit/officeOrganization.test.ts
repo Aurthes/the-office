@@ -47,14 +47,29 @@ it("keeps the existing organization when a later settings read fails", async () 
   expect(f.updateSettings).toHaveBeenCalledTimes(1);
   hook.unmount(); f.coordinator.dispose();
 });
-it("replaces an archived head and persists the removal without repeatedly rewriting settings", async () => {
+it("removes an archived manager's layer and persists it without repeatedly rewriting settings", async () => {
   const f = fixture(), hook = renderHook(props => useOfficeOrganization(props), { initialProps: f.props });
   await waitFor(() => expect(hook.result.current.ceoAvatar).not.toBeNull());
   hook.rerender({ ...f.props, roster: { projects: [], members: [{ id: "firefighter", projectId: null }] } });
-  await waitFor(() => expect(hook.result.current.people.find(person => person.id === "firefighter")?.title).toBe("Head"));
+  await waitFor(() => expect(hook.result.current.people.find(person => person.id === "firefighter")).toMatchObject({ title: "Worker", reportsTo: [CEO_ID] }));
   expect(f.updateSettings.mock.calls.at(-1)?.[0].office?.gateway?.organization?.ranger).toBeNull();
   const writes = f.updateSettings.mock.calls.length;
   await act(async () => window.dispatchEvent(new Event("focus")));
   expect(f.updateSettings).toHaveBeenCalledTimes(writes);
   hook.unmount(); f.coordinator.dispose();
+});
+it("persists a restored Manager and its new reports together, then retains them after remount", async () => {
+  const f = fixture(), hook = renderHook(props => useOfficeOrganization(props), { initialProps: f.props });
+  await waitFor(() => expect(hook.result.current.ceoAvatar).not.toBeNull());
+  const flatRoster = { projects: [], members: [{ id: "firefighter", projectId: null }, { id: "new-manager", projectId: null }] };
+  hook.rerender({ ...f.props, roster: flatRoster });
+  await waitFor(() => expect(hook.result.current.people.find(person => person.id === "new-manager")?.reportsTo).toEqual([CEO_ID]));
+  await act(() => hook.result.current.savePosition("new-manager", { title: "Manager", reportsTo: [CEO_ID] }));
+  const patch = f.updateSettings.mock.calls.at(-1)![0].office!.gateway!.organization!;
+  expect(patch).toEqual({ "new-manager": { title: "Manager", reportsTo: [CEO_ID] }, firefighter: { title: "Worker", reportsTo: ["new-manager"] } });
+  hook.unmount(); const next = renderHook(() => useOfficeOrganization({ ...f.props, roster: flatRoster }));
+  await waitFor(() => expect(next.result.current.people.find(person => person.id === "firefighter")?.reportsTo).toEqual(["new-manager"]));
+  const writes = f.updateSettings.mock.calls.length;
+  await act(async () => window.dispatchEvent(new Event("focus"))); expect(f.updateSettings).toHaveBeenCalledTimes(writes);
+  next.unmount(); f.coordinator.dispose();
 });

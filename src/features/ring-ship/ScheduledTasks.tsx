@@ -123,6 +123,7 @@ export function ScheduledTasks({ open, onClose, onOpenSession, client, connected
             return <article className="schedule-card" key={task.id} aria-label={task.name}>
               <div className="schedule-card-heading"><h3>{task.name}</h3><span className="schedule-status" data-status={pending ? run?.status : task.enabled ? "enabled" : "paused"}>{t(status)}</span></div>
               <button type="button" className="schedule-conversation" disabled={!task.targetAvailable} onClick={() => { onClose(); onOpenSession(task.threadId); }}><MessageSquare size={13} />{task.sessionName || t("Conversation unavailable")}</button>
+              {!task.targetAvailable ? <p className="schedules-help">{t("Edit this task to choose another conversation before resuming.")}</p> : null}
               <div className="schedule-times"><span>{t("Every {minutes} min", { minutes: task.intervalMinutes })}</span><span>{t("Next run")}: {task.enabled ? stamp(task.nextRunAt) : "—"}</span></div>
               <p className="schedule-prompt">{task.prompt}</p>
               {run ? <div className="schedule-last-run" data-status={run.status}><span>{t("Last run")}: {stamp(run.scheduledAt)} · {t(labels[run.status])}{run.manual ? ` · ${t("Manual")}` : ""}</span>{run.error ? <p>{t(run.error)}</p> : null}</div> : null}

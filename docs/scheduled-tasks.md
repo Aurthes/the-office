@@ -14,6 +14,12 @@ repeat every 1 hour. **Edit**, **Pause/Resume**, **Run now** and **Delete** are
 available on each task. Deleting a task preserves its conversation. An executing
 run must finish or be stopped in its conversation before deletion.
 
+Archiving a conversation immediately pauses its scheduled tasks and removes
+unsent queued work. Task configuration and past run records are retained. To
+assign a task to another agent, choose **Edit**, select its **Target conversation**
+and save. It stays paused until you select **Resume** (or enable it in the editor).
+Resuming uses the next future occurrence; it does not replay missed work.
+
 Conversations with an enabled schedule or an unsent queued run show a small
 clock: on the right of the chat list row and the upper left of the main Agent
 avatar. It is separate from working/idle and attention markers. Paused tasks
@@ -45,8 +51,9 @@ no wake-from-sleep or cloud-execution guarantee.
   Resume starts at the next future slot. **Run now** works even while paused and
   leaves the recurring schedule unchanged. Editing a task replaces queued work;
   an already dispatched run keeps its captured target and instructions.
-- A missing/archived target disables the task and retains the error. Tasks never
-  silently switch to another conversation.
+- An unavailable target is shown in the task list with a reminder to edit its
+  target. A missing target discovered at dispatch disables the task and retains
+  the error. Tasks never silently switch to another conversation.
 - The gateway persists a dispatch claim before sending. A send error or backend
   restart during dispatch/execution leaves **Check conversation** and pauses the
   task. The message may already have run: inspect the conversation, then resume

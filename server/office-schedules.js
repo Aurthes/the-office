@@ -81,6 +81,16 @@ class OfficeSchedules {
     if (latest(task)?.status === "waiting") task.runs.pop();
     this.save(); return { task };
   }
+  pauseForSession(threadId) {
+    let changed = false;
+    for (const task of this.data.tasks) {
+      if (task.threadId !== threadId) continue;
+      if (task.enabled) { task.enabled = false; changed = true; }
+      // Match manual pause: discard unsent work, keep actual run history.
+      if (latest(task)?.status === "waiting") { task.runs.pop(); changed = true; }
+    }
+    if (changed) this.save();
+  }
   remove(input) {
     const task = this.get(input.id);
     if (["dispatching", "running"].includes(latest(task)?.status)) throw new Error("Wait for this run to finish before deleting the task");

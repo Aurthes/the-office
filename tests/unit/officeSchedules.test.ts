@@ -138,6 +138,49 @@ describe("Office scheduled conversation tasks", () => {
     expect(f.deps.canSend).not.toHaveBeenCalled(); expect(f.deps.send).not.toHaveBeenCalled();
     expect(() => f.scheduler.create({ ...f.config, threadId: "foreign" })).toThrow("Office session");
   });
+  it("immediately pauses an archived session's tasks, discards unsent work and preserves history across restart", async () => {
+    const f = fixture(), { task } = f.scheduler.create(f.config);
+    await f.scheduler.tick(); f.complete(task.runs[0].turnId);
+    const history = structuredClone(task.runs);
+    const queued = f.scheduler.create({ ...f.config, enabled: false }).task;
+    f.scheduler.runNow({ id: queued.id });
+    const future = f.scheduler.create({ ...f.config, firstRunAt: f.config.firstRunAt + 3600000 }).task;
+    const other = f.scheduler.create({ ...f.config, threadId: "other", firstRunAt: f.config.firstRunAt + 86400000 }).task;
+    f.sessions.delete("chat"); f.scheduler.pauseForSession("chat");
+    expect([task.enabled, queued.enabled, future.enabled, other.enabled]).toEqual([false, false, false, true]);
+    expect(task.runs).toEqual(history); expect(queued.runs).toEqual([]); expect(future.runs).toEqual([]);
+    expect([...f.scheduler.pendingThreadIds()]).toEqual(["other"]);
+    const restarted = new OfficeSchedules(f.directory, f.deps);
+    expect(restarted.list().tasks[0]).toMatchObject({ enabled: false, targetAvailable: false, runs: history });
+    f.advance(3600000); await restarted.tick();
+    expect(f.deps.send).toHaveBeenCalledTimes(1);
+  });
+  it("cancels unsent work when archive finishes during an asynchronous readiness check", async () => {
+    const f = fixture(), { task } = f.scheduler.create(f.config);
+    f.deps.canSend.mockImplementationOnce(async () => {
+      f.sessions.delete("chat"); f.scheduler.pauseForSession("chat"); return true;
+    });
+    await f.scheduler.tick();
+    expect(task).toMatchObject({ enabled: false, runs: [] });
+    expect(f.deps.send).not.toHaveBeenCalled();
+  });
+  it("reassigns a paused task without losing history, then resumes on its next future slot in the new session", async () => {
+    const f = fixture(), { task } = f.scheduler.create(f.config);
+    await f.scheduler.tick(); f.complete(task.runs[0].turnId);
+    const originalRun = structuredClone(task.runs[0]);
+    f.sessions.delete("chat"); f.scheduler.pauseForSession("chat");
+    f.advance(2 * 3600000);
+    f.scheduler.update({ ...f.config, id: task.id, threadId: "other", enabled: false });
+    await f.scheduler.tick(); expect(f.deps.send).toHaveBeenCalledTimes(1);
+    expect(f.scheduler.list().tasks[0]).toMatchObject({ targetAvailable: true, sessionName: "Other chat", enabled: false });
+    f.scheduler.update({ ...f.config, id: task.id, threadId: "other", enabled: true });
+    expect(task.nextRunAt).toBe(f.config.firstRunAt + 3 * 3600000);
+    await f.scheduler.tick(); expect(f.deps.send).toHaveBeenCalledTimes(1);
+    f.advance(3600000); await f.scheduler.tick();
+    expect(f.deps.send).toHaveBeenLastCalledWith("other", expect.stringContaining(f.config.prompt), expect.any(String));
+    expect(task.runs[0]).toEqual(originalRun);
+    expect(task.runs[1]).toMatchObject({ threadId: "other", status: "running" });
+  });
   it("validates inputs, retains ten runs, and refuses to overwrite corrupt storage", async () => {
     const f = fixture();
     for (const patch of [{ intervalMinutes: 0 }, { firstRunAt: NaN }, { enabled: "true" }, { prompt: "" }]) expect(() => f.scheduler.create({ ...f.config, ...patch })).toThrow();
