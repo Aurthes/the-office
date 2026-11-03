@@ -12,7 +12,7 @@ export type CabinKind = "work" | "reserve" | "garden" | "hydroponics" | "canteen
 export type ShipPoint = { x: number; z: number };
 export type ShipAssignment = { deck?: DeckIndex; ring: RingIndex; slot: number; span: number };
 type CabinLocation = { deck: DeckIndex; ring: RingIndex; slot: number };
-export type ShipAllocation = { version: 1; sectors: number; projects: Record<string, ShipAssignment>; monitorRoom?: CabinLocation; cloningRoom?: CabinLocation };
+export type ShipAllocation = { version: 1; sectors: number; projects: Record<string, ShipAssignment>; monitorRoom?: CabinLocation; cloningRoom?: CabinLocation; serverRoom?: CabinLocation };
 export type ShipRing = { index: RingIndex; radius: number; depth: number; capacity: number };
 export type ShipCabin = {
   id: string; deck: DeckIndex; ring: RingIndex; slot: number; kind: CabinKind; name: string; color: string;
@@ -66,7 +66,7 @@ export function parseShipAllocation(value: string | null): ShipAllocation | unde
     for (const a of Object.values(parsed.projects) as ShipAssignment[]) {
       if (!a || (a.deck !== undefined && !DECKS.includes(a.deck)) || ![0, 1, 2].includes(a.ring) || !Number.isInteger(a.slot) || !Number.isInteger(a.span) || a.slot < 0 || a.span < 1 || a.slot + a.span > parsed.sectors) return;
     }
-    for (const room of [parsed.monitorRoom, parsed.cloningRoom]) {
+    for (const room of [parsed.monitorRoom, parsed.cloningRoom, parsed.serverRoom]) {
       if (room && (!DECKS.includes(room.deck) || ![0, 1, 2].includes(room.ring) || !Number.isInteger(room.slot) || room.slot < 0 || room.slot >= parsed.sectors)) return;
     }
     return parsed as ShipAllocation;
@@ -91,15 +91,28 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
   });
   for (const group of groups) group.agentIds.sort();
   let sectors = Math.max(BASE_SECTORS, previous?.sectors || 0);
+  let serverRoom = previous?.serverRoom;
   let assignments: Record<string, ShipAssignment>;
   for (;;) {
     const occupied = DECKS.map(() => [new Set<number>(), new Set<number>(), new Set<number>()]);
     for (const deck of DECKS) for (const cabin of PUBLIC_CABINS) {
       if (cabin.kind !== "return" || deck === 0) occupied[deck][cabin.ring].add(cabin.slot);
     }
-    for (const room of [previous?.monitorRoom, previous?.cloningRoom]) {
+    for (const room of [previous?.monitorRoom, previous?.cloningRoom, previous?.serverRoom]) {
       if (room) occupied[room.deck][room.ring].add(room.slot);
     }
+    if (!serverRoom) {
+      for (const ring of [1, 0, 2] as const) {
+        const slot = Array.from({ length: sectors }, (_, i) => i).find(slot => !occupied[0][ring].has(slot) && !groups.some(group => {
+          const old = previous?.projects[group.id];
+          return old && (old.deck ?? 0) === 0 && old.ring === ring && slot >= old.slot && slot < old.slot + old.span;
+        }));
+        if (slot !== undefined) { serverRoom = { deck: 0, ring, slot }; break; }
+      }
+      // A full main deck needs one new bay; keep existing project placements.
+      if (!serverRoom) { sectors += 1; continue; }
+    }
+    occupied[0][serverRoom.ring].add(serverRoom.slot);
     assignments = Object.create(null) as Record<string, ShipAssignment>;
     let complete = true;
     for (const group of groups) {
@@ -126,7 +139,7 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
     if (complete) break;
     sectors += 1;
   }
-  const allocation: ShipAllocation = { version: 1, sectors, projects: assignments! };
+  const allocation: ShipAllocation = { version: 1, sectors, projects: assignments!, serverRoom };
   const rings: ShipRing[] = RING_RADII.map((r, index) => ({ index: index as RingIndex, radius: r * sectors / BASE_SECTORS, depth: RING_DEPTHS[index], capacity: RING_CAPACITIES[index] }));
   const cabins: ShipCabin[] = DECKS.flatMap(deck => rings.flatMap(ring => Array.from({ length: sectors }, (_, slot) => ({
     id: cabinId(`bay:${ring.index}:${slot}`, deck), deck, ring: ring.index, slot, kind: "reserve" as const,
@@ -149,6 +162,8 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
       });
     }
   }
+  const server = cabins[serverRoom.ring * sectors + serverRoom.slot];
+  Object.assign(server, { id: "public:server-room", kind: "servers", name: "Server room", color: "#77a9ce" });
   // Adopt one ready bay without moving existing projects or adding a new pod.
   // Persist its position so future projects cannot take over the monitor room.
   const savedMonitor = previous?.monitorRoom;

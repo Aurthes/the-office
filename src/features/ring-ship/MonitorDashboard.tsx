@@ -13,9 +13,9 @@ import "./monitor-dashboard.css";
 
 const embedsAccountHistory = (link: MonitorLink) => link.url === "/account-history/";
 
-export function MonitorDashboard({ open, onClose, onFirefight }: { open: boolean; onClose: () => void; onFirefight?: FirefightHandler }) {
+export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useUiText(), dialog = useRef<HTMLDialogElement>(null);
-  const [view, setView] = useState<"hub" | "servers" | "configure" | "account-history">("hub");
+  const [view, setView] = useState<"hub" | "configure" | "account-history">("hub");
   const [embedded, setEmbedded] = useState<MonitorLink | null>(null);
   const [links, setLinks] = useState<MonitorLink[]>(() => {
     const url = strategyMonitorUrl();
@@ -63,13 +63,13 @@ export function MonitorDashboard({ open, onClose, onFirefight }: { open: boolean
     <div className="monitor-frame" data-view={view}>
       <header className="monitor-header">
         <button className="monitor-icon-button" type="button" aria-label={view === "hub" ? t("Back to ship") : t("Back to monitors")} onClick={() => { if (view === "hub") close(); else back(); }}><ArrowLeft size={18} /></button>
-        <div className="monitor-title"><span><Monitor size={14} />{t("MONITOR ROOM")}</span><h1>{view === "account-history" ? embedded?.label : view === "servers" ? t("Fleet status") : view === "configure" ? t("Configure monitors") : t("Operations console")}</h1></div>
+        <div className="monitor-title"><span><Monitor size={14} />{t("MONITOR ROOM")}</span><h1>{view === "account-history" ? embedded?.label : view === "configure" ? t("Configure monitors") : t("Operations console")}</h1></div>
         <span className="monitor-header-detail">{t("SHIP SYSTEMS")}</span>
         {view === "hub" ? <button className="monitor-action" type="button" onClick={configure} disabled={loading}><Settings2 size={15} /><span>{t("Configure")}</span></button> : null}
         <button className="monitor-icon-button" type="button" onClick={close} aria-label={t("Close monitoring dashboard")}><X size={19} /></button>
       </header>
       <div className="monitor-content">
-        {view !== "servers" && error ? <p role="alert" className="monitor-error">{t(error)}</p> : null}
+        {error ? <p role="alert" className="monitor-error">{t(error)}</p> : null}
         {view === "hub" ? <>
           <div className="monitor-intro"><div><h2>{t("Choose a monitor")}</h2><p>{t("Open a dashboard from the ship’s control screen.")}</p></div><small>{t("Illustrated shortcuts")}</small></div>
           <div className="monitor-tiles">
@@ -77,15 +77,10 @@ export function MonitorDashboard({ open, onClose, onFirefight }: { open: boolean
               <div className="monitor-tile-graphic" data-visual={link.visual}><div className="monitor-window-bar"><i /><i /><i /><span>{link.id === "grafana" ? t("Strategy performance") : t("Dashboard")}</span><small>{t("Illustration")}</small></div><MonitorIllustration visual={link.visual} /></div>
               <div className="monitor-tile-caption"><div><h3>{link.label}</h3><p>{t(embedsAccountHistory(link) ? "Opens inside this console" : "Opens in a reusable browser tab")}</p></div>{embedsAccountHistory(link) ? <Monitor size={21} /> : <ArrowUpRight size={21} />}</div>
             </button>)}
-            <button type="button" className="monitor-tile monitor-server-tile" onClick={() => { setError(""); setView("servers"); }} aria-label={t("Open server fleet status")}>
-              <div className="monitor-tile-graphic" data-visual="servers"><div className="monitor-window-bar"><i /><i /><i /><span>{t("INFRASTRUCTURE")}</span><small>{t("Illustration")}</small></div><MonitorIllustration visual="servers" /></div>
-              <div className="monitor-tile-caption"><div><h3>{t("Server fleet")}</h3><p>{t("CPU · Memory · Disks · Local & remote hosts")}</p></div><ArrowUpRight size={21} /></div>
-            </button>
             <button className="monitor-add-tile" type="button" onClick={configure} disabled={loading}><Plus size={22} /><span>{t("Add a monitor")}</span><small>{t("Connect another dashboard")}</small></button>
           </div>
           <p className="monitor-footnote">{t("The illustrations are shortcuts. Live data appears in the dashboards you open.")}</p>
         </> : null}
-        <div hidden={view !== "servers"}><ServerDashboard active={open && view === "servers"} onFirefight={onFirefight ? async (alert, id) => { await onFirefight(alert, id); close(); } : undefined} /></div>
         {open && view === "account-history" && embedded ? <iframe className="monitor-embedded-frame" src={embedded.url} title={embedded.label} referrerPolicy="same-origin" onLoad={event => {
           try {
             event.currentTarget.contentWindow?.addEventListener("keydown", key => {
@@ -95,7 +90,6 @@ export function MonitorDashboard({ open, onClose, onFirefight }: { open: boolean
         }} /> : null}
         {view === "configure" ? <form className="monitor-config" onSubmit={event => { event.preventDefault(); void save(); }}>
           <div className="monitor-intro"><div><h2>{t("Your dashboard shortcuts")}</h2><p>{t("Names, links, and illustrations are shared across your devices.")}</p></div></div>
-          <div className="monitor-config-system"><Monitor size={18} /><div><b>{t("Server fleet")}</b><p>{t("Built-in · Local machine and registered servers")}</p></div></div>
           {draft.map((link, index) => <fieldset className="monitor-config-link" key={link.id} disabled={saving}>
             <label>{t("Monitor name")}<input required maxLength={60} value={link.label} onChange={event => edit(index, { label: event.target.value })} /></label>
             <label className="monitor-config-url">{t("Dashboard URL")}<input required type="text" inputMode="url" maxLength={4096} value={link.url} placeholder="https://… or /dashboard/" onChange={event => edit(index, { url: event.target.value })} /></label>
@@ -105,7 +99,30 @@ export function MonitorDashboard({ open, onClose, onFirefight }: { open: boolean
           <div className="monitor-config-footer"><button className="monitor-action" type="button" disabled={draft.length >= 8 || saving} onClick={() => setDraft(current => [...current, { id: crypto.randomUUID(), label: "", url: "", visual: "chart" }])}><Plus size={15} />{t("Add a monitor")}</button><button type="submit" className="monitor-primary" disabled={saving}><Check size={16} />{saving ? t("Saving…") : t("Save monitors")}</button></div>
         </form> : null}
       </div>
-      <footer className="monitor-frame-footer"><span>{t("MONITOR ROOM")}</span><span>{view === "servers" ? t("HOST RESOURCE OVERVIEW") : view === "account-history" ? t("Dashboard") : t("DASHBOARD LAUNCHER")}</span><span>{t("ESC TO RETURN")}</span></footer>
+      <footer className="monitor-frame-footer"><span>{t("MONITOR ROOM")}</span><span>{view === "account-history" ? t("Dashboard") : t("DASHBOARD LAUNCHER")}</span><span>{t("ESC TO RETURN")}</span></footer>
+    </div>
+  </dialog>, document.body);
+}
+
+
+export function ServerRoomDashboard({ open, onClose, onFirefight }: { open: boolean; onClose: () => void; onFirefight?: FirefightHandler }) {
+  const t = useUiText(), dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const node = dialog.current;
+    if (open && !node?.open) node?.showModal();
+    if (!open && node?.open) node.close();
+  }, [open]);
+  if (typeof document === "undefined") return null;
+  return createPortal(<dialog ref={dialog} className="monitor-dialog" aria-label={t("Server room")} onCancel={event => { event.preventDefault(); onClose(); }}>
+    <div className="monitor-frame" data-view="servers">
+      <header className="monitor-header">
+        <button className="monitor-icon-button" type="button" aria-label={t("Back to ship")} onClick={onClose}><ArrowLeft size={18} /></button>
+        <div className="monitor-title"><span><Monitor size={14} />{t("Server room")}</span><h1>{t("Fleet status")}</h1></div>
+        <span className="monitor-header-detail">{t("SHIP SYSTEMS")}</span>
+        <button className="monitor-icon-button" type="button" onClick={onClose} aria-label={t("Close monitoring dashboard")}><X size={19} /></button>
+      </header>
+      <div className="monitor-content"><ServerDashboard active={open} onFirefight={onFirefight ? async (alert, id) => { await onFirefight(alert, id); onClose(); } : undefined} /></div>
+      <footer className="monitor-frame-footer"><span>{t("Server room")}</span><span>{t("HOST RESOURCE OVERVIEW")}</span><span>{t("ESC TO RETURN")}</span></footer>
     </div>
   </dialog>, document.body);
 }

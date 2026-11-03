@@ -34,13 +34,13 @@ import { CLONE_LABELS, cloningPoint, rejoinCrewAfterClone, type CloneArrival, ty
 import { returnRoute, RETURN_LABELS, type ArchiveResult, type ReturnStage, type ReturnTransfer } from "./returnPodMotion";
 import { advanceCrew, syncCrew, worldPoint, type MovingAgent } from "./crewMotion";
 import { useUiText } from "@/lib/i18n/ui-language";
-import { MonitorRoomScreen, TaskRoomScreen } from "./MonitorRoom";
+import { MonitorRoomScreen, ServerRoomScreen, TaskRoomScreen } from "./MonitorRoom";
 import { ScheduledTasks } from "./ScheduledTasks";
 import { GalaxyBackdrop } from "./GalaxyBackdrop";
 import { STAR_SYSTEMS, starSystem } from "./galaxy";
 import { NavigationConsole, NavigationOverlay, navigationConsolePose, useStarNavigation } from "./StarNavigation";
 import { WarpJourney } from "./WarpJourney";
-import { MonitorDashboard } from "./MonitorDashboard";
+import { MonitorDashboard, ServerRoomDashboard } from "./MonitorDashboard";
 import type { FirefightHandler } from "@/lib/monitoring/firefighter";
 import { SpaceActivity } from "./SpaceActivity";
 import { SpaceTrafficNotice } from "./SpaceTrafficNotice";
@@ -348,6 +348,7 @@ export function RingShipOffice(props: Props) {
   const [deck, setDeck] = useState<DeckIndex>(0), [whole, setWhole] = useState(false), [liftOpen, setLiftOpen] = useState(false);
   const [trip, setTrip] = useState<LiftTrip | null>(null);
   const [monitorOpen, setMonitorOpen] = useState(false);
+  const [serversOpen, setServersOpen] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
   const [musicOpen, setMusicOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
@@ -358,6 +359,7 @@ export function RingShipOffice(props: Props) {
   const [inspectedObject, setInspectedObject] = useState<ShipObject | null>(null);
   const closeObject = useCallback(() => setInspectedObject(null), []);
   const openMonitor = () => { closeObject(); setMonitorOpen(true); };
+  const openServers = () => { closeObject(); setServersOpen(true); };
   const openTasks = () => { closeObject(); setTasksOpen(true); };
   const openAiCenter = () => { closeObject(); setAiOpen(true); };
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -392,7 +394,7 @@ export function RingShipOffice(props: Props) {
       cloneResultRef.current={status:"pending"};setCloneState("synchronizing");setCloneError("");setClonedAgentId(null);
       setCloneFlight({requestId:cloneRequest.requestId,agentId:source.id,name:source.name,appearance:source.avatarProfile?.duck});
       setDeck(cloningCabin.deck);setWhole(false);setTrip(null);setLiftOpen(false);setFleetOpen(false);setInspectedObject(null);
-      setMonitorOpen(false);setTasksOpen(false);setMusicOpen(false);setAiOpen(false);setSettingsOpen(false);
+      setMonitorOpen(false);setServersOpen(false);setTasksOpen(false);setMusicOpen(false);setAiOpen(false);setSettingsOpen(false);
       setFocus(previous=>({id:cloningCabin.id,request:previous.request+1}));
       void onForkSession(source.id,cloneRequest.requestId,cloneRequest.name,cloneRequest.lastTurnId).then(threadId=>{
         cloneResultRef.current={status:"confirmed",threadId,at:performance.now()};
@@ -475,9 +477,9 @@ export function RingShipOffice(props: Props) {
   const validFocus = currentLayout.seats[focus.id] || currentLayout.cabins.some(c => c.id === focus.id || c.projectId === focus.id) ? focus.id : "";
   const cameraFocus = useMemo(() => ({ id: validFocus, request: focus.request + officeCenterSignal }), [validFocus, focus.request, officeCenterSignal]);
   const selected = currentLayout.cabins.find(c => c.id === validFocus || c.projectId === validFocus);
-  const objectEnabled = !busy && !cloneFlight && !navigationOpen && !props.activeChatAgentId && !returnFlight && !monitorOpen && !tasksOpen && !musicOpen && !settingsOpen && !aiOpen;
+  const objectEnabled = !busy && !cloneFlight && !navigationOpen && !props.activeChatAgentId && !returnFlight && !monitorOpen && !serversOpen && !tasksOpen && !musicOpen && !settingsOpen && !aiOpen;
   const objectFocus = objectEnabled && inspectedObject && (inspectedObject.space ? inspectedObject.space.seed === system.seed : !shipView && inspectedObject.deck === visibleDeck && currentLayout.cabins.some(c => c.id === inspectedObject.cabinId)) ? inspectedObject : null;
-  const duckFocus = !busy && !cloneFlight && !navigationOpen && !returnFlight && !monitorOpen && !tasksOpen && !musicOpen && !settingsOpen && !aiOpen && !shipView
+  const duckFocus = !busy && !cloneFlight && !navigationOpen && !returnFlight && !monitorOpen && !serversOpen && !tasksOpen && !musicOpen && !settingsOpen && !aiOpen && !shipView
     ? props.activeChatAgentId || (objectFocus?.kind === "ceo" ? objectFocus.id : !objectFocus && currentLayout.seats[validFocus] ? validFocus : null) : null;
   const duckAudio = useDuckFocusAudio(duckFocus);
   const inspectObject = useCallback((object: ShipObject) => {
@@ -535,7 +537,7 @@ export function RingShipOffice(props: Props) {
   ];
   const button = "flex h-9 min-w-9 items-center justify-center rounded-lg border border-white/15 bg-[#122735]/90 px-2 text-xs text-[#b8cccf] hover:border-[#d7af77]/70";
   return <div className={`ship-office relative h-full w-full overflow-hidden bg-[#081421] text-[#deebea]${navigationOpen ? " star-navigation-active" : ""}`} data-star-system={system.id} data-navigation-phase={navigationPreview ? navigation.phase : undefined} data-ship-focused-person={objectFocus?.id === CEO_ID ? CEO_ID : props.activeChatAgentId || (currentLayout.seats[validFocus] ? validFocus : undefined)} data-ship-deck={visibleDeck} data-ship-mode={shipView ? "ship" : "deck"} data-ship-travelling={busy} data-ship-visible-crew={visibleAgents.length} data-ship-sectors={layout.allocation.sectors} data-ship-reserves={reserveCount} data-ship-projects={roster.projects.length} data-ship-placed={agents.filter(agent => layout.seats[agent.id]).length}>
-    <Canvas orthographic frameloop={monitorOpen ? "never" : "always"} dpr={[0.85, 1.5]} camera={{ position: [25, 40, 36], zoom: 12, near: 0.1, far: 5000 }} shadows
+    <Canvas orthographic frameloop={monitorOpen || serversOpen ? "never" : "always"} dpr={[0.85, 1.5]} camera={{ position: [25, 40, 36], zoom: 12, near: 0.1, far: 5000 }} shadows
       gl={{ antialias: true, powerPreference: "high-performance" }} onPointerMissed={() => { setLiftOpen(false); closeObject(); }} onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.95; gl.domElement.dataset.shipReady = "true"; }}>
       <GalaxyBackdrop system={system} motion={activityEnabled ? spaceMotion : undefined} />
       {activityEnabled ? <SpaceActivity radius={layout.radius} seed={system.seed} paused={navigationOpen || busy} motion={spaceMotion} caption={spaceCaption} enabled={objectEnabled} selected={objectFocus} onSelect={inspectObject} onExpire={closeObject} /> : null}
@@ -555,6 +557,7 @@ export function RingShipOffice(props: Props) {
           {!navigationOpen ? <TaskRoomScreen layout={currentLayout} cabin={cabin} onOpen={openTasks} /> : null}
           {navigationPreview ? <NavigationConsole layout={currentLayout} cabin={cabin} state={navigation} onAction={action => { closeObject(); navigate(action); }} disabled={busy || !!returnFlight || !!props.activeChatAgentId || navigation.phase === "warp"} /> : null}
         </group>)}
+        {visibleDeck === 0 && !navigationOpen ? currentLayout.cabins.filter(c => c.kind === "servers").map(cabin => <ServerRoomScreen key={cabin.id} layout={currentLayout} cabin={cabin} onOpen={openServers} />) : null}
         <Crew agents={visibleAgents.filter(a=>a.id!==returnFlight?.agentId&&a.id!==cloneFlight?.agentId&&!(cloneFlight&&a.id===clonedAgentId))} layout={currentLayout} focus={validFocus} onOpen={open} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} companionsRef={companionsRef} ceoBodyRef={ceoBodyRef} arrivalsRef={cloneArrivals} />
       </group> : null}
       {cloningCabin ? <group visible={shipView||visibleDeck===cloningCabin.deck}><CloningLab layout={layout} cabin={cloningCabin} flight={cloneFlight} resultRef={cloneResultRef} onStage={setCloneState} onComplete={cloneComplete} interactive={objectEnabled&&(shipView||visibleDeck===cloningCabin.deck)} selectedId={objectFocus?.id} onSelect={inspectObject}/></group>:null}
@@ -607,6 +610,7 @@ export function RingShipOffice(props: Props) {
       <div className="mt-1 text-[11px] text-[#9fb9c2]">{selected ? t(PUBLIC_DESCRIPTIONS[selected.kind]) : t("{0} projects · {1} sessions · {2} reserve cabins", { "0": roster.projects.length, "1": agents.length, "2": reserveCount })}</div>
       {selected?.kind === "monitor" ? <button type="button" onClick={openMonitor} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#71d3c8]/40 px-3 text-xs text-[#b7eee0] hover:bg-white/10">{t("Open monitoring dashboard")} <Monitor size={13} /></button> : null}
       {selected?.kind === "monitor" ? <button type="button" onClick={openTasks} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#d3ad78]/40 px-3 text-xs text-[#e8c899] hover:bg-white/10">{t("Open scheduled tasks")} <CalendarClock size={13} /></button> : null}
+      {selected?.kind === "servers" && visibleDeck === 0 ? <button type="button" onClick={openServers} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-blue-200/40 px-3 text-xs text-blue-100 hover:bg-white/10">{t("Open server fleet status")} <Monitor size={13} /></button> : null}
       {selected?.kind === "ai" ? <button type="button" onClick={openAiCenter} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#86e6de]/40 px-3 text-xs text-[#b7eee0] hover:bg-white/10">{t("Open AI Center")} <BrainCircuit size={13} /></button> : null}
       {navigationPreview && selected?.kind === "monitor" ? <button type="button" onClick={() => { closeObject(); navigate({ type: "open" }); }} className="pointer-events-auto mt-2 min-h-10 rounded-lg border border-[#9dc7d3]/40 px-3 text-xs text-[#c6e0e9]">{t("Open star chart")}</button> : null}
       <div className="mt-1 text-[9px] text-[#829da9]">{t("{working} working · {idle} idle · Drag to rotate · Scroll to zoom · Use the central lift to change decks", { working: agents.filter(a => a.status === "working").length, idle: agents.filter(a => a.status === "idle").length })}</div>
@@ -620,7 +624,8 @@ export function RingShipOffice(props: Props) {
     <MusicPlayerDialog autoPlay open={musicOpen} scene={system.id} sceneName={system.name} onOpen={() => setMusicOpen(true)} onClose={() => setMusicOpen(false)} />
     {navigationOpen && navigation.phase !== "warp" ? <NavigationOverlay state={navigation} onAction={navigate} /> : null}
     {navigationPreview && navigation.phase === "warp" && navigation.destination ? <WarpJourney destination={starSystem(navigation.destination)} onArrive={arriveSystem} onComplete={completeWarp} /> : null}
-    <MonitorDashboard open={monitorOpen} onClose={() => setMonitorOpen(false)} onFirefight={props.onFirefight} />
+    <MonitorDashboard open={monitorOpen} onClose={() => setMonitorOpen(false)} />
+    <ServerRoomDashboard open={serversOpen} onClose={() => setServersOpen(false)} onFirefight={props.onFirefight} />
     <ScheduledTasks open={tasksOpen} onClose={() => setTasksOpen(false)} onOpenSession={open} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
     <AiCenterDashboard open={aiOpen} onClose={() => setAiOpen(false)} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
     <LiftOverlay trip={trip} overlayRef={overlayRef} />

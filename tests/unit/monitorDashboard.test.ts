@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { MonitorDashboard } from "@/features/ring-ship/MonitorDashboard";
+import { MonitorDashboard, ServerRoomDashboard } from "@/features/ring-ship/MonitorDashboard";
 import { formatBytes, ServerDashboard } from "@/features/ring-ship/ServerDashboard";
 
 const links = [{ id: "grafana", label: "Grafana", url: "https://grafana.example.com/d/a", visual: "chart" }];
@@ -13,15 +13,15 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
-it("opens a console first, launches Grafana only on its card click, and shows the built-in server entry", async () => {
+it("keeps strategy monitors in the control room and removes the moved server entry", async () => {
   const tab = { closed: false, focus: vi.fn(), location: { href: "" } };
   const open = vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);
   const close = vi.fn();
   render(createElement(MonitorDashboard, { open: true, onClose: close }));
   await screen.findByRole("button", { name: "Open monitor: Grafana" });
   expect(open).not.toHaveBeenCalled();
-  expect(screen.getByRole("button", { name: "Open server fleet status" })).toBeInTheDocument();
-  expect(document.querySelectorAll(".monitor-tile svg.monitor-illustration")).toHaveLength(2);
+  expect(screen.queryByRole("button", { name: "Open server fleet status" })).not.toBeInTheDocument();
+  expect(document.querySelectorAll(".monitor-tile svg.monitor-illustration")).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Open monitor: Grafana" }));
   expect(tab.location.href).toBe(links[0].url);
   fireEvent.click(screen.getByRole("button", { name: "Close monitoring dashboard" }));
@@ -123,4 +123,24 @@ it("stops fleet requests when closed or hidden and resumes when visible", async 
   hidden.mockReturnValue(false);
   await act(async () => { fireEvent(document, new Event("visibilitychange")); });
   expect(fetch).toHaveBeenCalledTimes(3);
+});
+
+
+it("opens the machine-room console directly on server metrics and stops loading on close", async () => {
+  vi.mocked(fetch).mockResolvedValue(Response.json({ configured: true, refreshing: false, servers: [], updatedAt: 1 }));
+  const close = vi.fn();
+  const view = render(createElement(ServerRoomDashboard, { open: false, onClose: close }));
+  expect(fetch).not.toHaveBeenCalled();
+  view.rerender(createElement(ServerRoomDashboard, { open: true, onClose: close }));
+  const dialog = screen.getByRole("dialog", { name: "Server room" });
+  expect(within(dialog).getByRole("heading", { name: "Fleet status" })).toBeInTheDocument();
+  await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+  const [url, options] = vi.mocked(fetch).mock.calls[0];
+  expect(url).toBe("/api/monitoring/servers");
+  expect(screen.queryByRole("button", { name: "Configure" })).not.toBeInTheDocument();
+  view.rerender(createElement(ServerRoomDashboard, { open: false, onClose: close }));
+  expect(options?.signal?.aborted).toBe(true);
+  view.rerender(createElement(ServerRoomDashboard, { open: true, onClose: close }));
+  fireEvent(dialog, new Event("cancel", { cancelable: true }));
+  expect(close).toHaveBeenCalledOnce();
 });
