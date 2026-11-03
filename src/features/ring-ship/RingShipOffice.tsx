@@ -4,7 +4,7 @@ import { useServerSnapshot } from "./useServerSnapshot";
 import { ServerRackInfo } from "./ServerRackInfo";
 import { ServerTerminal } from "./ServerTerminal";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ComponentRef, type RefObject } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ComponentRef, type RefObject } from "react";
 import { registerFurniture } from "./furnitureCollisions";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Environment, Lightformer, OrbitControls } from "@react-three/drei";
@@ -68,6 +68,7 @@ import { useDuckFocusAudio } from "./useDuckFocusAudio";
 type Props = ComponentProps<typeof RetroOffice3D> & { navigationPreview?: boolean; musicPreview?: boolean; onFirefight?: FirefightHandler;
   cloneRequest?: CloneRequest | null; onForkSession?: (id: string, requestId: string, name?: string, lastTurnId?: string) => Promise<string>; onCloneFinished?: () => void;
 };
+const RenderProbe = lazy(() => import("./RenderProbePanel"));
 type Controls = ComponentRef<typeof OrbitControls>;
 const EMPTY_ROSTER: CompanyRoster = { projects: [], members: [] };
 let modelCache: ModelTemplates | undefined;
@@ -364,6 +365,7 @@ function ActivityBadge({ agent }: { agent: OfficeAgent }) {
 }
 
 export function RingShipOffice(props: Props) {
+  const [renderProbeEnabled] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("renderProbe") === "1");
   const t = useUiText();
   const { agents, companyRoster, companyActions, gatewayStatus = "disconnected", officeTitle = "Orbital Headquarters", storageNamespace = "default", gatewayUrl = "", officeCenterSignal = 0, navigationPreview = true } = props;
   const roster = companyRoster || EMPTY_ROSTER;
@@ -575,6 +577,7 @@ export function RingShipOffice(props: Props) {
   ];
   const button = "flex h-9 min-w-9 items-center justify-center rounded-lg border border-white/15 bg-[#122735]/90 px-2 text-xs text-[#b8cccf] hover:border-[#d7af77]/70";
   return <div className={`ship-office relative h-full w-full overflow-hidden bg-[#081421] text-[#deebea]${navigationOpen ? " star-navigation-active" : ""}`} data-star-system={system.id} data-navigation-phase={navigationPreview ? navigation.phase : undefined} data-ship-focused-person={objectFocus?.id === CEO_ID ? CEO_ID : props.activeChatAgentId || (currentLayout.seats[validFocus] ? validFocus : undefined)} data-ship-deck={visibleDeck} data-ship-mode={shipView ? "ship" : "deck"} data-ship-travelling={busy} data-ship-visible-crew={visibleAgents.length} data-ship-sectors={layout.allocation.sectors} data-ship-reserves={reserveCount} data-ship-projects={roster.projects.length} data-ship-placed={agents.filter(agent => layout.seats[agent.id]).length}>
+    {renderProbeEnabled ? <Suspense fallback={null}><RenderProbe /></Suspense> : null}
     <Canvas orthographic frameloop={monitorOpen || serversOpen || !!terminalHost ? "never" : "always"} dpr={[0.85, 1.5]} camera={{ position: [25, 40, 36], zoom: 12, near: 0.1, far: 5000 }} shadows
       gl={{ antialias: true, powerPreference: "high-performance" }} onPointerMissed={() => { setLiftOpen(false); closeObject(); }} onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.95; gl.domElement.dataset.shipReady = "true"; }}>
       <GalaxyBackdrop system={system} motion={activityEnabled ? spaceMotion : undefined} />
