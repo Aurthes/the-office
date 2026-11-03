@@ -1,6 +1,9 @@
 import { act, cleanup, fireEvent, renderHook } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { DUCK_CALL_MAX_MS, DUCK_CALL_MIN_MS, useDuckFocusAudio } from "@/features/ring-ship/useDuckFocusAudio";
+import type { OfficeAgent } from "@/features/retro-office/core/types";
+import { useCallback, useState } from "react";
+import { useCompanyRosterSync } from "@/features/office/hooks/useCompanyRosterSync";
 
 type Buffer = { sample: number };
 function harness() {
@@ -101,4 +104,96 @@ it("stays silent without an installed bank or a focused duck", async () => {
   const h = harness(); vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ clips: [] }) })));
   const view = renderHook(() => useDuckFocusAudio(null)); await h.settle(); await h.unlock();
   expect(view.result.current.available).toBe(false); expect(h.engines[0].sources).toHaveLength(0);
+});
+
+type AttentionAgent = Pick<OfficeAgent, "id" | "status" | "needsInput" | "needsReview">;
+const worker = (patch: Partial<AttentionAgent> = {}): AttentionAgent => ({ id: "worker", status: "idle", ...patch });
+
+it("quacks once for each new yellow marker without focus or periodic repeats", async () => {
+  const h = harness();
+  const view = renderHook(({ agents }) => useDuckFocusAudio(null, agents), { initialProps: { agents: [worker()] } });
+  await h.settle(); await h.unlock(); const engine = h.engines[0];
+  view.rerender({ agents: [worker({ status: "working" })] }); await h.settle();
+  expect(engine.sources).toHaveLength(0);
+  view.rerender({ agents: [worker({ status: "working", needsInput: true })] }); await h.settle();
+  expect(engine.sources).toHaveLength(1); expect(engine.sources[0].start).toHaveBeenCalledOnce();
+  view.rerender({ agents: [worker({ status: "working", needsInput: true })] }); await h.settle();
+  expect(engine.sources).toHaveLength(1);
+  view.rerender({ agents: [worker({ needsReview: true })] }); await h.settle();
+  expect(engine.sources).toHaveLength(2); expect(engine.sources[0].stop).toHaveBeenCalledOnce();
+  act(() => engine.sources[1].finish());
+  await h.advance(60_000); expect(engine.sources).toHaveLength(2);
+});
+
+it("baselines the first populated roster and does not replay markers after transient empty rosters", async () => {
+  const h = harness();
+  const view = renderHook(({ agents }) => useDuckFocusAudio(null, agents), { initialProps: { agents: [] as AttentionAgent[] } });
+  await h.settle(); await h.unlock(); const engine = h.engines[0];
+  view.rerender({ agents: [worker({ needsInput: true })] }); await h.settle();
+  expect(engine.sources).toHaveLength(0);
+  view.rerender({ agents: [] });
+  view.rerender({ agents: [worker({ needsInput: true })] }); await h.settle();
+  expect(engine.sources).toHaveLength(0);
+  view.rerender({ agents: [worker({ needsInput: true }), worker({ id: "new-worker", needsReview: true })] }); await h.settle();
+  expect(engine.sources).toHaveLength(1);
+});
+
+it("alerts in background tabs for yellow markers and stays silent for red errors", async () => {
+  const h = harness();
+  const view = renderHook(({ agents }) => useDuckFocusAudio(null, agents), { initialProps: { agents: [worker()] } });
+  await h.settle(); await h.unlock(); const engine = h.engines[0]; h.visibility(true);
+  view.rerender({ agents: [worker({ needsInput: true })] }); await h.settle();
+  expect(engine.sources).toHaveLength(1);
+  h.visibility(false); h.visibility(true); expect(engine.sources[0].stop).not.toHaveBeenCalled();
+  act(() => engine.sources[0].finish());
+  view.rerender({ agents: [worker({ status: "error", needsInput: true, needsReview: true })] }); await h.settle();
+  expect(engine.sources).toHaveLength(1);
+  view.rerender({ agents: [worker({ needsReview: true })] }); await h.settle();
+  expect(engine.sources).toHaveLength(2);
+});
+
+it("respects gesture unlock and mute without delayed catch-up alerts", async () => {
+  const h = harness();
+  const view = renderHook(({ agents }) => useDuckFocusAudio(null, agents), { initialProps: { agents: [worker()] } });
+  await h.settle();
+  view.rerender({ agents: [worker({ needsInput: true })] }); await h.settle();
+  await h.unlock(); const engine = h.engines[0]; expect(engine.sources).toHaveLength(0);
+  act(() => view.result.current.toggleMuted());
+  view.rerender({ agents: [worker({ needsReview: true })] }); await h.settle();
+  act(() => view.result.current.toggleMuted()); await h.settle(); expect(engine.sources).toHaveLength(0);
+  view.rerender({ agents: [worker({ status: "working" })] });
+  view.rerender({ agents: [worker({ needsInput: true })] }); await h.settle();
+  expect(engine.sources).toHaveLength(1);
+  view.unmount(); expect(engine.sources[0].stop).toHaveBeenCalledOnce();
+});
+
+it("preempts ambient calls without restarting them on ordinary roster updates", async () => {
+  const h = harness(); vi.spyOn(Math, "random").mockReturnValue(0);
+  const view = renderHook(({ agents }) => useDuckFocusAudio("worker", agents), { initialProps: { agents: [worker()] } });
+  await h.settle(); await h.unlock(); const engine = h.engines[0];
+  view.rerender({ agents: [worker({ status: "working" })] }); await h.settle();
+  expect(engine.sources).toHaveLength(1);
+  view.rerender({ agents: [worker({ needsReview: true })] }); await h.settle();
+  expect(engine.sources[0].stop).toHaveBeenCalledOnce(); expect(engine.sources).toHaveLength(2);
+  act(() => engine.sources[1].finish());
+  await h.advance(DUCK_CALL_MIN_MS - 1); expect(engine.sources).toHaveLength(2);
+  await h.advance(1); expect(engine.sources).toHaveLength(3);
+});
+
+it("receives background roster changes and quacks before the tab becomes visible", async () => {
+  const h = harness();
+  let snapshot = [worker()], push!: (event: { event: string }) => void;
+  const client = { call: vi.fn(), onEvent: (handler: typeof push) => { push = handler; return () => {}; } };
+  renderHook(() => {
+    const [agents, setAgents] = useState(snapshot);
+    const load = useCallback(async () => { setAgents(snapshot); }, []);
+    useCompanyRosterSync(client, true, load);
+    return useDuckFocusAudio(null, agents);
+  });
+  await h.settle(); await h.unlock(); const engine = h.engines[0];
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden"); h.visibility(true);
+  snapshot = [worker({ needsInput: true })];
+  await act(async () => push({ event: "roster.updated" }));
+  expect(engine.sources).toHaveLength(1);
+  expect(engine.sources[0].start).toHaveBeenCalledOnce();
 });

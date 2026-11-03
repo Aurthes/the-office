@@ -27,7 +27,7 @@ describe("CEO daily life", () => {
       else { actions.add(s.action); rooms.add(s.cabinId); if (s.action === "monitor" && departures) seatedAgain = true; }
       if (i % 20 === 0) expect(isWalkable(s.position, world, footingRadius(s.radius))).toBe(true);
     }
-    for (const action of ["monitor", "stretch", "review", "window", "coffee", "patrol", "think"]) expect(actions.has(action), action).toBe(true);
+    for (const action of ["monitor", "stretch", "review", "window", "break", "patrol", "think"]) expect(actions.has(action), action).toBe(true);
     expect(rooms.size).toBeGreaterThan(1); expect(seatedAgain).toBe(true);
   });
   it("stops near an occupied destination without overlapping it", () => {

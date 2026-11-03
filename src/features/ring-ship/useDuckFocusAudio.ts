@@ -1,14 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { OfficeAgent } from "@/features/retro-office/core/types";
+import { getAgentActivity } from "@/features/retro-office/core/agentActivity";
 
 type Clip = { id: string; base64: string };
+type AttentionAgent = Pick<OfficeAgent, "id" | "status" | "needsInput" | "needsReview">;
+const NO_AGENTS: readonly AttentionAgent[] = [];
 
 // A quiet pause after each finished call, independent of roster/status refreshes.
 export const DUCK_CALL_MIN_MS = 12_000;
 export const DUCK_CALL_MAX_MS = 25_000;
 
-export function useDuckFocusAudio(focusedId: string | null) {
+export function useDuckFocusAudio(focusedId: string | null, agents: readonly AttentionAgent[] = NO_AGENTS) {
   const [clips, setClips] = useState<Clip[]>([]);
   const [muted, setMuted] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
@@ -16,6 +20,8 @@ export function useDuckFocusAudio(focusedId: string | null) {
   const gain = useRef<GainNode | null>(null);
   const buffers = useRef(new Map<string, Promise<AudioBuffer>>());
   const lastClip = useRef("");
+  const previousActivity = useRef<Map<string, string> | null>(null);
+  const notify = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -54,45 +60,68 @@ export function useDuckFocusAudio(focusedId: string | null) {
 
   useEffect(() => {
     const engine = context.current, output = gain.current;
-    if (!focusedId || muted || !unlocked || !clips.length || !engine || !output) return;
+    if (muted || !unlocked || !clips.length || !engine || !output) return;
     let cancelled = false;
+    let notifying = false;
     let generation = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let source: AudioBufferSourceNode | null = null;
     const silence = () => {
       generation++;
+      notifying = false;
       clearTimeout(timer); timer = undefined;
       if (source) { source.onended = null; source.stop(); source.disconnect(); source = null; }
     };
     const schedule = () => {
-      if (!cancelled && !document.hidden) timer = setTimeout(() => { void play(); }, DUCK_CALL_MIN_MS + Math.random() * (DUCK_CALL_MAX_MS - DUCK_CALL_MIN_MS));
+      if (focusedId && !cancelled && !document.hidden) timer = setTimeout(() => { void play(); }, DUCK_CALL_MIN_MS + Math.random() * (DUCK_CALL_MAX_MS - DUCK_CALL_MIN_MS));
     };
-    const play = async () => {
-      if (cancelled || document.hidden) return;
+    const play = async (attention = false) => {
+      if (cancelled || (!attention && document.hidden)) return;
+      notifying = attention;
       const request = ++generation;
       const choices = clips.length > 1 ? clips.filter(clip => clip.id !== lastClip.current) : clips;
       const clip = choices[Math.floor(Math.random() * choices.length)];
       try {
         await engine.resume();
-        if (cancelled || request !== generation || document.hidden) return;
+        if (cancelled || request !== generation || (!attention && document.hidden)) return;
         if (!buffers.current.has(clip.id)) {
           const bytes = Uint8Array.from(atob(clip.base64), char => char.charCodeAt(0));
           buffers.current.set(clip.id, engine.decodeAudioData(bytes.buffer));
         }
         const buffer = await buffers.current.get(clip.id)!;
         // Focus may have changed while this clip was being decoded.
-        if (cancelled || request !== generation || document.hidden || engine.state !== "running") return;
+        if (cancelled || request !== generation || (!attention && document.hidden)) return;
+        if (engine.state !== "running") { notifying = false; return; }
         const node = engine.createBufferSource(); node.buffer = buffer; node.connect(output);
         source = node; lastClip.current = clip.id;
-        node.onended = () => { node.disconnect(); source = null; schedule(); };
+        node.onended = () => { node.disconnect(); source = null; notifying = false; schedule(); };
         node.start();
-      } catch { if (request === generation) schedule(); }
+      } catch { if (request === generation) { notifying = false; schedule(); } }
     };
-    const visibility = () => { silence(); if (!document.hidden) schedule(); };
+    // Attention calls work without a selected character, including in a
+    // background tab. They share the player so calls never overlap.
+    const attention = () => { silence(); void play(true); };
+    notify.current = attention;
+    const visibility = () => { if (!notifying) { silence(); if (!document.hidden) schedule(); } };
     document.addEventListener("visibilitychange", visibility);
-    void play();
-    return () => { cancelled = true; silence(); document.removeEventListener("visibilitychange", visibility); };
+    if (focusedId) void play();
+    return () => { cancelled = true; if (notify.current === attention) notify.current = null; silence(); document.removeEventListener("visibilitychange", visibility); };
   }, [focusedId, muted, unlocked, clips]);
+
+  useEffect(() => {
+    // Wait for the first populated roster; loading and reconnecting must not
+    // turn old yellow markers into new notifications.
+    if (!agents.length) return;
+    const previous = previousActivity.current, next = new Map<string, string>();
+    let changed = false;
+    for (const agent of agents) {
+      const kind = getAgentActivity(agent).kind;
+      next.set(agent.id, kind);
+      if (previous && previous.get(agent.id) !== kind && (kind === "waiting" || kind === "review")) changed = true;
+    }
+    previousActivity.current = next;
+    if (changed) notify.current?.();
+  }, [agents]);
 
   return { available: clips.length > 0, muted, toggleMuted: useCallback(() => setMuted(value => !value), []) };
 }
