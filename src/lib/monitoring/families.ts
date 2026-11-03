@@ -4,14 +4,15 @@ const LOCAL_FAMILY = { id: "local", label: "Local machine", color: "#9fb5c7" };
 const OTHER_FAMILY = { id: "other", label: "Other servers", color: "#aeb8c2" };
 
 export function serverFamily(host: PoolHost) {
-  if (host.group === "local") return LOCAL_FAMILY;
+  if (host.group === "local" && !host.family?.trim()) return LOCAL_FAMILY;
   // Infer the series from the configured alias, including numbered variants
   // with a suffix. Example inventories must never become a runtime whitelist.
-  const prefix = host.alias.trim().match(/^([a-z][a-z_-]*?)[-_]?\d/i)?.[1].replace(/[-_]+$/, "").toLowerCase();
+  const configured = host.family?.trim();
+  const prefix = configured || host.alias.trim().match(/^([a-z][a-z_-]*?)[-_]?\d/i)?.[1].replace(/[-_]+$/, "").toLowerCase();
   if (!prefix) return OTHER_FAMILY;
   let hue = 0;
-  for (const char of prefix) hue = (hue * 31 + char.charCodeAt(0)) % 360;
-  return { id: `series:${prefix}`, label: prefix.toUpperCase(), color: `hsl(${hue},55%,68%)` };
+  for (const char of prefix.toLowerCase()) hue = (hue * 31 + char.charCodeAt(0)) % 360;
+  return { id: `${configured ? "group" : "series"}:${prefix.toLowerCase()}`, label: configured || prefix.toUpperCase(), color: `hsl(${hue},55%,68%)` };
 }
 
 export function groupServers<T extends PoolHost>(hosts: readonly T[]) {

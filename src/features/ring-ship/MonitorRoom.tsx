@@ -50,7 +50,7 @@ export function ServerRoomScreen({ layout, cabin, onOpen, hosts, showLabels = fa
     {showLabels ? machineRoomPlan(layout, cabin, hosts).families.map(family => {
       const point = machineRoomPoint(layout, cabin, family.u, family.v);
       return <Html key={family.id} center position={[point.x, 2.95, point.z]} zIndexRange={[12, 11]} style={{ pointerEvents: "none" }}>
-        <span data-server-family-label={family.id} className="whitespace-nowrap rounded border bg-[#102a36]/95 px-2 py-1 text-[10px] shadow-md" style={{ color: family.color, borderColor: family.color }}>{t(family.label)} · {family.count}</span>
+        <span data-server-family-label={family.id} className="whitespace-nowrap rounded border bg-[#102a36]/95 px-2 py-1 text-[10px] shadow-md" style={{ color: family.color, borderColor: family.color }}>{(family.id === "local" || family.id === "other" ? t(family.label) : family.label)} · {family.count}</span>
       </Html>;
     }) : null}
   </>;

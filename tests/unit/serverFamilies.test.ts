@@ -37,3 +37,14 @@ it("keeps named remote series separate from the local and fallback groups", () =
   ];
   expect(groupServers(hosts).map(group => group.id)).toEqual(["series:local", "series:other", "local", "other"]);
 });
+
+it("uses the instance's explicit groups for arbitrary aliases and preserves purpose", () => {
+  const hosts = [
+    { alias: "worker01", group: "online" as const, active: true, family: "My machines" },
+    { alias: "database", group: "offline" as const, active: false, family: "My machines" },
+    { alias: "worker02", group: "offline" as const, active: true, family: "Another group" },
+  ];
+  const groups = groupServers(hosts);
+  expect(groups.map(group => [group.label, group.hosts.length])).toEqual([["Another group", 1], ["My machines", 2]]);
+  expect(hosts[0].group).toBe("online"); expect(groups[1].hosts).toContain(hosts[1]);
+});

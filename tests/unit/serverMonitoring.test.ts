@@ -13,12 +13,23 @@ it("keeps server purpose separate from active state and never includes registry 
   for (const text of ["-oProxyCommand=x|online||", "user@host|online||", "host;touch|online||", "a|unknown||", "a|local||", "a|online||\na|offline||"]) expect(() => parseServerPool(text)).toThrow();
 });
 
-it("includes Local Mac independently of the remote registry and leaves Linux host lists unchanged", () => {
-  expect(monitoringHosts("", "darwin")).toEqual([{ alias: "Local Mac", group: "local", active: true }]);
-  const remote = "compute|offline||\nretired|online|active=no|";
-  expect(monitoringHosts(remote, "darwin")).toEqual([{ alias: "Local Mac", group: "local", active: true }, ...parseServerPool(remote)]);
-  expect(monitoringHosts(remote, "linux")).toEqual(parseServerPool(remote));
+it("starts with no machines on any platform until the instance registers them", () => {
+  expect(monitoringHosts("", "darwin")).toEqual([]);
   expect(monitoringHosts("", "linux")).toEqual([]);
+  const remote = "compute|offline||\nretired|online|active=no|";
+  expect(monitoringHosts(remote, "darwin")).toEqual(parseServerPool(remote));
+});
+
+it("updates a machine's display group while preserving its last real metrics", async () => {
+  const read = createServerStatusStore(async () => metrics);
+  const host = { alias: "worker01", group: "offline" as const, active: true, family: "First group" };
+  read([host]); await flush();
+  const before = read([host]).servers[0];
+  const after = read([{ ...host, family: "New group" }]).servers[0];
+  expect(after.family).toBe("New group"); expect(after.metrics).toEqual(before.metrics);
+  await flush();
+  const { family, ...withoutGroup } = host; void family;
+  expect(read([withoutGroup]).servers[0].family).toBeUndefined(); await flush();
 });
 
 it("shares one refresh across clients, streams completed rows, bounds concurrency, and never probes disabled hosts", async () => {
@@ -69,4 +80,14 @@ it("keeps first-time connection failures as unknown values and incorporates regi
   expect(changed.servers).toHaveLength(1); expect(changed.servers[0].alias).toBe("b");
   await flush();
   expect(probe).toHaveBeenCalledTimes(1);
+});
+
+it("does not start queued probes after their machines are removed", async () => {
+  const pending: Array<() => void> = [];
+  const probe = vi.fn(async () => { await new Promise<void>(resolve => pending.push(resolve)); return metrics; });
+  const read = createServerStatusStore(probe);
+  read(Array.from({ length: 6 }, (_, i) => ({ alias: `host${i}`, group: "offline" as const, active: true })));
+  expect(probe).toHaveBeenCalledTimes(4); read([]);
+  while (pending.length) { pending.shift()!(); await flush(); }
+  expect(read([]).servers).toEqual([]); expect(probe).toHaveBeenCalledTimes(4); await flush();
 });

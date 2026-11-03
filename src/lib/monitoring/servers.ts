@@ -12,7 +12,8 @@ export { parseServerPool } from "../../../server/server-registry";
 
 export function monitoringHosts(text: string, platform: NodeJS.Platform = os.platform()): PoolHost[] {
   const hosts = parseServerPool(text);
-  return platform === "darwin" ? [{ alias: "Local Mac", group: "local", active: true }, ...hosts] : hosts;
+  void platform;
+  return hosts;
 }
 
 function metricsFromJson(stdout: string): ServerMetrics {
@@ -54,7 +55,7 @@ export function createServerStatusStore(probe: (host: PoolHost) => Promise<Serve
     if (signature !== nextSignature) {
       rows = hosts.map(host => {
         const previous = rows.find(row => row.alias === host.alias && row.group === host.group && row.active === host.active);
-        return previous || { ...host, status: host.active ? "pending" : "disabled", metrics: null, sampledAt: null, checkedAt: null, error: null };
+        return previous ? Object.assign(previous, host, { family: host.family }) : { ...host, status: host.active ? "pending" : "disabled", metrics: null, sampledAt: null, checkedAt: null, error: null };
       });
       signature = nextSignature; updatedAt = null;
     }
@@ -63,6 +64,7 @@ export function createServerStatusStore(probe: (host: PoolHost) => Promise<Serve
       const worker = async () => {
         for (;;) {
           const row = queue.shift(); if (!row) return;
+          if (!rows.includes(row) || !row.active) continue;
           try {
             const metrics = await probe(row);
             row.metrics = metrics; row.sampledAt = now(); row.status = "ready"; row.error = null;
@@ -84,5 +86,5 @@ export function createServerStatusStore(probe: (host: PoolHost) => Promise<Serve
 const snapshot = createServerStatusStore();
 export async function getServerSnapshot(): Promise<ServerSnapshot> {
   const { configured, hosts } = await loadServerRegistry();
-  return configured ? snapshot(hosts) : { configured: false, refreshing: false, updatedAt: null, servers: [] };
+  return { ...snapshot(hosts), configured };
 }
