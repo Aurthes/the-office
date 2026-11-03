@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { Builder, ModelName } from "./geometry";
+import { machineRoomPlan, SERVER_ACTIVITY_COLORS, SERVER_RACK } from "./machineRoomLayout";
 import { cabinAngle, shipPoint, type ShipCabin, type ShipLayout } from "./layout";
 
 const WATER = new THREE.MeshStandardMaterial({ roughness: .23, metalness: .02, transparent: true, opacity: .88 });
@@ -167,52 +168,89 @@ export function addRainforest(b: Builder, layout: ShipLayout, cabin: ShipCabin) 
   }
 }
 
-export function serverConsoleScreenPose(layout: ShipLayout, cabin: ShipCabin) {
-  const ring = layout.rings[cabin.ring], width = ring.radius * Math.PI * 2 / layout.allocation.sectors;
-  const angle = cabinAngle(layout, cabin.slot), point = shipPoint(ring.radius - 1.18, angle - width * .39 / ring.radius);
-  // The existing .56m Prop_Computer has a screen tilted 45 degrees, 1.17m up.
-  return { point, angle, height: 1.172, tilt: -Math.PI / 4 };
-}
-
 export function addMachineRoom(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
-  const ring = layout.rings[cabin.ring], width = ring.radius * Math.PI * 2 / layout.allocation.sectors;
-  const angle = cabinAngle(layout, cabin.slot);
+  const ring = layout.rings[cabin.ring], angle = cabinAngle(layout, cabin.slot), plan = machineRoomPlan(layout, cabin);
   const point = (u: number, v: number) => shipPoint(ring.radius + v, angle + u / ring.radius);
   const xyz = (u: number, v: number, y: number): [number, number, number] => { const p = point(u, v); return [p.x, y, p.z]; };
   const box = (u: number, v: number, y: number, size: [number, number, number], color: string, glow = false) => b.localBox(layout, cabin, u, v, y, size, color, 0, glow);
+  const first = plan.racks[0].u, last = plan.racks[plan.racks.length - 1].u;
 
   for (const side of [-1, 1]) {
-    const v = side * 1.52, front = v - side * .43;
-    for (const [index, u] of [-width * .27, 0, width * .27].entries()) {
-      b.object("serverRack", () => {
-        box(u, v, .18, [1.12, .23, .94], "#53636a");
-        box(u, v, 1.08, [1.02, 1.72, .84], "#263a46");
-        for (const edge of [-.47, .47]) box(u + edge, front, 1.1, [.055, 1.68, .08], "#819297");
-        for (let slot = 0; slot < 7; slot++) {
-          const y = .39 + slot * .205;
-          box(u, front, y, [.83, .16, .055], slot % 2 ? "#334852" : "#1b2c36");
-          box(u + .3, front - side * .035, y, [.045, .026, .018], slot === 3 && index === 1 ? "#d3a15e" : "#72b4aa", true);
-          for (const vent of [-.25, -.12, 0, .12]) box(u + vent, front - side * .032, y, [.04, .075, .015], "#0e1c24");
-        }
-      });
-      b.furniture("machineFan", .74, point(u, v), 1.95, angle + u / ring.radius);
-      // Grounded cable bundles join each rack to the rear service rail.
-      b.object("cables", () => b.curve([xyz(u, v, .23), xyz(u + .15, side * 2.05, .2), xyz(u + .45, side * 2.18, .24)], .045, "#344c54"));
+    const bank = plan.rows.filter(row => row.v * side > 0).map(row => row.v);
+    b.annulus(ring.radius + Math.min(...bank) - .5, ring.radius + Math.max(...bank) + .5,
+      angle + (first - .5) / ring.radius, angle + (last + .5) / ring.radius, .06, .035, "#344b58");
+    for (const v of [side * .91, side * (ring.depth / 2 - .24)]) {
+      b.annulus(ring.radius + v, ring.radius + v + .025, angle + (first - .5) / ring.radius,
+        angle + (last + .5) / ring.radius, .102, .012, v === side * .91 ? "#68bfce" : "#526775", true);
     }
-    b.object("cables", () => b.curve([xyz(-width * .34, side * 2.15, .3), xyz(-width * .37, side * 2.15, 1.65), xyz(0, side * 2.15, 1.8), xyz(width * .36, side * 2.15, 1.65), xyz(width * .37, side * 2.15, .35)], .065, "#7a9b9b"));
-    b.object("cables", () => b.curve([xyz(-width * .32, side * 2.28, .3), xyz(-width * .33, side * 2.28, 1.5), xyz(0, side * 2.28, 1.6), xyz(width * .34, side * 2.28, 1.5)], .035, "#4d727b"));
-    for (const u of [-width * .39, width * .39]) {
-      const terminal = point(u, side * 1.18);
-      b.object("machineConsole", () => { if (!b.furniture("machineConsole", .56, terminal, .09, angle + (side > 0 ? Math.PI : 0))) {
-        box(u, side * 1.18, .62, [.58, 1.06, .42], "#667c82");
-        box(u, side * 1.18 - side * .22, 1.07, [.42, .25, .025], "#79aaa9");
-      } });
-    }
-    box(0, side * .76, .073, [width * .8, .018, .035], "#d3ab65");
   }
-  for (let i = -3; i <= 3; i++) {
-    const u = i * width * .1;
-    box(u, 0, .065, [width * .09, .018, 1.25], i % 2 ? "#718084" : "#65777d");
-    for (const line of [-.24, 0, .24]) box(u, line, .078, [width * .065, .005, .012], "#455b65");
+  for (const rack of plan.racks) {
+    const { u, v, face, row, column } = rack, front = v + face * .455;
+    b.object("serverRack", () => {
+      box(u, v, .16, [.9, .18, .94], "#52646f");
+      box(u, v, 1.19, [SERVER_RACK.width, SERVER_RACK.height, SERVER_RACK.depth], "#1b303f");
+      box(u, v, 2.3, [.88, .065, .91], "#536c78");
+      for (const edge of [-.39, .39]) box(u + edge, front, 1.22, [.035, 2.05, .05], "#6d8491");
+      for (let slot = 0; slot < 9; slot++) {
+        const y = .32 + slot * .216;
+        box(u, front, y, [.73, .17, .045], slot % 2 ? "#2c4352" : "#223644");
+        for (const vent of [-.25, -.15, -.05, .05]) box(u + vent, front + face * .027, y, [.035, .09, .015], "#0c1b27");
+        box(u + .25, front + face * .03, y + .025, [.055, .035, .025], SERVER_ACTIVITY_COLORS[(row + column + slot) % 4], true);
+        box(u + .25, front + face * .03, y - .04, [.04, .014, .025], "#5e9ccb", true);
+      }
+      // Exposed cold/hot risers connect the rack to the overhead coolant loop.
+      for (const pipe of [-1, 1]) b.curve([xyz(u + pipe * .34, v, .22), xyz(u + pipe * .34, v, 2.38), xyz(u + pipe * .34, v - face * .26, 2.46)], .025, pipe < 0 ? "#4ba8bc" : "#a56e61");
+    });
+    if (column % 4 === 1) b.furniture("machineFan", .52, point(u, v), 2.35, angle + u / ring.radius);
+  }
+  for (const row of plan.rows) {
+    const v = row.v - row.face * .26;
+    b.object("cables", () => {
+      b.curve([xyz(first - .25, v, 2.47), xyz((first + last) / 2, v, 2.47), xyz(last + .55, v, 2.47), xyz(last + .6, v, .24)], .06, "#5896a8");
+      b.curve([xyz(first - .25, v + .14, 2.47), xyz((first + last) / 2, v + .14, 2.47), xyz(last + .75, v + .14, 2.47), xyz(last + .8, v + .14, .24)], .035, "#b17e69");
+    });
+  }
+  // One cooling skid at the end of the banks: reservoir pair, pumps and manifold.
+  b.object("waterTank", () => {
+    const u = plan.width * .33;
+    box(u, -1.85, .17, [2.05, .22, 1.2], "#3f5665");
+    for (const offset of [-.53, .53]) {
+      b.cylinder(.32, 1.72, xyz(u + offset, -1.87, 1.11), "#537b8a", 20);
+      for (const y of [.27, 1.98]) b.cylinder(.35, .1, xyz(u + offset, -1.87, y), "#97b4bc", 20);
+      box(u + offset, -1.51, 1.13, [.13, 1.35, .035], "#5ed4da", true);
+      b.curve([xyz(u + offset, -1.87, 2.05), xyz(u + offset, -2.5, 2.25), xyz(last + .65, -2.45, 2.47)], .06, "#5996a8");
+    }
+    box(u, -1.16, .46, [1.65, .36, .39], "#263f50");
+    for (const x of [-.5, 0, .5]) box(u + x, -1.16, .66, [.18, .035, .22], "#9cb6bd");
+  });
+  // One shared side console, with a central interactive screen and two wings.
+  const console = plan.console, p = point(console.u, console.v);
+  const consoleBox = (x: number, z: number, y: number, size: [number, number, number], color: string, glow = false) => {
+    const q: [number, number, number] = [p.x + x * Math.cos(console.angle) + z * Math.sin(console.angle), y,
+      p.z - x * Math.sin(console.angle) + z * Math.cos(console.angle)];
+    b.box(size, q, color, console.angle, glow);
+  };
+  b.object("machineConsole", () => {
+    consoleBox(0, 0, .49, [plan.console.width - .12, .86, .9], "#435f70");
+    consoleBox(0, .03, .97, [plan.console.width, .13, 1.12], "#75949d");
+    consoleBox(0, .04, 1.06, [plan.console.width - .1, .035, 1.02], "#1b3242");
+    for (const x of [-plan.console.width * .32, 0, plan.console.width * .32]) {
+      consoleBox(x, -.05, 1.3, [.07, .42, .06], "#627d89");
+      consoleBox(x, .1, 1.62, [.8, .59, .13], "#223e50");
+      consoleBox(x, .18, 1.62, [.72, .49, .025], "#327185", true);
+      // Decorative graphs; the main screen opens the real host data.
+      for (let n = 0; n < 5; n++) consoleBox(x - .26 + n * .13, .2, 1.53 + Math.sin(n * 1.8 + x) * .065, [.06, .12 + n * .015, .015], "#74c9d2", true);
+      consoleBox(x, .33, 1.09, [.5, .025, .24], "#527485");
+    }
+    consoleBox(0, .6, .97, [plan.console.width - .2, .03, .025], "#66cbd7", true);
+  });
+  for (let u = first; u <= last; u += 1.1) {
+    box(u, 0, .071, [1, .025, 1.6], "#536b79");
+    for (const v of [-.42, -.14, .14, .42]) box(u, v, .088, [.76, .008, .025], "#2d4655");
+  }
+  // Four material batches blink out of phase; no per-rack lights or frame work.
+  for (const batch of b.groups.values()) {
+    const phase = SERVER_ACTIVITY_COLORS.findIndex(color => batch.material.color.getHexString() === color.slice(1));
+    if (phase >= 0) batch.material.userData.serverActivityPhase = phase * 1.7;
   }
 }
