@@ -2,7 +2,7 @@ import type { OfficeAgent, RenderAgent } from "@/features/retro-office/core/type
 import { CANVAS_W, CANVAS_H, SCALE } from "@/features/retro-office/core/constants";
 import { SHIP_WORKSTATION } from "./geometry";
 import { routeBetweenCabins, shipPoint, type DeckIndex, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
-import { crewRadius, moveCharacter, occupiedWaypoint, separateCharacter, walkCharacter, type CharacterBody, type CharacterRecovery } from "./characterCollision";
+import { walkableWaypoint, crewRadius, moveCharacter, occupiedWaypoint, separateCharacter, walkCharacter, type CharacterBody, type CharacterRecovery } from "./characterCollision";
 import { resolveWorksite, siteJourney, sitePoint, type FieldworkState } from "./fieldwork";
 import { footingRadius, walkableSegment } from "./walkableSurface";
 import { BREAK_ACTIONS, breakSeatKey, breakSeatPose, type BreakVisit } from "./breakRoomLayout";
@@ -11,7 +11,7 @@ import { HIBERNATION_CAPACITY, HIBERNATION_IDLE_MS, hibernationPod } from "./hib
 import { insideHibernation, sleepPose, type HibernationState, type SleepPose } from "./hibernationMotion";
 
 export type KirbyCrewPose = ShipPoint & { y: number; scale: number; tilt: number; hidden: boolean };
-export type MovingAgent = RenderAgent & OfficeAgent & { deck: DeckIndex; homeDeck?: DeckIndex; deckY?: number; fieldwork?: FieldworkState; worksite?: ShipCabin; route: ShipPoint[]; routeIndex: number; pauseUntil: number; home: ShipPoint; visiting: boolean; kirbyPose?: KirbyCrewPose; recovery?: CharacterRecovery; breakVisit?: BreakVisit; outings?: number; idleSince?: number; idleActivityAt?: number; hibernation?: HibernationState; sleepPose?: SleepPose };
+export type MovingAgent = RenderAgent & OfficeAgent & { deck: DeckIndex; homeDeck?: DeckIndex; deckY?: number; fieldwork?: FieldworkState; worksite?: ShipCabin; route: ShipPoint[]; routeIndex: number; pauseUntil: number; home: ShipPoint; visiting: boolean; kirbyPose?: KirbyCrewPose; recovery?: CharacterRecovery; breakVisit?: BreakVisit; departingSeat?: { key: string; point: ShipPoint }; outings?: number; idleSince?: number; idleActivityAt?: number; hibernation?: HibernationState; sleepPose?: SleepPose };
 export function canvasPoint(point: ShipPoint) { return { x: point.x / SCALE + CANVAS_W / 2, y: point.z / SCALE + CANVAS_H / 2 }; }
 export function worldPoint(agent: RenderAgent): ShipPoint { return { x: (agent.x - CANVAS_W / 2) * SCALE, z: (agent.y - CANVAS_H / 2) * SCALE }; }
 export function hash(value: string) { let result = 0; for (const char of value) result = (result * 31 + char.charCodeAt(0)) >>> 0; return result; }
@@ -21,7 +21,7 @@ export function crewBodies(crew: readonly RenderAgent[], layout: ShipLayout): Ch
     const pose = (agent as MovingAgent).kirbyPose;
     const deck = (agent as MovingAgent).deck ?? seat?.deck, visit = (agent as MovingAgent).breakVisit;
     return deck !== undefined && !pose?.hidden && !insideHibernation((agent as MovingAgent).hibernation) && (agent as MovingAgent).fieldwork?.phase !== "lift" ? [{ id: agent.id, position: pose || worldPoint(agent), radius: crewRadius("avatarProfile" in agent ? agent : {}) * (pose?.scale ?? 1), deck,
-      reservedSeat: visit ? breakSeatKey(visit.cabinId, visit.seat) : undefined }] : [];
+      reservedSeat: visit ? breakSeatKey(visit.cabinId, visit.seat) : departureKey(agent as MovingAgent) }] : [];
   });
 }
 
@@ -44,8 +44,21 @@ export function syncCrew(agents: OfficeAgent[], layout: ShipLayout, previousById
       kirbyPose: unchanged ? previous.kirbyPose : undefined, breakVisit: unchanged ? previous.breakVisit : undefined,
       idleSince: previous?.idleSince, idleActivityAt: previous?.idleActivityAt,
       hibernation: unchanged ? previous.hibernation : undefined, sleepPose: unchanged ? previous.sleepPose : undefined,
-      recovery: unchanged ? previous.recovery : undefined, outings: previous?.outings ?? 0 }];
+      recovery: unchanged ? previous.recovery : undefined, departingSeat: unchanged ? previous.departingSeat : undefined, outings: previous?.outings ?? 0 }];
   });
+}
+
+function departureKey(agent: MovingAgent) {
+  const seat = agent.departingSeat;
+  return seat && Math.hypot(worldPoint(agent).x - seat.point.x, worldPoint(agent).z - seat.point.z) < 1.5 ? seat.key : undefined;
+}
+function leaveBreakSeat(agent: MovingAgent, layout: ShipLayout) {
+  const visit = agent.breakVisit;
+  if (visit) {
+    const cabin = layout.cabins.find(c => c.id === visit.cabinId)!;
+    agent.departingSeat = { key: breakSeatKey(cabin.id, visit.seat), point: breakSeatPose(layout, cabin, visit.seat).point };
+  }
+  agent.breakVisit = undefined;
 }
 
 const SITE_ROUTINE = ["blueprint", "notes", "survey", "measure", "patrol"] as const;
@@ -65,8 +78,8 @@ function advanceHibernation(a: MovingAgent, crew: MovingAgent[], layout: ShipLay
       if (pod !== undefined) {
         a.hibernation = { cabinId: cabin.id, pod, phase: "travelling", time: 0 };
         const berth = hibernationPod(layout, cabin, pod);
-        a.route = siteJourney(layout, worldPoint(a), a.deck, cabin, shipPoint(layout.rings[cabin.ring].radius, berth.angle))[0].points.concat([berth.entry]);
-        a.routeIndex = 0; a.visiting = false; a.breakVisit = undefined; a.recovery = undefined; body.reservedSeat = undefined;
+        a.route = siteJourney(layout, worldPoint(a), a.deck, cabin, shipPoint(layout.rings[cabin.ring].radius, berth.angle), body)[0].points.concat([berth.entry]);
+        a.routeIndex = 0; a.visiting = false; leaveBreakSeat(a, layout); a.recovery = undefined; body.reservedSeat = departureKey(a);
       }
     }
   }
@@ -77,7 +90,7 @@ function advanceHibernation(a: MovingAgent, crew: MovingAgent[], layout: ShipLay
   const goHome = () => {
     sleep.phase = "returning"; sleep.time = 0; a.sleepPose = undefined;
     const home = layout.cabins.find(c => c.id === layout.seats[a.id].cabinId)!;
-    a.route = siteJourney(layout, worldPoint(a), a.deck, home, a.home)[0].points; a.routeIndex = 0; a.recovery = undefined;
+    a.route = siteJourney(layout, worldPoint(a), a.deck, home, a.home, body)[0].points; a.routeIndex = 0; a.recovery = undefined;
   };
   if ((!idle || refreshed) && !["waking", "leaving", "returning"].includes(sleep.phase)) {
     if (sleep.phase === "travelling") goHome();
@@ -86,7 +99,7 @@ function advanceHibernation(a: MovingAgent, crew: MovingAgent[], layout: ShipLay
   a.interactionTarget = undefined;
   if (sleep.phase === "returning" && a.status === "working" && a.worksite) { a.hibernation = undefined; return false; }
   if (sleep.phase === "travelling" || sleep.phase === "returning") {
-    const target = a.route[a.routeIndex];
+    const target = walkableWaypoint(body, a.route, a.routeIndex, layout);
     if (target) {
       const before = worldPoint(a);
       a.walkSpeed = sleep.phase === "returning" ? 2.15 : 1;
@@ -133,8 +146,8 @@ function advanceFieldwork(a: MovingAgent, layout: ShipLayout, now: number, dt: n
     if (!destination) return;
     field.cabinId = destination.id; field.camp = id ? sitePoint(layout, destination, seed) : a.home;
     field.afterTravel = id ? "changing" : "home"; field.time = 0;
-    field.legs = siteJourney(layout, worldPoint(a), a.deck, destination, field.camp);
-    a.route = field.legs.shift()!.points; a.routeIndex = 0; a.visiting = false; a.breakVisit = undefined; body.reservedSeat = undefined;
+    field.legs = siteJourney(layout, worldPoint(a), a.deck, destination, field.camp, body);
+    a.route = field.legs.shift()!.points; a.routeIndex = 0; a.visiting = false; leaveBreakSeat(a, layout); body.reservedSeat = departureKey(a);
     field.phase = id ? "travelling" : "returning";
   };
   if (!field.cabinId) plan(desired!.id);
@@ -163,7 +176,7 @@ function advanceFieldwork(a: MovingAgent, layout: ShipLayout, now: number, dt: n
     if (field.time >= 1.8) plan(field.nextId);
     return true;
   }
-  const target = a.route[a.routeIndex];
+  const target = walkableWaypoint(body, a.route, a.routeIndex, layout);
   if (target) {
     const before = worldPoint(a), distance = Math.hypot(target.x - before.x, target.z - before.z);
     a.walkSpeed = field.phase === "patrol" ? .72 : 2.15;
@@ -229,7 +242,7 @@ export function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number
     const p = !needsDesk && !a.route.length ? separateCharacter(body, dt * 1.05, others, layout,.2) : worldPoint(a);
     Object.assign(a, canvasPoint(p)); body.position = p;
     if (needsDesk && Math.hypot(p.x - a.home.x, p.z - a.home.z) < 0.02) {
-      a.route = []; a.visiting = false; a.breakVisit = undefined; body.reservedSeat = undefined; Object.assign(a, canvasPoint(a.home)); a.facing = seat.facing;
+      a.route = []; a.visiting = false; leaveBreakSeat(a, layout); body.reservedSeat = departureKey(a); Object.assign(a, canvasPoint(a.home)); a.facing = seat.facing;
       a.state = "sitting"; a.interactionTarget = "desk"; continue;
     }
     a.interactionTarget = undefined;
@@ -240,7 +253,7 @@ export function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number
         const outward = a.route.length ? a.route.slice(0, a.routeIndex)
           : a.breakVisit?.outward.slice() ?? routeBetweenCabins(layout, seat, amenities[hash(a.id) % amenities.length]);
         a.route = outward.reverse().concat([a.home]); a.routeIndex = 0; a.visiting = false;
-        a.breakVisit = undefined; body.reservedSeat = undefined;
+        leaveBreakSeat(a, layout); body.reservedSeat = departureKey(a);
       } else if (!a.route.length) { a.route = [a.home]; a.routeIndex = 0; }
     } else if (!a.route.length && now > a.pauseUntil && amenities.length) {
       const destination = amenities[hash(a.id) % amenities.length];
@@ -256,11 +269,11 @@ export function advanceCrew(crew: MovingAgent[], layout: ShipLayout, now: number
         a.outings = outing + 1;
       } else {
         a.route = [...(a.breakVisit?.outward ?? routeBetweenCabins(layout, seat, destination))].reverse().concat([a.home]);
-        a.breakVisit = undefined; body.reservedSeat = undefined;
+        leaveBreakSeat(a, layout); body.reservedSeat = departureKey(a);
       }
       a.visiting = !a.visiting; a.routeIndex = 0;
     }
-    const target = a.route[a.routeIndex];
+    const target = walkableWaypoint(body, a.route, a.routeIndex, layout);
     if (!target) {
       a.recovery=undefined;const moved=Math.hypot(p.x-before.x,p.z-before.z)>.00001;
       a.state=moved?"walking":"standing";if(moved)a.facing=Math.atan2(p.x-before.x,p.z-before.z);continue;

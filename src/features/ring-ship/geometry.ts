@@ -5,7 +5,10 @@ import * as THREE from "three";
 import { cabinDeck } from "./shell-shapes";
 import { addCabinDetails } from "./interior-details";
 import { addRainforest, addMachineRoom } from "./ship-biomes";
-import { addMonitorRoom } from "./monitor-room-geometry";
+import { addMonitorRoom, monitorChairPose } from "./monitor-room-geometry";
+import { CEO_ID } from "@/lib/office/organization";
+import { BREAK_ROOM, breakSeatKey, breakSeatPose } from "./breakRoomLayout";
+import { FurnitureCapture, type SeatAccess } from "./furnitureCollisions";
 import { addAiCenter } from "./ai-center-geometry";
 import { addBreakRoom } from "./break-room-geometry";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
@@ -37,9 +40,11 @@ export class Builder {
   groups = new Map<string, { material: THREE.MeshStandardMaterial; geometries: THREE.BufferGeometry[]; vertices: number; ranges: ShipObjectRange[] }>();
   labels: Array<{ texture: THREE.Texture; position: THREE.Vector3; rotation: THREE.Euler; width: number; height: number }> = [];
   cabin?: ShipCabin;
+  collisionYaw = 0;
   objects: ShipObject[] = [];
   private activeObject?: ShipObject;
   private objectCounts = new Map<string, number>();
+  private collisions = new FurnitureCapture();
   constructor(private models: ModelTemplates) {}
   object<T>(kind: ShipObjectKind, draw: () => T, serverAlias?: string): T {
     if (!this.cabin) return draw();
@@ -69,6 +74,8 @@ export class Builder {
     const batch = this.groups.get(key)!, count = value.attributes.position.count;
     if (this.activeObject) {
       value.computeBoundingBox(); this.activeObject.bounds.union(value.boundingBox!);
+      this.collisions.angle(this.activeObject, this.collisionYaw);
+      this.collisions.add(this.activeObject, value);
       const last = batch.ranges.at(-1);
       if (last?.object === this.activeObject && last.start + last.count === batch.vertices) last.count += count;
       else batch.ranges.push({ object: this.activeObject, start: batch.vertices, count });
@@ -76,6 +83,7 @@ export class Builder {
     batch.vertices += count; batch.geometries.push(value);
   }
   box(size: [number, number, number], p: [number, number, number], color: string, rotation = 0, glow = false) {
+    if (this.activeObject) this.collisions.angle(this.activeObject, rotation);
     this.add(new THREE.BoxGeometry(...size), color, transform(p, rotation), glow);
   }
   cylinder(radius: number, height: number, p: [number, number, number], color: string, sides = 16, glow = false) {
@@ -111,13 +119,16 @@ export class Builder {
     const scale = width / Math.max(0.01, size.x);
     const normalization = new THREE.Matrix4().makeScale(scale, scale, scale).multiply(new THREE.Matrix4().makeTranslation(-center.x, -bounds.min.y, -center.z));
     const world = transform([p.x, y, p.z], rotation).multiply(normalization);
-    const draw = () => model.traverse(object => {
+    const draw = () => {
+      if (this.activeObject) this.collisions.angle(this.activeObject, rotation);
+      model.traverse(object => {
       const mesh = object as THREE.Mesh;
       if (!mesh.isMesh || Array.isArray(mesh.material)) return;
       const source = mesh.material as THREE.MeshStandardMaterial;
       const color = (legacyFurniture(name) ? ASSET_COLORS[source.name] : null) || `#${source.color?.getHexString() || "b6c2c9"}`;
       this.add(mesh.geometry.clone(), color, world.clone().multiply(mesh.matrixWorld), false, legacyFurniture(name) ? undefined : source);
-    });
+      });
+    };
     if (this.activeObject) draw(); else this.object(name, draw);
     return true;
   }
@@ -131,7 +142,7 @@ export class Builder {
     const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
     this.labels.push({ texture, position: new THREE.Vector3(point.x, .095, point.z), rotation: new THREE.Euler(-Math.PI / 2, 0, angle), width, height: width * 192 / 1024 });
   }
-  finish() {
+  finish(seats: readonly SeatAccess[] = []) {
     const group = new THREE.Group();
     for (const { geometries, material, ranges } of this.groups.values()) {
       const merged = mergeGeometries(geometries, false);
@@ -146,6 +157,7 @@ export class Builder {
       mesh.position.copy(label.position); mesh.rotation.copy(label.rotation); group.add(mesh);
     }
     group.userData.shipObjects = this.objects;
+    group.userData.shipCollisionBoxes = this.collisions.finish(seats);
     return group;
   }
 }
@@ -174,6 +186,7 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
     b.cabin = cabin;
     const ring = layout.rings[cabin.ring], inner = ring.radius - ring.depth / 2, outer = ring.radius + ring.depth / 2;
     const theta = cabinAngle(layout, cabin.slot), reserve = cabin.kind === "reserve";
+    b.collisionYaw = theta;
     const spokeAtEnd = spokeSlots.has((cabin.slot + 1) % layout.allocation.sectors);
 
     const opening = cabin.kind === "return" ? { ...shipPoint(ring.radius + 1.8, theta), radius: 1.02 } : undefined;
@@ -241,7 +254,12 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
       b.box([0.045, 0.05, end - start], [x, 0.08, z], "#bfe6d7", angle, true);
     }
   }
-  return b.finish();
+  const seats: SeatAccess[] = Object.values(layout.seats).map(seat => ({ key: seat.agentId, cabinId: seat.cabinId, point: seat, facing: seat.facing }));
+  for (const cabin of layout.cabins) {
+    if (cabin.kind === "monitor" && cabin.deck === 0) seats.push({ key: CEO_ID, cabinId: cabin.id, ...monitorChairPose(layout, cabin) });
+    if (cabin.kind === "break") BREAK_ROOM.seats.forEach((_, i) => seats.push({ key: breakSeatKey(cabin.id, i), cabinId: cabin.id, ...breakSeatPose(layout, cabin, i) }));
+  }
+  return b.finish(seats);
 }
 
 function addAmenity(b: Builder, layout: ShipLayout, cabin: ShipCabin, serverHosts?: readonly PoolHost[]) {

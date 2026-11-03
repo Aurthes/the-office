@@ -1,6 +1,6 @@
 import { cabinAngle, routeBetweenCabins, shipPoint, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
 import { BAR_LAYOUT, barPoint } from "./barLayout";
-import { moveCharacter, occupiedWaypoint, separateCharacter, walkCharacter, type CharacterBody, type CharacterRecovery } from "./characterCollision";
+import { walkableWaypoint, moveCharacter, occupiedWaypoint, separateCharacter, walkCharacter, type CharacterBody, type CharacterRecovery } from "./characterCollision";
 import { footingRadius, walkableSegment } from "./walkableSurface";
 
 export type CompanionKind = "cat" | "dog" | "drone" | "bartender" | "kirby" | "dumu" | "dufu";
@@ -105,7 +105,7 @@ function nextAction(state: CompanionState, layout: ShipLayout, others: readonly 
 }
 
 export function advanceCompanion(state: CompanionState, layout: ShipLayout, elapsed: number, others: readonly CharacterBody[] = []) {
-  const dt = Math.min(Math.max(elapsed, 0), .05), target = state.route[state.waypoint];
+  const dt = Math.min(Math.max(elapsed, 0), .05), target = walkableWaypoint(companionBody(state), state.route, state.waypoint, layout);
   if (!dt) return;
   const before={...state.position};
   Object.assign(state.position, moveCharacter(companionBody(state), state.position, 0, others, true, layout));

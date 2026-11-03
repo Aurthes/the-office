@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { areaBounds, buildShipLayout, cabinAngle, CLONING_AISLE_V, CLONING_POD, parseShipAllocation, routeBetweenCabins } from "@/features/ring-ship/layout";
-import { clonePose, cloneStage, cloningPoint, rejoinCrewAfterClone } from "@/features/ring-ship/cloneMotion";
+import { CLONE_DURATION, cloneAnatomy, clonePose, cloneStage, cloningPoint, rejoinCrewAfterClone } from "@/features/ring-ship/cloneMotion";
 import { advanceCrew, syncCrew, worldPoint } from "@/features/ring-ship/crewMotion";
 import type { OfficeAgent } from "@/features/retro-office/core/types";
 import { defaultStudioSettings, mergeStudioSettings, sanitizeStudioSettings } from "@/lib/studio/settings";
@@ -55,14 +55,23 @@ describe("cloning laboratory",()=>{
     expect(cloneStage(10000,{status:"pending"})).toBe("synchronizing");
     expect(cloneStage(10000,{status:"failed",error:"lost acknowledgement"})).toBe("failed");
     const confirmed={status:"confirmed" as const,threadId:"clone",at:123};
-    expect([0,1,2.5,4.5,6].map(t=>cloneStage(t,confirmed))).toEqual(["opening","waking","stepping","returning","complete"]);
+    expect([0,4,7,9.5,11,13,15,CLONE_DURATION].map(t=>cloneStage(t,confirmed))).toEqual(["skeleton","tissue","skin","opening","waking","stepping","returning","complete"]);
+  });
+  it("finishes internal layers before skin and keeps passengers lying down until the lid is fully open",()=>{
+    expect(cloneAnatomy(0)).toEqual({bone:0,tissue:0,skin:0});
+    expect(cloneAnatomy(3.4)).toEqual({bone:1,tissue:0,skin:0});
+    expect(cloneAnatomy(6.2)).toEqual({bone:1,tissue:1,skin:0});
+    expect(cloneAnatomy(9.2)).toEqual({bone:1,tissue:1,skin:1});
+    for(let t=0;t<=10.5;t+=.1){expect(clonePose(t,0).tilt).toBeCloseTo(-Math.PI/2);expect(clonePose(t,1).tilt).toBeCloseTo(-Math.PI/2);}
+    expect(clonePose(9,0).door).toBe(0);
+    expect(clonePose(11,0).door).toBe(1);
   });
   it("gets both passengers off separate beds and rejoins collision-aware daily movement continuously",()=>{
     const layout=buildShipLayout(roster),lab=layout.cabins.find(c=>c.kind==="cloning")!;
     expect(clonePose(0,0).tilt).toBe(-Math.PI/2);expect(clonePose(0,0).door).toBe(0);
-    expect(clonePose(1,0).door).toBe(1);expect(clonePose(6,0).tilt).toBeCloseTo(0);expect(clonePose(6,0).y).toBeCloseTo(.08);
+    expect(clonePose(10.5,0).door).toBe(1);expect(clonePose(CLONE_DURATION,0).tilt).toBeCloseTo(0);expect(clonePose(CLONE_DURATION,0).y).toBeCloseTo(.08);
     const agents=syncCrew(roster.members.map(({id})=>({id,name:id,status:"idle",color:"#abc",item:""} as OfficeAgent)),layout,new Map(),0);
-    const exits=agents.map((a,i)=>{const p=clonePose(6,i),point=cloningPoint(layout,lab,p.u,p.v);rejoinCrewAfterClone(a,layout,{point,deck:lab.deck,cabinId:lab.id});return point;});
+    const exits=agents.map((a,i)=>{const p=clonePose(CLONE_DURATION,i),point=cloningPoint(layout,lab,p.u,p.v);rejoinCrewAfterClone(a,layout,{point,deck:lab.deck,cabinId:lab.id});return point;});
     expect(Math.hypot(exits[0].x-exits[1].x,exits[0].z-exits[1].z)).toBeCloseTo(4);
     for(let i=0;i<agents.length;i++){expect(worldPoint(agents[i]).x).toBeCloseTo(exits[i].x);expect(worldPoint(agents[i]).z).toBeCloseTo(exits[i].z);}
     const before=agents.map(worldPoint);advanceCrew(agents,layout,1,1/60);
@@ -94,7 +103,7 @@ describe("cloning laboratory",()=>{
   it("returns both cloned actors to their desks around solid equipment without teleporting",()=>{
     const layout=buildShipLayout(roster),lab=layout.cabins.find(c=>c.kind==="cloning")!;
     const agents=syncCrew(roster.members.map(({id})=>({id,name:id,status:"working",color:"#abc",item:""} as OfficeAgent)),layout,new Map(),0);
-    agents.forEach((a,i)=>{const p=clonePose(6,i);rejoinCrewAfterClone(a,layout,{point:cloningPoint(layout,lab,p.u,p.v),deck:lab.deck,cabinId:lab.id});});
+    agents.forEach((a,i)=>{const p=clonePose(CLONE_DURATION,i);rejoinCrewAfterClone(a,layout,{point:cloningPoint(layout,lab,p.u,p.v),deck:lab.deck,cabinId:lab.id});});
     for(let frame=0;frame<5000;frame++){
       const before=agents.map(worldPoint);advanceCrew(agents,layout,frame*1000/30,1/30);
       agents.forEach((a,i)=>{const p=worldPoint(a);expect(isWalkable(p,layout,.4,lab.deck)).toBe(true);expect(Math.hypot(p.x-before[i].x,p.z-before[i].z)).toBeLessThan(.15);});
