@@ -126,6 +126,10 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, onAc
   }, [resizeInput]);
   const dictation = useNativeDictation(threadId, text, setText, state?.features?.dictationHTTP ? undefined : client);
   const inputDisabled = busy || settingsBusy || !state?.connected || dictation.busy;
+  const acceptPrediction = () => {
+    if (!suggestedText || inputDisabled) return;
+    setText(suggestedText); setPrediction(null);
+  };
   // Focus desktop composers after enabling them; touch devices open the keyboard on tap.
   useLayoutEffect(() => {
     if (inputDisabled || !focusPending.current) return;
@@ -344,10 +348,10 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, onAc
     {composer.chips}
     {!inputDisabled ? composer.menu : null}
     {/* External tools can emit input after updating the DOM value; React's change tracker may skip onChange. */}
-    <textarea ref={input} aria-label={t("Send to session")} aria-description={suggestedText ? t("Suggested next message. Tab to edit, or Send to submit.") : undefined} placeholder={suggestedText || t("Continue this Codex session…")} rows={1} value={text} onChange={event => { setText(event.target.value); composer.onSelect(); }} onInput={event => { setText(event.currentTarget.value); composer.onSelect(); }} onSelect={composer.onSelect} onKeyDown={event => {
+    <textarea ref={input} aria-label={t("Send to session")} aria-description={suggestedText ? t("Suggested next message. Tap or Tab to edit, or Send to submit.") : undefined} placeholder={suggestedText || t("Continue this Codex session…")} rows={1} value={text} onClick={acceptPrediction} onChange={event => { setText(event.target.value); composer.onSelect(); }} onInput={event => { setText(event.currentTarget.value); composer.onSelect(); }} onSelect={composer.onSelect} onKeyDown={event => {
       if (composer.handleKeyDown(event)) return;
       if (suggestedText && !event.nativeEvent.isComposing && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
-        if (event.key === "Tab") { event.preventDefault(); setText(suggestedText); setPrediction(null); return; }
+        if (event.key === "Tab") { event.preventDefault(); acceptPrediction(); return; }
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setPrediction(null); return; }
       }
       if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); }

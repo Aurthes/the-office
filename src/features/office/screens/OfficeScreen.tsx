@@ -11,7 +11,7 @@ import {
 import dynamic from "next/dynamic";
 import { MessageSquare, ChevronDown, ChevronLeft, ChevronRight, Maximize2, Minimize2, PanelLeft, X } from "lucide-react";
 import type { OfficeAgent } from "@/features/retro-office/core/types";
-import { getAgentActivity, type AgentActivity } from "@/features/retro-office/core/agentActivity";
+import { getAgentActivity } from "@/features/retro-office/core/agentActivity";
 import { AgentActivityIndicator } from "@/features/office/components/AgentActivityIndicator";
 import { ScheduledTaskIndicator } from "@/features/office/components/ScheduledTaskIndicator";
 import { OfficeConnectionScreen } from "@/features/office/components/OfficeConnectionScreen";
@@ -26,6 +26,7 @@ import { useCompletionReadState } from "@/features/office/hooks/useCompletionRea
 import { useCompanyRosterSync } from "@/features/office/hooks/useCompanyRosterSync";
 import { useOfficeOrganization } from "@/features/office/hooks/useOfficeOrganization";
 import { loadCompanySnapshot } from "@/features/office/operations/loadCompanySnapshot";
+import { organizeChatRoster, type ChatRosterEntry, type ChatRosterOrder } from "@/features/office/operations/chatRoster";
 import { dispatchFirefighter } from "@/features/office/operations/dispatchFirefighter";
 import { FIREFIGHTER_DUCK_APPEARANCE } from "@/lib/avatars/duck";
 import { GatewayConnectScreen } from "@/features/agents/components/GatewayConnectScreen";
@@ -474,14 +475,6 @@ type OfficeFeedEvent = {
 
 };
 
-type ChatRosterEntry = {
-  id: string;
-  name: string;
-
-  activity: AgentActivity;
-  hasPendingSchedule?: boolean;
-};
-
 const normalizeOfficeFeedText = (
   value: string | null | undefined,
   maxChars?: number,
@@ -817,7 +810,8 @@ export function OfficeScreen({
   }, [client]);
   const returnFinished = useCallback(() => setReturnRequest(null), []);
   const sessionView = process.env.NEXT_PUBLIC_CLAW3D_SESSION_VIEW === "1";
-  const [chatRosterCollapsed, setChatRosterCollapsed] = useState(sessionView);
+  const [chatRosterCollapsed, setChatRosterCollapsed] = useState(false);
+  const [chatRosterOrder, setChatRosterOrder] = useState<ChatRosterOrder>("activity");
   const [chatExpanded, setChatExpanded] = useState(false);
   const openSessionWorkspace = useCallback(() => setChatExpanded(true), []);
   const [chatViewport, setChatViewport] = useState<{ height: number; top: number } | null>(null);
@@ -1082,6 +1076,7 @@ export function OfficeScreen({
     ) => {
       setSelectedChatAgentId(agentId);
       if (options?.openChat !== false) {
+        setChatRosterCollapsed(false);
         setChatOpen(true);
       }
       if (options?.selectStore !== false) {
@@ -1097,7 +1092,7 @@ export function OfficeScreen({
         };
       });
     },
-    [dispatch],
+    [dispatch, setChatOpen, setChatRosterCollapsed],
   );
   const handleSelectFloor = useCallback(
     async (floorId: FloorId) => {
@@ -1187,11 +1182,12 @@ export function OfficeScreen({
   const focusChatTarget = useCallback(
     (agentId: string) => {
       setSelectedChatAgentId(agentId);
+      setChatRosterCollapsed(false);
       setChatOpen(true);
 
         dispatch({ type: "selectAgent", agentId });
     },
-    [dispatch],
+    [dispatch, setChatOpen, setChatRosterCollapsed],
   );
   const openAgentEditor = useCallback(
     (agentId: string, initialSection: AgentEditorSection = "avatar") => {
@@ -1443,6 +1439,7 @@ export function OfficeScreen({
           for (const agent of snapshot.agents) {
             dispatch({ type: "updateAgent", agentId: agent.id, patch: {
               sessionCreated: true, sessionSettingsSynced: true,
+              lastActivityAt: Math.max(Number.isFinite(agent.updatedAt) ? agent.updatedAt : 0, stateRef.current.agents.find(item => item.agentId === agent.id)?.lastActivityAt ?? 0),
               completedResult: agent.completedResult ?? null, needsInput: Boolean(agent.needsInput), hasPendingSchedule: Boolean(agent.hasPendingSchedule),
               ...(["running", "idle", "error"].includes(agent.status) ? { status: agent.status as "running" | "idle" | "error", runId: null } : {}),
             } });
@@ -3117,13 +3114,20 @@ export function OfficeScreen({
     [officeAgents, sessionView, state.agents, readById, organization.people],
   );
   const chatRosterEntries = useMemo<ChatRosterEntry[]>(() => {
+    const records = new Map(state.agents.map(agent => [agent.agentId, agent]));
+    const memberships = new Map(companyRoster?.members.map(member => [member.id, member.projectId]));
+    const projects = new Map(companyRoster?.projects.map(project => [project.id, project.name]));
     return allVisibleAgents.map(agent => ({
       id: agent.id, name: agent.name || agent.id,
-
+      updatedAt: Math.max(records.get(agent.id)?.lastActivityAt ?? 0, records.get(agent.id)?.lastAssistantMessageAt ?? 0, records.get(agent.id)?.runStartedAt ?? 0),
+      projectId: memberships.get(agent.id) ?? null,
+      projectName: projects.get(memberships.get(agent.id) || "") || "Open Workspace",
       activity: getAgentActivity(agent),
       hasPendingSchedule: agent.hasPendingSchedule,
     }));
-  }, [allVisibleAgents]);
+  }, [allVisibleAgents, state.agents, companyRoster]);
+  const chatRosterGroups = useMemo(() => organizeChatRoster(chatRosterEntries,
+    sessionView ? chatRosterOrder : "activity", sessionView ? sessionSearch : ""), [chatRosterEntries, chatRosterOrder, sessionSearch, sessionView]);
 
   const normalizedOpenClawConsoleSearch = openClawConsoleSearch
     .trim()
@@ -3743,7 +3747,13 @@ export function OfficeScreen({
                   <ChevronLeft className="h-4 w-4" />
                 )}
               </button> : null}
-              {sessionView && !chatRosterCollapsed ? <input aria-label={t("Search sessions")} placeholder={t("Search sessions or projects")} value={sessionSearch} onChange={event => setSessionSearch(event.target.value)} className="mx-2 my-2 min-w-0 rounded border border-white/15 bg-black/30 p-2 text-xs text-white" /> : null}
+              {sessionView && !chatRosterCollapsed ? <>
+                <select aria-label={t("Organize agents")} value={chatRosterOrder} onChange={event => setChatRosterOrder(event.target.value as ChatRosterOrder)} className="mx-2 mt-2 min-h-9 min-w-0 rounded border border-white/15 bg-[#171e28] px-2 text-xs text-white">
+                  <option value="activity">{t("Recently active")}</option>
+                  <option value="project">{t("Department / project (A–Z)")}</option>
+                </select>
+                <input aria-label={t("Search sessions")} placeholder={t("Search sessions or projects")} value={sessionSearch} onChange={event => setSessionSearch(event.target.value)} className="mx-2 my-2 min-w-0 rounded border border-white/15 bg-black/30 p-2 text-xs text-white" />
+              </> : null}
               <div className="min-h-0 flex-1 overflow-y-auto">
                 {chatRosterCollapsed ? (
                   <div className="flex flex-col items-center gap-2 px-1 py-2">
@@ -3771,7 +3781,9 @@ export function OfficeScreen({
                 ) : chatRosterEntries.length === 0 ? (
                   <div className="px-3 py-4 font-mono text-[11px] text-white/30">{t("No agents.")}</div>
                 ) : (
-                  chatRosterEntries.filter(agent => !sessionView || [agent.name, agent.id, state.agents.find(item => item.agentId === agent.id)?.role || ""].some(value => value.toLowerCase().includes(sessionSearch.toLowerCase()))).map((agent) => {
+                  chatRosterGroups.map(group => <div key={group.id || "ungrouped"}>
+                    {sessionView && chatRosterOrder === "project" ? <h3 className="truncate px-3 pb-1 pt-3 text-[11px] font-semibold text-white/45" title={group.name}>{group.id ? group.name : t("Open Workspace")}</h3> : null}
+                    {group.agents.map((agent) => {
                     const isSelected = agent.id === selectedChatAgentId;
                     return (
                       <button
@@ -3795,7 +3807,8 @@ export function OfficeScreen({
                         <ScheduledTaskIndicator active={agent.hasPendingSchedule} />
                       </button>
                     );
-                  })
+                    })}
+                  </div>)
                 )}
               </div>
             </div>
@@ -3892,7 +3905,7 @@ export function OfficeScreen({
 
         {(!sessionView || !chatOpen) ? <button
           type="button"
-          onClick={() => setChatOpen((prev) => !prev)}
+          onClick={() => { setChatRosterCollapsed(false); setChatOpen((prev) => !prev); }}
           className="office-chat-launcher flex items-center gap-1.5 rounded border border-amber-700/50 bg-[#0e0a04]/90 px-3 py-1.5 font-mono text-[11px] font-medium tracking-wider text-amber-500/80 shadow-lg backdrop-blur transition-colors hover:border-amber-600/70 hover:text-amber-400"
         >
           {chatOpen ? (

@@ -19,12 +19,13 @@ if(fs.realpathSync(process.execPath)!==fs.realpathSync(node)){
 }
 const {LocalOffice}=createRequire(path.join(office,"package.json"))("./desktop/launcher.cjs");
 const {chromium,webkit,expect}=createRequire(path.join(source,"package.json"))("@playwright/test");
+const {WebSocket}=createRequire(path.join(source,"package.json"))("ws");
 const browserName=option("--browser")||"chromium";
 if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose --browser chromium, chrome or webkit");
 (async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'office-mac-browser-')),data=path.join(root,'data'),foreign=path.join(root,'foreign'),workspace=path.join(root,'workspace');
  for(const dir of [foreign,workspace])fs.mkdirSync(dir);
- let local,browser,page,finishReply,liveSocket,lastStream;let requests=0;const errors=[];
+ let local,browser,page,finishReply,liveSocket,lastStream,rosterSocket;let requests=0;const errors=[];
  const provider=http.createServer((req,res)=>{let raw='';req.on('data',part=>raw+=part);req.on('end',()=>{
   JSON.parse(raw);requests++;res.writeHead(200,{'content-type':'text/event-stream'});
   const id='response-'+requests,emit=value=>res.write('data: '+JSON.stringify(value)+'\n\n');
@@ -78,6 +79,8 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   await page.getByRole('button',{name:'Use this folder',exact:true}).click();
   await page.getByRole('button',{name:'Recruit and create session',exact:true}).click();
   await page.getByLabel('Send to session',{exact:true}).waitFor({timeout:20000});
+  await expect(page.locator('#session-chat-list')).toBeVisible();
+  await expect(page.getByRole('combobox',{name:'Organize agents',exact:true})).toHaveValue('activity');
   await page.getByLabel('Send to session',{exact:true}).fill('Say hello for the disposable package check.');
   await page.getByRole('button',{name:'Send',exact:true}).click();
   const timer=page.getByRole('timer');await timer.waitFor({timeout:30000});
@@ -154,8 +157,40 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   await expect.poll(readMessageTimes).toEqual(messageTimes);
   const again=JSON.parse(fs.readFileSync(settingsFile));const reloaded=Object.values(again.avatars).flatMap(g=>Object.values(g)).find(p=>p.duck);
   if(JSON.stringify(reloaded.duck)!==saved)throw Error('Reload or canceled edit changed saved recruit style');
+  // Create metadata-only agents in this disposable Office; no extra model calls.
+  const config=JSON.parse(fs.readFileSync(path.join(data,'desktop.json'))),pending=new Map();let serial=0;
+  rosterSocket=new WebSocket('ws://127.0.0.1:'+config.gatewayPort);
+  rosterSocket.on('message',raw=>{const frame=JSON.parse(String(raw)),request=pending.get(frame.id);if(!request)return;clearTimeout(request.timer);pending.delete(frame.id);if(frame.ok)request.resolve(frame.payload);else request.reject(Error(frame.error?.message))});
+  await once(rosterSocket,'open');
+  const call=(method,params={})=>new Promise((resolve,reject)=>{const id=String(++serial),timer=setTimeout(()=>{pending.delete(id);reject(Error('Roster fixture RPC timed out: '+method))},5000);pending.set(id,{resolve,reject,timer});rosterSocket.send(JSON.stringify({type:'req',id,method,params}))});
+  await call('connect',{auth:{token:config.token}});
+  const alpha=(await call('project.create',{name:'Alpha team',rootPaths:[workspace],requestId:'roster-alpha-project'})).project;
+  const zebra=(await call('project.create',{name:'Zebra team',rootPaths:[workspace],requestId:'roster-zebra-project'})).project;
+  for(const [name,projectId] of [['Roster Alpha Old',alpha.id],['Roster Zebra',zebra.id],['Roster Alpha New',alpha.id]]){
+   await call('session.create',{name,projectId,requestId:name});await new Promise(resolve=>setTimeout(resolve,10));
+  }
+  const list=page.locator('#session-chat-list'),order=page.getByRole('combobox',{name:'Organize agents',exact:true});
+  const names=()=>list.getByRole('button').filter({hasText:'Roster '}).allTextContents();
+  await expect.poll(names).toEqual(['Roster Alpha New','Roster Zebra','Roster Alpha Old']);
+  await order.selectOption('project');
+  await expect(list.getByRole('heading')).toHaveText(['Alpha team','Open Workspace','Zebra team']);
+  await expect.poll(names).toEqual(['Roster Alpha New','Roster Alpha Old','Roster Zebra']);
+  await expect(page.getByRole('heading',{name:'Mac verification recruit',exact:true})).toBeVisible();
+  await page.getByRole('textbox',{name:'Search sessions',exact:true}).fill('Alpha team');
+  await expect.poll(names).toEqual(['Roster Alpha New','Roster Alpha Old']);
+  await order.selectOption('activity');
+  await expect.poll(names).toEqual(['Roster Alpha New','Roster Alpha Old']);
+  await page.getByRole('textbox',{name:'Search sessions',exact:true}).fill('');
+  await expect.poll(names).toEqual(['Roster Alpha New','Roster Zebra','Roster Alpha Old']);
+  await order.selectOption('project');
+  await page.getByRole('button',{name:'Close session list',exact:true}).click();
+  await expect(list).toBeHidden();
+  await page.getByRole('button',{name:'Close chat and return to office',exact:true}).click();
+  await page.getByRole('button',{name:'Open session: Mac verification recruit',exact:true}).first().click();
+  await expect(list).toBeVisible();await expect(order).toHaveValue('project');
+  if(option('--screenshots'))await page.screenshot({path:path.join(option('--screenshots'),browserName+'-agent-projects.png')});
   if(errors.length)throw Error(errors.join('\n'));
-  console.log(JSON.stringify({browser:browserName,browserRecruitment:true,workingFolder:true,randomStyleSaved:true,realBundledCodexReply:true,historyAfterReload:true,messageTimesPersisted:true,runningTimerTicks:true,timesDoNotOverlap:true,workProcessAutoOpens:true,toolBatchesDefaultClosed:true,workProcessFoldsOnOfficialReply:true,workUiStreamFixture:true,canceledEditPreserved:true,paidEndpoints:false,modelRequests:requests,pageErrors:0}));
+  console.log(JSON.stringify({browser:browserName,browserRecruitment:true,workingFolder:true,randomStyleSaved:true,realBundledCodexReply:true,historyAfterReload:true,messageTimesPersisted:true,runningTimerTicks:true,timesDoNotOverlap:true,workProcessAutoOpens:true,toolBatchesDefaultClosed:true,workProcessFoldsOnOfficialReply:true,workUiStreamFixture:true,canceledEditPreserved:true,agentListDefaultsOpen:true,agentOrderSwitches:true,departmentOrderAlphabetical:true,searchInBothOrders:true,paidEndpoints:false,modelRequests:requests,pageErrors:0}));
  }catch(error){console.error(error.stack);console.error(JSON.stringify({browser:browserName,pageErrors:errors,visiblePage:page?await page.locator('body').innerText().catch(()=>'(unavailable)'):null}));process.exitCode=1}
- finally{await browser?.close();await local?.close();provider.closeAllConnections();await new Promise(resolve=>provider.close(resolve));fs.rmSync(root,{recursive:true,force:true})}
+ finally{rosterSocket?.terminate();await browser?.close();await local?.close();provider.closeAllConnections();await new Promise(resolve=>provider.close(resolve));fs.rmSync(root,{recursive:true,force:true})}
 })();

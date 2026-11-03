@@ -244,15 +244,25 @@ function arc(layout: ShipLayout, ringIndex: RingIndex, deck: DeckIndex, from: nu
   if(!rooms.length||Math.abs(delta)<1e-8)return Array.from({ length: steps }, (_, i) => shipPoint(radius, from + delta * (i + 1) / steps));
   const boundary=(room:ShipCabin)=>(room.kind==="bar"?BAR_LAYOUT.routeHalfWidth:room.kind==="break"?BREAK_ROOM.routeHalfWidth:CLONING_POD.spacing+CLONING_POD.width/2+1)/radius;
   const aisle=(room:ShipCabin)=>room.kind==="bar"?BAR_LAYOUT.aisle:room.kind==="break"?BREAK_ROOM.aisle:CLONING_AISLE_V;
-  const events: Array<{t:number;enter?:boolean}>=Array.from({length:steps+1},(_,i)=>({t:i/steps}));
+  // Pass behind the corner turntable before joining the aisle in front of the stools.
+  const barBend=Math.asin((BAR_LAYOUT.turntable.x+BAR_LAYOUT.turntable.width/2+.5)/radius),barBypass=.25;
+  const events: Array<{t:number;enter?:boolean;bend?:boolean}>=Array.from({length:steps+1},(_,i)=>({t:i/steps}));
   for(const room of rooms)for(const wrap of [-TAU,0,TAU])for(const side of [-1,1]){
     const t=(shortestAngle(from,cabinAngle(layout,room.slot))+wrap+side*boundary(room))/delta;
     if(t>0&&t<1)events.push({t,enter:side*Math.sign(delta)<0});
   }
+  for(const room of rooms.filter(c=>c.kind==="bar"))for(const wrap of [-TAU,0,TAU]){
+    const t=(shortestAngle(from,cabinAngle(layout,room.slot))+wrap+barBend)/delta;
+    if(t>0&&t<1)events.push({t,enter:delta>0,bend:true});
+  }
   return events.sort((a,b)=>a.t-b.t).flatMap(event=>{
     const angle=from+delta*event.t,room=rooms.find(room=>Math.abs(shortestAngle(cabinAngle(layout,room.slot),angle))<boundary(room)+1e-8);
-    const offset=room?aisle(room):0;
-    if(event.enter!==undefined){const outside=shipPoint(radius,angle),inside=shipPoint(radius+offset,angle);return event.enter?[outside,inside]:[inside,outside];}
+    const besideTable=room?.kind==="bar"&&shortestAngle(cabinAngle(layout,room.slot),angle)<barBend-1e-8;
+    const offset=room ? (besideTable ? barBypass : aisle(room)) : 0;
+    if(event.enter!==undefined){
+      const outside=shipPoint(radius+(event.bend?barBypass:0),angle);
+      const inside=shipPoint(radius+(event.bend&&room?aisle(room):offset),angle);return event.enter?[outside,inside]:[inside,outside];
+    }
     return [shipPoint(radius+offset,angle)];
   });
 }

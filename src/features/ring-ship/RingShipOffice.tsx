@@ -19,6 +19,7 @@ import { DuckCrewModel } from "./DuckCrewModel";
 import { CompanyWorkAreaMenu } from "@/features/office/components/CompanyWorkAreaMenu";
 import { SettingsPanel } from "@/features/office/components/panels/SettingsPanel";
 import { cabinAngle, CLONING_LAB_WIDTH, DECK_NAMES, DECK_STEP, DECKS, PUBLIC_DESCRIPTIONS, SHARED_PROJECT_ID, shipDeck, type DeckIndex, type ShipLayout, type ShipPoint } from "./layout";
+import { updateServerActivity } from "./machineRoomLayout";
 import { buildShipGeometry, disposeShipGeometry, SHIP_MODELS, shipModelUrl, type ModelTemplates } from "./geometry";
 import { useShipLayout } from "./useShipLayout";
 import { getAgentActivity, workChatter } from "@/features/retro-office/core/agentActivity";
@@ -97,7 +98,17 @@ function StaticShip({ layout, enabled, selectedId, onSelect }: { layout: ShipLay
   const t = useUiText();
   const models = useModels();
   const group = useMemo(() => buildShipGeometry(layout, models, t), [layout, models, t]);
-  useEffect(() => () => disposeShipGeometry(group), [group]);
+  const activity = useRef<THREE.MeshStandardMaterial[]>([]);
+  useEffect(() => {
+    activity.current = group.children.flatMap(object => {
+      const material = (object as THREE.Mesh).material as THREE.MeshStandardMaterial;
+      return typeof material?.userData.serverActivityPhase === "number" ? [material] : [];
+    });
+    return () => disposeShipGeometry(group);
+  }, [group]);
+  useFrame(({ clock }) => {
+    updateServerActivity(activity.current, clock.elapsedTime);
+  });
   return <ShipObjectScene group={group} enabled={enabled} selectedId={selectedId} onSelect={onSelect} />;
 }
 function Lighting({ radius, dimmed = false }: { radius: number; dimmed?: boolean }) {
