@@ -10,11 +10,13 @@ export function useCompanyRosterSync(client: SessionClient, enabled: boolean,
     let retry: ReturnType<typeof setTimeout> | undefined;
     const refresh = async () => {
       dirty = true;
-      if (busy || stopped || document.visibilityState !== "visible") return;
+      if (busy || stopped) return;
       clearTimeout(retry);
       busy = true;
       try {
-        while (dirty && !stopped && document.visibilityState === "visible") {
+        // Attention markers and their sound must arrive before the user
+        // returns to this tab. Keep push reads active; chat deltas stay ignored.
+        while (dirty && !stopped) {
           dirty = false;
           await load({ silent: true });
         }

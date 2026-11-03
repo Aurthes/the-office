@@ -492,7 +492,7 @@ export function RingShipOffice(props: Props) {
   const objectFocus = objectEnabled && inspectedObject && (inspectedObject.space ? inspectedObject.space.seed === system.seed : !shipView && inspectedObject.deck === visibleDeck && currentLayout.cabins.some(c => c.id === inspectedObject.cabinId)) ? inspectedObject : null;
   const duckFocus = !busy && !cloneFlight && !navigationOpen && !returnFlight && !monitorOpen && !serversOpen && !tasksOpen && !musicOpen && !settingsOpen && !aiOpen && !shipView
     ? props.activeChatAgentId || (objectFocus?.kind === "ceo" ? objectFocus.id : !objectFocus && currentLayout.seats[validFocus] ? validFocus : null) : null;
-  const duckAudio = useDuckFocusAudio(duckFocus);
+  const duckAudio = useDuckFocusAudio(duckFocus, agents);
   const inspectObject = useCallback((object: ShipObject) => {
     setInspectedObject(object); setFocus(previous => ({ id: "", request: previous.request + 1 }));
     if (!object.space) setDeck(object.deck); setWhole(false); setLiftOpen(false); setFleetOpen(false);

@@ -16,16 +16,18 @@ describe("push roster refresh", () => {
     expect(load).toHaveBeenCalledTimes(2);
     view.unmount(); expect(unsubscribe).toHaveBeenCalledOnce();
   });
-  it("defers hidden-page updates and reconciles immediately when visible", async () => {
+  it("refreshes hidden-page markers on push and reconciles again when visible", async () => {
     let event!: (event: { event: string }) => void;
     const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     const client = { call: vi.fn(), onEvent: vi.fn(handler => { event = handler; return () => {}; }) };
     const load = vi.fn(async () => {});
     renderHook(() => useCompanyRosterSync(client, true, load));
-    act(() => event({ event: "roster.updated" })); expect(load).not.toHaveBeenCalled();
+    await act(async () => {}); expect(load).toHaveBeenCalledTimes(1);
+    await act(async () => event({ event: "roster.updated" })); expect(load).toHaveBeenCalledTimes(2);
+    await act(async () => event({ event: "session.stream" })); expect(load).toHaveBeenCalledTimes(2);
     visibility.mockReturnValue("visible");
     await act(async () => document.dispatchEvent(new Event("visibilitychange")));
-    expect(load).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledTimes(3);
   });
   it("recovers a transient read error without waiting for another roster mutation", async () => {
     vi.useFakeTimers();
