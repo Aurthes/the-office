@@ -6,6 +6,7 @@ import { addCabinDetails } from "./interior-details";
 import { addRainforest, addMachineRoom } from "./ship-biomes";
 import { addMonitorRoom } from "./monitor-room-geometry";
 import { addAiCenter } from "./ai-center-geometry";
+import { addBreakRoom } from "./break-room-geometry";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
 import workstationModels from "@/features/retro-office/core/workstation-models.json";
@@ -247,6 +248,8 @@ function addAmenity(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
   const local = (u: number, v: number) => shipPoint(ring.radius + v, cabinAngle(layout, cabin.slot) + u / ring.radius);
   if (cabin.kind === "ai") {
     addAiCenter(b, layout, cabin);
+  } else if (cabin.kind === "break") {
+    addBreakRoom(b, layout, cabin);
   } else if (cabin.kind === "monitor") {
     addMonitorRoom(b, layout, cabin);
   } else if (cabin.kind === "cloning") {

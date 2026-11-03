@@ -2,6 +2,11 @@ import * as THREE from "three";
 import { DECK_STEP, type DeckIndex } from "./layout";
 
 export const SHIP_OBJECT_INFO = {
+  refreshmentCounter: ["Refreshment counter", "Tea, coffee and a well-defended supply of snacks."],
+  teaStation: ["Tea station", "A warm cup and a little time to steep."],
+  snackTray: ["Snack tray", "Emergency biscuits, fruit and small reasons to take a break."],
+  breakTable: ["Break-room table", "Pull up a chair. The best ideas start with a small conversation."],
+  breakChair: ["Break-room chair", "Reserved for sitting down and slowing down."],
   barCounter: ["Bar counter", "Drinks, clean glasses and a friendly robot, all in their own cabin."],
   barStool: ["Bar stool", "Pull up a seat for a drink and a story from the stars."],
   cloningPod: ["Cloning pod", "A fresh appearance and a new conversation, carrying the source agent's context through the chosen turn."],

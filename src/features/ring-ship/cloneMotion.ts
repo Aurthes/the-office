@@ -33,5 +33,5 @@ export function rejoinCrewAfterClone(agent: MovingAgent, layout: ShipLayout, arr
   Object.assign(agent,canvasPoint(arrival.point));
   const route=routeBetweenCabins(layout,{ring:ring.index,angle:Math.atan2(departure.x,departure.z)},cabin,seat.angle);
   agent.route = [...(lab?[cloningPoint(layout,lab,0,CLONING_AISLE_V),...route.slice(1)]:route),agent.home];
-  agent.routeIndex=0;agent.visiting=false;agent.state="walking";agent.interactionTarget=undefined;
+  agent.routeIndex=0;agent.visiting=false;agent.breakVisit=undefined;agent.state="walking";agent.interactionTarget=undefined;
 }
