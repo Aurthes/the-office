@@ -38,7 +38,13 @@ function linksInto(roots) {
   const result = run("find", [...roots, "-type", "l", "-print0"]);
   const links = [];
   for (const source of result.stdout.split("\0").filter(Boolean)) {
-    const target = path.resolve(path.dirname(source), fs.readlinkSync(source));
+    let value;
+    try { value = fs.readlinkSync(source); } catch (error) {
+      // Another completed task can retire its worktree during this scan.
+      if (["ENOENT", "ENOTDIR", "EINVAL"].includes(error.code)) continue;
+      throw error;
+    }
+    const target = path.resolve(path.dirname(source), value);
     links.push({ source, target });
     try { links.push({ source, target: canonical(source) }); } catch (error) {
       if (!["ENOENT", "ENOTDIR", "ELOOP"].includes(error.code)) throw error;

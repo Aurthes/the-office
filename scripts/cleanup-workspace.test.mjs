@@ -118,6 +118,19 @@ test("references created after the report are rechecked before deleting", t => {
   assert.ok(fs.existsSync(directory));
 });
 
+test("a dependency link removed by another task during inspection does not abort cleanup", t => {
+  const f = fixture(t), directory = f.task("completed");
+  fs.mkdirSync(path.join(directory, "node_modules"));
+  const link = path.join(f.repo, "node_modules");
+  fs.symlinkSync(path.join(directory, "node_modules"), link);
+  const readlink = fs.readlinkSync;
+  t.mock.method(fs, "readlinkSync", (file, ...args) => {
+    if (file === link) fs.unlinkSync(link);
+    return readlink(file, ...args);
+  });
+  assert.doesNotThrow(() => planCleanup(f.options, idle));
+});
+
 test("releases retain live versions and one rollback; unrelated data stays untouched", t => {
   const f = fixture(t), old = f.release("old", 80), live = f.release("live", 70), rollback = f.release("rollback", 60);
   const uploads = path.join(f.releases, "uploads");
