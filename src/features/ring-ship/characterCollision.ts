@@ -8,6 +8,17 @@ export type CharacterRecovery = { goal: ShipPoint; best: number; stalled: number
 type Walker = { recovery?: CharacterRecovery };
 const GAP = .03;
 
+// A model can occupy a previously empty route stop. Keep the stop on nearby
+// clear floor without moving the character or changing its original home pose.
+export function walkableWaypoint(body: CharacterBody, route: ShipPoint[], index: number, layout: ShipLayout) {
+  let point = route[index];
+  if (point && !isWalkable(point, layout, footingRadius(body.radius), body.deck, body)) {
+    point = nearestWalkablePoint(point, layout, footingRadius(body.radius), body.deck, undefined, body);
+    route[index] = point;
+  }
+  return point;
+}
+
 export function crewRadius(agent: Pick<OfficeAgent, "avatarProfile">) {
   const appearance = normalizeDuckAppearance(agent.avatarProfile?.duck);
   return .38 * Math.max(appearance.bodyWidth, appearance.bodyDepth) + .03;
@@ -19,7 +30,7 @@ export function occupiedWaypoint(body: CharacterBody, target: ShipPoint, others:
 }
 
 export function separateCharacter(body: CharacterBody, stride: number, others: readonly CharacterBody[], layout?: ShipLayout, clearance = 0): ShipPoint {
-  if (layout && !isWalkable(body.position, layout, footingRadius(body.radius), body.deck)) return moveCharacter(body, body.position, 0, others, true, layout);
+  if (layout && !isWalkable(body.position, layout, footingRadius(body.radius), body.deck, body)) return moveCharacter(body, body.position, 0, others, true, layout);
   const overlap = others.find(other => other.id !== body.id && other.deck === body.deck
     && Math.hypot(body.position.x - other.position.x, body.position.z - other.position.z) < body.radius + other.radius + GAP + clearance - 1e-6);
   if (!overlap) return body.position;
@@ -32,7 +43,7 @@ export function separateCharacter(body: CharacterBody, stride: number, others: r
 // occupied space, preferring the right side so approaching walkers can pass.
 export function moveCharacter(body: CharacterBody, target: ShipPoint, stride: number, others: readonly CharacterBody[], slide = true, layout?: ShipLayout): ShipPoint {
   const padding = footingRadius(body.radius);
-  if (layout && !isWalkable(body.position, layout, padding, body.deck)) return nearestWalkablePoint(body.position, layout, padding, body.deck, point => !occupiedWaypoint(body, point, others));
+  if (layout && !isWalkable(body.position, layout, padding, body.deck, body)) return nearestWalkablePoint(body.position, layout, padding, body.deck, point => !occupiedWaypoint(body, point, others), body);
   const start = body.position, dx = target.x - start.x, dz = target.z - start.z;
   const distance = Math.hypot(dx, dz), step = Math.min(stride, distance);
   if (step <= 0 || distance < 1e-8) return { ...start };
@@ -47,7 +58,7 @@ export function moveCharacter(body: CharacterBody, target: ShipPoint, stride: nu
   for (const angle of angles) {
     const x = Math.sin(direction + angle) * probe, z = Math.cos(direction + angle) * probe;
     const next = { x: start.x + x * step / probe, z: start.z + z * step / probe };
-    if (layout && !walkableSegment(start, { x: start.x + x, z: start.z + z }, layout, padding, body.deck)) continue;
+    if (layout && !walkableSegment(start, { x: start.x + x, z: start.z + z }, layout, padding, body.deck, body)) continue;
     if (nearby.every(other => {
       const radius = body.radius + other.radius + GAP;
       const ox = start.x - other.position.x, oz = start.z - other.position.z;
