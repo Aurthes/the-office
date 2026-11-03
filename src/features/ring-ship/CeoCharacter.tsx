@@ -14,6 +14,9 @@ import { crewBodies } from "./crewMotion";
 import { companionBody, type CompanionKind, type CompanionState } from "./companionMotion";
 import { advanceCeo, ceoActivity, ceoBody, ceoHome, createCeoState } from "./ceoMotion";
 import { animateCeoFigure } from "./ceoPose";
+import { BreakProps } from "./BreakProps";
+import type { BreakPoseState } from "./breakPose";
+import { breakAction, breakSeatKey } from "./breakRoomLayout";
 import { monitorChairPose } from "./monitor-room-geometry";
 import { useDuckFigure } from "./useDuckFigure";
 import "./organization.css";
@@ -42,18 +45,23 @@ export function CeoCharacter({ layout, profile, active, enabled, onSelect, onRea
     return () => { if (bodyRef.current === body) bodyRef.current = null; onReady?.(null); };
   }, [record, state, bounds, bodyRef, onReady]);
   const animation = useRef(figure);
+  const breakPose = useRef<BreakPoseState>({ action: null, time: 0 });
   useLayoutEffect(() => { animation.current = figure; }, [figure]);
   useFrame((_, delta) => {
     if (!active || !group.current) return;
     const others = [...crewBodies([...crewRef.current.values()], layout), ...[...companionsRef.current.values()].map(companionBody)];
     advanceCeo(state, layout, delta, others);
+    breakPose.current = { action: !state.route.length && state.breakVisit ? breakAction(state.breakVisit) : null, time: state.time };
     const props = animateCeoFigure(animation.current, state, chair.seatHeight, delta);
     const actor = group.current, object = objectRef.current; actor.position.set(state.position.x, .08, state.position.z); actor.rotation.y = state.facing;
     actor.updateMatrixWorld(true); object.bounds.copy(bounds).applyMatrix4(actor.matrixWorld);
     object.bounds.min.y += animation.current.root.position.y * AGENT_SCALE; object.bounds.max.y += animation.current.root.position.y * AGENT_SCALE;
     const cabin = layout.cabins.find(c => c.id === state.cabinId) || home;
     object.cabinId = cabin.id; object.cabinName = cabin.name; object.npc!.activity = ceoActivity(state);
-    if (bodyRef.current) bodyRef.current.position = state.position;
+    if (bodyRef.current) {
+      bodyRef.current.position = state.position;
+      bodyRef.current.reservedSeat = state.breakVisit ? breakSeatKey(state.breakVisit.cabinId, state.breakVisit.seat) : undefined;
+    }
     actor.userData.ceo = state; actor.userData.shipObject = object;
     if (tablet.current) { tablet.current.visible = props.tablet; tablet.current.rotation.y = Math.sin(state.time * 1.5) * .04; }
     if (cup.current) {
@@ -66,6 +74,7 @@ export function CeoCharacter({ layout, profile, active, enabled, onSelect, onRea
     onClick={event => { event.stopPropagation(); if (event.delta < 6) select(); }}>
     <group scale={AGENT_SCALE}>
     <primitive object={figure.root} dispose={null} />
+    <BreakProps figure={figure} stateRef={breakPose} />
     {createPortal(<group>
       <group ref={tablet} name="ceo-tablet" position={[-.02, .33, .22]} rotation={[.55, 0, 0]} visible={false}>
         <mesh><boxGeometry args={[.22, .16, .018]} /><meshStandardMaterial color="#263d50" roughness={.4} /></mesh>

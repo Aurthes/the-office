@@ -78,17 +78,17 @@ describe("ship character collision volumes", () => {
   });
   it("makes NPCs avoid a stationary agent and each other while completing their routes", () => {
     const { crew, layout } = crewFixture(1), agent = crew[0];
-    Object.assign(agent, canvasPoint({ x: 12, z: 0 })); agent.pauseUntil = Infinity;
+    Object.assign(agent, canvasPoint({ x: -12, z: 0 })); agent.pauseUntil = Infinity;
     const cat = createCompanionState("cat", layout, 1), dog = createCompanionState("dog", layout, 2);
-    Object.assign(cat, { position: { x: 12, z: -3 }, route: [{ x: 12, z: 3 }], waypoint: 0, duration: Infinity });
-    Object.assign(dog, { position: { x: 12, z: 3 }, route: [{ x: 12, z: -3 }], waypoint: 0, duration: Infinity });
+    Object.assign(cat, { position: { x: -12, z: -3 }, route: [{ x: -12, z: 3 }], waypoint: 0, duration: Infinity });
+    Object.assign(dog, { position: { x: -12, z: 3 }, route: [{ x: -12, z: -3 }], waypoint: 0, duration: Infinity });
     const arrived = new Set<string>();
     for (let i = 0; i < 900; i++) {
       advanceCrew(crew, layout, i * 16, .016, agent.id, [companionBody(cat), companionBody(dog)]);
       for (const npc of [cat, dog]) { advanceCompanion(npc, layout, .016, [...crewBodies(crew, layout), companionBody(cat), companionBody(dog)]); if (!npc.route.length) arrived.add(npc.kind); }
       expectSeparated([...crewBodies(crew, layout), companionBody(cat), companionBody(dog)]);
     }
-    expect(distance(worldPoint(agent), { x: 12, z: 0 })).toBeLessThan(1e-8);
+    expect(distance(worldPoint(agent), { x: -12, z: 0 })).toBeLessThan(1e-8);
     expect([...arrived].sort()).toEqual(["cat", "dog"]);
   });
   it("lets an idle crewmate yield out of a bridge bottleneck so a large NPC can finish crossing",()=>{

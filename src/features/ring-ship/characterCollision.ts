@@ -3,7 +3,7 @@ import type { OfficeAgent } from "@/features/retro-office/core/types";
 import type { ShipLayout, ShipPoint } from "./layout";
 import { footingRadius, isWalkable, nearestWalkablePoint, walkableSegment } from "./walkableSurface";
 
-export type CharacterBody = { id: string; position: ShipPoint; radius: number; deck: number };
+export type CharacterBody = { id: string; position: ShipPoint; radius: number; deck: number; reservedSeat?: string };
 export type CharacterRecovery = { goal: ShipPoint; best: number; stalled: number; attempts: number; retreat?: ShipPoint; remaining: number; wait: number };
 type Walker = { recovery?: CharacterRecovery };
 const GAP = .03;

@@ -8,6 +8,7 @@ const { createGatewayProxy } = require("./gateway-proxy");
 const { assertPublicHostAllowed, resolveHosts } = require("./network-policy");
 const { loadUpstreamGatewaySettings } = require("./studio-settings");
 const { createProxyBoundary } = require("./proxy-boundary");
+const { createServerTerminals } = require("./server-terminal");
 
 const resolvePort = () => {
   const raw = process.env.PORT?.trim() || "3000";
@@ -123,11 +124,17 @@ async function main() {
     },
   });
 
+  const serverTerminals = createServerTerminals({ verifyClient: info => !proxyBoundary(info.req, true) && sameOrigin(info.req) && accessGate.allowUpgrade(info.req) });
+
   await app.prepare();
   const handleUpgrade = app.getUpgradeHandler();
   const handleServerUpgrade = (req, socket, head) => {
     const rejected = proxyBoundary(req, true);
     if (rejected) { socket.end(`HTTP/1.1 ${rejected} Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`); return; }
+    if (resolvePathname(req.url) === "/api/gateway/ws" && new URL(req.url, "http://localhost").searchParams.has("terminalHost")) {
+      void serverTerminals.handleUpgrade(req, socket, head);
+      return;
+    }
     if (resolvePathname(req.url) === "/api/gateway/ws") {
       proxy.handleUpgrade(req, socket, head);
       return;

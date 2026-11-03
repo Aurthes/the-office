@@ -2,9 +2,9 @@ import type { UiTranslator } from "@/lib/i18n/messages";
 import type { OfficeAgent } from "@/features/retro-office/core/types";
 import { getAgentActivity } from "@/features/retro-office/core/agentActivity";
 
-export function paintCrewNameplate(canvas: HTMLCanvasElement, agent: Pick<OfficeAgent, "name" | "color" | "status" | "needsInput" | "needsReview" | "title">, expanded: boolean, workText: string, gearAngle = 0, t: UiTranslator = text => text) {
+export function paintCrewNameplate(canvas: HTMLCanvasElement, agent: Pick<OfficeAgent, "name" | "color" | "status" | "needsInput" | "needsReview" | "title">, expanded: boolean, workText: string, gearAngle = 0, t: UiTranslator = text => text, casual = false) {
   const activity = getAgentActivity(agent);
-  const speaking = activity.kind === "working" && !!workText;
+  const speaking = (activity.kind === "working" || casual) && !!workText;
   const width = expanded ? 640 : 512, height = expanded ? 144 : agent.title ? 192 : 128;
   // Assigning even the same size reallocates and resets the canvas backing store.
   if (canvas.width !== width) canvas.width = width;

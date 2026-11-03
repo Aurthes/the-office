@@ -1,5 +1,6 @@
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
 import { BAR_LAYOUT } from "./barLayout";
+import { BREAK_ROOM } from "./breakRoomLayout";
 
 export type RingIndex = 0 | 1 | 2;
 export type DeckIndex = 0 | 1 | 2;
@@ -9,11 +10,11 @@ export const SHIP_CORRIDOR_START = 3.2;
 // Leave room for opposing crew and companions to pass with collision enabled.
 export const SHIP_CORRIDOR_WIDTH = 3.2;
 export const DECK_NAMES = ["Main deck", "Expansion deck", "Reserve deck"] as const;
-export type CabinKind = "work" | "reserve" | "garden" | "hydroponics" | "canteen" | "gym" | "servers" | "ai" | "maintenance" | "lounge" | "bar" | "cargo" | "observatory" | "quarters" | "return" | "monitor" | "cloning";
+export type CabinKind = "work" | "reserve" | "garden" | "hydroponics" | "canteen" | "break" | "gym" | "servers" | "ai" | "maintenance" | "lounge" | "bar" | "cargo" | "observatory" | "quarters" | "return" | "monitor" | "cloning";
 export type ShipPoint = { x: number; z: number };
 export type ShipAssignment = { deck?: DeckIndex; ring: RingIndex; slot: number; span: number };
 type CabinLocation = { deck: DeckIndex; ring: RingIndex; slot: number };
-export type ShipAllocation = { version: 1; sectors: number; projects: Record<string, ShipAssignment>; monitorRoom?: CabinLocation; cloningRoom?: CabinLocation; serverRoom?: CabinLocation };
+export type ShipAllocation = { version: 1; sectors: number; projects: Record<string, ShipAssignment>; monitorRoom?: CabinLocation; cloningRoom?: CabinLocation; serverRoom?: CabinLocation; breakRoom?: CabinLocation };
 export type ShipRing = { index: RingIndex; radius: number; depth: number; capacity: number };
 export type ShipCabin = {
   id: string; deck: DeckIndex; ring: RingIndex; slot: number; kind: CabinKind; name: string; color: string;
@@ -68,7 +69,7 @@ export function parseShipAllocation(value: string | null): ShipAllocation | unde
     for (const a of Object.values(parsed.projects) as ShipAssignment[]) {
       if (!a || (a.deck !== undefined && !DECKS.includes(a.deck)) || ![0, 1, 2].includes(a.ring) || !Number.isInteger(a.slot) || !Number.isInteger(a.span) || a.slot < 0 || a.span < 1 || a.slot + a.span > parsed.sectors) return;
     }
-    for (const room of [parsed.monitorRoom, parsed.cloningRoom, parsed.serverRoom]) {
+    for (const room of [parsed.monitorRoom, parsed.cloningRoom, parsed.serverRoom, parsed.breakRoom]) {
       if (room && (!DECKS.includes(room.deck) || ![0, 1, 2].includes(room.ring) || !Number.isInteger(room.slot) || room.slot < 0 || room.slot >= parsed.sectors)) return;
     }
     return parsed as ShipAllocation;
@@ -94,13 +95,14 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
   for (const group of groups) group.agentIds.sort();
   let sectors = Math.max(BASE_SECTORS, previous?.sectors || 0);
   let serverRoom = previous?.serverRoom;
+  let breakRoom = previous?.breakRoom;
   let assignments: Record<string, ShipAssignment>;
   for (;;) {
     const occupied = DECKS.map(() => [new Set<number>(), new Set<number>(), new Set<number>()]);
     for (const deck of DECKS) for (const cabin of PUBLIC_CABINS) {
       if ((cabin.kind !== "return" && cabin.kind !== "bar") || deck === 0) occupied[deck][cabin.ring].add(cabin.kind === "bar" ? sectors - 1 : cabin.slot);
     }
-    for (const room of [previous?.monitorRoom, previous?.cloningRoom, previous?.serverRoom]) {
+    for (const room of [previous?.monitorRoom, previous?.cloningRoom, previous?.serverRoom, previous?.breakRoom]) {
       if (room) occupied[room.deck][room.ring].add(room.slot);
     }
     if (!serverRoom) {
@@ -115,6 +117,17 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
       if (!serverRoom) { sectors += 1; continue; }
     }
     occupied[0][serverRoom.ring].add(serverRoom.slot);
+    if (!breakRoom) {
+      for (const ring of [0, 1, 2] as const) {
+        const slot = Array.from({ length: sectors }, (_, i) => i).find(slot => !occupied[0][ring].has(slot) && !groups.some(group => {
+          const old = previous?.projects[group.id];
+          return old && (old.deck ?? 0) === 0 && old.ring === ring && slot >= old.slot && slot < old.slot + old.span;
+        }));
+        if (slot !== undefined) { breakRoom = { deck: 0, ring, slot }; break; }
+      }
+      if (!breakRoom) { sectors += 1; continue; }
+    }
+    occupied[breakRoom.deck][breakRoom.ring].add(breakRoom.slot);
     assignments = Object.create(null) as Record<string, ShipAssignment>;
     let complete = true;
     for (const group of groups) {
@@ -141,7 +154,7 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
     if (complete) break;
     sectors += 1;
   }
-  const allocation: ShipAllocation = { version: 1, sectors, projects: assignments!, serverRoom };
+  const allocation: ShipAllocation = { version: 1, sectors, projects: assignments!, serverRoom, breakRoom };
   const rings: ShipRing[] = RING_RADII.map((r, index) => ({ index: index as RingIndex, radius: r * sectors / BASE_SECTORS, depth: RING_DEPTHS[index], capacity: RING_CAPACITIES[index] }));
   const cabins: ShipCabin[] = DECKS.flatMap(deck => rings.flatMap(ring => Array.from({ length: sectors }, (_, slot) => ({
     id: cabinId(`bay:${ring.index}:${slot}`, deck), deck, ring: ring.index, slot, kind: "reserve" as const,
@@ -167,6 +180,8 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
   }
   const server = cabins[serverRoom.ring * sectors + serverRoom.slot];
   Object.assign(server, { id: "public:server-room", kind: "servers", name: "Server room", color: "#77a9ce" });
+  const breakCabin = cabins[breakRoom.deck * 3 * sectors + breakRoom.ring * sectors + breakRoom.slot];
+  Object.assign(breakCabin, { id: "public:break-room", kind: "break", name: "Break room", color: "#dca77c" });
   // Adopt one ready bay without moving existing projects or adding a new pod.
   // Persist its position so future projects cannot take over the monitor room.
   const savedMonitor = previous?.monitorRoom;
@@ -225,10 +240,10 @@ function shortestAngle(from: number, to: number) { return Math.atan2(Math.sin(to
 function arc(layout: ShipLayout, ringIndex: RingIndex, deck: DeckIndex, from: number, to: number): ShipPoint[] {
   const radius=layout.rings[ringIndex].radius;
   const delta = shortestAngle(from, to), steps = Math.max(1, Math.ceil(Math.abs(delta) / 0.12));
-  const rooms=layout.cabins.filter(c=>(c.kind==="cloning"||c.kind==="bar")&&c.ring===ringIndex&&c.deck===deck);
+  const rooms=layout.cabins.filter(c=>(c.kind==="cloning"||c.kind==="bar"||c.kind==="break")&&c.ring===ringIndex&&c.deck===deck);
   if(!rooms.length||Math.abs(delta)<1e-8)return Array.from({ length: steps }, (_, i) => shipPoint(radius, from + delta * (i + 1) / steps));
-  const boundary=(room:ShipCabin)=>(room.kind==="bar"?BAR_LAYOUT.routeHalfWidth:CLONING_POD.spacing+CLONING_POD.width/2+1)/radius;
-  const aisle=(room:ShipCabin)=>room.kind==="bar"?BAR_LAYOUT.aisle:CLONING_AISLE_V;
+  const boundary=(room:ShipCabin)=>(room.kind==="bar"?BAR_LAYOUT.routeHalfWidth:room.kind==="break"?BREAK_ROOM.routeHalfWidth:CLONING_POD.spacing+CLONING_POD.width/2+1)/radius;
+  const aisle=(room:ShipCabin)=>room.kind==="bar"?BAR_LAYOUT.aisle:room.kind==="break"?BREAK_ROOM.aisle:CLONING_AISLE_V;
   // Pass behind the corner turntable before joining the aisle in front of the stools.
   const barBend=Math.asin((BAR_LAYOUT.turntable.x+BAR_LAYOUT.turntable.width/2+.5)/radius),barBypass=.25;
   const events: Array<{t:number;enter?:boolean;bend?:boolean}>=Array.from({length:steps+1},(_,i)=>({t:i/steps}));
@@ -259,6 +274,7 @@ export function routeBetweenCabins(layout: ShipLayout, from: Pick<ShipSeat, "rin
 }
 
 export const PUBLIC_DESCRIPTIONS: Record<CabinKind, string> = {
+  break: "A little tea-and-coffee pod with snacks, shared tables and time to catch up with the crew.",
   bar: "A dedicated bar for drinks, music and conversation, with a robot bartender and counter stools.",
   cloning: "Fork an agent with its conversation history and personal settings. Two pods, two independent futures.",
   ai: "Open the computation core for subscription usage, tokens, and API quotas.",
