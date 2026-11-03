@@ -69,7 +69,7 @@ describe("Kirby's one-employee idle prank", () => {
     const { state, crew, layout, tick } = fixture(1);
     if (exclusion === "working" || exclusion === "error") crew[0].status = exclusion;
     if (exclusion === "needsInput") crew[0].needsInput = true;
-    if (exclusion === "otherDeck") layout.seats[crew[0].id].deck = 1;
+    if (exclusion === "otherDeck") { layout.seats[crew[0].id].deck = 1; crew[0].deck = 1; }
     tick(0, exclusion === "chat" ? crew[0].id : undefined);
     expect(state.victim).toBeNull(); expect(crew[0].kirbyPose).toBeUndefined();
   });

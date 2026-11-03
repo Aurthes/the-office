@@ -15,7 +15,7 @@ function crewFixture(count: number) {
   const crew = ids.map(id => {
     const seat = layout.seats[id], point = canvasPoint(seat);
     return { id, name: id, status: "idle", color: "#abc", item: "", ...point, targetX: point.x, targetY: point.y,
-      path: [], facing: 0, frame: 0, state: "standing", walkSpeed: 1, phaseOffset: 0,
+      deck: seat.deck, path: [], facing: 0, frame: 0, state: "standing", walkSpeed: 1, phaseOffset: 0,
       home: { x: seat.x, z: seat.z }, route: [], routeIndex: 0, visiting: false, pauseUntil: 0 } as MovingAgent;
   });
   return { crew, layout };

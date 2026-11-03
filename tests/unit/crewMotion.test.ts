@@ -13,7 +13,7 @@ function fixture() {
   const layout = shipDeck(buildShipLayout({ projects: [{ id: "p", name: "Project" }], members: [{ id, projectId: "p" }] }), 0);
   const seat = layout.seats[id], home = { x: seat.x, z: seat.z }, point = canvasPoint(home);
   const agent = { id, name: id, status: "idle", color: "#abc", item: "", ...point, targetX: point.x, targetY: point.y,
-    path: [], facing: seat.facing, frame: 0, state: "standing", walkSpeed: 1, phaseOffset: 0,
+    deck: seat.deck, path: [], facing: seat.facing, frame: 0, state: "standing", walkSpeed: 1, phaseOffset: 0,
     home, route: [], routeIndex: 0, visiting: false, pauseUntil: 0 } as MovingAgent;
   return { layout, agent };
 }

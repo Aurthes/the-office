@@ -25,6 +25,7 @@ import { OfficeOnboarding } from "@/features/onboarding/components/OfficeOnboard
 import { useCompletionReadState } from "@/features/office/hooks/useCompletionReadState";
 import { useCompanyRosterSync } from "@/features/office/hooks/useCompanyRosterSync";
 import { useOfficeOrganization } from "@/features/office/hooks/useOfficeOrganization";
+import { useFieldworkTasks } from "@/features/office/hooks/useFieldworkTasks";
 import { loadCompanySnapshot } from "@/features/office/operations/loadCompanySnapshot";
 import { dispatchFirefighter } from "@/features/office/operations/dispatchFirefighter";
 import { FIREFIGHTER_DUCK_APPEARANCE } from "@/lib/avatars/duck";
@@ -3104,17 +3105,19 @@ export function OfficeScreen({
 
   const { readById } = useCompletionReadState(sessionView && chatOpen && focusedChatAgent?.status === "idle" && focusedChatAgent.completedResult
     ? { id: focusedChatAgent.agentId, key: focusedChatAgent.completedResult.key } : null);
+  const fieldwork = useFieldworkTasks(client, state.agents, companyRoster, sessionView && status === "connected", gatewayUrl);
   const allVisibleAgents = useMemo(
     () => {
       const results = new Map(state.agents.map(agent => [agent.agentId, agent]));
       return [...officeAgents.map(agent => sessionView ? { ...agent,
         title: organization.people.find(person => person.id === agent.id)?.title,
+        constructionWorker: fieldwork.workers.has(agent.id), siteTask: results.get(agent.id)?.status === "running" ? fieldwork.tasks[agent.id] ?? results.get(agent.id)?.lastUserMessage : null,
         needsReview: agent.status === "idle" && Boolean(results.get(agent.id)?.completedResult?.unread && readById[agent.id] !== results.get(agent.id)?.completedResult?.key),
         needsInput: Boolean(results.get(agent.id)?.needsInput),
         hasPendingSchedule: Boolean(results.get(agent.id)?.hasPendingSchedule),
       } : agent)];
     },
-    [officeAgents, sessionView, state.agents, readById, organization.people],
+    [officeAgents, sessionView, state.agents, readById, organization.people, fieldwork.tasks, fieldwork.workers],
   );
   const chatRosterEntries = useMemo<ChatRosterEntry[]>(() => {
     return allVisibleAgents.map(agent => ({
