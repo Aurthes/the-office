@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { test } from "node:test";
 import { planCleanup, applyCleanup } from "./cleanup-workspace.mjs";
@@ -153,4 +154,64 @@ test("invalid reference, live inspection failure and overlapping release roots f
   assert.throws(() => applyCleanup({ ...f.options, releasesDir: f.trees }, idle), /separate/);
   assert.throws(() => applyCleanup({ ...f.options, minAgeHours: -1 }, idle), /age/);
   assert.ok(fs.existsSync(directory));
+});
+
+function receipt(f, name, before, after, { phase = "succeeded", time = Date.now(), sameConfig = true } = {}) {
+  const deployments = path.join(f.root, "deployments");
+  const directory = path.join(deployments, `deploy-${name}`);
+  fs.mkdirSync(directory, { recursive: true });
+  const plist = path.join(f.root, "studio.plist"), bytes = `configuration ${name}`;
+  if (sameConfig) fs.writeFileSync(plist, bytes);
+  const fingerprint = root => [[path.join(root, "server", "index.js"), "fixture"]];
+  fs.writeFileSync(path.join(directory, "job.json"), JSON.stringify({ services: [{
+    label: "fixture.claw3d.studio", plist, fingerprint: fingerprint(after),
+    old: { fingerprint: fingerprint(before) },
+    afterHash: crypto.createHash("sha256").update(bytes).digest("hex"),
+  }] }));
+  fs.writeFileSync(path.join(directory, "result.json"), JSON.stringify({ phase, completedAt: new Date(time).toISOString() }));
+  return { ...f.options, releasesDir: f.releases, deploymentsDir: deployments, releasesOnly: true };
+}
+
+test("deployment receipts keep current and actual predecessor despite timestamps; pending builds and worktrees survive", t => {
+  const f = fixture(t), a = f.release("a", 0), b = f.release("b", 1), c = f.release("c", 9), d = f.release("d", 3);
+  const pending = f.release("not-yet-deployed", 20), tree = f.task("still-developing");
+  receipt(f, "a-b", a, b, { time: Date.now() - 2000 });
+  receipt(f, "b-c", b, c, { time: Date.now() - 1000 });
+  const options = receipt(f, "c-d", c, d);
+  const result = applyCleanup(options, idle);
+  for (const p of [a, b]) assert.equal(f.entry(result, p).action, "removed");
+  for (const p of [c, d, pending]) assert.equal(f.entry(result, p).action, "keep");
+  assert.ok(fs.existsSync(tree));
+  assert.equal(result.entries.some(x => x.kind === "worktree"), false);
+});
+
+test("failed and pending cutovers, same-version restarts and external config changes cannot lose rollback material", t => {
+  const f = fixture(t), a = f.release("a", 6), b = f.release("b", 5), c = f.release("c", 4), pending = f.release("pending", 0);
+  receipt(f, "a-b", a, b, { time: Date.now() - 3000 });
+  receipt(f, "b-c", b, c, { phase: "rolled_back", time: Date.now() - 2000, sameConfig: false });
+  const options = receipt(f, "b-b", b, b, { time: Date.now() - 1000 });
+  receipt(f, "pending", b, pending, { phase: "queued", sameConfig: false });
+  const result = applyCleanup(options, idle);
+  for (const p of [a, b, c, pending]) assert.equal(f.entry(result, p).action, "keep");
+  // Config drift makes the history insufficient; retain every known version.
+  fs.writeFileSync(path.join(f.root, "studio.plist"), "external deployment");
+  assert.ok(planCleanup(options, idle).entries.every(x => x.action === "keep"));
+});
+
+test("post-deploy pruning still preserves shared dependencies, credentials, Office workspace references and late activity", t => {
+  const f = fixture(t), a = f.release("a", 3), b = f.release("b", 2), c = f.release("c", 1);
+  receipt(f, "a-b", a, b, { time: Date.now() - 1000 });
+  const options = receipt(f, "b-c", b, c);
+  fs.mkdirSync(path.join(a, "node_modules"));
+  fs.symlinkSync(path.join(a, "node_modules"), path.join(c, "node_modules"));
+  assert.match(f.entry(planCleanup(options, idle), a).reason, /symlink/);
+  fs.unlinkSync(path.join(c, "node_modules"));
+  fs.writeFileSync(path.join(a, ".env.local"), "fixture credential");
+  assert.match(f.entry(planCleanup(options, idle), a).reason, /credentials/);
+  fs.unlinkSync(path.join(a, ".env.local"));
+  const inventory = path.join(f.root, "office.json");
+  fs.writeFileSync(inventory, JSON.stringify({ projects: [], sessions: [{ workspace: a }] }));
+  assert.equal(f.entry(applyCleanup({ ...options, workspaceInventory: inventory }, idle), a).action, "keep");
+  let scans = 0;
+  assert.equal(f.entry(applyCleanup(options, () => ({ commands: "", paths: scans++ ? [a] : [] })), a).action, "keep");
 });

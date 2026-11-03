@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -105,6 +106,53 @@ function releaseDirs(options) {
   }).sort((a, b) => stat(b).mtimeMs - stat(a).mtimeMs || a.localeCompare(b));
 }
 
+// Immutable cutover receipts identify actual predecessors. Folder timestamps
+// cannot distinguish an old release from a new build waiting for deployment.
+function deploymentRetention(directory) {
+  const succeeded = new Map(), protectedPaths = [], known = new Set();
+  const rootOf = service => {
+    const entry = service.fingerprint?.[0]?.[0];
+    if (!path.isAbsolute(entry || "") || !/[/\\]server[/\\](index|codex-office-gateway)\.js$/.test(entry)) {
+      throw new Error("Invalid release path in deployment receipt");
+    }
+    return path.dirname(path.dirname(entry));
+  };
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.startsWith("deploy-")) continue;
+    const jobDir = path.join(directory, entry.name);
+    const job = JSON.parse(fs.readFileSync(path.join(jobDir, "job.json"), "utf8"));
+    const resultFile = path.join(jobDir, "result.json");
+    const result = fs.existsSync(resultFile) ? JSON.parse(fs.readFileSync(resultFile, "utf8")) : {};
+    for (const service of job.services) {
+      const current = rootOf(service), previous = rootOf(service.old);
+      if (result.phase !== "succeeded") {
+        protectedPaths.push(current, previous);
+        continue;
+      }
+      const completed = Date.parse(result.completedAt || result.acceptedAt);
+      if (!Number.isFinite(completed)) throw new Error("Invalid successful deployment timestamp");
+      const rows = succeeded.get(service.label) || [];
+      rows.push({ service, current, previous, completed });
+      succeeded.set(service.label, rows);
+      known.add(current); known.add(previous);
+    }
+  }
+  for (const rows of succeeded.values()) {
+    rows.sort((a, b) => b.completed - a.completed);
+    const latest = rows[0];
+    const hash = crypto.createHash("sha256").update(fs.readFileSync(latest.service.plist)).digest("hex");
+    if (hash !== latest.service.afterHash) {
+      // An external cutover or a concurrent deployment has not been accepted.
+      protectedPaths.push(...rows.flatMap(row => [row.current, row.previous]));
+      continue;
+    }
+    protectedPaths.push(latest.current);
+    const changed = rows.find(row => row.current !== row.previous);
+    if (changed) protectedPaths.push(changed.previous);
+  }
+  return { known, protectedPaths };
+}
+
 export function planCleanup(input, inspectLive = liveReferences, onlyPath = null) {
   const options = {
     ref: "origin/main", minAgeHours: 24, protectedPaths: [], ...input,
@@ -127,10 +175,20 @@ export function planCleanup(input, inspectLive = liveReferences, onlyPath = null
     roots.push(options.releasesDir);
   }
   options.protectedPaths = [base, process.cwd(), fileURLToPath(import.meta.url), ...options.protectedPaths].map(value => path.resolve(value));
+  if (options.workspaceInventory) {
+    const state = JSON.parse(fs.readFileSync(options.workspaceInventory, "utf8"));
+    if (!Array.isArray(state.projects) || !Array.isArray(state.sessions)) throw new Error("Invalid Office workspace inventory");
+    const paths = [...state.projects.flatMap(project => project.rootPaths || []), ...state.sessions.map(session => session.workspace)];
+    if (paths.some(value => typeof value !== "string" || !path.isAbsolute(value))) throw new Error("Invalid protected workspace");
+    options.protectedPaths.push(...paths);
+  }
+  const retention = options.deploymentsDir ? deploymentRetention(options.deploymentsDir) : null;
+  if (retention) options.protectedPaths.push(...retention.protectedPaths);
   const references = inspectLive();
   const links = linksInto([...new Set(roots)]);
   const entries = [];
   for (const row of rows.slice(1)) {
+    if (options.releasesOnly) break;
     const root = row.worktree;
     if (path.dirname(root) !== worktreesDir || (onlyPath && root !== onlyPath)) continue;
     const reason = referenced(root, references, links, options.protectedPaths) || worktreeReason(row, options);
@@ -139,8 +197,18 @@ export function planCleanup(input, inspectLive = liveReferences, onlyPath = null
   let rollbackKept = false;
   for (const root of releaseDirs(options)) {
     let reason = referenced(root, references, links, options.protectedPaths);
-    if (!reason && !rollbackKept) { reason = "latest unused release retained for rollback"; rollbackKept = true; }
-    if (!reason && Date.now() - stat(root).mtimeMs < options.minAgeHours * 3600000) reason = "recent release";
+    if (retention) {
+      if (!reason && !retention.known.has(root)) reason = "not a superseded successful deployment";
+      if (!reason && fs.existsSync(path.join(root, ".git"))) reason = "source checkout, not a disposable release";
+      if (!reason && fs.readdirSync(root).some(name =>
+        /^\.env(?:$|\.)/.test(name) && !/^\.env\.(example|sample|template)$/.test(name) ||
+        [".private", ".sensitive", "uploads", "credentials", "office-runtime"].includes(name))) {
+        reason = "local credentials or application data";
+      }
+    } else {
+      if (!reason && !rollbackKept) { reason = "latest unused release retained for rollback"; rollbackKept = true; }
+      if (!reason && Date.now() - stat(root).mtimeMs < options.minAgeHours * 3600000) reason = "recent release";
+    }
     if (!onlyPath || root === onlyPath) entries.push({ kind: "release", path: root, action: reason ? "keep" : "remove", reason: reason || "superseded release" });
   }
   return { options, entries };
@@ -169,11 +237,13 @@ function main() {
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
     if (flag === "--apply") { apply = true; continue; }
-    if (!["--repo", "--ref", "--releases-dir", "--protect", "--min-age-hours", "--report"].includes(flag) || !args[i + 1]) throw new Error(`Unknown or missing argument: ${flag}`);
+    if (flag === "--releases-only") { input.releasesOnly = true; continue; }
+    if (!["--repo", "--ref", "--releases-dir", "--deployments-dir", "--protect", "--min-age-hours", "--report"].includes(flag) || !args[i + 1]) throw new Error(`Unknown or missing argument: ${flag}`);
     const value = args[++i];
     if (flag === "--repo") input.repo = value;
     if (flag === "--ref") input.ref = value;
     if (flag === "--releases-dir") input.releasesDir = value;
+    if (flag === "--deployments-dir") input.deploymentsDir = value;
     if (flag === "--protect") input.protectedPaths.push(value);
     if (flag === "--min-age-hours") input.minAgeHours = Number(value);
     if (flag === "--report") report = value;

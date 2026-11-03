@@ -67,7 +67,48 @@ The result distinguishes `succeeded`, `rolled_back`, `rejected`, and
 `recovery_failed`; only `succeeded` exits zero with `--wait`. It records PIDs,
 cutover durations, rollback health, and errors. The one-shot controller removes
 its own launchd registration after writing the result and releasing its locks.
-Keep the private backups until acceptance; prune old jobs afterward.
+Keep the private receipt/configuration backups available for release retention;
+they are separate from the much larger disposable builds.
+
+## Automatic release retention
+
+Configure release cleanup once in the private
+`~/.local/share/claw3d/maintenance/release-retention.json`, or set `releaseCleanup`
+in a deployment plan. Paths belong in private configuration, not this repository:
+
+```json
+{
+  "repo": "/absolute/source/office",
+  "ref": "origin/main",
+  "releasesDir": "/absolute/private/releases",
+  "workspaceInventory": "/absolute/private/office-owned/office.json",
+  "protectedPaths": []
+}
+```
+
+Only `repo` and `releasesDir` are required. `workspaceInventory`, when supplied,
+is Office's own projects/sessions inventory. `releaseCleanup: null` explicitly
+disables cleanup for a disposable deployment. Without a plan override or a local
+policy file, existing installations continue without automatic pruning.
+
+After **all** selected services pass readiness, the independent controller saves
+acceptance and prunes automatically, without another confirmation. Successful
+deployment receipts select the current release and its actual predecessor for
+each service; directory timestamps do not choose rollback versions. Even a
+same-directory restart preserves the preceding distinct release. Older successful
+releases are eligible immediately, with no 24-hour grace period. Builds that have
+never deployed, pending/failed deployment candidates, source checkouts, local
+credentials/data, and service/process/workspace/shared-dependency references are
+retained. Only release directories are candidates; this step does not retire task
+worktrees or delete their branches.
+
+The cleaner is copied alongside the independent controller. Receipt history must
+remain available; its small configuration backups are separate from build output.
+Malformed or missing history fails closed. Inspect `result.cleanup.entries` for
+removed/retained paths. `result.cleanup.status: "failed"` reports a cleanup error
+while leaving the healthy deployment running. Failed or rolled-back deployments
+never invoke pruning. Periodic cleanup should use the same `--deployments-dir`
+history so it preserves the actual predecessor as well.
 
 If a controller is forcibly killed, inspect its result, launchd registration,
 service health, and PID before removing its `.redeploy-lock` file. Never bypass a

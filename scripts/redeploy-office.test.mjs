@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import net from "node:net";
 import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -74,7 +75,7 @@ process.on('SIGTERM', () => setTimeout(() => {fs.writeFileSync(${JSON.stringify(
     services.push({ plist: original, candidate, health });
   }
   const planFile = path.join(root, "plan.json");
-  fs.writeFileSync(planFile, JSON.stringify({ services, readyTimeoutMs: 1500 }));
+  fs.writeFileSync(planFile, JSON.stringify({ services, readyTimeoutMs: 1500, releaseCleanup: null }));
   const start = async () => {
     const child = spawn(process.execPath, [script, "--plan", planFile, "--state-dir", path.join(root, "jobs")], { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "", stderr = "";
@@ -113,10 +114,14 @@ test("real LaunchAgents: private backend health credential is supplied without a
 
 test("real LaunchAgents: new process exits on startup; old configuration and health are restored", mac, async t => {
   const f = await fixture(t);
+  const plan = JSON.parse(fs.readFileSync(f.planFile));
+  plan.releaseCleanup = { repo: path.join(f.root, "missing-repo"), releasesDir: path.join(f.root, "releases") };
+  fs.writeFileSync(f.planFile, JSON.stringify(plan));
   fs.writeFileSync(path.join(f.root, "new/server/codex-office-gateway.js"), "process.exit(42);\n");
   const result = await f.start();
   assert.equal(result.phase, "rolled_back", JSON.stringify(result));
   assert.equal(result.services[0].phase, "restored");
+  assert.equal(result.cleanup, undefined);
   assert.deepEqual(fs.readFileSync(f.services[0].plist), f.oldBytes[0]);
   assert.equal(await version(f.services[0].health), "old");
 });
@@ -189,4 +194,51 @@ test("prepared source changes and simultaneous deployments are rejected without 
   assert.equal(fs.readFileSync(lock, "utf8"), "another deployment owns this lock");
   assert.equal(await version(f.services[0].health), "old");
   assert.ok(!fs.existsSync(path.join(f.root, "gateway.old.exited")));
+});
+
+test("accepted deployment runs cleanup automatically; cleanup failure does not undo healthy cutover", mac, async t => {
+  const f = await fixture(t);
+  const plan = JSON.parse(fs.readFileSync(f.planFile));
+  plan.releaseCleanup = { repo: path.join(f.root, "missing-repo"), releasesDir: path.join(f.root, "releases") };
+  fs.writeFileSync(f.planFile, JSON.stringify(plan));
+  const result = await f.start();
+  assert.equal(result.phase, "succeeded");
+  assert.equal(result.cleanup.status, "failed");
+  assert.equal(await version(f.services[0].health), "new");
+  assert.ok(fs.existsSync(path.join(f.root, "old")));
+});
+
+test("real accepted cutover automatically removes a previously deployed obsolete build and preserves both live generations", mac, async t => {
+  const f = await fixture(t), repo = path.join(f.root, "source"), releasesDir = path.join(f.root, "releases");
+  fs.mkdirSync(repo);
+  fs.writeFileSync(path.join(repo, "package.json"), '{"name":"retention-fixture"}');
+  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { stdio: "pipe" });
+  git("init", "-b", "main"); git("add", "package.json");
+  git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "fixture");
+  const obsolete = path.join(releasesDir, "obsolete");
+  fs.mkdirSync(path.join(obsolete, ".next"), { recursive: true });
+  fs.mkdirSync(path.join(obsolete, "server"));
+  fs.writeFileSync(path.join(obsolete, "package.json"), '{"name":"retention-fixture"}');
+  fs.writeFileSync(path.join(obsolete, ".next/BUILD_ID"), "fixture");
+  fs.writeFileSync(path.join(obsolete, "server/index.js"), "fixture");
+  const oldPlist = JSON.parse(execFileSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", f.services[0].plist], { encoding: "utf8" }));
+  const previous = path.join(f.root, "jobs/deploy-earlier");
+  fs.mkdirSync(previous, { recursive: true });
+  fs.writeFileSync(path.join(previous, "job.json"), JSON.stringify({ services: [{
+    label: oldPlist.Label, plist: f.services[0].plist,
+    fingerprint: [[oldPlist.ProgramArguments[1], "fixture"]],
+    old: { fingerprint: [[path.join(obsolete, "server/index.js"), "fixture"]] },
+    afterHash: crypto.createHash("sha256").update(f.oldBytes[0]).digest("hex"),
+  }] }));
+  fs.writeFileSync(path.join(previous, "result.json"), JSON.stringify({ phase: "succeeded", completedAt: "2020-01-01T00:00:00Z" }));
+  const plan = JSON.parse(fs.readFileSync(f.planFile));
+  plan.releaseCleanup = { repo, ref: "main", releasesDir };
+  fs.writeFileSync(f.planFile, JSON.stringify(plan));
+  const result = await f.start();
+  assert.equal(result.phase, "succeeded", JSON.stringify(result));
+  assert.equal(result.cleanup.status, "succeeded", JSON.stringify(result));
+  assert.equal(result.cleanup.entries.find(row => row.path === obsolete)?.action, "removed");
+  assert.ok(!fs.existsSync(obsolete));
+  for (const name of ["old", "new"]) assert.ok(fs.existsSync(path.join(f.root, name)));
+  assert.equal(await version(f.services[0].health), "new");
 });

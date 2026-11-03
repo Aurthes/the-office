@@ -41,6 +41,14 @@ Build before cutover, restart only changed services, and verify the result and
 real frontend/gateway connection. See `docs/office-redeploy.md`. Keep native App
 state, schedules, auth proxies, and tunnels outside a service redeploy.
 
+After a successful cutover, automatically retain the current release and its
+actual predecessor per service, then prune older successful releases without
+asking again. Configure `releaseCleanup` as documented in
+`docs/office-redeploy.md`. Preserve in-progress candidates and any release still
+referenced by a service, process, workspace, or shared dependency. A failed
+deployment must not prune releases; cleanup failure must not undo a healthy
+deployment. Report exceptions and cleanup errors in the deployment result.
+
 After each generation, build, or validation batch, inspect the files and temporary
 processes created by that batch. Immediately remove your own intermediate files,
 superseded outputs, and temporary processes once their last use is complete. Do

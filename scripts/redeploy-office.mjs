@@ -6,11 +6,13 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { applyCleanup } from "./cleanup-workspace.mjs";
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const domain = `gui/${process.getuid?.()}`;
 const digest = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
 const defaultState = path.join(os.homedir(), ".local/share/claw3d/deployments");
+const retentionPolicy = path.join(os.homedir(), ".local/share/claw3d/maintenance/release-retention.json");
 
 function command(program, args, input) {
   const result = spawnSync(program, args, { input, encoding: "utf8", timeout: 30_000 });
@@ -133,6 +135,11 @@ async function start(service, timeout) {
 
 export function prepare(planFile, stateDirectory = defaultState) {
   const plan = JSON.parse(fs.readFileSync(planFile, "utf8"));
+  const cleanup = Object.hasOwn(plan, "releaseCleanup") ? plan.releaseCleanup :
+    fs.existsSync(retentionPolicy) ? JSON.parse(fs.readFileSync(retentionPolicy, "utf8")) : null;
+  if (cleanup && (!path.isAbsolute(cleanup.repo || "") || !path.isAbsolute(cleanup.releasesDir || ""))) {
+    throw new Error("Release cleanup requires absolute repo and releasesDir paths");
+  }
   if (!Array.isArray(plan.services) || !plan.services.length || plan.services.length > 2) {
     throw new Error("Specify one or two Office services");
   }
@@ -153,14 +160,17 @@ export function prepare(planFile, stateDirectory = defaultState) {
   const directory = fs.mkdtempSync(path.join(stateDirectory, "deploy-"));
   fs.chmodSync(directory, 0o700);
   const label = `local.claw3d.deploy.${path.basename(directory)}`;
-  const job = { directory, label, timeout, services: services.map(({ before, after, ...row }) => {
-    fs.writeFileSync(path.join(directory, `${row.index}.before.plist`), before, { mode: 0o600 });
-    fs.writeFileSync(path.join(directory, `${row.index}.after.plist`), after, { mode: 0o600 });
-    return row;
-  }) };
+  const job = { directory, label, timeout,
+    cleanup: cleanup ? { ...cleanup, deploymentsDir: path.resolve(stateDirectory), releasesOnly: true } : null,
+    services: services.map(({ before, after, ...row }) => {
+      fs.writeFileSync(path.join(directory, `${row.index}.before.plist`), before, { mode: 0o600 });
+      fs.writeFileSync(path.join(directory, `${row.index}.after.plist`), after, { mode: 0o600 });
+      return row;
+    }) };
   json(path.join(directory, "job.json"), job);
   // The controller is copied out of the worktree and never runs inside Office.
   fs.copyFileSync(fileURLToPath(import.meta.url), path.join(directory, "controller.mjs"));
+  fs.copyFileSync(fileURLToPath(new URL("./cleanup-workspace.mjs", import.meta.url)), path.join(directory, "cleanup-workspace.mjs"));
   writePlist(path.join(directory, "controller.plist"), {
     Label: label, ProgramArguments: [process.execPath, path.join(directory, "controller.mjs"), "--worker", directory],
     WorkingDirectory: directory, RunAtLoad: true, KeepAlive: false,
@@ -206,6 +216,16 @@ export async function deploy(job) {
       row.phase = "ready"; save();
     }
     result.phase = "succeeded";
+    result.acceptedAt = new Date().toISOString(); save();
+    // Cleanup is automatic after acceptance, and cannot trigger service rollback.
+    // Keep the service leases until pruning finishes so its receipt stays current.
+    if (job.cleanup) {
+      try {
+        result.cleanup = { status: "succeeded", ...applyCleanup(job.cleanup) };
+      } catch (error) {
+        result.cleanup = { status: "failed", error: error.message };
+      }
+    }
   } catch (error) {
     result.error = error.message; result.phase = "rolling_back"; save();
     const errors = [];

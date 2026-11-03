@@ -64,7 +64,14 @@ Deployments can additionally pass `--releases-dir <directory>`. Only directories
 with a matching package name, `.next/BUILD_ID`, and `server/index.js` qualify as
 releases. Referenced releases and the newest unused release for rollback are
 retained; older unused releases must also meet the age threshold. This directory
-must contain deployment artifacts only, never mutable user data.
+can instead use `--deployments-dir <private-deployment-state>` to retain the
+current release and actual predecessor from successful cutover receipts. In that
+mode, older successful releases expire immediately; never-deployed candidates,
+pending/failed deployments, source checkouts and local credentials/data stay.
+Add `--releases-only` for post-deployment maintenance that must not retire task
+worktrees. See `docs/office-redeploy.md` for automatic post-cutover cleanup.
+
+The releases directory must contain deployment artifacts only, never mutable user data.
 
 Use `--protect <path>` repeatedly for references outside the managed directories,
 including session/project workspaces and rollback paths in external deployment
@@ -78,4 +85,5 @@ install dependencies, kill processes, restart services, or alter runtime stores.
 Fetch before a manual cleanup if the local reference is stale; stale references
 conservatively retain work. For periodic maintenance, install a pinned copy of
 the script outside task worktrees, supply deployment-specific protected paths,
-and run daily with the default 24-hour grace period. Keep reports bounded.
+and run daily. The default 24-hour grace period still applies to task worktrees;
+receipt-based release retention does not use that delay. Keep reports bounded.
