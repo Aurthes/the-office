@@ -8,6 +8,8 @@ export type OfficeOrganization = Record<string, OfficePosition>;
 export type OrganizationPerson = OfficePosition & { id: string; name: string; department: string; departmentId: string | null };
 export type OrganizationView = { focusPerson?: (id: string) => void; focusRequest?: { id: string; request: number } | null; people: OrganizationPerson[]; ceoAvatar: AgentAvatarProfile | null; savePosition: (id: string, position: OfficePosition) => Promise<void> };
 
+export const isDepartmentManager = (position?: OfficePosition) => /^(head|manager|主管|经理|部门经理)$/i.test(position?.title.trim() || "");
+
 export function normalizeOrganization(value: unknown): OfficeOrganization {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return Object.fromEntries(Object.entries(value).flatMap(([id, raw]) => {
@@ -42,8 +44,16 @@ export function mergeOrganization(current: OfficeOrganization = {}, patch: Recor
 // Project membership stays in the existing roster. Only titles and upward edges are stored here.
 export function reconcileOrganization(current: OfficeOrganization, roster: CompanyRoster, preferredHeads: Record<string, string> = {}): OfficeOrganization {
   const ids = new Set([CEO_ID, ...roster.members.map(member => member.id)]);
+  const resolved = new Map<string, string[]>();
+  const survivingManagers = (id: string, path = new Set<string>()): string[] => {
+    if (ids.has(id)) return [id];
+    if (resolved.has(id)) return resolved.get(id)!;
+    if (path.has(id)) throw new Error("Reporting relationships cannot contain a cycle.");
+    const parents = [...new Set((current[id]?.reportsTo || []).flatMap(parent => survivingManagers(parent, new Set([...path, id]))))];
+    const result = parents.length ? parents : [CEO_ID]; resolved.set(id, result); return result;
+  };
   const next = Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id)).map(([id, position]) =>
-    [id, { ...position, reportsTo: position.reportsTo.filter(parent => ids.has(parent)) }]));
+    [id, { ...position, reportsTo: [...new Set(position.reportsTo.flatMap(parent => survivingManagers(parent)))] }]));
   next[CEO_ID] ||= { title: "CEO", reportsTo: [] };
   const departments = new Map<string, string[]>();
   for (const member of roster.members) {
@@ -52,16 +62,44 @@ export function reconcileOrganization(current: OfficeOrganization, roster: Compa
   }
   for (const [department, members] of departments) {
     const preferred = preferredHeads[department];
-    const head = members.includes(preferred) ? preferred : members.find(id => next[id]?.reportsTo.includes(CEO_ID)) || members[0];
-    if (!next[head] || !next[head].reportsTo.includes(CEO_ID) || head === preferred) next[head] = { title: "Head", reportsTo: [CEO_ID] };
+    const peers = new Set(members), referenced = new Set(members.flatMap(id => next[id]?.reportsTo || []));
+    const managers = members.filter(id => next[id] && (isDepartmentManager(next[id]) || referenced.has(id)));
+    const existingHead = managers.find(id => !next[id].reportsTo.some(parent => peers.has(parent))) || managers[0];
+    // Bootstrap a new department once. An archive must never elect a replacement.
+    const head = members.includes(preferred) ? preferred : existingHead || (members.some(id => !!current[id]) ? undefined : members[0]);
+    if (head && (!next[head] || head === preferred)) next[head] = { title: "Head", reportsTo: [CEO_ID] };
     for (const id of members) {
-      next[id] ||= { title: "Worker", reportsTo: [head] };
-      if (preferred && id !== head && next[id].reportsTo.includes(CEO_ID)) next[id] = { title: "Worker", reportsTo: [head] };
-      if (id !== head && !next[id].reportsTo.length) next[id] = { ...next[id], reportsTo: [head] };
+      next[id] ||= { title: "Worker", reportsTo: [head || CEO_ID] };
+      if (head && preferred && id !== head && next[id].reportsTo.includes(CEO_ID)) next[id] = { title: "Worker", reportsTo: [head] };
+      if (id !== CEO_ID && !next[id].reportsTo.length) next[id] = { ...next[id], reportsTo: [CEO_ID] };
     }
   }
   assertReportingStructure(next);
   return next;
+}
+
+export function updateOrganizationPosition(current: OfficeOrganization, roster: CompanyRoster, id: string, position: OfficePosition): OfficeOrganization {
+  const ids = new Set([CEO_ID, ...roster.members.map(member => member.id)]);
+  if (!ids.has(id) || !position.title.trim() || position.reportsTo.some(parent => !ids.has(parent))) throw new Error("Choose an existing person and a title.");
+  const next = reconcileOrganization(current, roster), promoted = id !== CEO_ID && !isDepartmentManager(next[id]) && isDepartmentManager(position);
+  next[id] = { title: position.title.trim(), reportsTo: [...new Set(position.reportsTo)] };
+  if (promoted) {
+    const department = roster.members.find(member => member.id === id)!.projectId || OPEN_DEPARTMENT_ID;
+    const upstream = new Set(next[id].reportsTo);
+    for (const member of roster.members) {
+      if (member.id === id || (member.projectId || OPEN_DEPARTMENT_ID) !== department || isDepartmentManager(next[member.id])) continue;
+      const peer = next[member.id];
+      // Insert the new manager under the selected upstream managers. Preserve
+      // other reporting lines and the hierarchies beneath the affected peers.
+      peer.reportsTo = [...new Set(peer.reportsTo.map(parent => upstream.has(parent) ? id : parent))];
+    }
+  }
+  assertReportingStructure(next); return next;
+}
+
+export function organizationPatch(current: OfficeOrganization, next: OfficeOrganization): Record<string, OfficePosition | null> {
+  return Object.fromEntries([...new Set([...Object.keys(current), ...Object.keys(next)])]
+    .filter(id => JSON.stringify(current[id]) !== JSON.stringify(next[id])).map(id => [id, next[id] || null]));
 }
 
 export function organizationPeople(organization: OfficeOrganization, roster: CompanyRoster, names: ReadonlyMap<string, string>): OrganizationPerson[] {

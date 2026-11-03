@@ -35,6 +35,7 @@ export const ZH_CN: Record<string, string> = {
   "Choose an existing person and a title.": "请选择现有成员并填写岗位。",
   "Your representative, overseeing the heads of every department.": "代表你管理各部门主管。",
   "Overseeing department heads": "管理各部门主管",
+  "Setting Head or Manager brings department peers under this manager, keeping their other reporting lines.": "设为 Head 或 Manager，会自动接管本部门同级员工，保留他们的其他汇报关系。",
   "Watching the fleet monitors and checking the controls": "坐镇监控台，看看舰队和各项仪表",
   "A very necessary executive stretch": "老板也需要认真伸个懒腰",
   "Reviewing the ship's ambitious to-do list": "翻看平板上雄心勃勃的待办清单",

@@ -61,3 +61,12 @@ it("focuses people from the CEO's tree and person selector", () => {
   expect(organization.focusPerson).toHaveBeenNthCalledWith(2, "worker");
   expect(organization.focusPerson).toHaveBeenNthCalledWith(3, "head");
 });
+it("renders restored layers deeper than two levels in the CEO tree", () => {
+  const organization = fixture();
+  organization.people.push({ id: "trainee", name: "Trainee", title: "Worker", department: "Open Workspace", departmentId: null, reportsTo: ["worker"] });
+  render(createElement(OrganizationPanel, { organization, personId: CEO_ID, browse: true }));
+  const tree = screen.getByRole("list", { name: "Department reporting structure" });
+  const trainee = within(tree).getByRole("button", { name: "Focus on Trainee" });
+  fireEvent.click(trainee); expect(organization.focusPerson).toHaveBeenCalledWith("trainee");
+  expect(trainee.closest("ul")?.closest("li")?.textContent).toContain("Firefighter");
+});
