@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { DECK_STEP, type DeckIndex } from "./layout";
 
 export const SHIP_OBJECT_INFO = {
+  departmentBoard: ["Project whiteboard", "Tasks, owners, phase progress and time for this department."],
   refreshmentCounter: ["Refreshment counter", "Tea, coffee and a well-defended supply of snacks."],
   teaStation: ["Tea station", "A warm cup and a little time to steep."],
   snackTray: ["Snack tray", "Emergency biscuits, fruit and small reasons to take a break."],
