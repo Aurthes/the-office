@@ -1902,6 +1902,9 @@ export function RetroOffice3D({
 
   onMonitorSelect?: (agentId: string | null) => void;
   onAgentChatSelect?: (agentId: string) => void;
+  onOpenAgentDirectory?: () => void;
+  onOpenTaskBoard?: () => void;
+  taskBoardOpen?: boolean;
   activeChatAgentId?: string | null;
   chatExpanded?: boolean;
   returnRequest?: { agentId: string; requestId: string } | null;

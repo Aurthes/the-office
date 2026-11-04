@@ -10,15 +10,31 @@ beforeEach(() => {
   Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.open = false; } });
 });
 afterEach(() => { cleanup(); localStorage.clear(); vi.restoreAllMocks(); });
-function fixture(scope?: string | null, overrides: Partial<OfficeTodo> = {}) {
+function fixture(scope?: string | null, overrides: Partial<OfficeTodo> = {}, taskId?: string) {
   const todo: OfficeTodo = { id: "todo", revision: 4, title: "Release app", documentation: "Verify the release", departmentId: "alpha", departmentName: "Alpha", assigneeId: "alice", assigneeName: "Alice", assigneeAvailable: true, status: "running", archived: false, progress: 0, phases: [{ id: "plan", title: "Plan release", notes: "Record evidence", elapsedMs: 3000, startedAt: null, completedAt: null }, { id: "verify", title: "Validate release", elapsedMs: 0, startedAt: null, completedAt: null }], events: [], ...overrides };
   const departments = [{ id: null, name: "Open Workspace", total: 0, running: 0, unassigned: 0 }, { id: "alpha", name: "Alpha", total: 1, running: 1, unassigned: 0 }];
   const call = vi.fn<(method: string, params: unknown) => Promise<unknown>>(async (method, params) => method === "todo.list" ? { todos: (todo.archived && !["done", "archived"].includes((params as { status?: string }).status || "")) ? [] : [todo], total: (todo.archived && !["done", "archived"].includes((params as { status?: string }).status || "")) ? 0 : 1, departments, agents: [{ id: "alice", name: "Alice", projectId: "alpha" }], serverTime: Date.now() } : { todo, serverTime: Date.now() });
   const client = { call, onEvent: vi.fn(() => () => {}) } as unknown as Pick<GatewayClient, "call" | "onEvent">;
-  const props = { open: true, departmentId: scope, onClose: vi.fn(), onOpenSession: vi.fn(), connected: true, client };
-  render(createElement(TaskBoard, props));
-  return { todo, call, props };
+  const props = { open: true, departmentId: scope, taskId, onClose: vi.fn(), onOpenSession: vi.fn(), connected: true, client };
+  const view = render(createElement(TaskBoard, props));
+  return { todo, call, props, ...view };
 }
+it("opens the linked task directly and can return to its conversation", async () => {
+  const f = fixture(undefined, { title: "Agent View Compression (AVC)" }, "todo");
+  expect(await screen.findByRole("heading", { name: "Agent View Compression (AVC)" })).toBeTruthy();
+  expect(f.call).toHaveBeenCalledWith("todo.get", { id: "todo" });
+  fireEvent.click(screen.getByRole("button", { name: "Open conversation" }));
+  expect(f.props.onClose).toHaveBeenCalled();
+  expect(f.props.onOpenSession).toHaveBeenCalledWith("alice");
+});
+it("reloads a linked task when reopening the same task board", async () => {
+  const f = fixture(undefined, { title: "Agent View Compression (AVC)" }, "todo");
+  await screen.findByRole("button", { name: "Open conversation" });
+  f.rerender(createElement(TaskBoard, { ...f.props, open: false }));
+  f.rerender(createElement(TaskBoard, { ...f.props, open: true }));
+  await waitFor(() => expect(f.call.mock.calls.filter(([method]) => method === "todo.get").length).toBeGreaterThanOrEqual(2));
+  expect(await screen.findByRole("button", { name: "Open conversation" })).toBeTruthy();
+});
 it("opens the global board and scopes the whiteboard to its department", async () => {
   const f = fixture("alpha"); await screen.findByRole("dialog", { name: "Task board" });
   await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.list", expect.objectContaining({ departmentId: "alpha" })));
