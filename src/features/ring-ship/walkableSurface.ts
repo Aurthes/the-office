@@ -10,23 +10,49 @@ import { hibernationCollisionBoxes } from "./hibernationLayout";
 const EDGE = .02, TAU = Math.PI * 2;
 const DIAGONAL = Math.SQRT1_2;
 const FOOT_SAMPLES = [[1, 0], [-1, 0], [0, 1], [0, -1], [DIAGONAL, DIAGONAL], [DIAGONAL, -DIAGONAL], [-DIAGONAL, DIAGONAL], [-DIAGONAL, -DIAGONAL]];
+type FloorGeometry = {
+  spokes: [number, number][]; rings: [number, number][]; openings: Map<number, ShipPoint[]>;
+  minAlong: number; maxAlong: number; halfWidth: number;
+};
+// Layouts are replaced on placement/roster changes. Cache geometry, never the
+// answer for a moving character; a new layout starts with a fresh entry.
+const floorGeometry = new WeakMap<ShipLayout, FloorGeometry>();
 
 // Support the feet on the existing narrow walkways. The larger character
 // collision circle still keeps bodies and outstretched arms apart.
 export function footingRadius(radius: number) { return Math.min(radius, .4); }
 
 function floorPoint(point: ShipPoint, layout: ShipLayout, deck: number) {
-  for (const angle of layout.spokes) {
-    const along = point.x * Math.sin(angle) + point.z * Math.cos(angle);
-    const across = point.x * Math.cos(angle) - point.z * Math.sin(angle);
-    if (along >= SHIP_CORRIDOR_START + EDGE && along <= layout.radius - EDGE && Math.abs(across) <= SHIP_CORRIDOR_WIDTH / 2 - EDGE) return true;
+  let fixed = floorGeometry.get(layout);
+  if (!fixed) {
+    fixed = {
+      spokes: layout.spokes.map(angle => [Math.sin(angle), Math.cos(angle)]),
+      rings: layout.rings.map(ring => [ring.radius, ring.depth / 2]),
+      openings: new Map(), minAlong: SHIP_CORRIDOR_START + EDGE,
+      maxAlong: layout.radius - EDGE, halfWidth: SHIP_CORRIDOR_WIDTH / 2 - EDGE,
+    };
+    for (const cabin of layout.cabins) {
+      if (cabin.kind !== "return") continue;
+      const opening = shipPoint(layout.rings[cabin.ring].radius + 1.8, cabinAngle(layout, cabin.slot));
+      const openings = fixed.openings.get(cabin.deck) || [];
+      openings.push(opening); fixed.openings.set(cabin.deck, openings);
+    }
+    floorGeometry.set(layout, fixed);
+  }
+  for (const [sin, cos] of fixed.spokes) {
+    const along = point.x * sin + point.z * cos;
+    const across = point.x * cos - point.z * sin;
+    if (along >= fixed.minAlong && along <= fixed.maxAlong && Math.abs(across) <= fixed.halfWidth) return true;
   }
   const radius = Math.hypot(point.x, point.z), angle = Math.atan2(point.x, point.z);
   const sector = ((angle / TAU * layout.allocation.sectors) % 1 + 1) % 1;
-  if (!layout.rings.some(ring => Math.abs(radius - ring.radius) <= ring.depth / 2 * hullProfile(sector) - EDGE)) return false;
-  for (const cabin of layout.cabins) {
-    if (cabin.kind !== "return" || cabin.deck !== deck) continue;
-    const opening = shipPoint(layout.rings[cabin.ring].radius + 1.8, cabinAngle(layout, cabin.slot));
+  const profile = hullProfile(sector);
+  let inRing = false;
+  for (const [center, half] of fixed.rings) {
+    if (Math.abs(radius - center) <= half * profile - EDGE) { inRing = true; break; }
+  }
+  if (!inRing) return false;
+  for (const opening of fixed.openings.get(deck) || []) {
     if (Math.hypot(point.x - opening.x, point.z - opening.z) < 1.02 + EDGE) return false;
   }
   return true;

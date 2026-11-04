@@ -40,6 +40,19 @@ function renderedFloor(layout: ShipLayout) {
 }
 
 describe("walking stays on the ship's actual floor", () => {
+  it("uses replacement layout geometry after warmed checks, including new spokes and launch openings", () => {
+    const bridge = { x: 0, z: 19 };
+    expect(isWalkable(bridge, layout)).toBe(true);
+    const rotated: ShipLayout = { ...layout, spokes: layout.spokes.map(angle => angle + Math.PI / 4) };
+    expect(isWalkable(bridge, rotated)).toBe(false);
+    expect(isWalkable(bridge, layout)).toBe(true);
+    const cabin = layout.cabins.find(c => c.kind === "return")!;
+    const opening = shipPoint(layout.rings[cabin.ring].radius + 1.8, cabinAngle(layout, cabin.slot));
+    expect(isWalkable(opening, layout)).toBe(false);
+    const withoutOpening: ShipLayout = { ...layout, cabins: layout.cabins.filter(c => c !== cabin) };
+    expect(isWalkable(opening, withoutOpening)).toBe(true);
+    expect(isWalkable(opening, layout)).toBe(false);
+  });
   it("respects narrow collars, bridge edges and the launch opening on its deck", () => {
     expect(isWalkable(shipPoint(14.6, Math.PI / 4), layout)).toBe(false);
     expect(isWalkable({ x: SHIP_CORRIDOR_WIDTH / 2 + .025, z: 19 }, layout)).toBe(false);
