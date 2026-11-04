@@ -129,6 +129,7 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, onAc
   const acceptPrediction = () => {
     if (!suggestedText || inputDisabled) return;
     setText(suggestedText); setPrediction(null);
+    input.current?.focus({ preventScroll: true });
   };
   // Focus desktop composers after enabling them; touch devices open the keyboard on tap.
   useLayoutEffect(() => {
@@ -347,8 +348,9 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, onAc
     {state?.questions?.map(request => <SessionQuestions key={threadId + request.requestId} client={client} threadId={threadId} request={request} />)}
     {composer.chips}
     {!inputDisabled ? composer.menu : null}
+    <div className="relative">
     {/* External tools can emit input after updating the DOM value; React's change tracker may skip onChange. */}
-    <textarea ref={input} aria-label={t("Send to session")} aria-description={suggestedText ? t("Suggested next message. Tap or Tab to edit, or Send to submit.") : undefined} placeholder={suggestedText || t("Continue this Codex session…")} rows={1} value={text} onClick={acceptPrediction} onChange={event => { setText(event.target.value); composer.onSelect(); }} onInput={event => { setText(event.currentTarget.value); composer.onSelect(); }} onSelect={composer.onSelect} onKeyDown={event => {
+    <textarea ref={input} aria-label={t("Send to session")} aria-description={suggestedText ? t("Suggested next message. Use the Apply button or Tab to edit, or Send to submit.") : undefined} placeholder={suggestedText || t("Continue this Codex session…")} rows={1} value={text} onChange={event => { setText(event.target.value); composer.onSelect(); }} onInput={event => { setText(event.currentTarget.value); composer.onSelect(); }} onSelect={composer.onSelect} onKeyDown={event => {
       if (composer.handleKeyDown(event)) return;
       if (suggestedText && !event.nativeEvent.isComposing && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
         if (event.key === "Tab") { event.preventDefault(); acceptPrediction(); return; }
@@ -363,7 +365,9 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, onAc
       if (pasted && typeof document.execCommand === "function" && document.execCommand("insertText", false, pasted)) {
         event.preventDefault(); setText(event.currentTarget.value); composer.onSelect();
       }
-    }} disabled={inputDisabled} className="session-composer-input w-full resize-none overflow-y-auto rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50" />
+    }} disabled={inputDisabled} className={`session-composer-input block w-full resize-none overflow-y-auto rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50 ${suggestedText ? "pr-16" : ""}`} />
+    {suggestedText ? <button type="button" aria-label={t("Apply suggestion")} aria-keyshortcuts="Tab" title={t("Apply suggestion (Tab)")} disabled={inputDisabled} onClick={acceptPrediction} className="absolute bottom-1.5 right-1.5 min-h-8 rounded-md border border-white/15 bg-[#182630] px-2 text-xs text-cyan-100 hover:bg-cyan-900/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 disabled:opacity-40">{t("Apply")}</button> : null}
+    </div>
     <div className="session-composer-actions mt-2">
       <div className="session-composer-tools flex shrink-0 items-center gap-1">
         {dictation.busy ? <button aria-label={t("Cancel recording")} title={t("Cancel recording (Esc)")} onClick={dictation.discard} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5"><X size={19} /></button> :

@@ -19,13 +19,23 @@ describe("composer prediction interaction", () => {
     const input = await screen.findByPlaceholderText("Run the tests") as HTMLTextAreaElement;
     expect(input.value).toBe(""); fireEvent.keyDown(input, { key: "Tab" });
     expect(input.value).toBe("Run the tests");
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(input.value.length);
+    expect(screen.queryByRole("button", { name: "Apply suggestion" })).toBeNull();
     expect(call.mock.calls.some(([method]) => method === "session.send")).toBe(false);
   });
-  it("tapping the grey suggestion accepts an editable draft without sending", async () => {
+  it("clicking suggestion text only focuses the input; its Apply button accepts an editable draft", async () => {
     const call = mount("prediction-tap");
     const input = await screen.findByPlaceholderText("Run the tests") as HTMLTextAreaElement;
     fireEvent.click(input);
+    expect(input.value).toBe("");
+    const apply = screen.getByRole("button", { name: "Apply suggestion" });
+    expect(apply).toHaveAttribute("aria-keyshortcuts", "Tab");
+    fireEvent.click(apply);
     expect(input.value).toBe("Run the tests");
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(input.value.length);
+    expect(screen.queryByRole("button", { name: "Apply suggestion" })).toBeNull();
     expect(call.mock.calls.some(([method]) => method === "session.send")).toBe(false);
     fireEvent.change(input, { target: { value: "Run only the relevant tests" } });
     fireEvent.click(input);
@@ -44,6 +54,7 @@ describe("composer prediction interaction", () => {
   it("preserves the user's own typing and a failed suggestion submission", async () => {
     const call = mount("prediction-custom");
     const input = await screen.findByPlaceholderText("Run the tests"); fireEvent.change(input, { target: { value: "My own prompt" } });
+    expect(screen.queryByRole("button", { name: "Apply suggestion" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ message: "My own prompt" })));
     cleanup(); mount("prediction-failed", true);
@@ -55,6 +66,7 @@ describe("composer prediction interaction", () => {
     fireEvent.keyDown(input, { key: "Tab", shiftKey: true }); expect(input.value).toBe("");
     fireEvent.keyDown(input, { key: "Tab", isComposing: true }); expect(input.value).toBe("");
     fireEvent.keyDown(input, { key: "Escape" }); expect(screen.queryByPlaceholderText("Run the tests")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Apply suggestion" })).toBeNull();
     expect(call.mock.calls.some(([method]) => method === "session.send")).toBe(false);
   });
   it("ignores an old prediction if another turn starts while it is being generated", async () => {

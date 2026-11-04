@@ -173,7 +173,7 @@ a message, start a task or execute tools. One result is reused per completed tur
 while the gateway runs; a new user turn invalidates the suggestion. Unsupported
 sampling or account errors leave the composer without a suggestion. This is
 version-specific behavior verified with Codex 0.166.0, not a stable cross-version
-or native App prediction contract. Tap or Tab accepts the editable draft; Send submits it.
+or native App prediction contract. The Apply button accepts an editable draft on desktop and touch devices; Tab in the input does the same. Clicking the suggestion text only focuses the input. Send submits it.
 
 Dictation remains a separate optional public API. Configure `OPENAI_API_KEY` on
 the **gateway only**, then restart it to enable `/v1/audio/transcriptions`.
