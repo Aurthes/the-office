@@ -27,7 +27,7 @@ function CharacterLoading() {
 const DuckCharacterPanel = dynamic(() => import("@/features/ring-ship/DuckCharacterPanel").then(module => module.DuckCharacterPanel), { ssr: false, loading: CharacterLoading });
 type Message = LiveSessionItem;
 type HistoryPage = { threadId: string; messages: Message[]; nextCursor: string | null };
-type LoadMode = "latest" | "older";
+type LoadMode = "latest" | "older" | "sync";
 
 export function ExistingSessionPanel({ client, threadId, active = true, focusMode = false, onToggleFocus, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, onOpenThread, onFork, forkDisabled, headerStart, headerEnd, projects = [], voice, organization }: {
   client: SessionClient;
@@ -61,6 +61,8 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   const characterOpen = characterMode !== "chat";
   const [data, setData] = useState<SessionInspection | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const messagesRef = useRef(messages);
+  useLayoutEffect(() => { messagesRef.current = messages; }, [messages]);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [olderCursor, setOlderCursor] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -74,7 +76,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   const touchY = useRef(0);
   const anchor = useRef<{ height: number; top: number } | null>(null);
   const load = useRef<((mode: LoadMode) => Promise<void>) | null>(null);
-  const onHistorySync = useCallback(() => { void load.current?.("latest"); }, []);
+  const onHistorySync = useCallback(() => { void load.current?.("sync"); }, []);
   const failedMode = useRef<LoadMode>("latest");
   const liveItems = useRef(new Map<string, LiveSessionItem>());
   const onLiveItems = useCallback((items: LiveSessionItem[]) => {
@@ -133,20 +135,33 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     };
     const readPage = async (mode: LoadMode) => {
       if (stopped || (mode === "older" && !cursor)) return;
-      if (busy) { if (mode === "latest") reloadLatest = true; return; }
-      busy = true; setLoading(true); failedMode.current = mode;
+      if (busy) { if (mode !== "older") reloadLatest = true; return; }
+      busy = true; if (mode !== "sync") setLoading(true); failedMode.current = mode;
       // Keep changes received during the read, including updates to existing IDs.
       const liveBeforeRead = new Map(liveItems.current);
+      const previousIds = new Set(messagesRef.current.map(message => message.id));
       const before = mode === "older" && scroll.current ? { height: scroll.current.scrollHeight, top: scroll.current.scrollTop } : null;
       try {
         const result = await client.call("session.history", { threadId, ...(mode === "older" ? { cursor } : {}) }) as HistoryPage;
         if (stopped) return;
         if (result.threadId !== threadId) throw new Error("Session history mismatch. Please retry.");
-        anchor.current = before; follow.current = mode === "latest";
+        // Catch up to a retained timeline, paging only across the missed gap.
+        // Stream bootstrap items are a cache, so use canonical history order.
+        while (mode === "sync" && previousIds.size && result.nextCursor && !result.messages.some(message => previousIds.has(message.id))) {
+          const older = await client.call("session.history", { threadId, cursor: result.nextCursor }) as HistoryPage;
+          if (stopped) return;
+          if (older.threadId !== threadId) throw new Error("Session history mismatch. Please retry.");
+          result.messages = [...older.messages, ...result.messages]; result.nextCursor = older.nextCursor;
+        }
+        if (mode !== "sync") { anchor.current = before; follow.current = mode === "latest"; }
+        const syncedIds = new Set(result.messages.map(message => message.id));
+        const overlap = mode === "sync" && result.nextCursor !== null && messagesRef.current.some(message => syncedIds.has(message.id));
         setMessages(previous => {
-          if (mode === "latest") {
+          if (mode !== "older") {
             const ids = new Set(result.messages.map(message => message.id));
-            return [...result.messages.map(message => {
+            const prefix = overlap ? previous.slice(0, previous.findIndex(message => ids.has(message.id))) : [];
+            for (const item of prefix) ids.add(item.id);
+            return [...prefix, ...result.messages.map(message => {
               const live = liveItems.current.get(message.id);
               return live && (live.status === "completed" || live.content.length > message.content.length) ? { ...message, ...live } : message;
             }), ...[...liveItems.current.values()].filter(item => !ids.has(item.id) && liveBeforeRead.get(item.id) !== item)];
@@ -154,7 +169,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
           const existing = new Set(previous.map(message => message.id));
           return [...result.messages.filter(message => !existing.has(message.id)), ...previous];
         });
-        cursor = result.nextCursor;
+        if (!overlap) cursor = result.nextCursor;
         setOlderCursor(cursor); setLoaded(true); setError("");
       } catch (cause) {
         if (!stopped) setError(cause instanceof Error ? cause.message : "Could not load this page");
@@ -162,7 +177,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
         busy = false;
         if (!stopped) {
           setLoading(false);
-          if (reloadLatest) { reloadLatest = false; void readPage("latest"); }
+          if (reloadLatest) { reloadLatest = false; void readPage("sync"); }
         }
       }
     };
@@ -171,7 +186,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     const unsubscribeRoster = client.onEvent?.(event => { if (event.event === "roster.updated") void readMetadata(); });
     let connected = true;
     const unsubscribeStatus = client.onStatus?.(status => {
-      if (status === "connected" && !connected) { void readMetadata(); void readPage("latest"); }
+      if (status === "connected" && !connected) { void readMetadata(); void readPage("sync"); }
       connected = status === "connected";
     });
     return () => { stopped = true; load.current = null; unsubscribeStatus?.(); unsubscribeRoster?.(); };
@@ -270,7 +285,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     {data?.runtime === "office" ? <OfficeCodexAccount client={client} quiet /> : null}
     {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onActiveTurnChange={setActiveTurnId} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
     </div>
-    {workspaceOpen ? <SessionWorkspace key={threadId} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
+    {workspaceOpen ? <SessionWorkspace key={threadId} active={active} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
       assets={[...new Map(messages.flatMap(message => message.assets || []).map(asset => [asset.url, asset])).values()].slice(-40)}
       onSelectAsset={setPreviewAsset} onClose={() => setWorkspaceOpen(false)} /> : null}
     </div>

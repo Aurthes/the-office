@@ -44,7 +44,7 @@ describe("shared-session composer", () => {
       expect(input).toHaveValue("替换段。 第二段。\n第三段。");
       expect(input.selectionStart).toBe(4); expect(input).toHaveFocus();
       expect(insert).toHaveBeenLastCalledWith("insertText", false, "替换段。");
-      expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+      await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).toBeEnabled());
       expect(call).not.toHaveBeenCalledWith("session.send", expect.anything());
     } finally {
       if (original) Object.defineProperty(document, "execCommand", original); else Reflect.deleteProperty(document, "execCommand");

@@ -11,8 +11,9 @@ type Listing = { root?: string; roots?: string[]; path: string; entries: { name:
 type FileRead = { path: string; content?: string; asset?: SessionAsset };
 type Tab = "files" | "preview" | "terminal" | "browser";
 
-export function SessionWorkspace({ client, threadId, asset, assets, onSelectAsset, onClose, terminalAvailable = true }: {
+export function SessionWorkspace({ client, threadId, active = true, asset, assets, onSelectAsset, onClose, terminalAvailable = true }: {
   client: SessionClient; threadId: string; asset: SessionAsset | null; assets: SessionAsset[];
+  active?: boolean;
   onSelectAsset: (asset: SessionAsset | null) => void; onClose: () => void; terminalAvailable?: boolean;
 }) {
   const t = useUiText();
@@ -76,7 +77,7 @@ export function SessionWorkspace({ client, threadId, asset, assets, onSelectAsse
           {!busy && listing?.entries.length === 0 ? <p className="p-3 text-xs text-white/50">{t("This folder is empty.")}</p> : null}
           {listing?.truncated ? <p className="p-3 text-xs text-white/45">{t("Showing the first 300 entries.")}</p> : null}
         </div>
-      </> : tab === "terminal" ? <SessionTerminal client={client} threadId={threadId} /> : tab === "browser" ? <div className="flex flex-1 flex-col items-start justify-center gap-4 p-6">
+      </> : tab === "terminal" ? <SessionTerminal active={active} client={client} threadId={threadId} /> : tab === "browser" ? <div className="flex flex-1 flex-col items-start justify-center gap-4 p-6">
         <Globe size={28} className="text-[#c9b58e]" />
         <h3 className="text-sm font-medium">{t("Use the original Codex browser")}</h3>
         <p className="text-sm leading-6 text-white/55">{t("Open this chat in Codex, then use its browser tabs. Your existing pages and sign-ins stay there.")}</p>

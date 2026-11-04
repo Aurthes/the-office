@@ -69,6 +69,7 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
   const [commandResult, setCommandResult] = useState("");
   const [settingsPanel, setSettingsPanel] = useState<{ kind: "model" | "permissions"; nonce: string }>();
   const refresh = useRef<(() => Promise<void>) | null>(null);
+  const subscribedThread = useRef<string | null>(null);
   const actionBusy = useRef(false);
   const [uploads, setUploads] = useState<Upload[]>(() => attachmentDrafts.get(threadId) || []);
   const uploadsRef = useRef<Upload[]>(uploads);
@@ -209,7 +210,11 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
   const dictationShortcut = useDictationShortcut({ input, phase: dictation.phase, enabled: active && !busy && !settingsBusy && Boolean(state?.connected) && state?.features?.dictation !== false && voice.status === "off",
     start: dictation.start, stop: submit => submit ? send() : stopDictation(), discard: dictation.discard });
   useEffect(() => {
-    let stopped = false, pending = false, retry = false, connected = true, version = -1, bootstrapping = true, bootstrapHasItems = false;
+    // The gateway has one chat stream per socket. Cached panels keep their
+    // layout, but only the visible conversation may own that stream.
+    setState(null);
+    if (!active) return;
+    let stopped = false, pending = false, retry = false, connected = true, version = -1, bootstrapping = true, bootstrapHasItems = false, resuming = false;
     let subscriptionId: string | null = null;
     const items = new Map<string, LiveSessionItem>();
     const apply = (result: StreamSnapshot | Snapshot) => {
@@ -231,13 +236,17 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
       // frames are genuinely new changes and may be merged into that page.
       if (bootstrapping && changed.length) bootstrapHasItems = true;
       if (changed.length && (!bootstrapping || !onHistorySync)) onItems(changed);
-      if (bootstrapping && !result.hasMore) { bootstrapping = false; if (bootstrapHasItems) onHistorySync?.(); }
+      if (bootstrapping && !result.hasMore) {
+        bootstrapping = false;
+        if (bootstrapHasItems || resuming) onHistorySync?.();
+      }
     };
     const subscribe = async () => {
       if (stopped || !connected) return;
       if (pending) { retry = true; return; }
       pending = true; retry = false; version = -1; bootstrapping = true; bootstrapHasItems = false; items.clear();
       setConnectionError("");
+      resuming = subscribedThread.current === threadId; subscribedThread.current = threadId;
       const id = crypto.randomUUID(); subscriptionId = id;
       try {
         if (client.onEvent) await client.call("session.subscribe", { threadId, subscriptionId: id });
@@ -277,7 +286,7 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
       document.removeEventListener("visibilitychange", onVisible);
       if (client.onEvent && subscriptionId) void client.call("session.unsubscribe", { threadId, subscriptionId }).catch(() => {});
     };
-  }, [client, threadId, onItems, onHistorySync]);
+  }, [active, client, threadId, onItems, onHistorySync]);
   const action = async (method: string, params: object) => {
     if (actionBusy.current || settingsBusy || !state?.connected) return;
     actionBusy.current = true;

@@ -1,7 +1,11 @@
 import { createElement } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { SessionTerminal } from "@/features/office/components/SessionTerminal";
+import { RetainedSessionPanels } from "@/features/office/components/RetainedSessionPanels";
+import type { SessionClient } from "@/features/office/components/SessionControls";
+
+const output = vi.hoisted(() => ({ reset: vi.fn(), write: vi.fn() }));
 
 vi.mock("@xterm/xterm", () => ({ Terminal: class {
   textarea = document.createElement("textarea");
@@ -11,8 +15,8 @@ vi.mock("@xterm/xterm", () => ({ Terminal: class {
   open(host: HTMLElement) { host.append(this.textarea); }
   focus() { this.textarea.focus(); }
   loadAddon() {}
-  reset() {}
-  write() {}
+  reset = output.reset;
+  write = output.write;
   onData() { return { dispose() {} }; }
   onBinary() { return { dispose() {} }; }
   dispose() { this.textarea.remove(); }
@@ -20,7 +24,69 @@ vi.mock("@xterm/xterm", () => ({ Terminal: class {
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit() {} } }));
 
 beforeEach(() => {
+  output.reset.mockClear(); output.write.mockClear();
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+});
+
+it("retains xterm while handing output subscriptions to the active session, including reconnect and hidden eviction", async () => {
+  let owner: string | null = null;
+  let textA = "old";
+  const statuses = new Set<(status: "connected" | "disconnected") => void>();
+  const call = vi.fn(async (method: string, params: unknown) => {
+    const { threadId } = params as { threadId: string };
+    if (method === "session.terminal.unsubscribe") { owner = null; return {}; }
+    if (method === "session.terminal.subscribe") {
+      owner = threadId;
+      const text = threadId === "A" ? textA : "old";
+      return { handle: threadId, running: true, exitCode: null, offset: text.length, dataBase64: btoa(text) };
+    }
+    return {};
+  });
+  const client: SessionClient = { call, onStatus: handler => { statuses.add(handler); handler("connected"); return () => { statuses.delete(handler); }; } };
+  const panel = (activeId: string, sessionIds = ["A", "B"]) => createElement(RetainedSessionPanels, { activeId, sessionIds,
+    renderPanel: (threadId, state) => createElement(SessionTerminal, { client, threadId, active: state.active }) });
+  const view = render(panel("A")); await waitFor(() => expect(screen.getByRole("button", { name: "Tab" })).toBeEnabled());
+  const input = screen.getByRole("textbox", { name: "Terminal input" }); expect(owner).toBe("A");
+  view.rerender(panel("B")); await waitFor(() => expect(screen.getByRole("button", { name: "Tab" })).toBeEnabled());
+  expect(owner).toBe("B"); expect(output.reset).toHaveBeenCalledTimes(2);
+  view.rerender(panel("A")); await waitFor(() => expect(screen.getByRole("button", { name: "Tab" })).toBeEnabled());
+  expect(owner).toBe("A"); expect(screen.getByRole("textbox", { name: "Terminal input" })).toBe(input);
+  expect(output.reset).toHaveBeenCalledTimes(2); // Unchanged output keeps viewport/selection.
+  view.rerender(panel("B")); await waitFor(() => expect(owner).toBe("B"));
+  textA = "oldmissed"; output.write.mockClear();
+  view.rerender(panel("A")); await waitFor(() => expect(screen.getByRole("button", { name: "Tab" })).toBeEnabled());
+  expect(output.write).toHaveBeenCalledTimes(1);
+  expect(Array.from(output.write.mock.calls[0][0])).toEqual(Array.from(new TextEncoder().encode("missed")));
+  expect(output.reset).toHaveBeenCalledTimes(2);
+  call.mockClear();
+  await act(async () => { statuses.forEach(handler => handler("disconnected")); owner = null; statuses.forEach(handler => handler("connected")); });
+  expect(owner).toBe("A");
+  expect(call.mock.calls.filter(([method]) => method === "session.terminal.subscribe")).toHaveLength(1);
+  call.mockClear(); view.rerender(panel("A", ["A"]));
+  expect(owner).toBe("A"); expect(call).not.toHaveBeenCalledWith("session.terminal.unsubscribe", { threadId: "B" });
+  view.unmount(); expect(owner).toBeNull();
+});
+
+it("reclaims the output stream after returning while an old subscription response is still pending", async () => {
+  let owner: string | null = null, finish!: () => void;
+  const pending = new Promise<void>(resolve => { finish = resolve; }); let delayed = true;
+  const client = { call: vi.fn(async (method: string, params: unknown) => {
+    const { threadId } = params as { threadId: string };
+    if (method === "session.terminal.unsubscribe") { owner = null; return {}; }
+    if (method === "session.terminal.subscribe") {
+      owner = threadId;
+      if (threadId === "A" && delayed) { delayed = false; await pending; }
+      return { handle: threadId, running: true, offset: 0, dataBase64: "", exitCode: null };
+    }
+    return {};
+  }) };
+  const panel = (activeId: string) => createElement(RetainedSessionPanels, { activeId, sessionIds: ["A", "B"],
+    renderPanel: (threadId, state) => createElement(SessionTerminal, { client, threadId, active: state.active }) });
+  const view = render(panel("A")); await waitFor(() => expect(owner).toBe("A"));
+  view.rerender(panel("B")); await waitFor(() => expect(owner).toBe("B"));
+  view.rerender(panel("A")); await act(async () => finish());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Tab" })).toBeEnabled());
+  expect(owner).toBe("A");
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
