@@ -817,7 +817,7 @@ export function OfficeScreen({
   const returnFinished = useCallback(() => setReturnRequest(null), []);
   const sessionView = process.env.NEXT_PUBLIC_CLAW3D_SESSION_VIEW === "1";
   const [chatRosterCollapsed, setChatRosterCollapsed] = useState(false);
-  const [directoryView, setDirectoryView] = useState<AgentDirectoryView>("project");
+  const [directoryView, setDirectoryView] = useState<AgentDirectoryView>("activity");
   const [taskBoardRequest, setTaskBoardRequest] = useState<{ id?: string } | null>(null);
   const [chatExpanded, setChatExpanded] = useState(false);
   const openSessionWorkspace = useCallback(() => setChatExpanded(true), []);
@@ -3921,7 +3921,7 @@ export function OfficeScreen({
 
         {(!sessionView || !chatOpen) ? <button
           type="button"
-          onClick={() => { setChatRosterCollapsed(false); if (sessionView) changeDirectoryView("project"); setChatOpen((prev) => !prev); }}
+          onClick={() => { setChatRosterCollapsed(false); if (sessionView) changeDirectoryView("activity"); setChatOpen((prev) => !prev); }}
           className="office-chat-launcher flex items-center gap-1.5 rounded border border-amber-700/50 bg-[#0e0a04]/90 px-3 py-1.5 font-mono text-[11px] font-medium tracking-wider text-amber-500/80 shadow-lg backdrop-blur transition-colors hover:border-amber-600/70 hover:text-amber-400"
         >
           {chatOpen ? (
