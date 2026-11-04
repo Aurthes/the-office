@@ -1086,6 +1086,7 @@ export function OfficeScreen({
     ) => {
       setSelectedChatAgentId(agentId);
       if (options?.openChat !== false) {
+        setOrganizationChatOpen(true);
         setChatRosterCollapsed(false);
         setChatOpen(true);
       }
@@ -1102,7 +1103,7 @@ export function OfficeScreen({
         };
       });
     },
-    [dispatch, setChatOpen, setChatRosterCollapsed],
+    [dispatch, setChatOpen, setChatRosterCollapsed, setOrganizationChatOpen],
   );
   const handleSelectFloor = useCallback(
     async (floorId: FloorId) => {
@@ -3352,7 +3353,7 @@ export function OfficeScreen({
 
   return (
     <main className="office-responsive relative h-full w-full overflow-hidden bg-black">
-      {voice.status !== "off" && (!chatOpen || focusedChatAgent?.agentId !== voice.threadId) ? <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-3 right-3 z-[90] mx-auto max-w-lg">
+      {voice.status !== "off" && (!chatOpen || !conversationVisible || focusedChatAgent?.agentId !== voice.threadId) ? <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-3 right-3 z-[90] mx-auto max-w-lg">
         <SessionVoiceCall voice={voice} owner={state.agents.find(agent => agent.agentId === voice.threadId)?.name || voice.threadId || "Codex"} onReturn={() => { if (voice.threadId) handleOpenAgentChat(voice.threadId); }} />
       </div> : null}
       {!sessionView ? <OfficeFloorNav
