@@ -18,6 +18,7 @@ export function SessionTerminal({ client, threadId, label = "Codex", autoFocus =
   const focus = useRef<(() => void) | null>(null);
   const [state, setState] = useState<TerminalState | null>(null);
   const [error, setError] = useState("");
+  const [reloadRequired, setReloadRequired] = useState(false);
   const [busy, setBusy] = useState(false);
   const [connected, setConnected] = useState(false);
   useEffect(() => {
@@ -25,6 +26,7 @@ export function SessionTerminal({ client, threadId, label = "Codex", autoFocus =
     void (async () => {
       const [{ Terminal }, { FitAddon }] = await Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit")]);
       if (disposed || !host.current) return;
+      setReloadRequired(false);
       const terminal = new Terminal({ fontSize: 13, fontFamily: 'Menlo, Consolas, monospace', cursorBlink: true, scrollback: 1000,
         theme: { background: "#10161d", foreground: "#dee4e7", cursor: "#d5c49c", selectionBackground: "#485966" } });
       const fit = new FitAddon(); terminal.loadAddon(fit); terminal.open(host.current);
@@ -86,7 +88,12 @@ export function SessionTerminal({ client, threadId, label = "Codex", autoFocus =
         void client.call("session.terminal.unsubscribe", { threadId }).catch(() => {}); };
       await synchronize();
       if (autoFocus && !disposed) terminal.focus();
-    })().catch(cause => { if (!disposed) setError(String(cause)); });
+    })().catch(cause => {
+      if (disposed) return;
+      console.warn("Terminal initialization failed", cause);
+      setError("The terminal could not load. Reload this page and try again.");
+      setReloadRequired(true);
+    });
     return () => { disposed = true; write.current = null; resync.current = null; focus.current = null; cleanup(); };
   }, [client, threadId, autoFocus]);
   const action = async (method: "start" | "stop") => {
@@ -102,7 +109,7 @@ export function SessionTerminal({ client, threadId, label = "Codex", autoFocus =
       {[['Tab', '\t'], ['Esc', '\x1b'], ['Ctrl C', '\x03']].map(([label, value]) => <button key={label} disabled={!state?.running || !connected} onClick={() => { write.current?.(value); focus.current?.(); }}>{label}</button>)}
       <button disabled={busy || !connected} onClick={() => void action(state?.running ? "stop" : "start")} aria-label={t(state?.running ? "Close terminal" : "Start terminal")}>{state?.running ? <Square size={14} /> : <Play size={14} />}{t(state?.running ? "Close" : "Start terminal")}</button>
     </div>
-    {error ? <p role="alert" className="px-3 py-2 text-xs text-amber-200">{t(error)} <button className="underline" onClick={() => void resync.current?.()}>{t("Retry")}</button></p> : null}
+    {error ? <p role="alert" className="px-3 py-2 text-xs text-amber-200">{t(error)} <button className="underline" onClick={() => { if (reloadRequired) window.location.reload(); else void resync.current?.(); }}>{t(reloadRequired ? "Reload page" : "Retry")}</button></p> : null}
     <div ref={host} className="min-h-0 flex-1 p-2" />
   </div>;
 }
