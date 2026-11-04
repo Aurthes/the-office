@@ -10,10 +10,10 @@ beforeEach(() => {
   Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.open = false; } });
 });
 afterEach(() => { cleanup(); localStorage.clear(); vi.restoreAllMocks(); });
-function fixture(scope?: string | null) {
-  const todo: OfficeTodo = { id: "todo", revision: 4, title: "Release app", documentation: "Verify the release", departmentId: "alpha", departmentName: "Alpha", assigneeId: "alice", assigneeName: "Alice", assigneeAvailable: true, status: "running", archived: false, progress: 0, phases: [{ id: "plan", title: "Plan release", notes: "Record evidence", elapsedMs: 3000, startedAt: null, completedAt: null }, { id: "verify", title: "Validate release", elapsedMs: 0, startedAt: null, completedAt: null }], events: [] };
+function fixture(scope?: string | null, overrides: Partial<OfficeTodo> = {}) {
+  const todo: OfficeTodo = { id: "todo", revision: 4, title: "Release app", documentation: "Verify the release", departmentId: "alpha", departmentName: "Alpha", assigneeId: "alice", assigneeName: "Alice", assigneeAvailable: true, status: "running", archived: false, progress: 0, phases: [{ id: "plan", title: "Plan release", notes: "Record evidence", elapsedMs: 3000, startedAt: null, completedAt: null }, { id: "verify", title: "Validate release", elapsedMs: 0, startedAt: null, completedAt: null }], events: [], ...overrides };
   const departments = [{ id: null, name: "Open Workspace", total: 0, running: 0, unassigned: 0 }, { id: "alpha", name: "Alpha", total: 1, running: 1, unassigned: 0 }];
-  const call = vi.fn<(method: string, params: unknown) => Promise<unknown>>(async method => method === "todo.list" ? { todos: [todo], total: 1, departments, agents: [{ id: "alice", name: "Alice", projectId: "alpha" }], serverTime: Date.now() } : { todo, serverTime: Date.now() });
+  const call = vi.fn<(method: string, params: unknown) => Promise<unknown>>(async (method, params) => method === "todo.list" ? { todos: (todo.archived && !["done", "archived"].includes((params as { status?: string }).status || "")) ? [] : [todo], total: (todo.archived && !["done", "archived"].includes((params as { status?: string }).status || "")) ? 0 : 1, departments, agents: [{ id: "alice", name: "Alice", projectId: "alpha" }], serverTime: Date.now() } : { todo, serverTime: Date.now() });
   const client = { call, onEvent: vi.fn(() => () => {}) } as unknown as Pick<GatewayClient, "call" | "onEvent">;
   const props = { open: true, departmentId: scope, onClose: vi.fn(), onOpenSession: vi.fn(), connected: true, client };
   render(createElement(TaskBoard, props));
@@ -61,4 +61,27 @@ it("shows rejected concurrent edits and keeps the human draft for copying or rev
   f.call.mockImplementation(async method => { if (method === "todo.edit") throw new Error("This to-do changed. Refresh it before saving"); return { todo: f.todo, todos: [f.todo], total: 1, departments: [], agents: [], serverTime: Date.now() }; });
   fireEvent.click(screen.getByRole("button", { name: "Save to-do" }));
   await screen.findByRole("alert"); expect((screen.getByLabelText("Task title") as HTMLInputElement).value).toBe("My change");
+});
+
+it("shows exact task and phase completion dates in history while current work stays clear", async () => {
+  const first = Date.UTC(2026, 10, 4, 2, 0, 0), last = first + 60000;
+  fixture(undefined, { status: "done", archived: true, completedAt: last, progress: 2, phases: [{ id: "plan", title: "Plan release", elapsedMs: 3000, startedAt: null, completedAt: first }, { id: "verify", title: "Validate release", elapsedMs: 2000, startedAt: null, completedAt: last }] });
+  await screen.findByRole("dialog", { name: "Task board" });
+  expect(screen.queryByText("Release app")).toBeNull();
+  fireEvent.change(screen.getByRole("combobox", { name: "Task status" }), { target: { value: "archived" } });
+  fireEvent.click(await screen.findByRole("button", { name: /Release app/ }));
+  await screen.findByRole("button", { name: "Add follow-up" });
+  expect(document.querySelector('[data-completion-kind="task"] time')?.getAttribute("datetime")).toBe(new Date(last).toISOString());
+  expect([...document.querySelectorAll('[data-completion-kind="phase"] time')].map(node => node.getAttribute("datetime"))).toEqual([new Date(first).toISOString(), new Date(last).toISOString()]);
+  expect(screen.queryByRole("button", { name: "Restore" })).toBeNull();
+});
+it("starts a follow-up draft from archived completed work and preserves every old phase ID", async () => {
+  const f = fixture(undefined, { status: "done", archived: true, completedAt: 2000, progress: 2, phases: [{ id: "plan", title: "Plan release", notes: "Record evidence", elapsedMs: 3000, startedAt: null, completedAt: 1000 }, { id: "verify", title: "Validate release", elapsedMs: 0, startedAt: null, completedAt: 2000 }] });
+  await screen.findByRole("dialog", { name: "Task board" });
+  fireEvent.change(screen.getByRole("combobox", { name: "Task status" }), { target: { value: "archived" } });
+  fireEvent.click(await screen.findByRole("button", { name: /Release app/ }));
+  fireEvent.click(await screen.findByRole("button", { name: "Add follow-up" }));
+  expect(screen.getAllByLabelText("Phase title")).toHaveLength(3);
+  fireEvent.click(screen.getByRole("button", { name: "Save to-do" }));
+  await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.edit", expect.objectContaining({ phases: [{ id: "plan", title: "Plan release", notes: "Record evidence" }, { id: "verify", title: "Validate release", notes: "" }, { title: "Follow-up", notes: "" }] })));
 });

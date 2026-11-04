@@ -8,6 +8,12 @@ const text = (value, name, max, empty = false) => {
   return value.trim();
 };
 const duration = (phase, now) => phase.elapsedMs + (phase.startedAt == null ? 0 : Math.max(0, now - phase.startedAt));
+const completionTime = row => {
+  if (row.status !== "done") return null;
+  if (Number.isFinite(row.completedAt)) return row.completedAt;
+  const times = row.phases.map(phase => phase.completedAt);
+  return times.length && times.every(time => Number.isFinite(time)) ? Math.max(...times) : null;
+};
 class OfficeTodos {
   constructor(directory, { projects, agents, changed = () => {}, now = Date.now }) {
     this.directory = path.join(directory, "todos"); this.projects = projects; this.agents = agents; this.changed = changed; this.now = now;
@@ -20,6 +26,12 @@ class OfficeTodos {
       if (row.status === "running") {
         this.stopClock(row, row.savedAt); row.status = "paused"; row.revision++;
         this.event(row, "Office restarted; timer paused at the last checkpoint", { source: "system" }); this.save(row);
+      }
+      if (row.status === "done" && (!row.archived || row.completedAt !== completionTime(row))) {
+        const needsArchive = !row.archived;
+        row.completedAt = completionTime(row); row.archived = true; row.revision++;
+        if (needsArchive) this.event(row, "Completed task automatically archived", { source: "system", name: "Office" });
+        this.save(row);
       }
     }
   }
@@ -66,7 +78,7 @@ class OfficeTodos {
     const department = this.projects().find(p => p.id === row.departmentId), agent = this.agents().find(a => a.id === row.assigneeId);
     const { events, documentation, ...rest } = row;
     delete rest.requestId; delete rest.requestHash;
-    return { ...rest, departmentName: department?.name || row.departmentName, assigneeName: agent?.name || row.assigneeName,
+    return { ...rest, completedAt: completionTime(row), departmentName: department?.name || row.departmentName, assigneeName: agent?.name || row.assigneeName,
       assigneeAvailable: !!agent, ...(full ? { documentation, events } : {}),
       phases: row.phases.map(phase => full ? { ...phase } : { ...phase, notes: undefined }),
       progress: row.phases.filter(p => p.completedAt != null).length, elapsedMs: row.phases.reduce((sum, phase) => sum + duration(phase, this.now()), 0) };
@@ -77,10 +89,10 @@ class OfficeTodos {
       agents: this.agents().map(({ id, name, projectId, status }) => ({ id, name, projectId, status })) };
   }
   list(input = {}) {
-    const catalog = this.catalog(), all = [...this.rows.values()], live = all.filter(row => !row.archived);
+    const catalog = this.catalog(), all = [...this.rows.values()], live = all.filter(row => !row.archived && row.status !== "done");
     const departments = catalog.departments.map(dept => ({ ...dept, total: live.filter(r => r.departmentId === dept.id).length,
       running: live.filter(r => r.departmentId === dept.id && r.status === "running").length, unassigned: live.filter(r => r.departmentId === dept.id && !r.assigneeId && r.status !== "done").length }));
-    let rows = all.filter(row => input.status === "archived" ? row.archived : !row.archived);
+    let rows = input.status === "done" ? all.filter(row => row.status === "done") : input.status === "archived" ? all.filter(row => row.archived || row.status === "done") : live;
     if (input.departmentId !== undefined) rows = rows.filter(row => row.departmentId === input.departmentId);
     if (input.assigneeId !== undefined) rows = rows.filter(row => row.assigneeId === input.assigneeId);
     if (input.status && !["all", "archived"].includes(input.status)) rows = rows.filter(row => row.status === input.status);
@@ -98,7 +110,7 @@ class OfficeTodos {
     if (this.rows.size >= 10000) throw new Error("The to-do registry has reached its limit");
     const actor = this.actor(input), row = { version: 1, id: uuid(), revision: 1, title: text(input.title, "To-do title", 200),
       documentation: text(input.documentation || "", "Documentation", 24000, true), ...this.references(input), phases: this.plan(input.phases),
-      status: "queued", archived: false, createdAt: this.now(), updatedAt: this.now(), events: [], requestId, requestHash: hash, sourceThreadId: input.sourceThreadId || null };
+      status: "queued", archived: false, completedAt: null, createdAt: this.now(), updatedAt: this.now(), events: [], requestId, requestHash: hash, sourceThreadId: input.sourceThreadId || null };
     this.event(row, "To-do created", actor); this.save(row); this.requests.set(requestId, row.id); this.changed(row.id);
     return { todo: this.view(row, true), serverTime: this.now() };
   }
@@ -107,7 +119,8 @@ class OfficeTodos {
     if (action === "complete" && previous.phases.find(p => p.id === input.phaseId)?.completedAt != null) return this.get(input);
     if (input.revision !== previous.revision) throw new Error("This to-do changed. Refresh it before saving");
     const row = structuredClone(previous), actor = this.actor(input); let message;
-    if (row.archived && action !== "restore") throw new Error("Restore this archived to-do first");
+    if (row.archived && action !== "restore" && !(row.status === "done" && ["edit", "reopen"].includes(action))) throw new Error("Restore this archived to-do first");
+    if (action === "restore" && row.status === "done") throw new Error("Completed tasks stay archived. Add a phase or reopen a completed phase to follow up");
     if (action === "edit") {
       this.stopClock(row);
       if (input.title !== undefined) row.title = text(input.title, "To-do title", 200);
@@ -136,6 +149,14 @@ class OfficeTodos {
       this.stopClock(row); row.archived = action === "archive"; if (row.status === "running") row.status = "paused";
       message = action === "archive" ? "To-do archived" : "To-do restored";
     } else throw new Error("Unsupported to-do action");
+    if (row.status === "done") {
+      row.completedAt = previous.status === "done" ? completionTime(previous) : this.now();
+      row.archived = true;
+      if (previous.status !== "done") message += "; to-do completed and automatically archived";
+    } else {
+      row.completedAt = null;
+      if (previous.status === "done") row.archived = false;
+    }
     if (row.status === "running" && row.assigneeId) {
       for (const other of this.rows.values()) if (other.id !== row.id && other.assigneeId === row.assigneeId && other.status === "running") this.change({ id: other.id, revision: other.revision, source: "system", reason: "Agent switched to another to-do" }, "pause");
     }

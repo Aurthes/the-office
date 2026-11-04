@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { createRequire } from "node:module";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -100,4 +100,49 @@ describe("central Office task records", () => {
     expect(() => f.create({ actorId: "missing" })).toThrow(/existing Office agent/);
     expect(() => f.create({ departmentId: "missing" })).toThrow(/department/);
   });
+});
+
+it("archives a completed goal and records its completion time separately from elapsed time", () => {
+  const f = fixture(), row = f.create({ phases: [{ title: "Deliver" }] }); f.change(row.id, "start"); f.advance(4200);
+  const finished = f.change(row.id, "complete", { phaseId: row.phases[0].id });
+  expect(finished).toMatchObject({ status: "done", archived: true, completedAt: 5200, elapsedMs: 4200 });
+  expect(f.todos.list().total).toBe(0); expect(f.todos.list().departments.find((p: { id: string }) => p.id === "alpha").total).toBe(0);
+  expect(f.todos.list({ status: "done" }).todos[0].id).toBe(row.id);
+  expect(f.todos.list({ status: "archived" }).todos[0].completedAt).toBe(5200);
+});
+it("keeps completion time stable when completed documentation is edited later", () => {
+  const f = fixture(), row = f.create({ phases: [{ title: "Deliver" }] }); f.change(row.id, "start"); f.advance(1200);
+  const finished = f.change(row.id, "complete", { phaseId: row.phases[0].id }); f.advance(90000);
+  const updated = f.change(row.id, "edit", { documentation: "More evidence" });
+  expect(updated.completedAt).toBe(finished.completedAt); expect(updated.archived).toBe(true); expect(updated.phases).toEqual(finished.phases);
+  expect(() => f.change(row.id, "restore")).toThrow(/Add a phase or reopen/);
+});
+it("adds follow-up work to an archived goal without resetting completed phases", () => {
+  const f = fixture(), row = f.create({ phases: [{ title: "Deliver" }] }); f.change(row.id, "start"); f.advance(1200);
+  const finished = f.change(row.id, "complete", { phaseId: row.phases[0].id }); f.advance(5000);
+  const followup = f.change(row.id, "edit", { phases: [{ id: row.phases[0].id, title: "Deliver" }, { title: "Follow up" }] });
+  expect(followup).toMatchObject({ status: "queued", archived: false, completedAt: null }); expect(followup.phases[0]).toEqual(finished.phases[0]);
+  expect(f.todos.list().total).toBe(1); f.change(row.id, "start"); f.advance(800);
+  const completed = f.change(row.id, "complete", { phaseId: followup.phases[1].id });
+  expect(completed).toMatchObject({ status: "done", archived: true, completedAt: 8000, elapsedMs: 2000 }); expect(completed.phases[0]).toEqual(finished.phases[0]);
+});
+it("allows undoing a phase completion from the archive and returns it to follow-up work", () => {
+  const f = fixture(), row = f.create({ phases: [{ title: "Deliver" }] }); f.change(row.id, "start"); f.advance(700);
+  f.change(row.id, "complete", { phaseId: row.phases[0].id }); f.advance(6000);
+  const reopened = f.change(row.id, "reopen", { phaseId: row.phases[0].id });
+  expect(reopened).toMatchObject({ status: "running", archived: false, completedAt: null, elapsedMs: 700 }); expect(f.todos.list().total).toBe(1);
+});
+it("migrates legacy completed work using phase timestamps, never its edit or archive date", () => {
+  const f = fixture(), row = f.create(); f.change(row.id, "start");
+  for (const phase of row.phases) { f.advance(2000); f.change(row.id, "complete", { phaseId: phase.id }); }
+  const file = path.join(f.directory, "todos", row.id + ".json"), legacy = JSON.parse(readFileSync(file, "utf8"));
+  delete legacy.completedAt; legacy.archived = false; legacy.updatedAt = 999000; writeFileSync(file, JSON.stringify(legacy)); f.advance(1000000);
+  const restored = new OfficeTodos(f.directory, f.deps), historical = restored.get({ id: row.id }).todo;
+  expect(historical).toMatchObject({ archived: true, completedAt: 7000, updatedAt: 999000 }); expect(historical.phases).toEqual(legacy.phases); expect(restored.list().total).toBe(0);
+  const again = new OfficeTodos(f.directory, f.deps); expect(again.get({ id: row.id }).todo.revision).toBe(historical.revision);
+});
+it("does not invent a historical completion date when the original timestamp was not recorded", () => {
+  const f = fixture(), row = f.create(), file = path.join(f.directory, "todos", row.id + ".json");
+  const legacy = JSON.parse(readFileSync(file, "utf8")); legacy.status = "done"; delete legacy.completedAt; legacy.updatedAt = 123456; writeFileSync(file, JSON.stringify(legacy));
+  const restored = new OfficeTodos(f.directory, f.deps); expect(restored.get({ id: row.id }).todo).toMatchObject({ archived: true, completedAt: null });
 });

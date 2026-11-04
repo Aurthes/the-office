@@ -82,6 +82,9 @@ export async function checkOfficeTasks({ page, call, expect, setModelFixture, sc
   if (toolCalls.join(",") !== "todo_edit,todo_complete,todo_complete") throw Error("Agent task progress did not use the shared MCP service");
   await expect.poll(async () => (await call("session.inspect", { threadId: agent.id, includeHistory: false })).status).toBe("idle");
   const beforeQuestion = (await call("todo.get", { id: todo.id })).todo, countBeforeQuestion = (await call("todo.list")).total;
+  if (!beforeQuestion.archived || !Number.isFinite(beforeQuestion.completedAt) || countBeforeQuestion !== 0) throw Error("Completed work did not automatically leave the current board");
+  await expect(board.locator('[data-completion-kind="task"] time')).toHaveAttribute("datetime", new Date(beforeQuestion.completedAt).toISOString());
+  await expect(board.locator('[data-completion-kind="phase"] time')).toHaveCount(3);
   await call("session.send", { threadId: agent.id, message: "Just a general question: what does PNL stand for? Do not perform any work.", requestId: "task-board-general-question" });
   await expect.poll(async () => (await call("session.inspect", { threadId: agent.id, includeHistory: false })).status).toBe("idle");
   if ((await call("todo.list")).total !== countBeforeQuestion) throw Error("A general follow-up created a task");
@@ -94,22 +97,42 @@ export async function checkOfficeTasks({ page, call, expect, setModelFixture, sc
   const afterChat = (await call("todo.get", { id: todo.id })).todo;
   if (afterChat.revision !== paused.revision || afterChat.status !== "paused" || afterChat.elapsedMs !== paused.elapsedMs) throw Error("Casual chat resumed a paused task timer");
   await call("todo.complete", { id: todo.id, revision: paused.revision, phaseId: paused.phases[2].id });
+  const completedHistory = (await call("todo.get", { id: todo.id })).todo;
+  await expect(board.locator('[data-completion-kind="task"] time')).toHaveAttribute("datetime", new Date(completedHistory.completedAt).toISOString());
   // A narrow phone keeps the board within the viewport and preserves controls.
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
   const fits = await board.evaluate(node => node.getBoundingClientRect().width <= innerWidth && node.scrollWidth <= node.clientWidth + 1);
   if (!fits) throw Error("Task board overflows the phone viewport");
   if (screenshots) { fs.mkdirSync(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, browserName + "-task-board-mobile.png") }); }
+  await page.getByRole("button", { name: "Task list", exact: true }).click();
+  await expect(board.getByText("No to-dos here yet.", { exact: true })).toBeVisible();
+  await page.getByRole("combobox", { name: "Task status", exact: true }).selectOption("archived");
+  await board.getByRole("button", { name: /Shared task browser check/ }).click();
+  await page.getByRole("button", { name: "Add follow-up", exact: true }).click();
+  await page.getByLabel("Phase title", { exact: true }).last().fill("Check follow-up");
+  await page.getByRole("button", { name: "Save to-do", exact: true }).click();
+  await expect.poll(async () => (await call("todo.get", { id: todo.id })).todo.status).toBe("queued");
+  const followup = (await call("todo.get", { id: todo.id })).todo;
+  if (followup.archived || followup.completedAt != null || followup.phases.slice(0, 3).some((phase, i) => phase.completedAt !== completedHistory.phases[i].completedAt)) throw Error("Follow-up lost the completed phase history");
   await page.getByRole("button", { name: "Archive", exact: true }).click();
   await expect.poll(async () => (await call("todo.get", { id: todo.id })).todo.archived).toBe(true);
   await page.getByRole("button", { name: "Restore", exact: true }).click();
   await expect.poll(async () => (await call("todo.get", { id: todo.id })).todo.archived).toBe(false);
+  const restored = (await call("todo.get", { id: todo.id })).todo;
+  await call("todo.complete", { id: restored.id, revision: restored.revision, phaseId: restored.phases[3].id });
+  if ((await call("todo.list")).total !== 0) throw Error("Completed follow-up stayed on the current board");
   await page.getByRole("button", { name: "Close task board", exact: true }).click();
   await page.setViewportSize({ width: 1440, height: 1000 });
   if (screenshots) {
     await page.waitForTimeout(800); // Let the room camera settle after the modal closes.
     await page.screenshot({ path: path.join(screenshots, browserName + "-control-room-whiteboard.png") });
   }
+  await whiteboard.dispatchEvent("click");
+  await expect(board).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Task status", exact: true })).toHaveValue("all");
+  await expect(board.getByText("No to-dos here yet.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close task board", exact: true }).click();
   setModelFixture(null);
-  console.log(JSON.stringify({ globalTaskEntry: true, singleControlRoomWhiteboard: true, pnlScreenIndependent: true, departmentFilter: true, sharedTaskRecords: true, generalChatCreatesNoTask: true, generalFollowupCreatesNoTask: true, casualChatLeavesPausedTimerStopped: true, phaseAdvance: true, humanEditing: true, agentMcpProgress: true, mobileTaskBoard: true, archiveRestore: true }));
+  console.log(JSON.stringify({ globalTaskEntry: true, singleControlRoomWhiteboard: true, pnlScreenIndependent: true, departmentFilter: true, sharedTaskRecords: true, generalChatCreatesNoTask: true, generalFollowupCreatesNoTask: true, casualChatLeavesPausedTimerStopped: true, phaseAdvance: true, humanEditing: true, agentMcpProgress: true, mobileTaskBoard: true, autoArchiveOnCompletion: true, phaseAndTaskCompletionTimes: true, followupPreservesHistory: true, archiveRestore: true }));
 }

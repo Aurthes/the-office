@@ -2,6 +2,12 @@
 export const ZH_CN: Record<string, string> = {
   "Task whiteboard": "任务白板",
   "Open the task board for all departments.": "打开全部项目组的任务看板。",
+  "Completed at": "完成于",
+  "Completion time not recorded": "未记录完成时间",
+  "Needs follow-up": "需要跟进",
+  "Add follow-up": "新增后续阶段",
+  "Follow-up": "后续跟进",
+  "Completed tasks are archived automatically. Completion times use your local time zone.": "完成的任务自动归档。完成时间按你的本地时区显示。",
   "Task board": "任务看板",
   "Departments": "项目组",
   "Unassigned": "未分配",

@@ -78,7 +78,7 @@ schedules = new OfficeSchedules(directory, {
   send: (id, message, requestId) => controls.send(id, message, requestId, [], { onlyIfIdle: true }),
 });
 todos = new OfficeTodos(directory, { projects: () => store.projects(), agents, changed: id => broadcast("todos.updated", { id }) });
-store.todoContext = id => { const row = todos.bound(id); return { protocol: 2, agentId: id, todoId: row?.id || null, departmentId: store.get(id).projectId ?? null }; };
+store.todoContext = id => { const row = todos.bound(id); return { protocol: 3, agentId: id, todoId: row?.id || null, departmentId: store.get(id).projectId ?? null }; };
 const methods = {
   "todo.list": p => todos.list(p),
   "todo.get": p => todos.get(p),
