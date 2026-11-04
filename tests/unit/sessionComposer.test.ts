@@ -4,6 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionControls } from "../../src/features/office/components/SessionControls";
 const snapshot = { connected: true, version: 1, activeTurnId: null, items: [], approvals: [], features: { composer: true, chatReferences: true, dictation: false, voice: false, prediction: false } };
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+function edit(input: HTMLElement, value: string, start = (input as HTMLTextAreaElement).value.length, end = start, caret = value.length) {
+  (input as HTMLTextAreaElement).setSelectionRange(start, end); fireEvent.select(input);
+  fireEvent.change(input, { target: { value, selectionStart: caret, selectionEnd: caret } });
+}
 function fixture(id: string, extra = {}, props: Partial<React.ComponentProps<typeof SessionControls>> = {}) {
   const call = vi.fn(async (method: string, params: unknown) => {
     const p = params as { kind?: string; query?: string };
@@ -44,11 +48,12 @@ describe("native composer menu", () => {
     const input = screen.getByLabelText("Send to session"); await waitFor(() => expect(input).toBeEnabled());
     fireEvent.change(input, { target: { value: "@Target" } });
     fireEvent.click(await screen.findByRole("option", { name: /Target worker/ }));
-    expect(screen.getByLabelText("Message references")).toHaveTextContent("@Target worker");
-    fireEvent.change(input, { target: { value: "Summarize it" } });
+    expect(input).toHaveValue("@Target worker ");
+    expect(screen.queryByLabelText("Message references")).toBeNull();
+    edit(input, "@Target worker Summarize it");
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    await waitFor(() => expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ message: "Summarize it", references: [{ kind: "chat", id: "target", name: "Target worker" }] })));
-    await waitFor(() => expect(screen.queryByLabelText("Message references")).toBeNull());
+    await waitFor(() => expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ message: "@Target worker Summarize it", references: [{ kind: "chat", id: "target", name: "Target worker", start: 0, end: 14 }] })));
+    await waitFor(() => expect(input).toHaveValue(""));
   });
   it("shows the older-thread limit without pretending to attach a working reference", async () => {
     const call = fixture("legacy-native-reference", { features: { ...snapshot.features, chatReferences: false } });
@@ -75,9 +80,61 @@ describe("native composer menu", () => {
     call.mockImplementation(async (method, params) => { if (method === "session.send") throw new Error("Temporary send failure"); return original(method, params); });
     const input = screen.getByLabelText("Send to session"); await waitFor(() => expect(input).toBeEnabled());
     fireEvent.change(input, { target: { value: "@Target" } }); fireEvent.click(await screen.findByRole("option"));
-    fireEvent.change(input, { target: { value: "Keep my draft" } }); fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    edit(input, "@Target worker Keep my draft"); fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await screen.findByText("Temporary send failure");
-    expect(input).toHaveValue("Keep my draft"); expect(screen.getByLabelText("Message references")).toHaveTextContent("Target worker");
+    expect(input).toHaveValue("@Target worker Keep my draft");
+    expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ references: [expect.objectContaining({ id: "target", start: 0, end: 14 })] }));
+  });
+  it("inserts at the caret without moving the suffix, and keeps repeated occurrences", async () => {
+    const call = fixture("inline-middle-repeated");
+    const input = screen.getByLabelText("Send to session") as HTMLTextAreaElement;
+    await waitFor(() => expect(input).toBeEnabled());
+    edit(input, "Use @Target then compare");
+    input.setSelectionRange(11, 11); fireEvent.select(input);
+    fireEvent.click(await screen.findByRole("option"));
+    expect(input).toHaveValue("Use @Target worker then compare");
+    expect(input.selectionStart).toBe(18);
+    edit(input, input.value + " @Target");
+    fireEvent.click(await screen.findByRole("option"));
+    expect(input).toHaveValue("Use @Target worker then compare @Target worker ");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({
+      message: "Use @Target worker then compare @Target worker ",
+      references: [
+        { kind: "chat", id: "target", name: "Target worker", start: 4, end: 18 },
+        { kind: "chat", id: "target", name: "Target worker", start: 32, end: 46 },
+      ],
+    })));
+  });
+  it("removes the identity when its inline text is deleted", async () => {
+    const call = fixture("inline-delete");
+    const input = screen.getByLabelText("Send to session") as HTMLTextAreaElement;
+    await waitFor(() => expect(input).toBeEnabled());
+    edit(input, "@Target"); fireEvent.click(await screen.findByRole("option"));
+    edit(input, "Replacement", 0, input.value.length);
+    expect(input).toHaveValue("Replacement");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ message: "Replacement", references: [] })));
+  });
+  it("copies and pastes an inline reference with its identity and position", async () => {
+    const call = fixture("inline-clipboard");
+    const input = screen.getByLabelText("Send to session") as HTMLTextAreaElement;
+    await waitFor(() => expect(input).toBeEnabled());
+    edit(input, "@Target"); fireEvent.click(await screen.findByRole("option"));
+    input.focus(); input.setSelectionRange(0, 14); fireEvent.select(input);
+    const values = new Map<string, string>();
+    const clipboardData = { files: [], setData: (type: string, value: string) => values.set(type, value), getData: (type: string) => values.get(type) || "" };
+    fireEvent.copy(input, { clipboardData });
+    expect(values.get("text/plain")).toBe("@Target worker");
+    expect(values.get("text/react-mentions")).toContain("office-ref:");
+    input.setSelectionRange(15, 15); fireEvent.select(input);
+    fireEvent.paste(input, { clipboardData });
+    expect(input).toHaveValue("@Target worker @Target worker");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ references: [
+      expect.objectContaining({ id: "target", start: 0, end: 14 }),
+      expect.objectContaining({ id: "target", start: 15, end: 29 }),
+    ] })));
   });
   it("keeps mobile keyboards closed after a native command completes", async () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true }));

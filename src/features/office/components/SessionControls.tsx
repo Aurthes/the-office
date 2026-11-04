@@ -12,6 +12,9 @@ import { dictationShortcutLabel } from "./dictationShortcutSettings";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { SessionRunTimer } from "./SessionRunTimer";
 import { useSessionComposer } from "./useSessionComposer";
+import { Mention, MentionsInput } from "react-mentions-ts";
+import { ComposerTextarea } from "./ComposerTextarea";
+import { prepareComposerMessage, referenceSerializer } from "./inlineReferences";
 
 export type SessionAsset = { source: string; name: string; kind: "image" | "markdown" | "html" | "file"; url: string; inline?: boolean; attached?: boolean };
 export type LiveSessionItem = { id: string; turnId?: string; source?: "voice"; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number };
@@ -71,6 +74,7 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, onAc
   const uploadRequests = useRef(new Map<string, AbortController>());
   const picker = useRef<HTMLInputElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const setInputRef = useCallback((node: HTMLInputElement | HTMLTextAreaElement | null) => { input.current = node as HTMLTextAreaElement | null; }, []);
   const focusPending = useRef(true);
   const composer = useSessionComposer({ client, threadId, enabled: Boolean(state?.connected && state.features?.composer), chatReferences: Boolean(state?.features?.chatReferences), text, setText, input, onOpenThread, onError: setError,
     onCommand: (command, argument) => { void executeCommand(command, argument).catch(cause => setError(cause instanceof Error ? cause.message : "Command failed")); } });
@@ -194,7 +198,8 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, onAc
     if (composer.handleCommand(message)) return;
     if (!text && suggestedText) setText(suggestedText); // Retain a draft if submission fails.
     setPrediction(null);
-    void action("session.send", { message, attachments: uploads.map(file => file.ref), ...(composer.references.length ? { references: composer.references } : {}), requestId: crypto.randomUUID() });
+    const prepared = prepareComposerMessage(message);
+    void action("session.send", { ...prepared, attachments: uploads.map(file => file.ref), requestId: crypto.randomUUID() });
   };
   const dictationShortcut = useDictationShortcut({ input, phase: dictation.phase, enabled: !busy && !settingsBusy && Boolean(state?.connected) && state?.features?.dictation !== false && voice.status === "off",
     start: dictation.start, stop: submit => submit ? send() : stopDictation(), discard: dictation.discard });
@@ -318,7 +323,7 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, onAc
       if (!uploadsRef.current.every(file => file.ref)) return;
       setPrediction(null);
       if (composer.handleCommand(message)) return;
-      void action("session.send", { message, attachments: uploadsRef.current.map(file => file.ref), ...(composer.references.length ? { references: composer.references } : {}), requestId: crypto.randomUUID() });
+      void action("session.send", { ...prepareComposerMessage(message), attachments: uploadsRef.current.map(file => file.ref), requestId: crypto.randomUUID() });
     };
     return () => { dictatedSend.current = null; };
   });
@@ -346,11 +351,9 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, onAc
       {(state.approvalCount || 0) > state.approvals.length ? <p className="text-amber-100">{t("More requests will appear after these approvals are handled.")}</p> : null}
     </div> : null}
     {state?.questions?.map(request => <SessionQuestions key={threadId + request.requestId} client={client} threadId={threadId} request={request} />)}
-    {composer.chips}
     {!inputDisabled ? composer.menu : null}
     <div className="relative">
-    {/* External tools can emit input after updating the DOM value; React's change tracker may skip onChange. */}
-    <textarea ref={input} aria-label={t("Send to session")} aria-description={suggestedText ? t("Suggested next message. Use the Apply button or Tab to edit, or Send to submit.") : undefined} placeholder={suggestedText || t("Continue this Codex session…")} rows={1} value={text} onChange={event => { setText(event.target.value); composer.onSelect(); }} onInput={event => { setText(event.currentTarget.value); composer.onSelect(); }} onSelect={composer.onSelect} onKeyDown={event => {
+    <MentionsInput inputRef={setInputRef} inputComponent={ComposerTextarea} aria-label={t("Send to session")} aria-description={suggestedText ? t("Suggested next message. Use the Apply button or Tab to edit, or Send to submit.") : undefined} placeholder={suggestedText || t("Continue this Codex session…")} rows={1} value={text} onMentionsChange={event => { setText(event.value); composer.onSelect(); }} onChange={event => { if (!composer.references.length) { setText(event.target.value); composer.onSelect(); } }} onSelect={composer.onSelect} onKeyDown={event => {
       if (composer.handleKeyDown(event)) return;
       if (suggestedText && !event.nativeEvent.isComposing && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
         if (event.key === "Tab") { event.preventDefault(); acceptPrediction(); return; }
@@ -358,14 +361,21 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, onAc
       }
       if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); }
     }} onPaste={event => {
+      event.stopPropagation(); // This composer handles paste before the library's document listener.
       if (event.clipboardData.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)); return; }
       // Dictation tools can restore the clipboard before Chrome's default paste
       // reads it again. Insert this event's text while keeping native undo/caret.
       const pasted = event.clipboardData.getData("text/plain");
+      const rich = event.clipboardData.getData("text/react-mentions");
+      const node = input.current!;
+      const start = node.selectionStart, end = node.selectionEnd;
+      if (rich && referenceSerializer.findAll(rich).length) { event.preventDefault(); composer.replaceRange(node.selectionStart, node.selectionEnd, rich, prepareComposerMessage(rich).message.length); return; }
       if (pasted && typeof document.execCommand === "function" && document.execCommand("insertText", false, pasted)) {
-        event.preventDefault(); setText(event.currentTarget.value); composer.onSelect();
+        event.preventDefault(); composer.replaceRange(start, end, pasted);
       }
-    }} disabled={inputDisabled} className={`session-composer-input block w-full resize-none overflow-y-auto rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50 ${suggestedText ? "pr-16" : ""}`} />
+    }} disabled={inputDisabled} className="office-mentions" classNames={{ control: "border-0 bg-transparent", input: `session-composer-input block w-full resize-none overflow-y-auto rounded-xl border border-white/15 px-3 py-2 text-base leading-6 text-white placeholder:text-white/35 focus:border-cyan-300/50 focus:outline-none disabled:opacity-50 ${suggestedText ? "pr-16" : ""}`, highlighter: "rounded-xl border border-transparent bg-black/20 px-3 py-2 text-base leading-6" }}>
+      <Mention trigger={/(?!)/} data={[]} markup={referenceSerializer} displayTransform={(_id, display) => display || ""} className="bg-cyan-500/20" />
+    </MentionsInput>
     {suggestedText ? <button type="button" aria-label={t("Apply suggestion")} aria-keyshortcuts="Tab" title={t("Apply suggestion (Tab)")} disabled={inputDisabled} onClick={acceptPrediction} className="absolute bottom-1.5 right-1.5 min-h-8 rounded-md border border-white/15 bg-[#182630] px-2 text-xs text-cyan-100 hover:bg-cyan-900/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 disabled:opacity-40">{t("Apply")}</button> : null}
     </div>
     <div className="session-composer-actions mt-2">

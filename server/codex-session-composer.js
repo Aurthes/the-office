@@ -66,28 +66,49 @@ class CodexSessionComposer {
   }
   async prepare(id, text, references = []) {
     if (typeof text !== "string") throw new Error("Message text must be a string");
-    if (!Array.isArray(references) || references.length > 8) throw new Error("Up to 8 references per message");
-    const row = this.store.get(id), items = [], links = [], seen = new Set();
-    for (const reference of references) {
+    if (!Array.isArray(references)) throw new Error("Invalid composer references");
+    const inline = references.some(reference => reference && (reference.start !== undefined || reference.end !== undefined));
+    if (!inline && references.length > 8) throw new Error("Up to 8 references per message");
+    // Inline occurrences may repeat a target. Validate every range before any
+    // asynchronous resolution, and count unique targets rather than occurrences.
+    const ordered = inline ? [...references].sort((a, b) => (a?.start ?? -1) - (b?.start ?? -1)) : references;
+    let end = 0;
+    for (const reference of ordered) {
       if (!reference || typeof reference.id !== "string" || reference.id.length > 4096 || !["chat", "file", "skill", "app"].includes(reference.kind)) throw new Error("Invalid composer reference");
-      const key = reference.kind + ":" + reference.id; if (seen.has(key)) continue; seen.add(key);
-      if (reference.kind === "chat") {
-        if (!this.canReference(id)) throw new Error("This older chat has no Office reference tools. Start a new chat to reference existing workers.");
-        const target = this.store.get(reference.id);
-        links.push(`[@${markdownName(target.name)}](thread://${target.id})`);
-      } else if (reference.kind === "file") {
-        const root = this.store.sessionFolders(row).find(root => contains(root, path.resolve(reference.id)));
-        if (!root) throw new Error("File is outside this workspace");
-        const target = await this.workspace.target(row, reference.id, root);
-        links.push(`@${JSON.stringify(target.resolved)}`);
-      } else {
-        const option = (await this.catalog(id, reference.kind)).find(option => option.id === reference.id && !option.disabled);
-        if (!option) throw new Error("This skill or app is no longer available in Office");
-        items.push({ type: reference.kind === "skill" ? "skill" : "mention", name: option.name, path: reference.kind === "skill" ? option.id : "app://" + option.id });
-        links.push(reference.kind === "skill" ? "$" + option.name : `[$${markdownName(option.name)}](app://${option.id})`);
+      if (inline) {
+        const label = (reference.kind === "skill" ? "$" : "@") + String(reference.name ?? "").replace(/[\r\n]/g, " ");
+        if (!Number.isSafeInteger(reference.start) || !Number.isSafeInteger(reference.end) || reference.start < end || reference.end <= reference.start || reference.end > text.length || text.slice(reference.start, reference.end) !== label) throw new Error("Invalid inline reference range");
+        end = reference.end;
       }
     }
-    return { text: links.length ? links.join(" ") + (text.trim() ? "\n" + text : "") : text, items };
+    if (new Set(ordered.map(reference => reference.kind + ":" + reference.id)).size > 8) throw new Error("Up to 8 references per message");
+    const row = this.store.get(id), items = [], links = [], resolved = new Map();
+    let prepared = "", position = 0;
+    for (const reference of ordered) {
+      const key = reference.kind + ":" + reference.id;
+      if (!resolved.has(key)) {
+        let link;
+        if (reference.kind === "chat") {
+          if (!this.canReference(id)) throw new Error("This older chat has no Office reference tools. Start a new chat to reference existing workers.");
+          const target = this.store.get(reference.id);
+          link = `[@${markdownName(target.name)}](thread://${target.id})`;
+        } else if (reference.kind === "file") {
+          const root = this.store.sessionFolders(row).find(root => contains(root, path.resolve(reference.id)));
+          if (!root) throw new Error("File is outside this workspace");
+          const target = await this.workspace.target(row, reference.id, root);
+          link = `@${JSON.stringify(target.resolved)}`;
+        } else {
+          const option = (await this.catalog(id, reference.kind)).find(option => option.id === reference.id && !option.disabled);
+          if (!option) throw new Error("This skill or app is no longer available in Office");
+          items.push({ type: reference.kind === "skill" ? "skill" : "mention", name: option.name, path: reference.kind === "skill" ? option.id : "app://" + option.id });
+          link = reference.kind === "skill" ? "$" + option.name : `[$${markdownName(option.name)}](app://${option.id})`;
+        }
+        resolved.set(key, link);
+        if (!inline) links.push(link);
+      }
+      if (inline) { prepared += text.slice(position, reference.start) + resolved.get(key); position = reference.end; }
+    }
+    return { text: inline ? prepared + text.slice(position) : links.length ? links.join(" ") + (text.trim() ? "\n" + text : "") : text, items };
   }
   handleToolCall(frame) {
     if (frame.method !== "item/tool/call" || frame.params?.namespace !== "office") return false;

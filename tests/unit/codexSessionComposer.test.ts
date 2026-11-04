@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const require = createRequire(import.meta.url);
 const { CodexOfficeStore } = require("../../server/codex-office-store");
 const { CodexSessionComposer } = require("../../server/codex-session-composer");
+const { CodexSessionControls } = require("../../server/codex-session-controls");
 const { CodexSessionWorkspace } = require("../../server/codex-session-workspace");
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
@@ -28,6 +29,42 @@ async function fixture() {
   return { root, client, store, composer: new CodexSessionComposer(store, workspace), reader: reader.threadId, target: target.threadId };
 }
 describe("official Office composer integration", () => {
+  it("resolves inline links in source order and preserves repeated references", async () => {
+    const f = await fixture();
+    const text = "Compare @Target with @Reader, then ask @Target.";
+    const references = [
+      { kind: "chat", id: f.target, name: "Target", start: text.lastIndexOf("@Target"), end: text.lastIndexOf("@Target") + 7 },
+      { kind: "chat", id: f.target, name: "Target", start: 8, end: 15 },
+      { kind: "chat", id: f.reader, name: "Reader", start: 21, end: 28 },
+    ];
+    expect((await f.composer.prepare(f.reader, text, references)).text).toBe(`Compare [@Target](thread://${f.target}) with [@Reader](thread://${f.reader}), then ask [@Target](thread://${f.target}).`);
+    const repeated = Array(9).fill("@Target").join(" ");
+    expect((await f.composer.prepare(f.reader, repeated, Array.from({ length: 9 }, (_, i) => ({ kind: "chat", id: f.target, name: "Target", start: i * 8, end: i * 8 + 7 })))).text.match(/thread:\/\//g)).toHaveLength(9);
+  });
+  it("rejects stale, overlapping or mixed ranges before resolving a reference", async () => {
+    const f = await fixture();
+    const ref = { kind: "chat", id: f.target, name: "Target", start: 0, end: 7 };
+    for (const references of [[{ ...ref, end: 8 }], [{ ...ref, start: -1 }], [ref, ref], [ref, { kind: "chat", id: f.target }], [{ ...ref, name: "Someone" }]]) {
+      await expect(f.composer.prepare(f.reader, "@Target", references)).rejects.toThrow("range");
+    }
+  });
+  it("keeps repeated skills in place while activating the skill only once", async () => {
+    const f = await fixture();
+    const prepared = await f.composer.prepare(f.reader, "Use $enabled then $enabled", [
+      { kind: "skill", id: "/skills/enabled/SKILL.md", name: "enabled", start: 4, end: 12 },
+      { kind: "skill", id: "/skills/enabled/SKILL.md", name: "enabled", start: 18, end: 26 },
+    ]);
+    expect(prepared.text).toBe("Use $enabled then $enabled");
+    expect(prepared.items).toEqual([{ type: "skill", name: "enabled", path: "/skills/enabled/SKILL.md" }]);
+  });
+  it("sends inline identities to Codex in the actual native turn text", async () => {
+    const f = await fixture();
+    f.client.call.mockImplementation(async (method: string) => method === "thread/turns/list" ? { data: [] } : method === "turn/start" ? { turn: { id: "started" } } : {});
+    const controls = new CodexSessionControls(f.client, () => [], { composer: f.composer });
+    await controls.send(f.reader, "Ask @Target to check", "inline-send", [], { references: [{ kind: "chat", id: f.target, name: "Target", start: 4, end: 11 }] });
+    expect(f.client.call).toHaveBeenCalledWith("turn/start", expect.objectContaining({ input: [{ type: "text", text: `Ask [@Target](thread://${f.target}) to check` }] }));
+    controls.close();
+  });
   it("registers Office-owned tools on new native threads and keeps existing chats as reference targets", async () => {
     const f = await fixture();
     expect(f.composer.canReference(f.reader)).toBe(true);

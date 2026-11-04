@@ -1,14 +1,12 @@
 "use client";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
-import { X } from "lucide-react";
 import type { SessionClient } from "./SessionControls";
 import { useUiText } from "@/lib/i18n/ui-language";
+import { composerMarkupIndex, encodeReference, prepareComposerMessage, referenceLabel, type ComposerReference } from "./inlineReferences";
 
 type Kind = "command" | "chat" | "file" | "skill" | "app";
-export type ComposerReference = { kind: Exclude<Kind, "command">; id: string; name: string };
 type Option = { kind: Kind; id: string; name: string; description: string; disabled?: boolean };
 type Result = { options: Option[]; available?: boolean; hint?: string };
-const drafts = new Map<string, ComposerReference[]>();
 
 export function useSessionComposer({ client, threadId, enabled, chatReferences, text, setText, input, onCommand, onOpenThread, onError }: {
   client: SessionClient; threadId: string; enabled: boolean; chatReferences: boolean; text: string; setText: (text: string) => void;
@@ -17,18 +15,19 @@ export function useSessionComposer({ client, threadId, enabled, chatReferences, 
   onError: (message: string) => void;
 }) {
   const t = useUiText();
-  const [references, setReferences] = useState<ComposerReference[]>(() => drafts.get(threadId) || []);
-  const updateReferences = (next: ComposerReference[]) => { if (next.length) drafts.set(threadId, next); else drafts.delete(threadId); setReferences(next); };
+  const { message: plainText, references } = prepareComposerMessage(text);
   const [picker, setPicker] = useState<Exclude<Kind, "command">>("chat");
   const [intent, setIntent] = useState<"reference" | "switch">("reference");
-  const [caret, setCaret] = useState(text.length);
+  const [caret, setCaret] = useState(plainText.length);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [result, setResult] = useState<(Result & { key: string; error?: string }) | null>(null);
   const [selected, setSelected] = useState(0);
   const pendingCaret = useRef<number | null>(null);
-  const prefix = text.slice(0, caret);
-  const slash = /^\/([a-z-]*)$/.exec(text);
-  const mention = /(?:^|\s)([@$])([^\n]*)$/.exec(prefix);
+  let triggerText = plainText;
+  for (const reference of references) triggerText = triggerText.slice(0, reference.start) + "\ufffc".repeat(reference.end - reference.start) + triggerText.slice(reference.end);
+  const prefix = triggerText.slice(0, caret);
+  const slash = /^\/([a-z-]*)$/.exec(plainText);
+  const mention = /(?:^|\s)([@$])([^\n@$]*)$/.exec(prefix);
   const kind: Kind | null = enabled && dismissed !== text + ":" + caret ? slash ? "command" : mention ? mention[1] === "$" ? "skill" : picker : null : null;
   const query = slash ? slash[1] : mention?.[2] || "";
   const key = kind ? `${threadId}:${kind}:${query}:${intent}` : "";
@@ -50,10 +49,13 @@ export function useSessionComposer({ client, threadId, enabled, chatReferences, 
     input.current?.setSelectionRange(pendingCaret.current, pendingCaret.current);
     setCaret(pendingCaret.current); pendingCaret.current = null;
   }, [text, input]);
-  const replaceTrigger = (replacement: string) => {
+  const replaceRange = (start: number, end: number, replacement: string, displayLength = replacement.length) => {
+    const next = text.slice(0, composerMarkupIndex(text, start, "start")) + replacement + text.slice(composerMarkupIndex(text, end, "end"));
+    pendingCaret.current = start + displayLength; setText(next);
+  };
+  const replaceTrigger = (replacement: string, displayLength = replacement.length) => {
     const start = slash ? 0 : caret - (mention ? mention[1].length + mention[2].length : 0);
-    const next = text.slice(0, start) + replacement + text.slice(slash ? text.length : caret);
-    pendingCaret.current = start + replacement.length; setText(next);
+    replaceRange(start, slash ? plainText.length : caret, replacement, displayLength);
   };
   const choose = (option: Option) => {
     if (option.disabled || legacy) return;
@@ -62,12 +64,16 @@ export function useSessionComposer({ client, threadId, enabled, chatReferences, 
     if (option.kind === "chat" && intent === "switch") {
       void Promise.resolve().then(() => onOpenThread?.(option.id)).then(() => replaceTrigger("")).catch(cause => onError(cause instanceof Error ? cause.message : "Could not open this chat")); return;
     }
-    if (references.length >= 8 && !references.some(item => item.kind === option.kind && item.id === option.id)) return;
-    if (!references.some(item => item.kind === option.kind && item.id === option.id)) updateReferences([...references, { kind: option.kind, id: option.id, name: option.name }]);
-    replaceTrigger(""); setPicker("chat"); setIntent("reference");
+    if (new Set(references.map(item => item.kind + ":" + item.id)).size >= 8 && !references.some(item => item.kind === option.kind && item.id === option.id)) return;
+    const reference: ComposerReference = { kind: option.kind, id: option.id, name: option.name };
+    const space = /^\s/.test(plainText.slice(caret)) ? "" : " ";
+    replaceTrigger(encodeReference(reference) + space, referenceLabel(reference).length + space.length); setPicker("chat"); setIntent("reference");
   };
   const open = (next: Exclude<Kind, "command">, mode: "reference" | "switch" = "reference") => {
-    setPicker(next); setIntent(mode); setDismissed(null); pendingCaret.current = 1; setText(next === "skill" ? "$" : "@");
+    setPicker(next); setIntent(mode); setDismissed(null);
+    const trigger = next === "skill" ? "$" : "@";
+    if (/^\//.test(plainText)) replaceRange(0, plainText.length, trigger);
+    else replaceRange(input.current?.selectionStart ?? caret, input.current?.selectionEnd ?? caret, trigger);
   };
   const handleCommand = (value: string) => {
     if (!enabled) return false;
@@ -75,7 +81,7 @@ export function useSessionComposer({ client, threadId, enabled, chatReferences, 
     if (!command) return false;
     setDismissed(text + ":" + caret); onCommand(command[1], command[2]?.trim() || ""); return true;
   };
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.nativeEvent.isComposing || !kind) return false;
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setDismissed(text + ":" + caret); return true; }
     if ((event.key === "ArrowDown" || event.key === "ArrowUp") && options.length) {
@@ -86,9 +92,6 @@ export function useSessionComposer({ client, threadId, enabled, chatReferences, 
     }
     return false;
   };
-  const chips = references.length ? <div aria-label={t("Message references")} className="mb-2 flex flex-wrap gap-2">{references.map(item => <span key={item.kind + item.id} className="inline-flex max-w-full items-center gap-1 rounded-lg border border-cyan-300/25 bg-cyan-900/15 pl-2 text-cyan-100">
-    <span className="truncate">{item.kind === "skill" ? "$" : "@"}{item.name}</span><button type="button" aria-label={t("Remove reference {name}", { name: item.name })} onClick={() => updateReferences(references.filter(ref => ref !== item))} className="grid min-h-9 min-w-9 place-items-center"><X size={13} /></button>
-  </span>)}</div> : null;
   const menu = kind ? <section aria-label={t(kind === "command" ? "Codex commands" : "Codex references")} className="mb-2 overflow-hidden rounded-xl border border-white/15 bg-[#172330] shadow-lg">
     {kind !== "command" && mention?.[1] !== "$" ? <div className="flex gap-1 border-b border-white/10 p-1" aria-label={t("Reference categories")}>{([ ["chat", intent === "switch" ? "Chats" : "Workers / chats"], ["file", "Files"], ["skill", "Skills"], ["app", "Apps"] ] as const).map(([value, label]) => <button type="button" key={value} onMouseDown={event => event.preventDefault()} onClick={() => { setPicker(value); setIntent(value === "chat" ? intent : "reference"); }} className={"min-h-9 rounded-lg px-2 text-xs " + (kind === value ? "bg-white/10 text-white" : "text-white/55")}>{t(label)}</button>)}</div> : null}
     {legacy ? <p className="p-3 text-amber-100">{t("This older chat has no Office reference tools. Start a new chat to reference existing workers.")}</p> : null}
@@ -97,5 +100,5 @@ export function useSessionComposer({ client, threadId, enabled, chatReferences, 
     </button>)}</div>
     {!visible ? <p role="status" className="p-3 text-white/50">{t("Loading options…")}</p> : visible.error ? <p role="alert" className="p-3 text-amber-100">{t(visible.error)}</p> : !options.length ? <p role="status" className="p-3 text-white/50">{t(visible.hint || "No matching options in this Office runtime")}</p> : null}
   </section> : null;
-  return { references, chips, menu, open, handleCommand, handleKeyDown, onSelect: () => setCaret(input.current?.selectionStart ?? text.length), clear: () => { updateReferences([]); setDismissed(null); setPicker("chat"); setIntent("reference"); } };
+  return { references, menu, open, replaceRange, handleCommand, handleKeyDown, onSelect: () => setCaret(input.current?.selectionStart ?? plainText.length), clear: () => { setDismissed(null); setPicker("chat"); setIntent("reference"); } };
 }
