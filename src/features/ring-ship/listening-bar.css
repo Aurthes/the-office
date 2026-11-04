@@ -39,6 +39,10 @@
 .music-song > span { display:flex; min-width:0; flex:1; flex-direction:column; gap:4px; }
 .music-song strong { color:#f0e9dc; font-size:14px; font-weight:500; }
 .music-song small { color:#9eafa2; font-size:12px; }
+.music-local-song { display:flex; align-items:center; gap:4px; }
+.music-local-song > .music-song { flex:1; min-width:0; width:auto; }
+.music-icon-button.music-local-preference { width:36px; height:36px; }
+.music-local-preference[aria-pressed="true"] { color:#eed6a6; border-color:#c6a46a66; background:#c6a46a17; }
 .music-empty { margin:0; padding:28px 24px; color:#a6b8a8; font-size:14px; }
 .music-login { display:flex; flex:1; flex-direction:column; align-items:center; justify-content:center; gap:18px; padding:24px; text-align:center; color:#c7d0c3; font-size:14px; }
 .music-login img { border:8px solid white; border-radius:10px; }

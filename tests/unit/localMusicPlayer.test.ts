@@ -19,6 +19,40 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const props = { onOpen: vi.fn(), onClose: vi.fn() };
 async function selectLocal() { fireEvent.click(screen.getByRole("button", { name: /Local music.*Local library/ })); await screen.findByRole("button", { name: "Play One" }); }
+it("sets, replaces and clears a persistent default track without interrupting playback", async () => {
+  const view = render(createElement(MusicPlayerDialog, props)); await selectLocal();
+  fireEvent.click(screen.getByRole("button", { name: "Play One" })); const audio = document.querySelector("audio")!;
+  const calls = vi.mocked(audio.play).mock.calls.length;
+  fireEvent.click(screen.getByRole("button", { name: "Set default track: Two" }));
+  expect(screen.getByRole("button", { name: "Clear default track: Two" })).toHaveAttribute("aria-pressed", "true");
+  expect(localStorage.getItem("claw3d:music:local:preferred-track")).toBe("two");
+  expect(audio).toHaveAttribute("src", "/api/music/local?id=one"); expect(audio.play).toHaveBeenCalledTimes(calls);
+  view.unmount(); render(createElement(MusicPlayerDialog, { ...props, autoPlay: true }));
+  await waitFor(() => expect(document.querySelector("audio")).toHaveAttribute("src", "/api/music/local?id=two"));
+  fireEvent.click(screen.getByRole("button", { name: "Set default track: One" }));
+  expect(screen.getByRole("button", { name: "Set default track: Two" })).toHaveAttribute("aria-pressed", "false");
+  fireEvent.click(screen.getByRole("button", { name: "Clear default track: One" }));
+  expect(localStorage.getItem("claw3d:music:local:preferred-track")).toBeNull();
+  expect(document.querySelector("audio")).toHaveAttribute("src", "/api/music/local?id=two");
+});
+it.each(["shuffle", "sequence", "repeat-one"])("starts with the preferred track in %s mode and preserves subsequent playback rules", async mode => {
+  localStorage.setItem(MUSIC_PROVIDER_KEY, "local"); localStorage.setItem("claw3d:music:local:mode", mode);
+  localStorage.setItem("claw3d:music:local:preferred-track", "two"); localStorage.setItem("claw3d:music:local:last-track", "two");
+  render(createElement(MusicPlayerDialog, { ...props, autoPlay: true, open: false }));
+  const audio = await waitFor(() => { const a = document.querySelector("audio")!; expect(a).toHaveAttribute("src", "/api/music/local?id=two"); return a; });
+  fireEvent.loadedMetadata(audio); fireEvent.play(audio); fireEvent.ended(audio);
+  await waitFor(() => expect(audio).toHaveAttribute("src", "/api/music/local?id=" + (mode === "repeat-one" ? "two" : "one")));
+});
+it("uses the selected default for manual library start and safely falls back when that track is removed", async () => {
+  const view = render(createElement(MusicPlayerDialog, props)); await selectLocal();
+  fireEvent.click(screen.getByRole("button", { name: "Set default track: Two" }));
+  expect(document.querySelector("audio")).not.toHaveAttribute("src");
+  fireEvent.click(screen.getByRole("button", { name: "Play music" }));
+  await waitFor(() => expect(document.querySelector("audio")).toHaveAttribute("src", "/api/music/local?id=two"));
+  view.unmount(); localStorage.setItem("claw3d:music:local:preferred-track", "removed");
+  render(createElement(MusicPlayerDialog, { ...props, autoPlay: true, open: false }));
+  await waitFor(() => expect(document.querySelector("audio")).toHaveAttribute("src", "/api/music/local?id=one"));
+});
 it("offers two real sources and streams the local selection in the existing player", async () => {
   render(createElement(MusicPlayerDialog, props)); expect(screen.getByRole("button", { name: /网易云音乐/ })).toBeInTheDocument();
   await selectLocal(); expect(screen.getByRole("dialog", { name: "Local music" })).toBeInTheDocument();
