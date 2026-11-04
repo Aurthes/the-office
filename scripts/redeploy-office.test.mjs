@@ -112,6 +112,43 @@ test("real LaunchAgents: private backend health credential is supplied without a
   assert.equal((await response.json()).version, "new");
 });
 
+async function productionAssets(f, collide = false) {
+  for (const release of ["old", "new"]) {
+    const root = path.join(f.root, release);
+    fs.mkdirSync(path.join(root, ".next/static/chunks"), { recursive: true });
+    fs.mkdirSync(path.join(root, "node_modules/next"), { recursive: true });
+    fs.writeFileSync(path.join(root, ".next/BUILD_ID"), release);
+    fs.writeFileSync(path.join(root, "node_modules/next/package.json"), '{"name":"next"}');
+    fs.writeFileSync(path.join(root, ".next/static/chunks", collide ? "same.js" : `${release}.js`), release);
+  }
+  for (const file of [f.services[0].plist, f.services[0].candidate]) {
+    const value = JSON.parse(execFileSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", file], { encoding: "utf8" }));
+    value.EnvironmentVariables = { NODE_ENV: "production" }; writePlist(file, value);
+  }
+}
+
+test("production Studio preserves old deferred assets before starting the replacement", mac, async t => {
+  const f = await fixture(t, ["studio"]); await productionAssets(f);
+  const entry = path.join(f.root, "new/server/index.js");
+  fs.writeFileSync(entry, fs.readFileSync(entry, "utf8").replace("const server =", "if (fs.readFileSync('../.next/static/chunks/old.js', 'utf8') !== 'old') process.exit(42);\nconst server ="));
+  // The fixture runs from its release root, just like the real Office.
+  fs.writeFileSync(entry, fs.readFileSync(entry, "utf8").replace("'../.next/static/", "'.next/static/"));
+  const result = await f.start();
+  assert.equal(result.phase, "succeeded", JSON.stringify(result));
+  assert.deepEqual(result.services[0].clientAssets, { files: 1, bytes: 3 });
+  assert.equal(fs.readFileSync(path.join(f.root, "new/.next/static/chunks/new.js"), "utf8"), "new");
+  assert.equal(await version(f.services[0].health), "new");
+});
+
+test("production static asset conflicts reject preflight without stopping the running Studio", mac, async t => {
+  const f = await fixture(t, ["studio"]); await productionAssets(f, true);
+  const result = await f.start();
+  assert.equal(result.phase, "rejected", JSON.stringify(result));
+  assert.match(result.error, /different contents/);
+  assert.equal(await version(f.services[0].health), "old");
+  assert.ok(!fs.existsSync(path.join(f.root, "studio.old.exited")));
+});
+
 test("real LaunchAgents: new process exits on startup; old configuration and health are restored", mac, async t => {
   const f = await fixture(t);
   const plan = JSON.parse(fs.readFileSync(f.planFile));

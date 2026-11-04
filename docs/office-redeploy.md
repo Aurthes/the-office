@@ -60,6 +60,18 @@ External configuration changes are reported instead of overwritten. The tool
 only accepts Office gateway/studio labels and entry points. It does not edit
 native App state, schedules, credentials, auth proxies, or tunnels.
 
+For production Studio updates, preflight carries the previous release's
+`.next/static` files into the candidate before starting it. An already-open tab
+can then load its original terminal JS/CSS after any later update without a page
+reload. New files stay unchanged; a shared URL with different contents rejects
+the deployment before services stop. Only public static assets are carried
+forward, using hard links where possible so old release directories can still be
+removed without losing the assets. Files from `.next/server`, credentials, and
+dependencies are not copied. Acceptance records the added file count and bytes
+under `services[].clientAssets`. Unique historical static files remain available
+in the current release for older tabs. This cannot restore files deleted before
+the mechanism was enabled, or undo an import failure already cached in an old tab.
+
 The command prints `result.json` in
 `~/.local/share/claw3d/deployments/deploy-*` (`--state-dir` overrides this).
 `--wait` only waits for that independent job; a caller timeout never cancels it.

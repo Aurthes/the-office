@@ -72,7 +72,42 @@ function describe(bytes, file) {
   const lockfile = path.join(cwd, "package-lock.json");
   if (fs.existsSync(lockfile)) files.push(lockfile);
   const fingerprint = files.map(name => [name, digest(fs.readFileSync(name))]);
-  return { label: value.Label, kind, fingerprint };
+  return { label: value.Label, kind, cwd, production: value.EnvironmentVariables?.NODE_ENV === "production", fingerprint };
+}
+
+// Old tabs still request the hashed JS/CSS URLs from the build they loaded.
+// Carry only public assets forward; hard links survive removal of old releases.
+export function retainClientAssets(previousRelease, nextRelease) {
+  const source = path.join(previousRelease, ".next/static"), target = path.join(nextRelease, ".next/static");
+  const retained = { files: 0, bytes: 0 };
+  if (source === target || !fs.existsSync(source)) return retained;
+  const directory = file => {
+    fs.mkdirSync(file, { recursive: true });
+    if (!fs.lstatSync(file).isDirectory()) throw new Error("Next static assets must be regular directories");
+  };
+  if (!fs.lstatSync(source).isDirectory()) throw new Error("Next static assets must be regular directories");
+  directory(target);
+  const copy = (from, to, relative = "") => {
+    for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+      const oldFile = path.join(from, entry.name), newFile = path.join(to, entry.name), name = path.join(relative, entry.name);
+      if (entry.isDirectory()) { directory(newFile); copy(oldFile, newFile, name); continue; }
+      if (!entry.isFile()) throw new Error(`Cannot retain a non-regular static asset: ${name}`);
+      if (fs.existsSync(newFile)) {
+        if (!fs.lstatSync(newFile).isFile() || digest(fs.readFileSync(oldFile)) !== digest(fs.readFileSync(newFile))) {
+          throw new Error(`Static asset path has different contents: ${name}`);
+        }
+        continue;
+      }
+      try { fs.linkSync(oldFile, newFile); }
+      catch (error) {
+        if (error.code !== "EXDEV") throw error;
+        fs.copyFileSync(oldFile, newFile, fs.constants.COPYFILE_EXCL);
+      }
+      retained.files++; retained.bytes += fs.statSync(newFile).size;
+    }
+  };
+  copy(source, target);
+  return retained;
 }
 function unchangedSource(description) {
   for (const [name, hash] of description.fingerprint) {
@@ -200,11 +235,14 @@ export async function deploy(job) {
       if (digest(fs.readFileSync(service.plist)) !== service.beforeHash) throw new Error("Concurrent service configuration change");
       unchangedSource(service.old); unchangedSource(service);
       await ready(service, job.timeout);
+      if (service.kind === "studio" && service.production && service.old.production) {
+        service.clientAssets = retainClientAssets(service.old.cwd, service.cwd);
+      }
     }
     for (const service of job.services) {
       if (digest(fs.readFileSync(service.plist)) !== service.beforeHash) throw new Error("Concurrent service configuration change");
       unchangedSource(service);
-      const row = { label: service.label, phase: "stopping", cutoverAt: new Date().toISOString() };
+      const row = { label: service.label, phase: "stopping", cutoverAt: new Date().toISOString(), ...(service.clientAssets ? { clientAssets: service.clientAssets } : {}) };
       result.services.push(row); attempted.push(service); result.phase = "switching"; save();
       await stop(service, 30_000);
       atomic(service.plist, bytes(service, "after"), service.mode);
