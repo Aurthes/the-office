@@ -168,10 +168,19 @@ async function start(service, timeout) {
   throw new Error(`Cannot start ${service.label}: ${last}`);
 }
 
+export function cleanupPolicy(plan, localPolicy = () =>
+  fs.existsSync(retentionPolicy) ? JSON.parse(fs.readFileSync(retentionPolicy, "utf8")) : null) {
+  const agents = path.join(os.homedir(), "Library/LaunchAgents");
+  const installed = plan.services?.some(row => typeof row.plist === "string" && path.dirname(path.resolve(row.plist)) === agents);
+  // Installed services follow the owner's policy, including named state dirs.
+  // Disposable fixtures can still disable cleanup in their isolated plans.
+  if (installed) return localPolicy() ?? plan.releaseCleanup ?? null;
+  return Object.hasOwn(plan, "releaseCleanup") ? plan.releaseCleanup : localPolicy();
+}
+
 export function prepare(planFile, stateDirectory = defaultState) {
   const plan = JSON.parse(fs.readFileSync(planFile, "utf8"));
-  const cleanup = Object.hasOwn(plan, "releaseCleanup") ? plan.releaseCleanup :
-    fs.existsSync(retentionPolicy) ? JSON.parse(fs.readFileSync(retentionPolicy, "utf8")) : null;
+  const cleanup = cleanupPolicy(plan);
   if (cleanup && (!path.isAbsolute(cleanup.repo || "") || !path.isAbsolute(cleanup.releasesDir || ""))) {
     throw new Error("Release cleanup requires absolute repo and releasesDir paths");
   }
@@ -196,7 +205,7 @@ export function prepare(planFile, stateDirectory = defaultState) {
   fs.chmodSync(directory, 0o700);
   const label = `local.claw3d.deploy.${path.basename(directory)}`;
   const job = { directory, label, timeout,
-    cleanup: cleanup ? { ...cleanup, deploymentsDir: path.resolve(stateDirectory), releasesOnly: true } : null,
+    cleanup: cleanup ? { ...cleanup, deploymentsDir: cleanup.deploymentsDir || path.resolve(stateDirectory), releasesOnly: true } : null,
     services: services.map(({ before, after, ...row }) => {
       fs.writeFileSync(path.join(directory, `${row.index}.before.plist`), before, { mode: 0o600 });
       fs.writeFileSync(path.join(directory, `${row.index}.after.plist`), after, { mode: 0o600 });

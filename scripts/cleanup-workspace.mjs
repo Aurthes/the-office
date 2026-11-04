@@ -114,7 +114,16 @@ function releaseDirs(options) {
 
 // Immutable cutover receipts identify actual predecessors. Folder timestamps
 // cannot distinguish an old release from a new build waiting for deployment.
-function deploymentRetention(directory) {
+function* deploymentJobs(directory) {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const child = path.join(directory, entry.name);
+    if (entry.name.startsWith("deploy-") || fs.existsSync(path.join(child, "job.json"))) yield child;
+    else yield* deploymentJobs(child);
+  }
+}
+
+function deploymentRetention(directory, keepPreviousRelease) {
   const succeeded = new Map(), protectedPaths = [], known = new Set();
   const rootOf = service => {
     const entry = service.fingerprint?.[0]?.[0];
@@ -123,9 +132,7 @@ function deploymentRetention(directory) {
     }
     return path.dirname(path.dirname(entry));
   };
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    if (!entry.isDirectory() || !entry.name.startsWith("deploy-")) continue;
-    const jobDir = path.join(directory, entry.name);
+  for (const jobDir of deploymentJobs(directory)) {
     const job = JSON.parse(fs.readFileSync(path.join(jobDir, "job.json"), "utf8"));
     const resultFile = path.join(jobDir, "result.json");
     const result = fs.existsSync(resultFile) ? JSON.parse(fs.readFileSync(resultFile, "utf8")) : {};
@@ -153,15 +160,17 @@ function deploymentRetention(directory) {
       continue;
     }
     protectedPaths.push(latest.current);
-    const changed = rows.find(row => row.current !== row.previous);
-    if (changed) protectedPaths.push(changed.previous);
+    if (keepPreviousRelease) {
+      const changed = rows.find(row => row.current !== row.previous);
+      if (changed) protectedPaths.push(changed.previous);
+    }
   }
   return { known, protectedPaths };
 }
 
 export function planCleanup(input, inspectLive = liveReferences, onlyPath = null) {
   const options = {
-    ref: "origin/main", minAgeHours: 24, protectedPaths: [], ...input,
+    ref: "origin/main", minAgeHours: 24, protectedPaths: [], keepPreviousRelease: true, ...input,
     repo: canonical(input.repo),
   };
   if (!Number.isFinite(options.minAgeHours) || options.minAgeHours < 0) throw new Error("Invalid minimum age");
@@ -188,7 +197,9 @@ export function planCleanup(input, inspectLive = liveReferences, onlyPath = null
     if (paths.some(value => typeof value !== "string" || !path.isAbsolute(value))) throw new Error("Invalid protected workspace");
     options.protectedPaths.push(...paths);
   }
-  const retention = options.deploymentsDir ? deploymentRetention(options.deploymentsDir) : null;
+  if (typeof options.keepPreviousRelease !== "boolean") throw new Error("Invalid previous-release policy");
+  if (!options.keepPreviousRelease && !options.deploymentsDir) throw new Error("Current-only release cleanup requires deployment history");
+  const retention = options.deploymentsDir ? deploymentRetention(options.deploymentsDir, options.keepPreviousRelease) : null;
   if (retention) options.protectedPaths.push(...retention.protectedPaths);
   const references = inspectLive();
   const links = linksInto([...new Set(roots)]);
@@ -244,6 +255,7 @@ function main() {
     const flag = args[i];
     if (flag === "--apply") { apply = true; continue; }
     if (flag === "--releases-only") { input.releasesOnly = true; continue; }
+    if (flag === "--current-release-only") { input.keepPreviousRelease = false; continue; }
     if (!["--repo", "--ref", "--releases-dir", "--deployments-dir", "--protect", "--min-age-hours", "--report"].includes(flag) || !args[i + 1]) throw new Error(`Unknown or missing argument: ${flag}`);
     const value = args[++i];
     if (flag === "--repo") input.repo = value;

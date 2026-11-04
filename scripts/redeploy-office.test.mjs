@@ -7,13 +7,23 @@ import net from "node:net";
 import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { prepare } from "./redeploy-office.mjs";
+import { prepare, cleanupPolicy } from "./redeploy-office.mjs";
 
 const script = fileURLToPath(new URL("./redeploy-office.mjs", import.meta.url));
 const domain = `gui/${process.getuid?.()}`;
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const mac = { skip: process.platform !== "darwin", timeout: 45_000 };
 const launch = (...args) => execFileSync("/bin/launchctl", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+
+test("installed Office services follow local retention policy even when a deployment plan disables cleanup", () => {
+  const local = { repo: "/source", releasesDir: "/releases", keepPreviousRelease: false };
+  const services = [{ plist: path.join(os.homedir(), "Library/LaunchAgents/example.claw3d.studio.plist") }];
+  for (const releaseCleanup of [false, null, { ...local, keepPreviousRelease: true }]) {
+    assert.equal(cleanupPolicy({ services, releaseCleanup }, () => local), local);
+  }
+  const fixture = { services: [{ plist: "/disposable/studio.plist" }], releaseCleanup: null };
+  assert.equal(cleanupPolicy(fixture, () => local), null);
+});
 function writePlist(file, value) {
   execFileSync("/usr/bin/plutil", ["-convert", "xml1", "-o", file, "-"], { input: JSON.stringify(value) });
 }
@@ -96,6 +106,17 @@ test("real LaunchAgents: controller survives caller exit and waits for old proce
   assert.ok(fs.existsSync(path.join(f.root, "gateway.old.exited")));
   assert.equal(await version(f.services[0].health), "new");
   assert.ok(!fs.existsSync(`${f.services[0].plist}.redeploy-lock`));
+});
+
+test("prepared cleanup retains current-only mode and the shared history root with a custom state directory", mac, async t => {
+  const f = await fixture(t), shared = path.join(f.root, "all-deployments");
+  const plan = JSON.parse(fs.readFileSync(f.planFile));
+  plan.releaseCleanup = { repo: path.join(f.root, "source"), releasesDir: path.join(f.root, "releases"), deploymentsDir: shared, keepPreviousRelease: false };
+  fs.writeFileSync(f.planFile, JSON.stringify(plan));
+  const job = prepare(f.planFile, path.join(f.root, "jobs"));
+  assert.equal(job.cleanup.deploymentsDir, shared);
+  assert.equal(job.cleanup.keepPreviousRelease, false);
+  assert.equal(await version(f.services[0].health), "old");
 });
 
 test("real LaunchAgents: private backend health credential is supplied without appearing in results", mac, async t => {

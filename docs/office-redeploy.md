@@ -93,21 +93,26 @@ in a deployment plan. Paths belong in private configuration, not this repository
   "repo": "/absolute/source/office",
   "ref": "origin/main",
   "releasesDir": "/absolute/private/releases",
+  "deploymentsDir": "/absolute/private/deployments",
+  "keepPreviousRelease": false,
   "workspaceInventory": "/absolute/private/office-owned/office.json",
   "protectedPaths": []
 }
 ```
 
 Only `repo` and `releasesDir` are required. `workspaceInventory`, when supplied,
-is Office's own projects/sessions inventory. `releaseCleanup: null` explicitly
-disables cleanup for a disposable deployment. Without a plan override or a local
+is Office's own projects/sessions inventory. The local policy takes precedence
+for installed user LaunchAgents; a production plan cannot disable it. An isolated
+disposable deployment can use `releaseCleanup: null`. Without a plan override or a local
 policy file, existing installations continue without automatic pruning.
 
 After **all** selected services pass readiness, the independent controller saves
 acceptance and prunes automatically, without another confirmation. Successful
-deployment receipts select the current release and its actual predecessor for
-each service; directory timestamps do not choose rollback versions. Even a
-same-directory restart preserves the preceding distinct release. Older successful
+deployment receipts include named state directories and nested cutover jobs.
+Set `deploymentsDir` to their common root when using a custom `--state-dir`.
+`keepPreviousRelease: false` retains only the current release per service; the
+compatibility default `true` also retains its actual predecessor. Directory
+timestamps do not choose rollback versions. Older unused successful
 releases are eligible immediately, with no 24-hour grace period. Builds that have
 never deployed, pending/failed deployment candidates, source checkouts, local
 credentials/data, and service/process/workspace/shared-dependency references are
@@ -120,7 +125,7 @@ Malformed or missing history fails closed. Inspect `result.cleanup.entries` for
 removed/retained paths. `result.cleanup.status: "failed"` reports a cleanup error
 while leaving the healthy deployment running. Failed or rolled-back deployments
 never invoke pruning. Periodic cleanup should use the same `--deployments-dir`
-history so it preserves the actual predecessor as well.
+history and `--current-release-only` when configured to retain only current builds.
 
 If a controller is forcibly killed, inspect its result, launchd registration,
 service health, and PID before removing its `.redeploy-lock` file. Never bypass a

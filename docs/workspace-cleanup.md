@@ -70,6 +70,9 @@ mode, older successful releases expire immediately; never-deployed candidates,
 pending/failed deployments, source checkouts and local credentials/data stay.
 Add `--releases-only` for post-deployment maintenance that must not retire task
 worktrees. See `docs/office-redeploy.md` for automatic post-cutover cleanup.
+Add `--current-release-only` to remove the extra rollback generation. Current
+versions of every running service, pending jobs and shared dependencies remain
+protected. Receipt discovery includes named deployment/cutover subdirectories.
 
 The releases directory must contain deployment artifacts only, never mutable user data.
 

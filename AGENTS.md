@@ -41,9 +41,10 @@ Build before cutover, restart only changed services, and verify the result and
 real frontend/gateway connection. See `docs/office-redeploy.md`. Keep native App
 state, schedules, auth proxies, and tunnels outside a service redeploy.
 
-After a successful cutover, automatically retain the current release and its
-actual predecessor per service, then prune older successful releases without
-asking again. Configure `releaseCleanup` as documented in
+After a successful cutover, automatically retain only the currently running
+release per service, then prune unused successful releases without asking again.
+Set `keepPreviousRelease: false` in the private policy; do not disable cleanup in
+production deployment plans. Configure `releaseCleanup` as documented in
 `docs/office-redeploy.md`. Preserve in-progress candidates and any release still
 referenced by a service, process, workspace, or shared dependency. A failed
 deployment must not prune releases; cleanup failure must not undo a healthy

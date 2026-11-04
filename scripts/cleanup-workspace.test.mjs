@@ -228,3 +228,18 @@ test("post-deploy pruning still preserves shared dependencies, credentials, Offi
   let scans = 0;
   assert.equal(f.entry(applyCleanup(options, () => ({ commands: "", paths: scans++ ? [a] : [] })), a).action, "keep");
 });
+
+test("current-only policy reads nested cutover receipts and removes the preceding version while preserving another live service", t => {
+  const f = fixture(t), gateway = f.release("gateway", 3), previous = f.release("previous", 2), current = f.release("current", 1), pending = f.release("pending", 0);
+  const first = receipt(f, "first", gateway, previous, { time: Date.now() - 2000 });
+  const options = receipt(f, "second", previous, current, { time: Date.now() - 1000 });
+  receipt(f, "pending", current, pending, { phase: "queued", sameConfig: false });
+  const nested = path.join(first.deploymentsDir, "named-release", "cutover");
+  fs.mkdirSync(nested, { recursive: true });
+  fs.renameSync(path.join(first.deploymentsDir, "deploy-second"), path.join(nested, "deploy-second"));
+  const result = applyCleanup({ ...options, keepPreviousRelease: false }, () => ({ commands: "", paths: [gateway] }));
+  assert.equal(f.entry(result, previous).action, "removed");
+  for (const p of [gateway, current, pending]) assert.equal(f.entry(result, p).action, "keep");
+  assert.throws(() => planCleanup({ ...options, keepPreviousRelease: "false" }, idle), /policy/);
+  assert.throws(() => planCleanup({ ...options, deploymentsDir: undefined, keepPreviousRelease: false }, idle), /history/);
+});
