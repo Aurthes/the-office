@@ -28,8 +28,8 @@ function CompletionTime({ at, kind }: { at: number | null; kind: "task" | "phase
   return <span className="todo-completed-at" data-completion-kind={kind}>{at == null ? t("Completion time not recorded") : <>{t("Completed at")}: <time dateTime={new Date(at).toISOString()} title={new Date(at).toISOString()}>{new Date(at).toLocaleString(undefined, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}</time></>}</span>;
 }
 
-export function TaskBoard({ open, departmentId, onClose, onOpenSession, client, connected }: {
-  open: boolean; departmentId?: string | null; onClose: () => void; onOpenSession: (id: string) => void;
+export function TaskBoard({ open, departmentId, taskId, onClose, onOpenSession, client, connected }: {
+  open: boolean; departmentId?: string | null; taskId?: string; onClose: () => void; onOpenSession: (id: string) => void;
   client?: Pick<GatewayClient, "call" | "onEvent">; connected: boolean;
 }) {
   const t = useUiText(), dialog = useRef<HTMLDialogElement>(null);
@@ -41,13 +41,14 @@ export function TaskBoard({ open, departmentId, onClose, onOpenSession, client, 
   const mutation = useRef(false), request = useRef<{ key: string; id: string } | null>(null), active = useRef(false);
   useEffect(() => { const frame = requestAnimationFrame(() => setPortal(document.body)); return () => cancelAnimationFrame(frame); }, []);
   useEffect(() => {
+    if (!portal) return;
     active.current = open;
     const frame = requestAnimationFrame(() => {
-    if (open) { if (!dialog.current?.open) dialog.current?.showModal(); setScope(departmentId === undefined ? ALL : departmentId === null ? OPEN : departmentId); setOffset(0); setStatus("all"); setSelected(null); setDraft(null); setError(""); }
+    if (open) { if (!dialog.current?.open) dialog.current?.showModal(); setScope(departmentId === undefined ? ALL : departmentId === null ? OPEN : departmentId); setOffset(0); setStatus("all"); setSelected(taskId || null); setDetail(null); setDraft(null); setError(""); setPulse(value => value + 1); }
     else dialog.current?.close();
     });
     return () => { active.current = false; cancelAnimationFrame(frame); };
-  }, [open, departmentId, portal]);
+  }, [open, departmentId, taskId, portal]);
   useEffect(() => { if (!open) return; const timer = setInterval(() => setClock(Date.now()), 1000); return () => clearInterval(timer); }, [open]);
   useEffect(() => {
     if (!open || !client || !connected) return;

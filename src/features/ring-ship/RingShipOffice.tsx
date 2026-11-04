@@ -10,7 +10,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Environment, Lightformer, OrbitControls } from "@react-three/drei";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import * as THREE from "three";
-import { BrainCircuit, CalendarClock, Monitor, Home, Layers3, Settings2, Users, Volume2, VolumeX, X } from "lucide-react";
+import { BrainCircuit, CalendarClock, Monitor, Home, Layers3, Settings2, Volume2, VolumeX, X } from "lucide-react";
 import type { RetroOffice3D } from "@/features/retro-office/RetroOffice3D";
 import type { OfficeAgent, RenderAgent } from "@/features/retro-office/core/types";
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
@@ -19,7 +19,6 @@ import { createDuckAppearanceFromSeed, normalizeDuckAppearance } from "@/lib/ava
 import { CEO_ID } from "@/lib/office/organization";
 import { CeoCharacter } from "./CeoCharacter";
 import type { CharacterBody } from "./characterCollision";
-import { OrganizationPanel } from "./OrganizationPanel";
 import { DuckCrewModel } from "./DuckCrewModel";
 import { CompanyWorkAreaMenu } from "@/features/office/components/CompanyWorkAreaMenu";
 import { SettingsPanel } from "@/features/office/components/panels/SettingsPanel";
@@ -28,7 +27,6 @@ import { updateServerActivity } from "./machineRoomLayout";
 import { buildShipGeometry, disposeShipGeometry, SHIP_MODELS, shipModelUrl, type ModelTemplates } from "./geometry";
 import { useShipLayout } from "./useShipLayout";
 import { getAgentActivity, workChatter } from "@/features/retro-office/core/agentActivity";
-import { ScheduledTaskIndicator } from "@/features/office/components/ScheduledTaskIndicator";
 import { paintCrewNameplate } from "./crewNameplate";
 import { chatCameraPose } from "./chatCamera";
 import { shipCameraPose } from "./cameraPose";
@@ -373,14 +371,6 @@ function CrewLabel({ agent, lookupRef, placement, expanded, onOpen, deck, visibl
   </lineSegments></>;
 }
 
-function ActivityBadge({ agent }: { agent: OfficeAgent }) {
-  const t = useUiText();
-  const activity = getAgentActivity(agent);
-  return activity.marker ? <span aria-label={t(activity.label)} title={t(activity.label)} className="absolute -right-1 -top-2 px-1 text-sm leading-5" style={{ color: activity.color }}>
-    <span className={activity.kind === "working" ? "inline-block motion-safe:animate-spin" : undefined} style={{ animationDuration: "3s" }}>{activity.marker}</span>
-  </span> : null;
-}
-
 export function RingShipOffice(props: Props) {
   const [renderProbeEnabled] = useState(() => typeof window !== "undefined" && ["1", "shadows"].includes(new URLSearchParams(window.location.search).get("renderProbe") || ""));
   const [probeShadows, setProbeShadows] = useState(true);
@@ -405,7 +395,8 @@ export function RingShipOffice(props: Props) {
   const serverHostKey = JSON.stringify(serverFleet.snapshot?.servers.map(({ alias, group, active, family }) => ({ alias, group, active, family })) ?? []);
   const serverHosts = useMemo(() => JSON.parse(serverHostKey) as PoolHost[], [serverHostKey]);
   const [tasksOpen, setTasksOpen] = useState(false);
-  const [todoOpen, setTodoOpen] = useState(false);
+  const [localTodoOpen, setLocalTodoOpen] = useState(false);
+  const todoOpen = props.taskBoardOpen ?? localTodoOpen;
   const [musicOpen, setMusicOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [cloneFlight,setCloneFlight]=useState<CloneFlight|null>(null),[cloneState,setCloneState]=useState<CloneStage>("synchronizing"),[cloneError,setCloneError]=useState(""),[clonedAgentId,setClonedAgentId]=useState<string|null>(null);
@@ -437,7 +428,7 @@ export function RingShipOffice(props: Props) {
     setFocus(previous => ({ id: "", request: previous.request + 1 }));
     navigate({ type: "arrive" });
   }, [navigate]);
-  const [menuOpen, setMenuOpen] = useState(false), [settingsOpen, setSettingsOpen] = useState(false), [fleetOpen, setFleetOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false), [settingsOpen, setSettingsOpen] = useState(false);
   const controlsRef = useRef<Controls>(null);
   const crewLookupRef = useRef(new Map<string, RenderAgent>());
   const cloneRequest=props.cloneRequest,onForkSession=props.onForkSession,onCloneFinished=props.onCloneFinished;
@@ -451,7 +442,7 @@ export function RingShipOffice(props: Props) {
       cloneOrigin.current={point:previous?worldPoint(previous):seat,deck:(previous as MovingAgent | undefined)?.deck ?? seat.deck};
       cloneResultRef.current={status:"pending"};setCloneState("synchronizing");setCloneError("");setClonedAgentId(null);
       setCloneFlight({requestId:cloneRequest.requestId,agentId:source.id,name:source.name,appearance:source.avatarProfile?.duck});
-      setDeck(cloningCabin.deck);setWhole(false);setTrip(null);setLiftOpen(false);setFleetOpen(false);setInspectedObject(null);
+      setDeck(cloningCabin.deck);setWhole(false);setTrip(null);setLiftOpen(false);setInspectedObject(null);
       setMonitorOpen(false);setServersOpen(false);setTerminalHost(null);setTasksOpen(false);setMusicOpen(false);setAiOpen(false);setSettingsOpen(false);
       setFocus(previous=>({id:cloningCabin.id,request:previous.request+1}));
       void onForkSession(source.id,cloneRequest.requestId,cloneRequest.name,cloneRequest.lastTurnId).then(threadId=>{
@@ -475,10 +466,7 @@ export function RingShipOffice(props: Props) {
     setCloneFlight(null);onCloneFinished?.();
   },[cloneFlight,cloningCabin,onCloneFinished]);
   const cloneFocus=useMemo(()=>cloneFlight&&cloningCabin?{point:cloningPoint(layout,cloningCabin,0,.1),angle:cabinAngle(layout,cloningCabin.slot),deck:cloningCabin.deck}:null,[cloneFlight,cloningCabin,layout]);
-  const ceoObject = useRef<ShipObject | null>(null);
   const ceoBodyRef = useRef<CharacterBody | null>(null);
-  const ceoReady = useCallback((object: ShipObject | null) => { ceoObject.current = object; }, []);
-  const lastPersonFocus = useRef<object | null>(null);
   const companionsRef = useRef(new Map<CompanionKind, CompanionState>());
   const [returnFlight, setReturnFlight] = useState<ReturnFlight | null>(null);
   const [returnStage, setReturnStage] = useState<ReturnStage>("walking");
@@ -498,7 +486,7 @@ export function RingShipOffice(props: Props) {
     const rendered = crewLookupRef.current.get(agent.id);
     const sourceDeck = (rendered as MovingAgent | undefined)?.deck ?? seat.deck;
     const route = returnRoute(layout, { ...seat, deck: sourceDeck }, rendered ? worldPoint(rendered) : seat);
-    setInspectedObject(null);setDeck(sourceDeck);setWhole(false);setFleetOpen(false);setLiftOpen(false);
+    setInspectedObject(null);setDeck(sourceDeck);setWhole(false);setLiftOpen(false);
     setReturnFlight({...route,agentId:agent.id,requestId:request.requestId,name:agent.name,appearance:agent.avatarProfile?.duck});
     setReturnStage("walking");setReturnError("");archiveResultRef.current={status:"pending"};
     returnTransferRef.current={};returnRideRef.current=null;
@@ -533,11 +521,12 @@ export function RingShipOffice(props: Props) {
   const returnCamera=useMemo(()=>returnFlight && ["boarding","sealing","waiting","launching","done"].includes(returnStage) && visibleDeck===0 && !shipView
     // Frame the exit while the hatch seals, before the short muzzle flash.
     ? {point:returnFlight.pod,launch:["sealing","waiting","launching","done"].includes(returnStage)}:null,[returnFlight,returnStage,visibleDeck,shipView]);
+  const { onOpenTaskBoard, onOpenAgentDirectory } = props;
   const openTaskBoard = useCallback(() => {
-    closeObject(); setTodoOpen(true);
+    closeObject(); if (onOpenTaskBoard) onOpenTaskBoard(); else setLocalTodoOpen(true);
     const cabin = layout.cabins.find(c => c.kind === "monitor");
     if (cabin) { setDeck(cabin.deck); setWhole(false); setFocus(previous => ({ id: cabin.id, request: previous.request + 1 })); }
-  }, [layout, closeObject]);
+  }, [layout, closeObject, onOpenTaskBoard]);
   const validFocus = currentLayout.seats[focus.id] || currentLayout.cabins.some(c => c.id === focus.id || c.projectId === focus.id) ? focus.id : "";
   const cameraFocus = useMemo(() => ({ id: validFocus, request: focus.request + officeCenterSignal }), [validFocus, focus.request, officeCenterSignal]);
   const selected = currentLayout.cabins.find(c => c.id === validFocus || c.projectId === validFocus);
@@ -548,28 +537,15 @@ export function RingShipOffice(props: Props) {
   const duckAudio = useDuckFocusAudio(duckFocus, agents);
   const inspectObject = useCallback((object: ShipObject) => {
     if (object.kind === "taskWhiteboard") { openTaskBoard(); return; }
+    if (object.id === CEO_ID && onOpenAgentDirectory) { closeObject(); onOpenAgentDirectory(); return; }
     setInspectedObject(object); setFocus(previous => ({ id: "", request: previous.request + 1 }));
-    if (!object.space) setDeck(object.deck); setWhole(false); setLiftOpen(false); setFleetOpen(false);
-  }, [openTaskBoard]);
-  const personFocusRequest = props.organization?.focusRequest;
-  useEffect(() => {
-    if (!personFocusRequest || personFocusRequest === lastPersonFocus.current || busy) return;
-    const frame = requestAnimationFrame(() => {
-      if (personFocusRequest.id === CEO_ID && ceoObject.current) {
-        setDeck(0); setWhole(false); setFocus(previous => ({ id: "", request: previous.request + 1 })); setInspectedObject(ceoObject.current);
-      } else {
-        const seat = layout.seats[personFocusRequest.id]; if (!seat) return;
-        setDeck(seat.deck); setWhole(false); setInspectedObject(null); setFocus(previous => ({ id: personFocusRequest.id, request: previous.request + 1 }));
-      }
-      setFleetOpen(false); setLiftOpen(false); lastPersonFocus.current = personFocusRequest;
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [personFocusRequest, busy, layout, props.organization?.ceoAvatar]);
+    if (!object.space) setDeck(object.deck); setWhole(false); setLiftOpen(false);
+  }, [openTaskBoard, closeObject, onOpenAgentDirectory]);
   const reserveCount = layout.cabins.filter(c => c.kind === "reserve").length;
   const travel = useCallback((destination: DeckIndex, id = "") => {
     if (busy || destination === visibleDeck) return;
     setInspectedObject(null);
-    pendingFocus.current = id; setLiftOpen(false); setMenuOpen(false); setFleetOpen(false);
+    pendingFocus.current = id; setLiftOpen(false); setMenuOpen(false);
     setTrip({ from: visibleDeck, to: destination, id: performance.now() });
   }, [busy, visibleDeck]);
   const select = useCallback((id: string) => {
@@ -588,7 +564,7 @@ export function RingShipOffice(props: Props) {
     else setFocus(previous => ({ id: pendingFocus.current, request: previous.request + 1 }));
   }, []);
   const onAgentChatSelect = props.onAgentChatSelect;
-  const open = useCallback((id: string) => { if (busy) return; setInspectedObject(null); setFleetOpen(false); setLiftOpen(false); onAgentChatSelect?.(id); }, [onAgentChatSelect, busy]);
+  const open = useCallback((id: string) => { if (busy) return; setInspectedObject(null); setLiftOpen(false); onAgentChatSelect?.(id); }, [onAgentChatSelect, busy]);
   const areas = [
     ...[SHARED_PROJECT_ID, ...roster.projects.map(p => p.id)].map(id => {
       const cabins = layout.cabins.filter(c => c.projectId === id);
@@ -610,7 +586,7 @@ export function RingShipOffice(props: Props) {
       <Lighting radius={layout.radius} view={shipView || busy ? -1 : visibleDeck} travelling={busy} dimmed={navigationOpen && navigation.phase !== "warp"} />
       <ShipHull layout={layout} deck={visibleDeck} whole={shipView} busy={busy} />
       {decks.map((value, index) => <group key={index} position={[0, index * DECK_STEP, 0]} visible={shipView || busy || index === visibleDeck}>
-        {index === 0 && props.organization?.ceoAvatar ? <CeoCharacter layout={value} profile={props.organization.ceoAvatar} active={!busy && (shipView || visibleDeck === 0)} enabled={objectEnabled && (shipView || visibleDeck === 0)} onSelect={inspectObject} onReady={ceoReady} bodyRef={ceoBodyRef} crewRef={crewLookupRef} companionsRef={companionsRef} /> : null}
+        {index === 0 && props.organization?.ceoAvatar ? <CeoCharacter layout={value} profile={props.organization.ceoAvatar} active={!busy && (shipView || visibleDeck === 0)} enabled={objectEnabled && (shipView || visibleDeck === 0)} onSelect={inspectObject} bodyRef={ceoBodyRef} crewRef={crewLookupRef} companionsRef={companionsRef} /> : null}
         <StaticShip layout={value} serverHosts={serverHosts} enabled={objectEnabled && (shipView || index === visibleDeck)} selectedId={objectFocus?.id} onSelect={inspectObject} /><ReturnPodBay layout={value} active={!!returnFlight}/>
         {index === 0 ? <ShipCompanions layout={value} active={!busy && (shipView || visibleDeck === 0)} enabled={objectEnabled && (shipView || visibleDeck === 0)} selectedId={objectFocus?.id} onSelect={inspectObject} companionsRef={companionsRef} crewRef={shipView ? undefined : crewLookupRef} chatAgentId={props.activeChatAgentId} ceoBodyRef={ceoBodyRef} /> : null}
         {value.cabins.filter(c => c.kind === "quarters").map(cabin => <HibernationBay key={cabin.id} layout={value} cabin={cabin} lookupRef={crewLookupRef} onOpen={open} interactive={objectEnabled && !shipView && index === visibleDeck} />)}
@@ -654,21 +630,7 @@ export function RingShipOffice(props: Props) {
     </div>
     <div className="ship-sidebar">
       <CompanyWorkAreaMenu areas={areas} activeId={validFocus} sessionCount={agents.length} open={menuOpen} onOpenChange={setMenuOpen} onSelect={select} actions={companyActions} description={t("Use the central lift to change decks · Empty cabins are ready to use")} />
-      <div className="ship-crew-dock">
-        <div className="ship-crew-bar grid grid-cols-6 gap-1 rounded-xl border border-white/15 bg-[#102734]/95 p-1.5">
-          {agents.slice(0, 6).map(agent => <button key={agent.id} title={agent.name} aria-label={t("Open session: {0}", { "0": agent.name })} onClick={() => open(agent.id)}
-            className="ship-crew-avatar relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-[#102531]" style={{ background: agent.color }}>
-            {agent.name.slice(0, 2)}<ActivityBadge agent={agent} /><ScheduledTaskIndicator active={agent.hasPendingSchedule} className="absolute -left-1 -top-2" />
-          </button>)}
-          <button onClick={() => setFleetOpen(value => !value)} className="col-span-full flex h-8 items-center justify-center gap-1.5 rounded-full px-3 text-[10px]" aria-expanded={fleetOpen} aria-label={t("Session list")}><Users size={13} />{agents.length} {t("AGENTS")}</button>
-        </div>
-        {fleetOpen ? <div className="ship-fleet mt-2 max-h-[60vh] overflow-auto rounded-xl border border-white/15 bg-[#0d2431]/98 p-2 shadow-xl">
-          {agents.map(agent => <button key={agent.id} className="relative flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-white/10" onClick={() => open(agent.id)}>
-            <ScheduledTaskIndicator active={agent.hasPendingSchedule} className="absolute left-0 top-0" />
-            <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: agent.color }} /><span className="min-w-0 flex-1 truncate text-xs">{agent.name}</span><span className="text-[10px]" style={{ color: getAgentActivity(agent).color }}>{getAgentActivity(agent).marker} {t(getAgentActivity(agent).label)}</span>
-          </button>)}
-        </div> : null}
-      </div>
+
     </div>
     </fieldset>
     <div className="ship-bottom-hud">
@@ -686,7 +648,7 @@ export function RingShipOffice(props: Props) {
     </div>
     </fieldset>
     <div className="ship-bottom-right">
-    {objectFocus ? <ShipObjectCard object={objectFocus} customRoom={currentLayout.cabins.some(c => c.id === objectFocus.cabinId && !!c.projectId && c.projectId !== SHARED_PROJECT_ID)} onClose={closeObject}>{objectFocus.serverAlias ? <ServerRackInfo row={serverFleet.snapshot?.servers.find(row => row.alias === objectFocus.serverAlias)} onTerminal={setTerminalHost} /> : null}{objectFocus.id === CEO_ID && props.organization ? <OrganizationPanel organization={props.organization} personId={CEO_ID} browse /> : null}</ShipObjectCard> : null}
+    {objectFocus ? <ShipObjectCard object={objectFocus} customRoom={currentLayout.cabins.some(c => c.id === objectFocus.cabinId && !!c.projectId && c.projectId !== SHARED_PROJECT_ID)} onClose={closeObject}>{objectFocus.serverAlias ? <ServerRackInfo row={serverFleet.snapshot?.servers.find(row => row.alias === objectFocus.serverAlias)} onTerminal={setTerminalHost} /> : null}</ShipObjectCard> : null}
     {navigationPreview && !navigationOpen ? <div className="star-location"><span style={{ color: system.color }}>{t(system.name)}</span><small>{t(system.description)}</small>{activityEnabled ? <small ref={spaceCaption} className="star-cruise-status">{t("Cruising")}</small> : null}</div> : null}
     </div>
     </div>
@@ -696,7 +658,7 @@ export function RingShipOffice(props: Props) {
     <MonitorDashboard open={monitorOpen} onClose={() => setMonitorOpen(false)} />
     <ServerRoomDashboard fleet={serverFleet} open={serversOpen} onClose={() => setServersOpen(false)} onFirefight={props.onFirefight} />
     {terminalHost ? <ServerTerminal alias={terminalHost} onClose={() => setTerminalHost(null)} /> : null}
-    <TaskBoard open={todoOpen} onClose={() => setTodoOpen(false)} onOpenSession={open} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
+    {!props.onOpenTaskBoard ? <TaskBoard open={localTodoOpen} onClose={() => setLocalTodoOpen(false)} onOpenSession={open} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} /> : null}
     <ScheduledTasks open={tasksOpen} onClose={() => setTasksOpen(false)} onOpenSession={open} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
     <AiCenterDashboard open={aiOpen} onClose={() => setAiOpen(false)} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
     <LiftOverlay trip={trip} overlayRef={overlayRef} />
