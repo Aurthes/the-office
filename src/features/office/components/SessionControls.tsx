@@ -33,8 +33,9 @@ type Upload = { id: string; name: string; size: number; ref?: string; error?: st
 const sessionDrafts = new Map<string, string>();
 const attachmentDrafts = new Map<string, Upload[]>();
 
-export function SessionControls({ client, threadId, onItems, onHistorySync, onActiveTurnChange, voice: sharedVoice, onOpenThread, onRenamed, onFork }: {
+export function SessionControls({ client, threadId, active = true, onItems, onHistorySync, onActiveTurnChange, voice: sharedVoice, onOpenThread, onRenamed, onFork }: {
   client: SessionClient;
+  active?: boolean;
   threadId: string; onItems: (items: LiveSessionItem[]) => void;
   onHistorySync?: () => void;
   onActiveTurnChange?: (turnId: string | null) => void;
@@ -80,6 +81,7 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, onAc
     onCommand: (command, argument) => { void executeCommand(command, argument).catch(cause => setError(cause instanceof Error ? cause.message : "Command failed")); } });
   const suggestedText = prediction?.threadId === threadId && state?.connected && !state.activeTurnId && state.turnStatus === "completed" && !text && !uploads.length && !composer.references.length ? prediction.text : "";
   useEffect(() => {
+    if (!active) return;
     let stopped = false;
     const generationTrigger = previousPredictionState.current.threadId === threadId && previousPredictionState.current.working ? "live" : "catch_up";
     previousPredictionState.current = { threadId, working: Boolean(state?.activeTurnId) };
@@ -97,7 +99,7 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, onAc
     });
     void client.call("session.prediction", { threadId, generationTrigger, requestId }).then(applyPrediction).catch(() => {}); // Suggestions never block the composer or its connection.
     return () => { stopped = true; unsubscribe?.(); };
-  }, [client, threadId, state?.connected, state?.activeTurnId, state?.turnStatus, state?.features?.prediction]);
+  }, [active, client, threadId, state?.connected, state?.activeTurnId, state?.turnStatus, state?.features?.prediction]);
   const resizeInput = useCallback(() => {
     const node = input.current;
     if (!node?.clientWidth) return; // The chat stays mounted behind the character page.
@@ -129,13 +131,16 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, onAc
     return () => observer.disconnect();
   }, [resizeInput]);
   const dictation = useNativeDictation(threadId, text, setText, state?.features?.dictationHTTP ? undefined : client);
-  const inputDisabled = busy || settingsBusy || !state?.connected || dictation.busy;
+  const suspendDictation = dictation.suspend;
+  useEffect(() => { if (!active) void suspendDictation(); }, [active, suspendDictation]);
+  const inputDisabled = !active || busy || settingsBusy || !state?.connected || dictation.busy;
   const acceptPrediction = () => {
     if (!suggestedText || inputDisabled) return;
     setText(suggestedText); setPrediction(null);
     input.current?.focus({ preventScroll: true });
   };
   // Focus desktop composers after enabling them; touch devices open the keyboard on tap.
+  useLayoutEffect(() => { if (active) focusPending.current = true; }, [active]);
   useLayoutEffect(() => {
     if (inputDisabled || !focusPending.current) return;
     focusPending.current = false;
@@ -201,7 +206,7 @@ export function SessionControls({ client, threadId, onItems, onHistorySync, onAc
     const prepared = prepareComposerMessage(message);
     void action("session.send", { ...prepared, attachments: uploads.map(file => file.ref), requestId: crypto.randomUUID() });
   };
-  const dictationShortcut = useDictationShortcut({ input, phase: dictation.phase, enabled: !busy && !settingsBusy && Boolean(state?.connected) && state?.features?.dictation !== false && voice.status === "off",
+  const dictationShortcut = useDictationShortcut({ input, phase: dictation.phase, enabled: active && !busy && !settingsBusy && Boolean(state?.connected) && state?.features?.dictation !== false && voice.status === "off",
     start: dictation.start, stop: submit => submit ? send() : stopDictation(), discard: dictation.discard });
   useEffect(() => {
     let stopped = false, pending = false, retry = false, connected = true, version = -1, bootstrapping = true, bootstrapHasItems = false;

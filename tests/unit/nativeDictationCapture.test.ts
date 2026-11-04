@@ -26,6 +26,19 @@ function microphone() {
 }
 afterEach(() => { cleanup(); localStorage.removeItem(DICTATION_SHORTCUT_KEY); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.restoreAllMocks(); });
 describe("browser recording to native dictation", () => {
+  it("stops and keeps a recording when its retained session is hidden, without transcribing or sending", async () => {
+    microphone(); const inserted = vi.fn(), fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    const call = vi.fn(async (method: string) => method === "session.attach" ? { connected: true, version: 1, activeTurnId: null, items: [], approvals: [], features: { voice: false, prediction: false, dictationHTTP: true } } : {});
+    const client = { call };
+    const view = render(React.createElement(SessionControls, { client, threadId: "retained-microphone", onItems: vi.fn(), active: true }));
+    const button = await screen.findByRole("button", { name: "Dictation" }); await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button); await waitFor(() => expect(screen.getByRole("button", { name: "Stop recording and transcribe" })).toBeEnabled());
+    act(() => port.onmessage?.({ data: { pcm: new Int16Array(3200) } }));
+    view.rerender(React.createElement(SessionControls, { client, threadId: "retained-microphone", onItems: inserted, active: false }));
+    await waitFor(() => expect(stopTrack).toHaveBeenCalledOnce());
+    expect(fetcher).not.toHaveBeenCalled(); expect(screen.getByLabelText("Send to session")).toBeDisabled();
+    expect(call.mock.calls.some(([method]) => method === "session.send")).toBe(false);
+  });
   it("flushes without waiting for the last audio ACK, but checks it before inserting text", async () => {
     microphone(); const inserted = vi.fn(); const clock = vi.spyOn(performance, "now").mockReturnValue(1000);
     let acknowledge!: (value: unknown) => void, complete!: (value: unknown) => void;
@@ -223,7 +236,7 @@ describe("browser recording to native dictation", () => {
 });
 
 describe("dictation composer shortcuts", () => {
-  async function composer(id: string, finish: () => Promise<unknown>) {
+  async function composer(id: string, finish: () => Promise<unknown>, initialDraft = "existing draft") {
     microphone();
     localStorage.setItem(DICTATION_SHORTCUT_KEY, "option");
     vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
@@ -233,7 +246,7 @@ describe("dictation composer shortcuts", () => {
     render(React.createElement(SessionControls, { client: { call }, threadId: id, onItems: vi.fn() }));
     const input = screen.getByLabelText("Send to session") as HTMLTextAreaElement;
     await waitFor(() => expect(input.disabled).toBe(false));
-    fireEvent.change(input, { target: { value: "existing draft" } });
+    fireEvent.change(input, { target: { value: initialDraft } });
     fireEvent.keyDown(input, { key: "Alt", code: "AltLeft", altKey: true });
     fireEvent.keyUp(input, { key: "Alt", code: "AltLeft" });
     await screen.findByRole("button", { name: "Stop recording and transcribe" });
@@ -254,12 +267,11 @@ describe("dictation composer shortcuts", () => {
   });
   it("shows compact recording controls and enables Send with no typed draft", async () => {
     let finish!: (value: unknown) => void;
-    const h = await composer("button-send", () => new Promise(resolve => { finish = resolve; }));
+    const h = await composer("button-send", () => new Promise(resolve => { finish = resolve; }), "");
     expect(screen.getByRole("button", { name: "Cancel recording" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Add attachments" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Voice chat" })).toBeNull();
     expect(screen.getByText("Recording · 0:00")).toBeTruthy();
-    fireEvent.change(h.input, { target: { value: "" } });
     const send = screen.getByRole("button", { name: "Transcribe and send" }); expect(send).toBeEnabled();
     fireEvent.click(send); fireEvent.click(send);
     await waitFor(() => expect(finish).toBeTypeOf("function"));

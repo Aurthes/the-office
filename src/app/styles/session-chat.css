@@ -171,6 +171,8 @@
 .session-actions-trigger::marker { content: ""; }
 .session-action-back { font-size: 11px; }
 .session-action-back svg { color: #c9b892; }
+.session-focus-toggle[aria-pressed="true"] { background: #154250; border-color: #80d6e5; color: #d1f8ff; }
+.session-focus-toggle[aria-pressed="true"] svg { color: #a1edfa; }
 .session-actions-trigger:hover,
 .session-action-back:hover { background: #2b3842; border-color: #a8bdc660; color: #f0f3f1; }
 .session-actions[open] .session-actions-trigger { background: #2a343b; color: #ddc69e; border-color: #bba17866; }

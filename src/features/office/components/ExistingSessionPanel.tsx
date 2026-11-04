@@ -1,7 +1,7 @@
 "use client";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ArrowRightLeft, ArrowLeft, ChevronRight, CopyPlus, ExternalLink, LogOut, MoreHorizontal, PanelRight, SlidersHorizontal, PencilLine, UserRound } from "lucide-react";
+import { ArrowRightLeft, ArrowLeft, ChevronRight, CopyPlus, ExternalLink, Focus, LogOut, MoreHorizontal, PanelRight, SlidersHorizontal, PencilLine, UserRound } from "lucide-react";
 import type { OrganizationView } from "@/lib/office/organization";
 import type { CharacterMode } from "@/features/ring-ship/DuckCharacterPanel";
 import type { AgentAvatarProfile } from "@/lib/avatars/profile";
@@ -29,8 +29,11 @@ type Message = LiveSessionItem;
 type HistoryPage = { threadId: string; messages: Message[]; nextCursor: string | null };
 type LoadMode = "latest" | "older";
 
-export function ExistingSessionPanel({ client, threadId, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, onOpenThread, onFork, forkDisabled, headerStart, headerEnd, projects = [], voice, organization }: {
+export function ExistingSessionPanel({ client, threadId, active = true, focusMode = false, onToggleFocus, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, onOpenThread, onFork, forkDisabled, headerStart, headerEnd, projects = [], voice, organization }: {
   client: SessionClient;
+  active?: boolean;
+  focusMode?: boolean;
+  onToggleFocus?: () => void;
   voice?: SessionVoiceController;
   headerStart?: ReactNode;
   headerEnd?: ReactNode;
@@ -89,14 +92,14 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
 
   useLayoutEffect(() => {
     const node = scroll.current;
-    if (!node || !loaded) return;
+    if (!active || !node || !loaded || !node.clientHeight) return;
     if (anchor.current) {
       node.scrollTop = anchor.current.top + node.scrollHeight - anchor.current.height;
       anchor.current = null;
     } else if (follow.current) node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
     lastTop.current = node.scrollTop;
     setShowLatest(node.scrollHeight - node.clientHeight - node.scrollTop > 60);
-  }, [messages, loaded]);
+  }, [messages, loaded, active, workspaceOpen, characterOpen]);
 
   useLayoutEffect(() => {
     const node = scroll.current;
@@ -198,6 +201,9 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
         {data?.id === threadId ? <p className="mt-1 truncate text-xs text-white/45">{data.project}</p> : null}
       </div>
       <div className="flex shrink-0 items-center gap-1">
+        {onToggleFocus ? <button type="button" aria-label={t("Focus mode")} aria-pressed={focusMode} onClick={onToggleFocus}
+          title={t(focusMode ? "Focus on: keep this session until switched off" : "Keep this session open beyond the 15-minute cache")}
+          className="session-action-back session-focus-toggle"><Focus size={15} /><span className="hidden sm:inline">{t("Focus")}</span></button> : null}
         {characterOpen ? <button type="button" onClick={() => setCharacterMode("chat")} className="session-action-back"><ArrowLeft size={14} />{t("Back to chat")}</button> : null}
         {!characterOpen ? <button type="button" aria-label={t(workspaceOpen ? "Close workspace" : "Open workspace")} aria-expanded={workspaceOpen} title={t("Workspace")}
           disabled={!data?.controlsAvailable} className="session-action-back session-workspace-toggle" onClick={() => { setWorkspaceOpen(value => !value); if (!workspaceOpen) onOpenWorkspace?.(); }}><PanelRight size={15} /><span>{t("Workspace")}</span></button> : null}
@@ -234,6 +240,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
     {error ? <p role="alert" className="p-3 text-xs text-amber-200">{t(error)} <button onClick={() => void load.current?.(failedMode.current)} className="underline">{t("Retry")}</button></p> : null}
     <div className="relative flex min-h-0 flex-1 flex-col">
     <div ref={scroll} aria-label={t("Session history")} onScroll={event => {
+      if (!active || !event.currentTarget.clientHeight) return;
       const node = event.currentTarget, movingUp = node.scrollTop < lastTop.current;
       follow.current = node.scrollHeight - node.scrollTop - node.clientHeight <= 60;
       setShowLatest(!follow.current);
@@ -261,7 +268,7 @@ export function ExistingSessionPanel({ client, threadId, onReturnToEarth, return
     }} className="absolute bottom-3 left-1/2 z-10 min-h-10 -translate-x-1/2 rounded-full border border-white/20 bg-[#243346] px-4 text-xs text-white shadow-xl hover:bg-[#30445c]">{t("↓ Latest messages")}</button> : null}
     </div>
     {data?.runtime === "office" ? <OfficeCodexAccount client={client} quiet /> : null}
-    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onActiveTurnChange={setActiveTurnId} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
+    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onActiveTurnChange={setActiveTurnId} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
     </div>
     {workspaceOpen ? <SessionWorkspace key={threadId} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
       assets={[...new Map(messages.flatMap(message => message.assets || []).map(asset => [asset.url, asset])).values()].slice(-40)}

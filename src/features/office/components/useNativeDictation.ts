@@ -231,5 +231,6 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
     window.addEventListener("beforeunload", leave); document.addEventListener("visibilitychange", hidden);
     return () => { mounted.current = false; request.current?.abort(); if (finishingBridge.current) cancelBridge(finishingBridge.current); void finishCapture(false); window.removeEventListener("beforeunload", leave); document.removeEventListener("visibilitychange", hidden); };
   }, [threadId, finishCapture, cancelBridge]);
-  return { phase, clip, error, seconds, transcriptionTime, start, stop: () => finishCapture(), retry: () => clip && retryTranscription({ ...clip, base: latest.current.draft }), cancel: () => { request.current?.abort(); if (finishingBridge.current) cancelBridge(finishingBridge.current); }, discard, clear, download, busy: ["starting", "recording", "transcribing"].includes(phase) };
+  const suspend = useCallback(() => finishCapture(false), [finishCapture]);
+  return { phase, clip, error, seconds, transcriptionTime, start, stop: () => finishCapture(), suspend, retry: () => clip && retryTranscription({ ...clip, base: latest.current.draft }), cancel: () => { request.current?.abort(); if (finishingBridge.current) cancelBridge(finishingBridge.current); }, discard, clear, download, busy: ["starting", "recording", "transcribing"].includes(phase) };
 }

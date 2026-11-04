@@ -20,6 +20,7 @@ import { useCurrentAgentTasks } from "@/features/office/hooks/useCurrentAgentTas
 import type { AgentDirectoryView, DirectoryAgent } from "@/features/office/operations/agentDirectory";
 import { TaskBoard } from "@/features/ring-ship/TaskBoard";
 import { ExistingSessionPanel } from "@/features/office/components/ExistingSessionPanel";
+import { RetainedSessionPanels } from "@/features/office/components/RetainedSessionPanels";
 import { useSessionVoice } from "@/features/office/components/useSessionVoice";
 import { SessionVoiceCall } from "@/features/office/components/SessionVoice";
 import { SessionListDivider } from "@/features/office/components/SessionListDivider";
@@ -2371,6 +2372,8 @@ export function OfficeScreen({
       null)
     : null;
 
+  const sessionPanelIds = useMemo(() => state.agents.map(agent => agent.agentId), [state.agents]);
+
   const agentEditorAgent = agentEditorAgentId
     ? (state.agents.find((agent) => agent.agentId === agentEditorAgentId) ?? null)
     : null;
@@ -3728,10 +3731,10 @@ export function OfficeScreen({
           : `office-chat-dock fixed bottom-3 ${sessionView ? "z-50" : "z-30"} flex flex-col items-end gap-2 right-3 ${debugEnabled ? "hidden" : ""}`}
         style={sessionView && chatOpen && chatViewport ? { height: chatViewport.height, top: chatViewport.top, bottom: "auto" } : undefined}
       >
-        {chatOpen && (
+        {(chatOpen || sessionView) && (
           <div
             className={sessionView ? "relative flex min-h-0 w-full flex-1 overflow-hidden" : "flex overflow-hidden rounded border border-white/10 bg-[#0e0a04] shadow-2xl"}
-            style={sessionView ? undefined : {
+            style={sessionView ? { display: chatOpen ? undefined : "none" } : {
               width: chatRosterCollapsed
                 ? "min(680px, calc(100vw - 1.5rem))"
                 : "min(780px, calc(100vw - 1.5rem))",
@@ -3832,28 +3835,32 @@ export function OfficeScreen({
 
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               {sessionView && !focusedChatAgent ? <header className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 p-2">{sessionListToggle}{sessionWindowActions}</header> : null}
-              {focusedChatAgent ? (
-                sessionView ? <ExistingSessionPanel onOpenWorkspace={openSessionWorkspace} key={focusedChatAgent.agentId} client={client} threadId={focusedChatAgent.agentId}
+              {sessionView ? <RetainedSessionPanels key={gatewayUrl} activeId={chatOpen ? focusedChatAgent?.agentId ?? null : null} sessionIds={sessionPanelIds}
+                renderPanel={(id, cached) => {
+                  const agent = state.agents.find(item => item.agentId === id);
+                  if (!agent) return null;
+                  return <ExistingSessionPanel onOpenWorkspace={openSessionWorkspace} active={cached.active} focusMode={cached.focusMode} onToggleFocus={cached.onToggleFocus} client={client} threadId={agent.agentId}
                   headerStart={sessionListToggle} headerEnd={sessionWindowActions} voice={voice} onOpenThread={acceptCreatedSession}
                   forkDisabled={!!cloneRequest || !!returnRequest || status !== "connected"}
                   onFork={(name, lastTurnId) => {
                     if (cloneRequest || returnRequest || status !== "connected") return;
-                    setCloneRequest({ agentId: focusedChatAgent.agentId, requestId: crypto.randomUUID(), ...(name ? { name } : {}), ...(lastTurnId ? { lastTurnId } : {}) }); setChatOpen(false);
+                    setCloneRequest({ agentId: agent.agentId, requestId: crypto.randomUUID(), ...(name ? { name } : {}), ...(lastTurnId ? { lastTurnId } : {}) }); setChatOpen(false);
                   }}
                   projects={companyRoster?.projects} organization={organization}
-                  agentName={focusedChatAgent.name} onSessionRenamed={name => dispatch({ type: "updateAgent", agentId: focusedChatAgent.agentId, patch: { name, sessionDisplayName: name } })}
-                  avatarProfile={focusedChatAgent.avatarProfile} agentStatus={focusedChatAgent.needsInput ? "needsInput" : focusedChatAgent.status} agentModel={focusedChatAgent.model}
+                  agentName={agent.name} onSessionRenamed={name => dispatch({ type: "updateAgent", agentId: agent.agentId, patch: { name, sessionDisplayName: name } })}
+                  avatarProfile={agent.avatarProfile} agentStatus={agent.needsInput ? "needsInput" : agent.status} agentModel={agent.model}
                   onSaveCharacter={async profile => {
                     const key = gatewayUrl.trim();
                     if (!key) throw new Error(t("Connection unavailable. Please reconnect before saving."));
-                    await settingsCoordinator.applyPatchNow({ avatars: { [key]: { [focusedChatAgent.agentId]: profile } } });
-                    dispatch({ type: "updateAgent", agentId: focusedChatAgent.agentId, patch: { avatarProfile: profile, avatarSeed: profile.seed } });
+                    await settingsCoordinator.applyPatchNow({ avatars: { [key]: { [agent.agentId]: profile } } });
+                    dispatch({ type: "updateAgent", agentId: agent.agentId, patch: { avatarProfile: profile, avatarSeed: profile.seed } });
                   }}
-                  returnDisabled={!!returnRequest || !!cloneRequest || focusedChatAgent.status === "running" || status !== "connected"}
+                  returnDisabled={!!returnRequest || !!cloneRequest || agent.status === "running" || status !== "connected"}
                   onReturnToEarth={() => {
-                    if (returnRequest || focusedChatAgent.status === "running") return;
-                    setReturnRequest({agentId:focusedChatAgent.agentId,requestId:crypto.randomUUID()});setChatOpen(false);
-                  }} /> :
+                    if (returnRequest || agent.status === "running") return;
+                    setReturnRequest({agentId:agent.agentId,requestId:crypto.randomUUID()});setChatOpen(false);
+                  }} />;
+                }} /> : focusedChatAgent ? (
                 <AgentChatPanel
                   agent={focusedChatAgent}
                   isSelected={false}

@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { ArrowUp, ExternalLink, File, Files, Folder, Globe, Image, RefreshCw, Terminal, X } from "lucide-react";
 import type { SessionAsset, SessionClient } from "./SessionControls";
@@ -16,6 +16,7 @@ export function SessionWorkspace({ client, threadId, asset, assets, onSelectAsse
   onSelectAsset: (asset: SessionAsset | null) => void; onClose: () => void; terminalAvailable?: boolean;
 }) {
   const t = useUiText();
+  const workspaceId = useId();
   const [tab, setTab] = useState<Tab>(asset ? "preview" : "files");
   const [listing, setListing] = useState<Listing | null>(null);
   const [file, setFile] = useState<FileRead | null>(null);
@@ -53,11 +54,11 @@ export function SessionWorkspace({ client, threadId, asset, assets, onSelectAsse
       const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
       setError(""); setTab(tabs[next][0]); event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
     }}>
-      {tabs.map(([key, Icon, label]) => <button key={key} type="button" role="tab" title={t(label)} tabIndex={tab === key ? 0 : -1} id={`workspace-tab-${key}`} aria-controls={`workspace-panel-${key}`} aria-selected={tab === key} onClick={() => { setError(""); setTab(key); }}><Icon size={15} aria-hidden="true" /><span>{t(label)}</span></button>)}
+      {tabs.map(([key, Icon, label]) => <button key={key} type="button" role="tab" title={t(label)} tabIndex={tab === key ? 0 : -1} id={`${workspaceId}-tab-${key}`} aria-controls={`${workspaceId}-panel-${key}`} aria-selected={tab === key} onClick={() => { setError(""); setTab(key); }}><Icon size={15} aria-hidden="true" /><span>{t(label)}</span></button>)}
       <button className="ml-auto" type="button" aria-label={t("Close workspace")} title={t("Back to chat")} onClick={onClose}><X size={16} /></button>
     </div>
     {error ? <p role="alert" className="px-4 py-3 text-xs text-amber-200">{t(error)}</p> : null}
-    <div role="tabpanel" id={`workspace-panel-${tab}`} aria-labelledby={`workspace-tab-${tab}`} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div role="tabpanel" id={`${workspaceId}-panel-${tab}`} aria-labelledby={`${workspaceId}-tab-${tab}`} className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {tab === "files" ? <>
         {listing?.roots && listing.roots.length > 1 ? <label className="px-3 pt-2 text-xs text-white/60">{t("Project folder")}<select aria-label={t("Project folder")} className="mt-1 min-h-10 w-full min-w-0 rounded bg-[#152b35] px-2 text-xs" value={root || ""} disabled={busy} onChange={e => { setFile(null); onSelectAsset(null); void list("", e.target.value); }}>
           {listing.roots.map(folder => <option key={folder} value={folder}>{folder}</option>)}
