@@ -477,6 +477,8 @@ export const ZH_CN: Record<string, string> = {
   "Close terminal": "关闭终端",
   "Exited · {code}": "已退出 · {code}",
   "Terminal disconnected. Reconnecting…": "终端连接已断开，正在重连…",
+  "The terminal could not load. Reload this page and try again.": "终端组件加载失败，请刷新页面后重新打开终端。",
+  "Reload page": "刷新页面",
   "Codex workspace is disconnected": "Codex 工作区连接已断开",
   "Invalid workspace path": "无效的工作区路径",
   "File is outside this workspace": "文件不在当前项目内",

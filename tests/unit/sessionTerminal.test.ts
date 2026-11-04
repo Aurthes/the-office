@@ -38,3 +38,15 @@ it.each([["Tab", "\t"], ["Esc", "\x1b"], ["Ctrl C", "\x03"]])(
     expect(screen.getByRole("textbox", { name: "Terminal input" })).toHaveFocus();
   },
 );
+
+it("retries the connection without reloading when the terminal code loaded successfully", async () => {
+  const snapshot = { handle: "probe", running: true, exitCode: null, offset: 0, dataBase64: "" };
+  const client = { call: vi.fn().mockRejectedValueOnce(new Error("Connection unavailable")).mockResolvedValue(snapshot) };
+  render(createElement(SessionTerminal, { client, threadId: "server-a" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Connection unavailable");
+  expect(screen.queryByRole("button", { name: "Reload page" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Tab" })).toBeEnabled());
+  expect(client.call).toHaveBeenCalledTimes(2);
+  expect(screen.queryByRole("alert")).toBeNull();
+});
