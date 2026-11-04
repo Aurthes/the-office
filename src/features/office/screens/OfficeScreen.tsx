@@ -21,6 +21,8 @@ import type { AgentDirectoryView, DirectoryAgent } from "@/features/office/opera
 import { TaskBoard } from "@/features/ring-ship/TaskBoard";
 import { ExistingSessionPanel } from "@/features/office/components/ExistingSessionPanel";
 import { RetainedSessionPanels } from "@/features/office/components/RetainedSessionPanels";
+import { SessionMessageLocation } from "@/features/office/components/SessionMessageLocation";
+import type { MessageSearchTarget } from "@/features/office/components/MessageSearchResults";
 import { useSessionVoice } from "@/features/office/components/useSessionVoice";
 import { SessionVoiceCall } from "@/features/office/components/SessionVoice";
 import { SessionListDivider } from "@/features/office/components/SessionListDivider";
@@ -820,6 +822,8 @@ export function OfficeScreen({
   const [chatRosterCollapsed, setChatRosterCollapsed] = useState(false);
   const [directoryView, setDirectoryView] = useState<AgentDirectoryView>("activity");
   const [taskBoardRequest, setTaskBoardRequest] = useState<{ id?: string } | null>(null);
+  const [messageSelection, setMessageSelection] = useState<{ gateway: string; target: MessageSearchTarget } | null>(null);
+  const messageTarget = messageSelection?.gateway === gatewayUrl ? messageSelection.target : null;
   const [chatExpanded, setChatExpanded] = useState(false);
   const openSessionWorkspace = useCallback(() => setChatExpanded(true), []);
   const [chatViewport, setChatViewport] = useState<{ height: number; top: number } | null>(null);
@@ -2808,6 +2812,7 @@ export function OfficeScreen({
 
   const handleOpenAgentChat = useCallback(
     (agentId: string) => {
+      setMessageSelection(null);
       focusChatTarget(agentId);
     },
     [focusChatTarget],
@@ -3216,7 +3221,7 @@ export function OfficeScreen({
         setOpenClawConsoleCopyStatus("idle");
       }, 1800);
     }
-  }, [openClawConsoleExportJson]);
+  }, [openClawConsoleExportJson, setOpenClawConsoleCopyStatus]);
   const handleDownloadOpenClawConsoleJson = useCallback(() => {
     const blob = new Blob([openClawConsoleExportJson], {
       type: "application/json;charset=utf-8",
@@ -3741,9 +3746,14 @@ export function OfficeScreen({
               height: "min(560px, calc(100vh - 5.5rem))",
             }}
           >
-            {sessionView ? !chatRosterCollapsed ? <AgentDirectory agents={directoryAgents} organization={organization} view={directoryView}
+            {sessionView ? !chatRosterCollapsed ? <AgentDirectory key={gatewayUrl} agents={directoryAgents} organization={organization} view={directoryView}
               onViewChange={changeDirectoryView} search={sessionSearch} onSearchChange={setSessionSearch} selectedId={selectedChatAgentId}
               onOpenChat={handleOpenAgentChat} onOpenTask={id => setTaskBoardRequest({ id })} taskError={currentTasks.error}
+              client={client} onOpenMessage={target => {
+                const archived = target.archived || !state.agents.some(agent => agent.agentId === target.threadId);
+                if (!archived) handleOpenAgentChat(target.threadId);
+                setMessageSelection({ gateway: gatewayUrl, target: { ...target, archived } });
+              }}
               focusRequest={organizationFocus} /> : null : <div
               className={`flex shrink-0 flex-col border-r border-white/10 transition-[width] ${chatRosterCollapsed ? "w-12" : "w-52"}`}
             >
@@ -3833,13 +3843,15 @@ export function OfficeScreen({
             </div>}
             {sessionView && !chatRosterCollapsed ? <SessionListDivider /> : null}
 
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+              {messageTarget?.archived ? <SessionMessageLocation client={client} target={messageTarget} onClose={() => setMessageSelection(null)} headerStart={sessionListToggle} /> : null}
               {sessionView && !focusedChatAgent ? <header className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 p-2">{sessionListToggle}{sessionWindowActions}</header> : null}
-              {sessionView ? <RetainedSessionPanels key={gatewayUrl} activeId={chatOpen ? focusedChatAgent?.agentId ?? null : null} sessionIds={sessionPanelIds}
+              {sessionView ? <RetainedSessionPanels key={gatewayUrl} activeId={chatOpen && !messageTarget?.archived ? focusedChatAgent?.agentId ?? null : null} sessionIds={sessionPanelIds}
                 renderPanel={(id, cached) => {
                   const agent = state.agents.find(item => item.agentId === id);
                   if (!agent) return null;
                   return <ExistingSessionPanel onOpenWorkspace={openSessionWorkspace} active={cached.active} focusMode={cached.focusMode} onToggleFocus={cached.onToggleFocus} client={client} threadId={agent.agentId}
+                  messageTarget={messageTarget?.threadId === agent.agentId && !messageTarget.archived ? messageTarget : null} onCloseMessage={() => setMessageSelection(null)}
                   headerStart={sessionListToggle} headerEnd={sessionWindowActions} voice={voice} onOpenThread={acceptCreatedSession}
                   forkDisabled={!!cloneRequest || !!returnRequest || status !== "connected"}
                   onFork={(name, lastTurnId) => {

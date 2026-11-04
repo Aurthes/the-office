@@ -10,17 +10,21 @@ import { AgentActivityIndicator } from "./AgentActivityIndicator";
 import { ScheduledTaskIndicator } from "./ScheduledTaskIndicator";
 import { organizeChatRoster } from "../operations/chatRoster";
 import { reportingForest, type AgentDirectoryView, type DirectoryAgent, type ReportingNode } from "../operations/agentDirectory";
+import { MessageSearchResults, type MessageSearchTarget } from "./MessageSearchResults";
+import type { SessionClient } from "./SessionControls";
 import "./agent-directory.css";
 
-export function AgentDirectory({ agents, organization, view, onViewChange, search, onSearchChange, selectedId, onOpenChat, onOpenTask, taskError, focusRequest }: {
+export function AgentDirectory({ agents, organization, view, onViewChange, search, onSearchChange, selectedId, onOpenChat, onOpenTask, taskError, focusRequest, client, onOpenMessage }: {
   agents: DirectoryAgent[]; organization: OrganizationView; view: AgentDirectoryView; onViewChange: (view: AgentDirectoryView) => void;
   search: string; onSearchChange: (search: string) => void; selectedId: string | null;
   onOpenChat: (id: string) => void; onOpenTask: (id: string) => void; taskError?: string;
   focusRequest?: { id: string; request: number } | null;
+  client?: SessionClient; onOpenMessage?: (target: MessageSearchTarget) => void;
 }) {
   const t = useUiText(), container = useRef<HTMLElement>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [inspected, setInspected] = useState(CEO_ID);
+  const [searchMessages, setSearchMessages] = useState(false);
   const forest = useMemo(() => reportingForest(organization.people, agents), [organization.people, agents]);
   const byId = new Map(agents.map(agent => [agent.id, agent]));
   const query = search.trim().toLocaleLowerCase();
@@ -73,15 +77,19 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
     </li>;
   };
   return <aside id="session-chat-list" ref={container} aria-label={t("Agents")} className="agent-directory session-chat-list">
-    <header className="directory-heading"><Users size={16} /><strong>{t("Agents")}</strong><span>{agents.length}</span></header>
+    <header className="directory-heading"><Users size={16} /><strong>{t(searchMessages ? "Message search" : "Agents")}</strong>{!searchMessages ? <span>{agents.length}</span> : null}</header>
+    {client && onOpenMessage ? <div className="directory-search-tabs" role="tablist" aria-label={t("Search type")}>
+      <button type="button" role="tab" aria-selected={!searchMessages} onClick={() => setSearchMessages(false)}>{t("Sessions")}</button>
+      <button type="button" role="tab" aria-selected={searchMessages} onClick={() => setSearchMessages(true)}>{t("Messages")}</button>
+    </div> : null}
     <div className="directory-controls">
-      <select aria-label={t("Organize agents")} value={view} onChange={event => onViewChange(event.target.value as AgentDirectoryView)}>
+      {!searchMessages ? <select aria-label={t("Organize agents")} value={view} onChange={event => onViewChange(event.target.value as AgentDirectoryView)}>
         <option value="project">{t("By project")}</option><option value="organization">{t("Reporting lines")}</option><option value="activity">{t("Recently active")}</option>
-      </select>
-      <input type="search" aria-label={t("Search sessions")} placeholder={t("Search agents, projects or tasks")} value={search} onChange={event => onSearchChange(event.target.value)} />
+      </select> : null}
+      <input type="search" aria-label={t(searchMessages ? "Search messages" : "Search sessions")} placeholder={t(searchMessages ? "Search conversation text" : "Search agents, projects or tasks")} value={search} onChange={event => onSearchChange(event.target.value)} />
     </div>
     {taskError ? <p className="directory-notice" role="status">{t(taskError)}</p> : null}
-    {view === "organization" ? <>
+    {searchMessages && client && onOpenMessage ? <MessageSearchResults client={client} query={search} onOpenMessage={onOpenMessage} /> : view === "organization" ? <>
       <div className="directory-tree-tools"><button type="button" onClick={() => setCollapsed(new Set())}>{t("Expand all")}</button><button type="button" onClick={() => setCollapsed(new Set(organization.people.map(person => person.id)))}>{t("Collapse all")}</button></div>
       <div className="directory-scroll"><ul className="directory-tree" aria-label={t("Reporting lines")}>{forest.map(branch)}</ul>{query && !visible.size ? <p className="directory-empty">{t("No matching agents.")}</p> : null}
         <details className="directory-position" key={inspected}><summary>{t("Organization details")} · {organization.people.find(person => person.id === inspected)?.name}</summary><OrganizationPanel key={inspected} organization={organization} personId={inspected} /></details>

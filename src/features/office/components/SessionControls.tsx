@@ -46,7 +46,9 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
 }) {
   const t = useUiText();
   const [state, setState] = useState<Snapshot | null>(null);
-  useEffect(() => { onActiveTurnChange?.(state?.connected ? state.activeTurnId : null); }, [onActiveTurnChange, state?.connected, state?.activeTurnId]);
+  // Hiding or losing a stream is not a completed turn. Keep the cached work
+  // layout until the owner supplies its next authoritative snapshot.
+  useEffect(() => { if (state?.connected) onActiveTurnChange?.(state.activeTurnId); }, [onActiveTurnChange, state?.connected, state?.activeTurnId]);
   const [retrySeconds, setRetrySeconds] = useState(0);
   useEffect(() => {
     if (!state?.retryAt) return;

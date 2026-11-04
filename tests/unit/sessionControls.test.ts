@@ -6,6 +6,23 @@ import { SessionControls } from "../../src/features/office/components/SessionCon
 const snapshot = { connected: true, version: 1, activeTurnId: "turn", items: [], approvals: [] };
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 describe("shared-session composer", () => {
+  it("keeps the cached work state while hidden or disconnected and clears it only on an authoritative idle snapshot", async () => {
+    let subscriptionId = "";
+    const events = new Set<(event: { event: string; payload?: unknown }) => void>();
+    let status: (value: "connected" | "disconnected") => void = () => {};
+    const call = vi.fn(async (method: string, params: unknown) => { if (method === "session.subscribe") subscriptionId = (params as { subscriptionId: string }).subscriptionId; return {}; });
+    const client = { call, onEvent: (handler: (event: { event: string; payload?: unknown }) => void) => { events.add(handler); return () => { events.delete(handler); }; }, onStatus: (handler: typeof status) => { status = handler; return () => {}; } };
+    const props = { client, threadId: "cached-work-layout", onItems: vi.fn(), onActiveTurnChange: vi.fn() };
+    const view = render(React.createElement(SessionControls, props)); await waitFor(() => expect(subscriptionId).not.toBe(""));
+    const push = (activeTurnId: string | null) => events.forEach(handler => handler({ event: "session.stream", payload: { ...snapshot, threadId: props.threadId, subscriptionId, version: 1, activeTurnId, features: { prediction: false, voice: false, dictation: false } } }));
+    await act(async () => push("working")); expect(props.onActiveTurnChange).toHaveBeenLastCalledWith("working");
+    view.rerender(React.createElement(SessionControls, { ...props, active: false }));
+    expect(props.onActiveTurnChange).toHaveBeenCalledTimes(1);
+    view.rerender(React.createElement(SessionControls, props)); await act(async () => push("working"));
+    await act(async () => status("disconnected")); expect(props.onActiveTurnChange).not.toHaveBeenCalledWith(null);
+    await act(async () => status("connected")); await act(async () => push(null));
+    expect(props.onActiveTurnChange).toHaveBeenLastCalledWith(null);
+  });
   it.each([false, true])("only autofocuses desktop composers on open and after sending (touch=%s)", async touch => {
     vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: coarse)" && touch }));
     try {

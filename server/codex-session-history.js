@@ -30,13 +30,16 @@ async function loadSessionHistoryPage(call, row, cursor) {
     // message timestamp, and must not make every historical message look new.
     return item ? [item] : [];
   });
+  return { threadId: row.id, messages: boundHistoryMessages(visible), nextCursor: result.nextCursor || null };
+}
+
+function boundHistoryMessages(visible) {
   // Conversation text has priority over the collapsed work log.
   const primary = item => item.role !== "tool" && item.phase !== "commentary";
   const mainCaps = fitCaps(visible.map(item => primary(item) ? Buffer.byteLength(item.content) : 0), PAGE_TEXT_BYTES);
   const remaining = PAGE_TEXT_BYTES - mainCaps.reduce((sum, size) => sum + size, 0);
   const workCaps = fitCaps(visible.map(item => primary(item) ? 0 : Math.min(Buffer.byteLength(item.content), item.role === "tool" ? 160 : 512)), remaining);
-  const messages = visible.map((item, i) => ({ ...item, ...clipText(item.content, mainCaps[i] + workCaps[i]) }));
-  return { threadId: row.id, messages, nextCursor: result.nextCursor || null };
+  return visible.map((item, i) => ({ ...item, ...clipText(item.content, mainCaps[i] + workCaps[i]) }));
 }
 
-module.exports = { loadSessionHistoryPage, PAGE_ENTRIES, PAGE_TEXT_BYTES };
+module.exports = { loadSessionHistoryPage, boundHistoryMessages, PAGE_ENTRIES, PAGE_TEXT_BYTES };

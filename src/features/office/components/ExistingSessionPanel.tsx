@@ -14,6 +14,8 @@ import type { SessionAsset } from "./SessionControls";
 import { SessionTranscript } from "./SessionTranscript";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { OfficeCodexAccount } from "./OfficeCodexAccount";
+import { SessionMessageLocation } from "./SessionMessageLocation";
+import type { MessageSearchTarget } from "./MessageSearchResults";
 
 export type SessionInspection = {
   id: string; name: string; workspace: string; project: string; projectId?: string | null;
@@ -29,7 +31,7 @@ type Message = LiveSessionItem;
 type HistoryPage = { threadId: string; messages: Message[]; nextCursor: string | null };
 type LoadMode = "latest" | "older" | "sync";
 
-export function ExistingSessionPanel({ client, threadId, active = true, focusMode = false, onToggleFocus, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, onOpenThread, onFork, forkDisabled, headerStart, headerEnd, projects = [], voice, organization }: {
+export function ExistingSessionPanel({ client, threadId, active = true, focusMode = false, onToggleFocus, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, onOpenThread, onFork, forkDisabled, headerStart, headerEnd, projects = [], voice, organization, messageTarget, onCloseMessage }: {
   client: SessionClient;
   active?: boolean;
   focusMode?: boolean;
@@ -52,6 +54,8 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   onSaveCharacter?: (profile: AgentAvatarProfile) => Promise<void>;
   projects?: CompanyProject[];
   organization?: OrganizationView;
+  messageTarget?: MessageSearchTarget | null;
+  onCloseMessage?: () => void;
 }) {
   const t = useUiText();
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -208,7 +212,9 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     event.currentTarget.closest("details")?.removeAttribute("open");
     setCharacterMode(mode);
   };
-  return <SessionPreviewContext.Provider value={openPreview}><section className="session-panel flex min-h-0 min-w-0 flex-1 flex-col text-white" aria-label={t("Codex session")}>
+  return <SessionPreviewContext.Provider value={openPreview}><section className="session-panel relative flex min-h-0 min-w-0 flex-1 flex-col text-white" aria-label={t("Codex session")}>
+    {messageTarget && onCloseMessage ? <SessionMessageLocation client={client} target={messageTarget} onClose={onCloseMessage} headerStart={headerStart} /> : null}
+    <div inert={Boolean(messageTarget)} aria-hidden={Boolean(messageTarget)} className="flex min-h-0 flex-1 flex-col">
     <header className="session-panel-header flex shrink-0 items-center gap-2 border-b border-white/10 px-3 py-2">
       {headerStart}
       <div className="min-w-0 flex-1">
@@ -283,11 +289,12 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     }} className="absolute bottom-3 left-1/2 z-10 min-h-10 -translate-x-1/2 rounded-full border border-white/20 bg-[#243346] px-4 text-xs text-white shadow-xl hover:bg-[#30445c]">{t("↓ Latest messages")}</button> : null}
     </div>
     {data?.runtime === "office" ? <OfficeCodexAccount client={client} quiet /> : null}
-    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onActiveTurnChange={setActiveTurnId} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
+    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active && !messageTarget} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onActiveTurnChange={setActiveTurnId} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
     </div>
-    {workspaceOpen ? <SessionWorkspace key={threadId} active={active} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
+    {workspaceOpen ? <SessionWorkspace key={threadId} active={active && !messageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
       assets={[...new Map(messages.flatMap(message => message.assets || []).map(asset => [asset.url, asset])).values()].slice(-40)}
       onSelectAsset={setPreviewAsset} onClose={() => setWorkspaceOpen(false)} /> : null}
+    </div>
     </div>
   </section></SessionPreviewContext.Provider>;
 }

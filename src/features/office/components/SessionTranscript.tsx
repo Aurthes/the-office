@@ -47,7 +47,7 @@ function ToolCalls({ items }: { items: LiveSessionItem[] }) {
   </details>;
 }
 
-function WorkProcess({ items, defaultOpen }: { items: LiveSessionItem[]; defaultOpen: boolean }) {
+function WorkProcess({ items, defaultOpen, highlightedMessageId }: { items: LiveSessionItem[]; defaultOpen: boolean; highlightedMessageId?: string }) {
   const t = useUiText();
   const [open, setOpen] = useState(defaultOpen);
   const blocks: ({ message: LiveSessionItem } | { tools: LiveSessionItem[] })[] = [];
@@ -60,13 +60,13 @@ function WorkProcess({ items, defaultOpen }: { items: LiveSessionItem[]; default
   return <details open={open} onToggle={event => setOpen(event.currentTarget.open)} className="rounded-lg border border-white/10 bg-white/[0.025] px-3 py-2" aria-label={t("Work process")}>
     <summary className="cursor-pointer text-xs text-white/50">{t("Work process · {count} items", { count: items.length })}</summary>
     {/* Hidden work logs can contain hundreds of Markdown blocks and images. */}
-    {open ? <div className="mt-2 space-y-2 border-l border-white/15 pl-3">{blocks.map(block => "tools" in block ? <ToolCalls key={block.tools[0].id} items={block.tools} /> : <div key={block.message.id}>
+    {open ? <div className="mt-2 space-y-2 border-l border-white/15 pl-3">{blocks.map(block => "tools" in block ? <ToolCalls key={block.tools[0].id} items={block.tools} /> : <div key={block.message.id} data-message-id={block.message.id} data-search-match={block.message.id === highlightedMessageId || undefined} tabIndex={block.message.id === highlightedMessageId ? -1 : undefined}>
       <MessageBody message={block.message} truncatedLabel={t("This message is long. View the rest in the desktop app.")} />
     </div>)}</div> : null}
   </details>;
 }
 
-export const SessionTranscript = memo(function SessionTranscript({ messages, activeTurnId = null, onForkFrom, forkDisabled = false }: { messages: LiveSessionItem[]; activeTurnId?: string | null; onForkFrom?: (lastTurnId: string) => void; forkDisabled?: boolean }) {
+export const SessionTranscript = memo(function SessionTranscript({ messages, activeTurnId = null, onForkFrom, forkDisabled = false, highlightedMessageId }: { messages: LiveSessionItem[]; activeTurnId?: string | null; onForkFrom?: (lastTurnId: string) => void; forkDisabled?: boolean; highlightedMessageId?: string }) {
   const t = useUiText();
   const groups = new Map<string, { id: string; items: LiveSessionItem[] }>();
   const answeredTurns = new Set(messages.filter(message => message.role === "assistant" && message.phase === "final_answer").map(message => message.turnId));
@@ -88,9 +88,10 @@ export const SessionTranscript = memo(function SessionTranscript({ messages, act
     if ("group" in block) {
       const working = block.group.id === activeTurnId && !answeredTurns.has(block.group.id);
       // Reset the default only when work starts or the official answer begins.
-      return <WorkProcess key={`process:${block.group.id}:${working}`} items={block.group.items} defaultOpen={working} />;
+      const highlight = block.group.items.some(item => item.id === highlightedMessageId) ? highlightedMessageId : undefined;
+      return <WorkProcess key={`process:${block.group.id}:${working}:${highlight || ""}`} items={block.group.items} defaultOpen={working || Boolean(highlight)} highlightedMessageId={highlight} />;
     }
-    return <article key={block.message.id} aria-label={block.message.role === "user" ? t("You") : "Codex"} className={block.message.role === "user" ? "session-user-message" : "mr-2 rounded-lg border border-slate-500/40 bg-[#242932] px-3 py-2.5 text-slate-100"}>
+    return <article key={block.message.id} data-message-id={block.message.id} data-search-match={block.message.id === highlightedMessageId || undefined} tabIndex={block.message.id === highlightedMessageId ? -1 : undefined} aria-label={block.message.role === "user" ? t("You") : "Codex"} className={block.message.role === "user" ? "session-user-message" : "mr-2 rounded-lg border border-slate-500/40 bg-[#242932] px-3 py-2.5 text-slate-100"}>
     {block.message.role !== "user" || block.message.source === "voice" ? <div className="mb-1 text-[10px] font-semibold text-slate-300">{block.message.role === "user" ? t("You") : "Codex"}{block.message.source === "voice" ? ` · ${t("Voice")}` : ""}</div> : null}
     <MessageBody message={block.message} truncatedLabel={t("This message is long. View the rest in the desktop app.")} />
     {onForkFrom && block.message.turnId && forkPoints.get(block.message.turnId) === block.message.id ? <button type="button" disabled={forkDisabled} onClick={() => onForkFrom(block.message.turnId!)} className="mt-2 inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-[11px] text-slate-400 hover:bg-white/5 hover:text-teal-200 disabled:opacity-40" title={t("Keep this turn and earlier context; later messages are excluded.")}><GitFork size={13} aria-hidden="true" />{t("Fork from here")}</button> : null}

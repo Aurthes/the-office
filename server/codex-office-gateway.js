@@ -18,6 +18,7 @@ const { questionReplyMessage } = require("./codex-session-questions");
 const { OfficeTodos } = require("./office-todos");
 const { OfficeSchedules } = require("./office-schedules");
 const { CodexSessionComposer } = require("./codex-session-composer");
+const { CodexMessageSearch } = require("./codex-message-search");
 
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
@@ -58,6 +59,7 @@ stream = new CodexSessionStream(controls);
 const predictions = new CodexSessionPredictions(store, controls);
 workspace = new CodexSessionWorkspace(native, { commandExec: true, policy: id => store.overrides(id).sandboxPolicy, roots: row => store.sessionFolders(row) });
 composer = new CodexSessionComposer(store, workspace); controls.options.composer = composer;
+const messageSearch = new CodexMessageSearch(store);
 voice = new CodexOfficeVoice(store, controls, (ws, payload) => {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "event", event: "session.voice", payload }));
 });
@@ -138,6 +140,8 @@ const methods = {
   "sessions.preview": async p => ({ ts: Date.now(), previews: (p.keys || []).map(key => ({ key, status: "empty", items: [] })) }),
   "chat.history": async p => ({ sessionKey: p.sessionKey, ...await history(String(p.sessionKey).split(":")[1], p.cursor) }),
   "session.history": p => history(p.threadId, p.cursor),
+  "session.search": p => messageSearch.search(p),
+  "session.messageContext": p => messageSearch.context(p),
   "session.inspect": async p => { store.get(p.threadId); return { ...store.list().find(row => row.id === p.threadId), statusSource: "Office Codex runtime", runtime: "office", terminalAvailable: true, readOnly: false, controlsAvailable: native.ready, ...(p.includeHistory === false ? {} : await history(p.threadId)) }; },
   "session.attach": async p => { store.get(p.threadId); await controls.attach(p.threadId); return controls.snapshot(p.threadId); },
   "session.subscribe": (p, ws) => { store.get(p.threadId); return stream.subscribe(ws, p.threadId, p.subscriptionId); },
