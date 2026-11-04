@@ -75,14 +75,11 @@ describe("central Office task records", () => {
     expect(listed.total).toBe(1); expect(listed.departments.find((p: { id: string }) => p.id === "beta").total).toBe(1);
     expect(listed.todos[0].documentation).toBeUndefined(); expect(f.todos.list({ query: "no match" }).total).toBe(0);
   });
-  it("tracks chat intake once, keeps follow-ups together and pauses at turn end without declaring success", () => {
-    const f = fixture(), row = f.todos.intake("alice", "Build the feature\nMore detail", "send1"); f.todos.startForAgent("alice", row.id); f.advance(5000);
+  it("pauses after an agent turn without mistaking the reply for task completion", () => {
+    const f = fixture(), row = f.create(); f.todos.startForAgent("alice", row.id); f.advance(5000);
     f.todos.finishTurn("alice", "completed");
     expect(f.todos.raw(row.id).status).toBe("paused"); expect(f.todos.raw(row.id).phases[0].completedAt).toBeNull();
-    expect(f.todos.intake("alice", "Continue", "send2").id).toBe(row.id);
-    f.change(row.id, "complete", { phaseId: row.phases[0].id });
-    expect(f.todos.intake("alice", "Build the feature\nMore detail", "send1").id).toBe(row.id);
-    expect(f.todos.intake("alice", "New work", "send3").id).not.toBe(row.id);
+    expect(f.todos.get({ id: row.id }).todo.elapsedMs).toBe(5000);
   });
   it("runs one phase per owner and leaves unrelated agents untouched", () => {
     const f = fixture(), first = f.create(), second = f.create(), other = f.create({ assigneeId: "bob" });

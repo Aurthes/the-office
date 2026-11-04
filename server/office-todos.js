@@ -149,17 +149,6 @@ class OfficeTodos {
     if (preferred && !preferred.archived && preferred.status !== "done" && preferred.assigneeId === agentId) return preferred;
     return [...this.rows.values()].filter(r => !r.archived && r.assigneeId === agentId && r.status !== "done").sort((a, b) => (b.lastStartedAt || 0) - (a.lastStartedAt || 0) || b.updatedAt - a.updatedAt)[0] || null;
   }
-  intake(agentId, message, requestId) {
-    const prior = this.requests.get(`chat:${requestId}`);
-    if (prior) return this.raw(prior);
-    let row = this.bound(agentId);
-    if (!row) {
-      const agent = this.agents().find(a => a.id === agentId); if (!agent) throw new Error("Office agent is unavailable");
-      row = this.raw(this.create({ title: message.trim().split(/\r?\n/)[0].slice(0, 200) || "Agent task", documentation: message.slice(0, 24000),
-        departmentId: agent.projectId ?? null, assigneeId: agentId, sourceThreadId: agentId, phases: [{ title: "Planning" }], requestId: `chat:${requestId}`, source: "system" }).todo.id);
-    }
-    return row;
-  }
   startForAgent(agentId, id) {
     const row = this.raw(id);
     if (row.assigneeId !== agentId || row.archived || row.status === "done") throw new Error("Choose an unfinished to-do assigned to this agent");

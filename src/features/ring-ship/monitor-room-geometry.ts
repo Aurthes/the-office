@@ -14,10 +14,24 @@ export function monitorScreenPose(layout: ShipLayout, cabin: ShipCabin) {
   return { point: shipPoint(ring.radius - ring.depth / 2 + .86, cabinAngle(layout, cabin.slot)), angle: cabinAngle(layout, cabin.slot), width: Math.min(6, ring.radius * Math.PI * 2 / layout.allocation.sectors * .45) };
 }
 
+// A separate whiteboard on the rear wall, away from the PNL screen and desks.
+export function monitorTaskBoardPose(layout: ShipLayout, cabin: ShipCabin) {
+  const ring = layout.rings[cabin.ring], width = ring.radius * Math.PI * 2 / layout.allocation.sectors;
+  const tangent = -Math.min(3.4, width * .28), radial = ring.depth / 2 - .4;
+  const angle = cabinAngle(layout, cabin.slot) + tangent / ring.radius;
+  return { tangent, radial, angle: angle + Math.PI, point: shipPoint(ring.radius + radial - .09, angle) };
+}
+
 export function addMonitorRoom(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
   const ring = layout.rings[cabin.ring], width = ring.radius * Math.PI * 2 / layout.allocation.sectors;
   const edge = -ring.depth / 2 + .65, main = monitorScreenPose(layout, cabin);
   const box = (u: number, v: number, y: number, size: [number, number, number], color: string, glow = false) => b.localBox(layout, cabin, u, v, y, size, color, 0, glow);
+  const board = monitorTaskBoardPose(layout, cabin);
+  b.object("taskWhiteboard", () => {
+    box(board.tangent, board.radial, 1.7, [1.8, 1.18, .1], "#6d8f88");
+    box(board.tangent, board.radial - .06, 1.7, [1.65, 1.04, .025], "#e1e9df");
+    box(board.tangent, board.radial - .12, 1.1, [1.8, .06, .16], "#9cb9b3");
+  });
   // Raised central command desk, a large screen and banks of smaller displays.
   box(0, -1.5, .25, [5.3, .32, 2.4], "#435e6b");
   b.object("controlDesk", () => {

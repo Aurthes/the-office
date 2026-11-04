@@ -5,7 +5,8 @@ import { Html } from "@react-three/drei";
 import { useUiText } from "@/lib/i18n/ui-language";
 import type { ShipCabin, ShipLayout } from "./layout";
 import { monitorScreenPose } from "./monitor-room-geometry";
-import { CalendarClock, Server, ListTree } from "lucide-react";
+import { MonitorIllustration } from "./MonitorIllustration";
+import { CalendarClock, Server } from "lucide-react";
 import { cabinAngle, shipPoint } from "./layout";
 import { serverConsoleScreenPose, machineRoomPlan, machineRoomPoint } from "./machineRoomLayout";
 
@@ -21,15 +22,16 @@ export function TaskRoomScreen({ layout, cabin, onOpen }: { layout: ShipLayout; 
   </Html>;
 }
 
-export function MonitorRoomScreen({ layout, cabin, onOpen, onOpenTasks }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void; onOpenTasks: () => void }) {
+export function MonitorRoomScreen({ layout, cabin, onOpen }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void }) {
   const t = useUiText(), screen = monitorScreenPose(layout, cabin);
   return <Html transform position={[screen.point.x, 1.9, screen.point.z]} rotation={[0, screen.angle, 0]} distanceFactor={4} zIndexRange={[12, 11]}>
-    <div onPointerDown={event => event.stopPropagation()} style={{ width: screen.width * 100, height: 165 }}
-      className="flex flex-col gap-2 rounded-lg border-2 border-[#71d3c8]/70 bg-[#102a36] p-3 text-[#d8f5ec] shadow-[0_0_24px_#71d3c830]">
-      <span className="block text-[10px] uppercase tracking-[.3em] text-[#71d3c8]">{t("OPERATIONS CONSOLE")}</span>
-      <button type="button" aria-label={t("Open task board")} onClick={event => { event.stopPropagation(); onOpenTasks(); }} className="flex flex-1 cursor-pointer items-center justify-center gap-3 rounded border border-[#71d3c8]/40 bg-[#174454] text-xs hover:bg-[#235766] focus-visible:outline-4 focus-visible:outline-amber-200"><ListTree size={26} /><span>{t("Task board")}<small className="mt-1 block text-[9px] text-[#96bcb9]">{t("All departments")}</small></span></button>
-      <button type="button" aria-label={t("Open monitoring dashboard")} onClick={event => { event.stopPropagation(); onOpen(); }} className="cursor-pointer rounded border border-[#71d3c8]/25 px-2 py-1 text-[10px] text-[#8ed8bc] hover:bg-white/10">{t("Strategy performance")}</button>
-    </div>
+    <button type="button" data-monitor-main-screen onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onOpen(); }}
+      aria-label={t("Open monitoring dashboard")} style={{ width: screen.width * 100, height: 165 }}
+      className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-[#71d3c8]/70 bg-[#102a36] p-3 text-[#8ed8bc] shadow-[0_0_24px_#71d3c830] hover:bg-[#174454] focus-visible:outline-4 focus-visible:outline-amber-200">
+      <span className="text-[10px] uppercase tracking-[.3em] text-[#71d3c8]">{t("OPERATIONS CONSOLE")} · PNL</span>
+      <MonitorIllustration visual="chart" compact />
+      <span className="text-[10px]">{t("Strategy performance")}</span>
+    </button>
   </Html>;
 }
 

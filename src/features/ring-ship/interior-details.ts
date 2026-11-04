@@ -1,4 +1,3 @@
-import { departmentBoardPose } from "./department-board";
 import type { Builder } from './geometry';
 import { cabinAngle, shipPoint, type ShipCabin, type ShipLayout } from './layout';
 
@@ -46,12 +45,6 @@ export function addCabinDetails(b: Builder, layout: ShipLayout, c: ShipCabin) {
     return;
   }
   if (c.kind === 'work') {
-    const board = departmentBoardPose(layout, c);
-    b.object('departmentBoard', () => {
-      box(0, board.radial, 1.7, [1.65, 1.08, .1], '#6d8f88');
-      box(0, board.radial - .06, 1.7, [1.5, .94, .025], '#e1e9df');
-      box(0, board.radial - .12, 1.16, [1.65, .06, .16], '#9cb9b3');
-    });
     for (const side of [-1, 1]) {
       bookcase(side * width * .39, -edge);
       plant(side * width * .39, edge - .35);

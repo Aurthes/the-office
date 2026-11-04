@@ -15,7 +15,7 @@ const properties = {
 const definitions = [
   ["list", "List shared Office to-dos, department totals and available agents. Filter or paginate when needed.", ["departmentId", "assigneeId", "status", "query", "offset", "limit"], []],
   ["get", "Read a to-do, its current revision, phase IDs, documentation and history before editing.", ["id"], ["id"]],
-  ["create", "Record new work BEFORE executing it. Define ordered phases, department and optional owner; reuse requestId on retry.", ["actorId", "title", "documentation", "departmentId", "assigneeId", "phases", "requestId"], ["actorId", "title", "phases", "requestId"]],
+  ["create", "Create a record only for actionable work, never casual chat or general questions. One task is one user goal; related follow-ups reuse an existing task, including a completed one. Check recent tasks first. Ask the user before splitting uncertain scope. Define phases and owner before executing; reuse requestId on retry.", ["actorId", "title", "documentation", "departmentId", "assigneeId", "phases", "requestId"], ["actorId", "title", "phases", "requestId"]],
   ["edit", "Update the plan, assignment or documentation. Preserve existing phase IDs and accumulated times. New phases omit id. Fetch fresh revision after a conflict.", ["id", "revision", "actorId", "title", "documentation", "departmentId", "assigneeId", "phases"], ["id", "revision", "actorId"]],
   ["start", "Start or resume the current phase timer. This does not send a chat message.", ["id", "revision", "actorId"], ["id", "revision", "actorId"]],
   ["pause", "Pause timing when blocked or waiting for a person; include a reason.", ["id", "revision", "actorId", "reason"], ["id", "revision", "actorId"]],

@@ -1,5 +1,7 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Task whiteboard": "任务白板",
+  "Open the task board for all departments.": "打开全部项目组的任务看板。",
   "Task board": "任务看板",
   "Departments": "项目组",
   "Unassigned": "未分配",
@@ -45,10 +47,6 @@ export const ZH_CN: Record<string, string> = {
   "Create a to-do here, or give an agent a task in chat.": "在这里创建待办，或在聊天里给 agent 分配任务。",
   "Connect the Office gateway to manage tasks.": "连接 Office 后端后即可管理任务。",
   "Check a phase to start the next. Agent turns pause timing when they end; checked phases stay completed.": "勾选完成后自动进入下一阶段。Agent 本轮结束时暂停计时，已完成的阶段保持勾选。",
-  "Open tasks: {department}": "打开 {department} 的任务",
-  "Tasks · People · Time": "任务 · 负责人 · 耗时",
-  "Project whiteboard": "项目白板",
-  "Tasks, owners, phase progress and time for this department.": "查看这个项目组的任务、负责人、阶段进度和耗时。",
   "Task board is not available on this gateway.": "当前后端尚未支持任务看板。",
   "Could not load task board.": "无法加载任务看板。",
   "Configure machines": "配置机器",

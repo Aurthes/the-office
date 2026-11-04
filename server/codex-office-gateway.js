@@ -43,7 +43,6 @@ const native = new CodexOfficeClient({
   voice?.handle(mapped);
   controls?.handle(mapped); if (mapped.params?.threadId) stream?.changed(mapped.params.threadId);
   schedules?.handle(mapped);
-  if (mapped.method === "turn/started") { const task = todos?.bound(mapped.params.threadId); if (task && task.status !== "running") todos.startForAgent(mapped.params.threadId, task.id); }
   if (mapped.method === "turn/completed") todos?.finishTurn(mapped.params.threadId, mapped.params.turn?.status || "completed");
   if (mapped.id !== undefined || ["serverRequest/resolved", "turn/completed"].includes(mapped.method)) changed();
 } });
@@ -76,21 +75,10 @@ schedules = new OfficeSchedules(directory, {
     if (store.isBusy(id) || controls.snapshot(id).approvalCount || controls.questions(id).some(q => !q.submitted)) return false;
     return (await account()).loggedIn;
   },
-  send: (id, message, requestId) => sendTask(id, message, requestId, [], { onlyIfIdle: true }),
+  send: (id, message, requestId) => controls.send(id, message, requestId, [], { onlyIfIdle: true }),
 });
 todos = new OfficeTodos(directory, { projects: () => store.projects(), agents, changed: id => broadcast("todos.updated", { id }) });
-store.todoContext = id => { const row = todos.bound(id); return { protocol: 1, agentId: id, todoId: row?.id || null, departmentId: store.get(id).projectId ?? null }; };
-async function sendTask(id, message, requestId, attachments = [], options = {}) {
-  if (typeof requestId !== "string" || !requestId || requestId.length > 100) throw new Error("A send request ID is required");
-  if (controls.sends.has(requestId)) return controls.send(id, message, requestId, attachments, options);
-  const row = todos.intake(id, message || "Attachment task", requestId), wasRunning = row.status === "running";
-  todos.startForAgent(id, row.id);
-  try {
-    const result = await controls.send(id, message, requestId, attachments, options);
-    if (result.status === "busy" && !wasRunning) todos.finishTurn(id, "busy");
-    return result;
-  } catch (error) { if (!wasRunning) todos.finishTurn(id, "failed to start"); throw error; }
-}
+store.todoContext = id => { const row = todos.bound(id); return { protocol: 2, agentId: id, todoId: row?.id || null, departmentId: store.get(id).projectId ?? null }; };
 const methods = {
   "todo.list": p => todos.list(p),
   "todo.get": p => todos.get(p),
@@ -153,11 +141,11 @@ const methods = {
   "session.attach": async p => { store.get(p.threadId); await controls.attach(p.threadId); return controls.snapshot(p.threadId); },
   "session.subscribe": (p, ws) => { store.get(p.threadId); return stream.subscribe(ws, p.threadId, p.subscriptionId); },
   "session.unsubscribe": (p, ws) => stream.unsubscribe(ws, p.subscriptionId),
-  "session.send": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await sendTask(p.threadId, p.message, p.requestId, p.attachments, { references: p.references || [] }); store.clearQuestions(p.threadId, pending); return result; },
+  "session.send": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, p.message, p.requestId, p.attachments, { references: p.references || [] }); store.clearQuestions(p.threadId, pending); return result; },
   "session.composer.options": p => composer.options(p.threadId, p.kind, p.query),
   "session.compact": p => { store.get(p.threadId); if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before compacting"); return store.once(p, () => controls.compact(p.threadId)); },
   "session.mcp": async p => { store.get(p.threadId); const result = await native.call("mcpServerStatus/list", { limit: 50 }); return { servers: result.data.map(server => ({ name: server.name, status: server.runtimeStatus || server.authStatus, tools: Object.keys(server.tools || {}).length })) }; },
-  "session.continue": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await sendTask(p.threadId, "Continue where you left off.", p.requestId, [], { resumeInterrupted: true }); store.clearQuestions(p.threadId, pending); return result; },
+  "session.continue": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, "Continue where you left off.", p.requestId, [], { resumeInterrupted: true }); store.clearQuestions(p.threadId, pending); return result; },
   "session.stop": p => { store.get(p.threadId); return controls.stop(p.threadId); },
   "session.settings.choices": p => { store.get(p.threadId); return controls.choices(p.threadId); },
   "session.settings.update": p => { store.get(p.threadId); if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before changing settings"); return controls.updateSettings(p.threadId, p.settings); },
@@ -169,7 +157,7 @@ const methods = {
     const request = store.pendingQuestions(p.threadId).find(q => q.requestId === p.promptId);
     if (!request) { const result = controls.replyQuestions(p.threadId, p.promptId, p.answers); changed(); return result; }
     if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before answering");
-    const result = await sendTask(p.threadId, questionReplyMessage(request, p.answers), p.requestId);
+    const result = await controls.send(p.threadId, questionReplyMessage(request, p.answers), p.requestId);
     store.clearQuestions(p.threadId, [request.requestId]); return result;
   },
   "session.approval.reply": p => { store.get(p.threadId); const result = controls.reply(p.threadId, p.requestId, p.decision); changed(); return result; },

@@ -3,12 +3,19 @@
 export async function checkOfficeTasks({ page, call, expect, setModelFixture, screenshots, browserName, fs, path }) {
   const roster = await call("office.snapshot"), agent = roster.agents.find(agent => agent.name === "Mac verification recruit"), alpha = roster.projects.find(project => project.name === "Alpha team");
   const initial = await call("todo.list");
-  if (!initial.todos.some(todo => todo.assigneeId === agent.id && todo.status === "paused")) throw Error("Chat intake or turn-end timer pause failed");
+  if (initial.todos.length) throw Error("A greeting or general chat created an unwanted task");
   const wholeShip = page.getByRole("button", { name: "Whole ship", exact: true });
   if (await wholeShip.getAttribute("aria-pressed") === "true") await wholeShip.click();
-  // Open the global monitoring-room screen. Html can be off-camera in overview;
-  // its actual scene button is still the entry being exercised.
-  await page.getByRole("button", { name: "Open task board", exact: true }).first().dispatchEvent("click");
+  const whiteboard = page.locator("[data-task-whiteboard]");
+  await expect(whiteboard).toHaveCount(1);
+  await expect(page.getByRole("button", { name: /^Open tasks:/ })).toHaveCount(0);
+  const mainScreen = page.locator("[data-monitor-main-screen]");
+  await expect(mainScreen.locator("svg.monitor-illustration")).toHaveCount(1);
+  await expect(mainScreen.getByRole("button")).toHaveCount(0);
+  await mainScreen.dispatchEvent("click");
+  await expect(page.getByRole("dialog", { name: "Monitor room", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close monitoring dashboard", exact: true }).click();
+  await whiteboard.dispatchEvent("click");
   const board = page.getByRole("dialog", { name: "Task board", exact: true });
   await expect(board).toBeVisible();
   await page.getByRole("button", { name: "New to-do", exact: true }).click();
@@ -27,9 +34,11 @@ export async function checkOfficeTasks({ page, call, expect, setModelFixture, sc
   await page.getByRole("button", { name: "Pause timer", exact: true }).click();
   await expect.poll(async () => (await call("todo.get", { id: todo.id })).todo.status).toBe("paused");
   await page.getByRole("button", { name: "Close task board", exact: true }).click();
-  // A department whiteboard opens the same durable record, scoped to that team.
-  await page.getByRole("button", { name: /^Open tasks: Alpha team/ }).first().dispatchEvent("click");
+  // The unique control-room whiteboard opens all departments; filter inside.
+  await whiteboard.dispatchEvent("click");
   await expect(board).toBeVisible();
+  await expect(board.locator("header p")).toHaveText("All departments");
+  await board.getByRole("button", { name: /^Alpha team/ }).click();
   await expect(board.locator("header p")).toHaveText("Alpha team");
   await expect(board.getByText("Shared task browser check", { exact: true })).toBeVisible();
   await board.getByRole("button", { name: /Shared task browser check/ }).click();
@@ -71,6 +80,20 @@ export async function checkOfficeTasks({ page, call, expect, setModelFixture, sc
   await expect.poll(async () => (await call("todo.get", { id: todo.id })).todo.status, { timeout: 30000 }).toBe("done");
   await expect(board.getByText("Agent verified the shared task through the Office MCP service.", { exact: true })).toBeVisible();
   if (toolCalls.join(",") !== "todo_edit,todo_complete,todo_complete") throw Error("Agent task progress did not use the shared MCP service");
+  await expect.poll(async () => (await call("session.inspect", { threadId: agent.id, includeHistory: false })).status).toBe("idle");
+  const beforeQuestion = (await call("todo.get", { id: todo.id })).todo, countBeforeQuestion = (await call("todo.list")).total;
+  await call("session.send", { threadId: agent.id, message: "Just a general question: what does PNL stand for? Do not perform any work.", requestId: "task-board-general-question" });
+  await expect.poll(async () => (await call("session.inspect", { threadId: agent.id, includeHistory: false })).status).toBe("idle");
+  if ((await call("todo.list")).total !== countBeforeQuestion) throw Error("A general follow-up created a task");
+  const afterQuestion = (await call("todo.get", { id: todo.id })).todo;
+  if (afterQuestion.revision !== beforeQuestion.revision || afterQuestion.status !== "done") throw Error("A general question reopened or changed completed work");
+  const reopened = (await call("todo.reopen", { id: todo.id, revision: afterQuestion.revision, phaseId: afterQuestion.phases[2].id })).todo;
+  const paused = (await call("todo.pause", { id: todo.id, revision: reopened.revision })).todo;
+  await call("session.send", { threadId: agent.id, message: "Thanks! Just chatting, no work requested.", requestId: "task-board-casual-paused" });
+  await expect.poll(async () => (await call("session.inspect", { threadId: agent.id, includeHistory: false })).status).toBe("idle");
+  const afterChat = (await call("todo.get", { id: todo.id })).todo;
+  if (afterChat.revision !== paused.revision || afterChat.status !== "paused" || afterChat.elapsedMs !== paused.elapsedMs) throw Error("Casual chat resumed a paused task timer");
+  await call("todo.complete", { id: todo.id, revision: paused.revision, phaseId: paused.phases[2].id });
   // A narrow phone keeps the board within the viewport and preserves controls.
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
@@ -83,6 +106,10 @@ export async function checkOfficeTasks({ page, call, expect, setModelFixture, sc
   await expect.poll(async () => (await call("todo.get", { id: todo.id })).todo.archived).toBe(false);
   await page.getByRole("button", { name: "Close task board", exact: true }).click();
   await page.setViewportSize({ width: 1440, height: 1000 });
+  if (screenshots) {
+    await page.waitForTimeout(800); // Let the room camera settle after the modal closes.
+    await page.screenshot({ path: path.join(screenshots, browserName + "-control-room-whiteboard.png") });
+  }
   setModelFixture(null);
-  console.log(JSON.stringify({ globalTaskEntry: true, departmentWhiteboardEntry: true, sharedTaskRecords: true, chatIntake: true, phaseAdvance: true, humanEditing: true, agentMcpProgress: true, mobileTaskBoard: true, archiveRestore: true }));
+  console.log(JSON.stringify({ globalTaskEntry: true, singleControlRoomWhiteboard: true, pnlScreenIndependent: true, departmentFilter: true, sharedTaskRecords: true, generalChatCreatesNoTask: true, generalFollowupCreatesNoTask: true, casualChatLeavesPausedTimerStopped: true, phaseAdvance: true, humanEditing: true, agentMcpProgress: true, mobileTaskBoard: true, archiveRestore: true }));
 }
