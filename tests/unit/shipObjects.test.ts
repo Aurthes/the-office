@@ -75,7 +75,7 @@ describe("individually interactive batched ship props", () => {
       disposeShipGeometry(group);
     }
     expect(new Set(objects.map(o => o.id)).size).toBe(objects.length);
-    for (const kind of ["workstation", "pottedPlant", "rainforestFern", "tropicalPlant", "spareServerRack", "machineFan", "growingBed", "seedling", "treadmill", "bed", "crate", "telescope", "workbench", "monitor"])
+    for (const kind of ["workstation", "pottedPlant", "rainforestFern", "tropicalPlant", "spareServerRack", "machineFan", "growingBed", "seedling", "treadmill", "departmentBoard", "crate", "telescope", "workbench", "monitor"])
       expect(objects.some(o => o.kind === kind), kind).toBe(true);
     model.children.forEach(object => { const mesh = object as THREE.Mesh; mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose(); });
   });

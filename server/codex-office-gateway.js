@@ -15,17 +15,26 @@ const { createOfficeDictation } = require("./office-model-services");
 const { CodexSessionPredictions } = require("./codex-session-predictions");
 const { readAiCenter } = require("./ai-center");
 const { questionReplyMessage } = require("./codex-session-questions");
+const { OfficeTodos } = require("./office-todos");
 const { OfficeSchedules } = require("./office-schedules");
 const { CodexSessionComposer } = require("./codex-session-composer");
 
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
 const directory = officeEnvironment(path.resolve(process.env.CLAW3D_OFFICE_DATA_DIR || path.join(process.env.CLAW3D_DATA_DIR || path.join(os.homedir(), ".local/share/claw3d"), "office-runtime"))).home;
-const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer;
-const features = { dictation: Boolean(process.env.OPENAI_API_KEY), dictationHTTP: true, voice: true, prediction: true, terminal: true, schedules: true, composer: true, accountVersion: 0 };
+const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer, todos;
+const features = { dictation: Boolean(process.env.OPENAI_API_KEY), dictationHTTP: true, voice: true, prediction: true, terminal: true, schedules: true, todos: true, composer: true, accountVersion: 0 };
 const broadcast = (event, payload) => { const frame = JSON.stringify({ type: "event", event, seq: seq++, payload }); for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame); };
 function changed() { if (!rosterTimer) rosterTimer = setTimeout(() => { rosterTimer = null; broadcast("roster.updated", { ts: Date.now() }); }, 150); }
-const native = new CodexOfficeClient({ home: process.env.CLAW3D_OFFICE_CODEX_HOME || path.join(directory, "codex"), onFrame(frame) {
+const native = new CodexOfficeClient({
+  env: { ...process.env, OFFICE_TASK_GATEWAY_URL: `ws://127.0.0.1:${process.env.CODEX_ADAPTER_PORT || 18790}`, OFFICE_TASK_GATEWAY_TOKEN: token },
+  configOverrides: [
+    `mcp_servers.office_tasks.command=${JSON.stringify(process.execPath)}`,
+    `mcp_servers.office_tasks.args=${JSON.stringify([path.join(__dirname, "office-todo-mcp.js")])}`,
+    'mcp_servers.office_tasks.env_vars=["OFFICE_TASK_GATEWAY_URL","OFFICE_TASK_GATEWAY_TOKEN"]',
+    'mcp_servers.office_tasks.enabled=true',
+    'mcp_servers.office_tasks.default_tools_approval_mode="auto"',
+  ], home: process.env.CLAW3D_OFFICE_CODEX_HOME || path.join(directory, "codex"), onFrame(frame) {
   if (frame.method === "connection/closed") { if (!stopping) { console.error("Office Codex exited"); void close(1); } return; }
   if (frame.method === "account/login/completed") { login = null; features.accountVersion++; store.defaultModel = null; for (const state of controls.states.values()) state.version++; stream.refresh(); broadcast("office.account", { changed: true, success: frame.params.success, error: frame.params.error }); }
   workspace?.handle(frame);
@@ -34,6 +43,8 @@ const native = new CodexOfficeClient({ home: process.env.CLAW3D_OFFICE_CODEX_HOM
   voice?.handle(mapped);
   controls?.handle(mapped); if (mapped.params?.threadId) stream?.changed(mapped.params.threadId);
   schedules?.handle(mapped);
+  if (mapped.method === "turn/started") { const task = todos?.bound(mapped.params.threadId); if (task && task.status !== "running") todos.startForAgent(mapped.params.threadId, task.id); }
+  if (mapped.method === "turn/completed") todos?.finishTurn(mapped.params.threadId, mapped.params.turn?.status || "completed");
   if (mapped.id !== undefined || ["serverRequest/resolved", "turn/completed"].includes(mapped.method)) changed();
 } });
 store = new CodexOfficeStore(directory, native, changed, id => Boolean(voice?.active?.threadId === id || controls?.state(id).activeTurnId || workspace?.snapshot(id)?.running || workspace?.starts.has(id)));
@@ -65,9 +76,42 @@ schedules = new OfficeSchedules(directory, {
     if (store.isBusy(id) || controls.snapshot(id).approvalCount || controls.questions(id).some(q => !q.submitted)) return false;
     return (await account()).loggedIn;
   },
-  send: (id, message, requestId) => controls.send(id, message, requestId, [], { onlyIfIdle: true }),
+  send: (id, message, requestId) => sendTask(id, message, requestId, [], { onlyIfIdle: true }),
 });
+todos = new OfficeTodos(directory, { projects: () => store.projects(), agents, changed: id => broadcast("todos.updated", { id }) });
+store.todoContext = id => { const row = todos.bound(id); return { protocol: 1, agentId: id, todoId: row?.id || null, departmentId: store.get(id).projectId ?? null }; };
+async function sendTask(id, message, requestId, attachments = [], options = {}) {
+  if (typeof requestId !== "string" || !requestId || requestId.length > 100) throw new Error("A send request ID is required");
+  if (controls.sends.has(requestId)) return controls.send(id, message, requestId, attachments, options);
+  const row = todos.intake(id, message || "Attachment task", requestId), wasRunning = row.status === "running";
+  todos.startForAgent(id, row.id);
+  try {
+    const result = await controls.send(id, message, requestId, attachments, options);
+    if (result.status === "busy" && !wasRunning) todos.finishTurn(id, "busy");
+    return result;
+  } catch (error) { if (!wasRunning) todos.finishTurn(id, "failed to start"); throw error; }
+}
 const methods = {
+  "todo.list": p => todos.list(p),
+  "todo.get": p => todos.get(p),
+  "todo.create": p => todos.create(p),
+  ...Object.fromEntries(["edit", "start", "pause", "complete", "reopen", "archive", "restore"].map(action => [`todo.${action}`, p => todos.change(p, action)])),
+  "todo.run": p => store.once(p, async () => {
+    const row = todos.raw(p.id);
+    if (row.revision !== p.revision) throw new Error("This to-do changed. Refresh it before starting");
+    if (!row.assigneeId) throw new Error("Assign an agent before starting work");
+    store.get(row.assigneeId);
+    if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending");
+    await controls.attach(row.assigneeId); await controls.refreshTurn(row.assigneeId);
+    if (store.isBusy(row.assigneeId) || store.starting.has(row.assigneeId) || store.pendingQuestions(row.assigneeId).length || controls.snapshot(row.assigneeId).approvalCount || controls.questions(row.assigneeId).some(q => !q.submitted)) throw new Error("This agent is busy or waiting for input. Open its conversation first");
+    if (todos.raw(p.id).revision !== p.revision) throw new Error("This to-do changed. Refresh it before starting");
+    todos.startForAgent(row.assigneeId, row.id);
+    try {
+      const result = await controls.send(row.assigneeId, `Work on Office to-do ${row.id}: ${row.title}\nRead its full plan and documentation using office_tasks.todo_get. Keep phase progress and documentation current; finish only verified work.`, p.requestId, [], { onlyIfIdle: true });
+      if (result.status === "busy") throw new Error("Agent became busy; the task was not sent");
+      return { id: row.id, threadId: row.assigneeId };
+    } catch (error) { todos.finishTurn(row.assigneeId, "failed to start"); throw error; }
+  }),
   "office.account": account,
   "office.usage": () => readAiCenter(native),
   "schedule.list": () => ({ ...schedules.list(), sessions: store.list().map(({ id, name, project }) => ({ id, name, project })) }),
@@ -109,11 +153,11 @@ const methods = {
   "session.attach": async p => { store.get(p.threadId); await controls.attach(p.threadId); return controls.snapshot(p.threadId); },
   "session.subscribe": (p, ws) => { store.get(p.threadId); return stream.subscribe(ws, p.threadId, p.subscriptionId); },
   "session.unsubscribe": (p, ws) => stream.unsubscribe(ws, p.subscriptionId),
-  "session.send": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, p.message, p.requestId, p.attachments, { references: p.references || [] }); store.clearQuestions(p.threadId, pending); return result; },
+  "session.send": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await sendTask(p.threadId, p.message, p.requestId, p.attachments, { references: p.references || [] }); store.clearQuestions(p.threadId, pending); return result; },
   "session.composer.options": p => composer.options(p.threadId, p.kind, p.query),
   "session.compact": p => { store.get(p.threadId); if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before compacting"); return store.once(p, () => controls.compact(p.threadId)); },
   "session.mcp": async p => { store.get(p.threadId); const result = await native.call("mcpServerStatus/list", { limit: 50 }); return { servers: result.data.map(server => ({ name: server.name, status: server.runtimeStatus || server.authStatus, tools: Object.keys(server.tools || {}).length })) }; },
-  "session.continue": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, "Continue where you left off.", p.requestId, [], { resumeInterrupted: true }); store.clearQuestions(p.threadId, pending); return result; },
+  "session.continue": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await sendTask(p.threadId, "Continue where you left off.", p.requestId, [], { resumeInterrupted: true }); store.clearQuestions(p.threadId, pending); return result; },
   "session.stop": p => { store.get(p.threadId); return controls.stop(p.threadId); },
   "session.settings.choices": p => { store.get(p.threadId); return controls.choices(p.threadId); },
   "session.settings.update": p => { store.get(p.threadId); if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before changing settings"); return controls.updateSettings(p.threadId, p.settings); },
@@ -125,7 +169,7 @@ const methods = {
     const request = store.pendingQuestions(p.threadId).find(q => q.requestId === p.promptId);
     if (!request) { const result = controls.replyQuestions(p.threadId, p.promptId, p.answers); changed(); return result; }
     if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before answering");
-    const result = await controls.send(p.threadId, questionReplyMessage(request, p.answers), p.requestId);
+    const result = await sendTask(p.threadId, questionReplyMessage(request, p.answers), p.requestId);
     store.clearQuestions(p.threadId, [request.requestId]); return result;
   },
   "session.approval.reply": p => { store.get(p.threadId); const result = controls.reply(p.threadId, p.requestId, p.decision); changed(); return result; },
@@ -169,7 +213,7 @@ wss.on("connection", ws => {
         if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) throw new Error("Invalid gateway token");
         if (!native.ready) throw new Error("Office Codex is starting");
         connected = true; clients.add(ws);
-        result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "office-codex-1", connId: crypto.randomUUID() }, features: { methods: Object.keys(methods), events: ["tick", "session.stream", "session.terminal", "session.voice", "roster.updated", "project.updated", "office.account", "session.prediction", "schedules.updated"] }, snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: store.list()[0]?.id }, sessionDefaults: { mainKey: "main" } }, auth: { role: "operator", scopes: ["operator.read", "operator.write", "operator.approvals"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
+        result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "office-codex-1", connId: crypto.randomUUID() }, features: { methods: Object.keys(methods), events: ["tick", "session.stream", "session.terminal", "session.voice", "roster.updated", "project.updated", "office.account", "session.prediction", "schedules.updated", "todos.updated"] }, snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: store.list()[0]?.id }, sessionDefaults: { mainKey: "main" } }, auth: { role: "operator", scopes: ["operator.read", "operator.write", "operator.approvals"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
       } else {
         if (!connected) throw new Error("Connect first");
         if (!Object.hasOwn(methods, frame.method)) throw new Error("This feature is not available in Office");
@@ -181,9 +225,10 @@ wss.on("connection", ws => {
   });
   ws.on("close", () => { clients.delete(ws); voice.disconnected(ws); stream.disconnected(ws); workspace.disconnected(ws); }); ws.on("error", () => { clients.delete(ws); voice.disconnected(ws); stream.disconnected(ws); workspace.disconnected(ws); });
 });
+const checkpoint = setInterval(() => { try { todos.checkpoint(); } catch (error) { console.error("Could not save task timer:", error.message); } }, 15000); checkpoint.unref();
 const tick = setInterval(() => broadcast("tick", { ts: Date.now() }), 30000); tick.unref();
 async function close(code = 0) {
-  if (stopping) return; stopping = true; clearInterval(tick); clearTimeout(rosterTimer); dictate.close(); schedules.close(); controls.close();
+  if (stopping) return; stopping = true; clearInterval(tick); clearInterval(checkpoint); todos?.close(); clearTimeout(rosterTimer); dictate.close(); schedules.close(); controls.close();
   for (const ws of clients) { stream.disconnected(ws); ws.close(1001, "Office stopping"); }
   wss.close(); server.close(); await workspace.close(); await native.close(); process.exitCode = code;
 }

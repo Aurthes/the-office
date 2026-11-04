@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Real runtime and browser; model, initial folder and unconnected optional music are fixtures.
 import fs from "node:fs";
+import { checkOfficeTasks } from "./check-office-tasks.mjs";
 import os from "node:os";
 import path from "node:path";
 import http from "node:http";
@@ -25,9 +26,9 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
 (async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'office-mac-browser-')),data=path.join(root,'data'),foreign=path.join(root,'foreign'),workspace=path.join(root,'workspace');
  for(const dir of [foreign,workspace])fs.mkdirSync(dir);
- let local,browser,page,finishReply,liveSocket,lastStream,rosterSocket,attentionFixture;let requests=0,snapshotResponses=0;const errors=[],snapshotRequests=new Set();
+ let local,browser,page,finishReply,liveSocket,lastStream,rosterSocket,attentionFixture;let requests=0,snapshotResponses=0,modelFixture=null;const errors=[],snapshotRequests=new Set();
  const provider=http.createServer((req,res)=>{let raw='';req.on('data',part=>raw+=part);req.on('end',()=>{
-  JSON.parse(raw);requests++;res.writeHead(200,{'content-type':'text/event-stream'});
+  const payload=JSON.parse(raw);requests++;if(modelFixture)return void modelFixture(payload,res,requests);res.writeHead(200,{'content-type':'text/event-stream'});
   const id='response-'+requests,emit=value=>res.write('data: '+JSON.stringify(value)+'\n\n');
   emit({type:'response.created',response:{id}});
   const item={id:'message-'+requests,type:'message',role:'assistant',content:[{type:'output_text',text:'OFFICE_MAC_PACKAGE_REPLY_OK'}]};
@@ -244,6 +245,7 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   await pushAttention({});await pushAttention({needsInput:true});expect(await soundCount()).toBe(baselineSounds+2);
   await page.getByRole('button',{name:'Unmute duck voices',exact:true}).click();
   expect(await soundCount()).toBe(baselineSounds+2);
+  await checkOfficeTasks({page,call,expect,setModelFixture:value=>{modelFixture=value},screenshots:option('--screenshots'),browserName,fs,path});
   if(errors.length)throw Error(errors.join('\n'));
   console.log(JSON.stringify({browser:browserName,browserRecruitment:true,workingFolder:true,randomStyleSaved:true,realBundledCodexReply:true,historyAfterReload:true,messageTimesPersisted:true,runningTimerTicks:true,composerSingleRow:true,composerButtonSizeBounded:true,composerRightControlsClickable:true,composerNarrowOverlap:true,timesDoNotOverlap:true,workProcessAutoOpens:true,toolBatchesDefaultClosed:true,workProcessFoldsOnOfficialReply:true,workUiStreamFixture:true,canceledEditPreserved:true,agentListDefaultsOpen:true,agentOrderSwitches:true,departmentOrderAlphabetical:true,searchInBothOrders:true,yellowInputQuacks:true,yellowReviewQuacks:true,hiddenPageDelivery:true,repeatedMarkersStayQuiet:true,duckMuteRespected:true,paidEndpoints:false,modelRequests:requests,pageErrors:0}));
  }catch(error){console.error(error.stack);console.error(JSON.stringify({browser:browserName,pageErrors:errors,visiblePage:page?await page.locator('body').innerText().catch(()=>'(unavailable)'):null}));process.exitCode=1}

@@ -28,6 +28,20 @@ async function session(f: ReturnType<typeof fixture>) {
   return (await f.store.createSession({ name: "Own chat", projectId: project.id, requestId: "session" })).threadId;
 }
 describe("independent Office runtime", () => {
+  it("refreshes task context on an existing thread when work switches without resetting native settings", async () => {
+    const f = fixture(), id = await session(f);
+    let todoId = "first";
+    f.store.todoContext = (agentId: string) => ({ protocol: 1, agentId, todoId });
+    await f.store.call("turn/start", { threadId: id, input: [{ type: "text", text: "Work" }] });
+    todoId = "second";
+    await f.store.call("turn/start", { threadId: id, input: [{ type: "text", text: "Continue" }] });
+    const injections = f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+    expect(injections).toHaveLength(2);
+    expect(JSON.stringify(injections[1])).toContain("second");
+    expect(JSON.stringify(injections[1])).toContain("office_tasks MCP tools");
+    expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
+  });
+
   it("forwards an explicit historical fork boundary to Codex once and keeps the source configuration",async()=>{
     const f=fixture(),id=await session(f),source=f.store.get(id);
     Object.assign(source,{codexThreadId:"native-own-thread",hasTurns:true});source.settings.model="custom-model";

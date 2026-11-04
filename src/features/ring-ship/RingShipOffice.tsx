@@ -46,6 +46,8 @@ import { advanceCrew, syncCrew, worldPoint, type MovingAgent } from "./crewMotio
 import { BREAK_CHATTER, BREAK_ROOM, breakAction } from "./breakRoomLayout";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { MonitorRoomScreen, ServerRoomScreen, TaskRoomScreen } from "./MonitorRoom";
+import { TaskBoard } from "./TaskBoard";
+import { DepartmentWhiteboard } from "./DepartmentWhiteboard";
 import { ScheduledTasks } from "./ScheduledTasks";
 import { GalaxyBackdrop } from "./GalaxyBackdrop";
 import { STAR_SYSTEMS, starSystem } from "./galaxy";
@@ -403,6 +405,7 @@ export function RingShipOffice(props: Props) {
   const serverHostKey = JSON.stringify(serverFleet.snapshot?.servers.map(({ alias, group, active, family }) => ({ alias, group, active, family })) ?? []);
   const serverHosts = useMemo(() => JSON.parse(serverHostKey) as PoolHost[], [serverHostKey]);
   const [tasksOpen, setTasksOpen] = useState(false);
+  const [todoOpen, setTodoOpen] = useState(false), [todoDepartment, setTodoDepartment] = useState<string | null | undefined>(undefined);
   const [musicOpen, setMusicOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [cloneFlight,setCloneFlight]=useState<CloneFlight|null>(null),[cloneState,setCloneState]=useState<CloneStage>("synchronizing"),[cloneError,setCloneError]=useState(""),[clonedAgentId,setClonedAgentId]=useState<string|null>(null);
@@ -530,18 +533,24 @@ export function RingShipOffice(props: Props) {
   const returnCamera=useMemo(()=>returnFlight && ["boarding","sealing","waiting","launching","done"].includes(returnStage) && visibleDeck===0 && !shipView
     // Frame the exit while the hatch seals, before the short muzzle flash.
     ? {point:returnFlight.pod,launch:["sealing","waiting","launching","done"].includes(returnStage)}:null,[returnFlight,returnStage,visibleDeck,shipView]);
+  const openTaskBoard = useCallback((departmentId?: string | null) => {
+    closeObject(); setTodoDepartment(departmentId); setTodoOpen(true);
+    const cabin = departmentId === undefined ? layout.cabins.find(c => c.kind === "monitor") : layout.cabins.find(c => c.kind === "work" && c.projectId === (departmentId || SHARED_PROJECT_ID));
+    if (cabin) { setDeck(cabin.deck); setWhole(false); setFocus(previous => ({ id: cabin.projectId || cabin.id, request: previous.request + 1 })); }
+  }, [layout, closeObject]);
   const validFocus = currentLayout.seats[focus.id] || currentLayout.cabins.some(c => c.id === focus.id || c.projectId === focus.id) ? focus.id : "";
   const cameraFocus = useMemo(() => ({ id: validFocus, request: focus.request + officeCenterSignal }), [validFocus, focus.request, officeCenterSignal]);
   const selected = currentLayout.cabins.find(c => c.id === validFocus || c.projectId === validFocus);
-  const objectEnabled = !busy && !cloneFlight && !navigationOpen && !props.activeChatAgentId && !returnFlight && !monitorOpen && !serversOpen && !terminalHost && !tasksOpen && !musicOpen && !settingsOpen && !aiOpen;
+  const objectEnabled = !busy && !cloneFlight && !navigationOpen && !props.activeChatAgentId && !returnFlight && !monitorOpen && !serversOpen && !terminalHost && !tasksOpen && !todoOpen && !musicOpen && !settingsOpen && !aiOpen;
   const objectFocus = objectEnabled && inspectedObject && (inspectedObject.space ? inspectedObject.space.seed === system.seed : !shipView && inspectedObject.deck === visibleDeck && currentLayout.cabins.some(c => c.id === inspectedObject.cabinId)) ? inspectedObject : null;
-  const duckFocus = !busy && !cloneFlight && !navigationOpen && !returnFlight && !monitorOpen && !serversOpen && !terminalHost && !tasksOpen && !musicOpen && !settingsOpen && !aiOpen && !shipView
+  const duckFocus = !busy && !cloneFlight && !navigationOpen && !returnFlight && !monitorOpen && !serversOpen && !terminalHost && !tasksOpen && !todoOpen && !musicOpen && !settingsOpen && !aiOpen && !shipView
     ? props.activeChatAgentId || (objectFocus?.kind === "ceo" ? objectFocus.id : !objectFocus && currentLayout.seats[validFocus] ? validFocus : null) : null;
   const duckAudio = useDuckFocusAudio(duckFocus, agents);
   const inspectObject = useCallback((object: ShipObject) => {
+    if (object.kind === "departmentBoard") { const cabin = layout.cabins.find(c => c.id === object.cabinId); if (cabin) openTaskBoard(cabin.projectId === SHARED_PROJECT_ID ? null : cabin.projectId); return; }
     setInspectedObject(object); setFocus(previous => ({ id: "", request: previous.request + 1 }));
     if (!object.space) setDeck(object.deck); setWhole(false); setLiftOpen(false); setFleetOpen(false);
-  }, []);
+  }, [layout, openTaskBoard]);
   const personFocusRequest = props.organization?.focusRequest;
   useEffect(() => {
     if (!personFocusRequest || personFocusRequest === lastPersonFocus.current || busy) return;
@@ -594,7 +603,7 @@ export function RingShipOffice(props: Props) {
   const button = "flex h-9 min-w-9 items-center justify-center rounded-lg border border-white/15 bg-[#122735]/90 px-2 text-xs text-[#b8cccf] hover:border-[#d7af77]/70";
   return <div className={`ship-office relative h-full w-full overflow-hidden bg-[#081421] text-[#deebea]${navigationOpen ? " star-navigation-active" : ""}`} data-star-system={system.id} data-navigation-phase={navigationPreview ? navigation.phase : undefined} data-ship-focused-person={objectFocus?.id === CEO_ID ? CEO_ID : props.activeChatAgentId || (currentLayout.seats[validFocus] ? validFocus : undefined)} data-ship-deck={visibleDeck} data-ship-mode={shipView ? "ship" : "deck"} data-ship-travelling={busy} data-ship-visible-crew={visibleAgents.length} data-ship-sectors={layout.allocation.sectors} data-ship-reserves={reserveCount} data-ship-projects={roster.projects.length} data-ship-placed={agents.filter(agent => layout.seats[agent.id]).length}>
     {renderProbeEnabled ? <Suspense fallback={null}><RenderProbe onShadowsChange={setProbeShadows} /></Suspense> : null}
-    <Canvas orthographic frameloop={monitorOpen || serversOpen || !!terminalHost ? "never" : "always"} dpr={[0.85, 1.5]} camera={{ position: [25, 40, 36], zoom: 12, near: 0.1, far: 5000 }} shadows={probeShadows}
+    <Canvas orthographic frameloop={monitorOpen || serversOpen || todoOpen || !!terminalHost ? "never" : "always"} dpr={[0.85, 1.5]} camera={{ position: [25, 40, 36], zoom: 12, near: 0.1, far: 5000 }} shadows={probeShadows}
       gl={{ antialias: true, powerPreference: "high-performance" }} onPointerMissed={() => { setLiftOpen(false); closeObject(); }} onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.95; gl.domElement.dataset.shipReady = "true"; }}>
       <GalaxyBackdrop system={system} motion={activityEnabled ? spaceMotion : undefined} />
       {activityEnabled ? <SpaceActivity radius={layout.radius} seed={system.seed} paused={navigationOpen || busy} motion={spaceMotion} caption={spaceCaption} enabled={objectEnabled} selected={objectFocus} onSelect={inspectObject} onExpire={closeObject} /> : null}
@@ -611,10 +620,11 @@ export function RingShipOffice(props: Props) {
         <CabinTargets layout={currentLayout} focus={validFocus} onSelect={select} />
         {visibleDeck === 0 ? currentLayout.cabins.filter(c => c.kind === "bar").map(cabin => <ListeningBar key={cabin.id} layout={currentLayout} cabin={cabin} interactive={objectEnabled} onSelect={inspectObject} onOpen={() => { closeObject(); setMusicOpen(true); }} />) : null}
         {currentLayout.cabins.filter(c => c.kind === "monitor").map(cabin => <group key={cabin.id}>
-          {!navigationOpen ? <MonitorRoomScreen layout={currentLayout} cabin={cabin} onOpen={openMonitor} /> : null}
+          {!navigationOpen ? <MonitorRoomScreen layout={currentLayout} cabin={cabin} onOpen={openMonitor} onOpenTasks={() => openTaskBoard()} /> : null}
           {!navigationOpen ? <TaskRoomScreen layout={currentLayout} cabin={cabin} onOpen={openTasks} /> : null}
           {navigationPreview ? <NavigationConsole layout={currentLayout} cabin={cabin} state={navigation} onAction={action => { closeObject(); navigate(action); }} disabled={busy || !!returnFlight || !!props.activeChatAgentId || navigation.phase === "warp"} /> : null}
         </group>)}
+        {!navigationOpen ? currentLayout.cabins.filter(c => c.kind === "work").map(cabin => <DepartmentWhiteboard key={cabin.id} layout={currentLayout} cabin={cabin} onOpen={() => openTaskBoard(cabin.projectId === SHARED_PROJECT_ID ? null : cabin.projectId)} />) : null}
         {visibleDeck === 0 && !navigationOpen ? currentLayout.cabins.filter(c => c.kind === "servers").map(cabin => <ServerRoomScreen key={cabin.id} layout={currentLayout} cabin={cabin} hosts={serverHosts} showLabels={objectEnabled && selected?.id === cabin.id} onOpen={openServers} />) : null}
       </group> : null}
       {!busy ? <Crew agents={agents.filter(a=>a.id!==returnFlight?.agentId&&a.id!==cloneFlight?.agentId&&!(cloneFlight&&a.id===clonedAgentId))} layout={layout} visibleDeck={shipView ? -1 : visibleDeck} onDeckChange={crewDeckChanged} focus={validFocus} onOpen={open} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} companionsRef={companionsRef} ceoBodyRef={ceoBodyRef} arrivalsRef={cloneArrivals} /> : null}
@@ -666,6 +676,7 @@ export function RingShipOffice(props: Props) {
     <div className="ship-summary pointer-events-none rounded-xl border border-white/10 bg-[#102531]/90 px-4 py-3">
       <div className="text-xs text-[#e1cb9f]">{selected ? (selected.kind === "work" && selected.projectId !== SHARED_PROJECT_ID ? selected.name : t(selected.name)) : shipView ? t("Three-ring ship · Whole ship") : `L${visibleDeck + 1} · ${t(DECK_NAMES[visibleDeck])}`}</div>
       <div className="mt-1 text-[11px] text-[#9fb9c2]">{selected ? t(PUBLIC_DESCRIPTIONS[selected.kind]) : t("{0} projects · {1} sessions · {2} reserve cabins", { "0": roster.projects.length, "1": agents.length, "2": reserveCount })}</div>
+      {selected?.kind === "monitor" || selected?.kind === "work" ? <button type="button" onClick={() => openTaskBoard(selected.kind === "monitor" ? undefined : selected.projectId === SHARED_PROJECT_ID ? null : selected.projectId)} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#71d3c8]/40 px-3 text-xs text-[#b7eee0] hover:bg-white/10">{t("Open task board")}</button> : null}
       {selected?.kind === "monitor" ? <button type="button" onClick={openMonitor} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#71d3c8]/40 px-3 text-xs text-[#b7eee0] hover:bg-white/10">{t("Open monitoring dashboard")} <Monitor size={13} /></button> : null}
       {selected?.kind === "monitor" ? <button type="button" onClick={openTasks} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#d3ad78]/40 px-3 text-xs text-[#e8c899] hover:bg-white/10">{t("Open scheduled tasks")} <CalendarClock size={13} /></button> : null}
       {selected?.kind === "servers" && visibleDeck === 0 ? <button type="button" onClick={openServers} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-blue-200/40 px-3 text-xs text-blue-100 hover:bg-white/10">{t("Open server fleet status")} <Monitor size={13} /></button> : null}
@@ -685,6 +696,7 @@ export function RingShipOffice(props: Props) {
     <MonitorDashboard open={monitorOpen} onClose={() => setMonitorOpen(false)} />
     <ServerRoomDashboard fleet={serverFleet} open={serversOpen} onClose={() => setServersOpen(false)} onFirefight={props.onFirefight} />
     {terminalHost ? <ServerTerminal alias={terminalHost} onClose={() => setTerminalHost(null)} /> : null}
+    <TaskBoard open={todoOpen} departmentId={todoDepartment} onClose={() => setTodoOpen(false)} onOpenSession={open} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
     <ScheduledTasks open={tasksOpen} onClose={() => setTasksOpen(false)} onOpenSession={open} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
     <AiCenterDashboard open={aiOpen} onClose={() => setAiOpen(false)} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />
     <LiftOverlay trip={trip} overlayRef={overlayRef} />

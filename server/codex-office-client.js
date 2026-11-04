@@ -28,13 +28,13 @@ function officeEnvironment(home, environment = process.env) {
 
 // One Office-owned child, with public stdio RPC and no App attachment or daemon.
 class CodexOfficeClient {
-  constructor({ home, binary, env = process.env, onFrame = () => {} }) {
+  constructor({ home, binary, env = process.env, configOverrides = [], onFrame = () => {} }) {
     const isolated = officeEnvironment(home, env);
     this.home = isolated.home; this.ready = false; this.pending = new Map(); this.serial = 0;
     this.profile = prepareOfficeProfile(this.home, env);
     const command = binary || env.CLAW3D_CODEX_BIN;
     const launcher = command ? [] : [require.resolve("@openai/codex/bin/codex.js")];
-    this.child = spawn(command || process.execPath, [...launcher, ...this.profile.overrides, "-c", `sqlite_home=${JSON.stringify(this.home)}`, "-c", 'cli_auth_credentials_store="file"', "app-server", "--listen", "stdio://"], {
+    this.child = spawn(command || process.execPath, [...launcher, ...this.profile.overrides, ...configOverrides.flatMap(value => ["-c", value]), "-c", `sqlite_home=${JSON.stringify(this.home)}`, "-c", 'cli_auth_credentials_store="file"', "app-server", "--listen", "stdio://"], {
       cwd: this.home, env: isolated.env, stdio: ["pipe", "pipe", "inherit"],
     });
     this.exited = new Promise(resolve => { this.resolveExit = resolve; });
