@@ -1092,6 +1092,7 @@ export const ZH_CN: Record<string, string> = {
   "Start an experimental voice call in this session": "与此会话进行语音通话（实验功能）",
   "Codex is working…": "Codex 正在工作…",
   "Stopped": "已停止",
+  "Interrupted": "已中断",
   "Continue interrupted task": "继续被中断的任务",
   "This task is no longer interrupted. Refresh the conversation before continuing.": "任务状态已改变，请刷新对话后再继续。",
   "Codex · Connected": "Codex · 已连接",

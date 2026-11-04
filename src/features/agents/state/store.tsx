@@ -49,6 +49,7 @@ export type AgentState = AgentStoreSeed & {
   awaitingUserInput: boolean;
   hasUnseenActivity: boolean;
   needsInput?: boolean;
+  turnStatus?: string | null;
   hasPendingSchedule?: boolean;
   completedResult?: { key: string; unread: boolean } | null;
   outputLines: string[];

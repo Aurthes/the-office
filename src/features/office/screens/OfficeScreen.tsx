@@ -1442,7 +1442,7 @@ export function OfficeScreen({
             dispatch({ type: "updateAgent", agentId: agent.id, patch: {
               sessionCreated: true, sessionSettingsSynced: true,
               lastActivityAt: Math.max(Number.isFinite(agent.updatedAt) ? agent.updatedAt : 0, stateRef.current.agents.find(item => item.agentId === agent.id)?.lastActivityAt ?? 0),
-              completedResult: agent.completedResult ?? null, needsInput: Boolean(agent.needsInput), hasPendingSchedule: Boolean(agent.hasPendingSchedule),
+              completedResult: agent.completedResult ?? null, needsInput: Boolean(agent.needsInput), turnStatus: agent.turnStatus ?? null, hasPendingSchedule: Boolean(agent.hasPendingSchedule),
               ...(["running", "idle", "error"].includes(agent.status) ? { status: agent.status as "running" | "idle" | "error", runId: null } : {}),
             } });
           }
@@ -3112,6 +3112,7 @@ export function OfficeScreen({
         constructionWorker: fieldwork.workers.has(agent.id), siteTask: results.get(agent.id)?.status === "running" ? fieldwork.tasks[agent.id] ?? results.get(agent.id)?.lastUserMessage : null,
         needsReview: agent.status === "idle" && Boolean(results.get(agent.id)?.completedResult?.unread && readById[agent.id] !== results.get(agent.id)?.completedResult?.key),
         needsInput: Boolean(results.get(agent.id)?.needsInput),
+        turnStatus: results.get(agent.id)?.turnStatus,
         hasPendingSchedule: Boolean(results.get(agent.id)?.hasPendingSchedule),
       } : agent)];
     },

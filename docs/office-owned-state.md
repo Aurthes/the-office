@@ -147,7 +147,7 @@ the operations console. The gateway schedules them independently of browser tabs
 | --- | --- |
 | Projects and sessions | Office-only create, rename, reassign and archive. Empty chats survive restart. Restore/unarchive UI is not connected yet. No native App import or two-way management |
 | Text and task progress | Public thread/turn APIs; streaming, saved history, continuation after process restart and interrupt tested through the gateway. Separate real-account two-turn continuation also passed |
-| Interrupted tasks | An empty composer shows Play after an interrupted turn. It submits “Continue where you left off.” in the same thread; the gateway rechecks that the latest turn is still interrupted |
+| Interrupted tasks | Gateway startup checks stored latest turns without resuming or starting tasks. Interrupted sessions show a red `!` and an Interrupted label; an empty composer shows Play. Play submits “Continue where you left off.” in the same thread after rechecking its latest status |
 | Questions and status markers | Public blocking requests and asynchronous agent-message question fields render choice cards. Yellow `!` means input is needed; yellow `?` means a completed result has not been viewed in this browser. Pending asynchronous cards persist in Office state; ordinary chat replies dismiss earlier cards |
 | Models and reasoning | Account's public model catalog; validated choices persist in Office and apply to the next turn. Additional messages during a task use its current settings |
 | Access and approvals | Public sandbox/approval fields; Read only, Default permissions and confirmed Full access. Command/file/question handlers reused; permission grants are limited to the requested permissions for that turn. Fixtures verify response routing; not every real approval variant has been induced |
@@ -257,3 +257,5 @@ checks Office project/chat creation, settings and unavailable feature controls.
 Legacy native-session gateway/index, shared-owner, private dictation and private
 prediction implementations have been removed. The independent gateway retains
 the shared session controls, history, stream, uploads, assets and workspace modules.
+
+Turn-state recovery tracks turn lifecycle revisions separately from token usage, questions and item updates. An unrelated streamed update must not discard the latest-turn read; a newer turn start/completion must still win.

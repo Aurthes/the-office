@@ -14,7 +14,7 @@ function capacityError(error) {
 class CodexSessionControls {
   constructor(client, asyncQuestions = () => [], options = {}) { this.client = client; this.asyncQuestions = asyncQuestions; this.options = options; this.states = new Map(); this.requests = new Map(); this.sends = new Map(); this.attaching = new Map(); }
   state(id) {
-    if (!this.states.has(id)) this.states.set(id, { version: 0, activeTurnId: null, activeTurnStartedAt: null, items: new Map(), turnStatus: null, error: null });
+    if (!this.states.has(id)) this.states.set(id, { version: 0, turnVersion: 0, activeTurnId: null, activeTurnStartedAt: null, items: new Map(), turnStatus: null, error: null });
     return this.states.get(id);
   }
   requireReady() { if (!this.client?.ready) throw new Error("Codex is disconnected"); }
@@ -79,9 +79,11 @@ class CodexSessionControls {
     return { updated: true };
   }
   async refreshTurn(id) {
-    const state = this.state(id), version = state.version;
+    const state = this.state(id), version = state.turnVersion;
     const result = await this.client.call("thread/turns/list", { threadId: id, limit: 1, itemsView: "notLoaded", sortDirection: "desc" });
-    if (state.version !== version) return; // A live event received during the read wins.
+    // Token usage, questions and item updates do not supersede a turn read.
+    // Only a newer turn lifecycle event can make its status obsolete.
+    if (state.turnVersion !== version) return;
     const turn = result.data[0];
     state.lastTurnId = turn?.id;
     const sameTurn = state.activeTurnId === turn?.id;
@@ -90,6 +92,7 @@ class CodexSessionControls {
       : null;
     state.activeTurnId = turn?.status === "inProgress" ? turn.id : null;
     state.turnStatus = turn?.status || null; state.error = turn?.error?.message || null;
+    state.version++;
   }
   handle(frame) {
     const p = frame.params || {}, id = p.threadId;
@@ -105,12 +108,14 @@ class CodexSessionControls {
     }
     if (frame.method === "serverRequest/resolved") { this.requests.delete(String(p.requestId)); state.version++; return; }
     if (frame.method === "turn/started") {
+      state.turnVersion++;
       this.cancelRetry(id); state.lastTurnId = p.turn.id;
       state.activeTurnStartedAt = Number.isFinite(p.turn.startedAt) ? p.turn.startedAt * 1000
         : state.activeTurnId === p.turn.id ? state.activeTurnStartedAt : Date.now();
       state.activeTurnId = p.turn.id; state.turnStatus = "inProgress"; state.error = null; state.version++;
     }
     if (frame.method === "turn/completed") {
+      state.turnVersion++;
       if (state.activeTurnId === p.turn.id || (!state.activeTurnId && !state.lastTurnId)) {
         state.lastTurnId = p.turn.id; state.activeTurnId = null; state.activeTurnStartedAt = null; state.turnStatus = p.turn.status; state.error = p.turn.error?.message || null;
         this.scheduleRetry(id, p.turn);

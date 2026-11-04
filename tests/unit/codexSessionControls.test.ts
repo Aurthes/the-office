@@ -38,6 +38,30 @@ describe("shared App session controls", () => {
     await controls.send("original-id", "Continue where you left off.", "continue-1", [], options);
     expect(client.call.mock.calls.filter(([m]) => m === "turn/start")).toEqual([["turn/start", { threadId: "original-id", input: [{ type: "text", text: "Continue where you left off." }], clientUserMessageId: "continue-1" }]]);
   });
+  it("restores an interrupted turn even when token usage arrives during its history read", async () => {
+    const { client, controls } = setup();
+    client.call.mockImplementation(async (method: string) => {
+      if (method === "thread/turns/list") {
+        controls.handle({ method: "thread/tokenUsage/updated", params: { threadId: "id", tokenUsage: { last: { inputTokens: 100 } } } });
+        return { data: [{ id: "stopped", status: "interrupted" }] };
+      }
+      return {};
+    });
+    await controls.attach("id");
+    expect(controls.snapshot("id")).toMatchObject({ activeTurnId: null, turnStatus: "interrupted", tokenUsage: { last: { inputTokens: 100 } } });
+  });
+  it("lets a new live turn win over an older interrupted history response", async () => {
+    const { client, controls } = setup();
+    client.call.mockImplementation(async (method: string) => {
+      if (method === "thread/turns/list") {
+        controls.handle({ method: "turn/started", params: { threadId: "id", turn: { id: "new", status: "inProgress" } } });
+        return { data: [{ id: "old", status: "interrupted" }] };
+      }
+      return {};
+    });
+    await controls.attach("id");
+    expect(controls.snapshot("id")).toMatchObject({ activeTurnId: "new", turnStatus: "inProgress" });
+  });
   it.each(["completed", "inProgress"])("rejects stale Play when the latest turn is %s", async status => {
     const { client, controls } = setup();
     client.call.mockImplementation(async (method: string) => method === "thread/turns/list" ? { data: [{ id: "latest", status }] } : {});

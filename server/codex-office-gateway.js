@@ -23,6 +23,7 @@ const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
 const directory = officeEnvironment(path.resolve(process.env.CLAW3D_OFFICE_DATA_DIR || path.join(process.env.CLAW3D_DATA_DIR || path.join(os.homedir(), ".local/share/claw3d"), "office-runtime"))).home;
 const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer, todos;
+let restoredSessionStates = Promise.resolve();
 const features = { dictation: Boolean(process.env.OPENAI_API_KEY), dictationHTTP: true, voice: true, prediction: true, terminal: true, schedules: true, todos: true, composer: true, accountVersion: 0 };
 const broadcast = (event, payload) => { const frame = JSON.stringify({ type: "event", event, seq: seq++, payload }); for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame); };
 function changed() { if (!rosterTimer) rosterTimer = setTimeout(() => { rosterTimer = null; broadcast("roster.updated", { ts: Date.now() }); }, 150); }
@@ -108,7 +109,7 @@ const methods = {
   "schedule.delete": p => store.once(p, () => schedules.remove(p)),
   "schedule.run": p => store.once(p, () => schedules.runNow(p)),
   "office.login": async p => { if ((await account()).loggedIn) return { loggedIn: true }; if (login?.loginId) await native.call("account/login/cancel", { loginId: login.loginId }); const browser = process.env.CLAW3D_OFFICE_DESKTOP === "1" && p.flow !== "device"; login = await native.call("account/login/start", { type: browser ? "chatgpt" : "chatgptDeviceCode" }, 30000); return login; },
-  "office.snapshot": async () => { const listed = agents(); return { defaultId: listed[0]?.id, mainKey: "main", agents: listed, projects: store.projects(), creationAvailable: native.ready }; },
+  "office.snapshot": async () => { await restoredSessionStates; const listed = agents(); return { defaultId: listed[0]?.id, mainKey: "main", agents: listed, projects: store.projects(), creationAvailable: native.ready }; },
   "agents.list": async () => methods["office.snapshot"](),
   "project.create": p => store.createProject(p),
   "project.inspect": p => store.inspectProject(p.projectId),
@@ -221,9 +222,25 @@ async function close(code = 0) {
   wss.close(); server.close(); await workspace.close(); await native.close(); process.exitCode = code;
 }
 for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => void close());
-native.initialize().then(() => server.listen(Number(process.env.CODEX_ADAPTER_PORT || 18790), "127.0.0.1", () => {
-  schedules.start();
-  console.log(`[office-codex] Configuration discovered: ${native.profile.rules.filter(r => r.status === "shared").length} shared rule files, ${native.profile.defaults.length} inherited defaults`);
-  for (const warning of native.profile.warnings) console.warn(`[office-codex] ${warning}`);
-  console.log("[office-codex] Independent stdio runtime ready");
-})).catch(error => { console.error(error.message); void close(1); });
+async function restoreSessionStates() {
+  // Stored turn reads restore status without loading chats or starting work.
+  const rows = store.list().filter(row => row.codexThreadId);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(4, rows.length) }, async () => {
+    while (next < rows.length && !stopping) {
+      const row = rows[next++];
+      try { await controls.refreshTurn(row.id); stream.changed(row.id); }
+      catch (error) { console.warn(`Could not restore Office session status ${row.id}: ${error.message}`); }
+    }
+  }));
+  changed();
+}
+native.initialize().then(() => {
+  restoredSessionStates = restoreSessionStates();
+  server.listen(Number(process.env.CODEX_ADAPTER_PORT || 18790), "127.0.0.1", () => {
+    schedules.start();
+    console.log(`[office-codex] Configuration discovered: ${native.profile.rules.filter(r => r.status === "shared").length} shared rule files, ${native.profile.defaults.length} inherited defaults`);
+    for (const warning of native.profile.warnings) console.warn(`[office-codex] ${warning}`);
+    console.log("[office-codex] Independent stdio runtime ready");
+  });
+}).catch(error => { console.error(error.message); void close(1); });

@@ -110,8 +110,35 @@ describe("independent Office runtime", () => {
     const f = fixture(), id = await session(f); Object.assign(f.store.get(id), { codexThreadId: "native-own-thread", hasTurns: true, status: "unknown", completionKey: "stale-result" });
     f.client.call.mockResolvedValue({ data: [{ id: "stopped", status: "interrupted", items: [] }] });
     await f.store.call("thread/turns/list", { threadId: id, limit: 1, itemsView: "notLoaded", sortDirection: "desc" });
-    expect(f.store.list()[0]).toMatchObject({ status: "idle", completedResult: null });
+    expect(f.store.list()[0]).toMatchObject({ status: "error", turnStatus: "interrupted", completedResult: null });
     expect(f.store.list()[0]).not.toHaveProperty("pendingQuestions");
+  });
+  it("restores persisted running tasks without opening the chat, then continues in the original thread", async () => {
+    const f = fixture(), id = await session(f);
+    Object.assign(f.store.get(id), { codexThreadId: "native-own-thread", hasTurns: true, status: "running" }); f.store.save();
+    const restarted = new CodexOfficeStore(f.directory, f.client);
+    f.client.call.mockImplementation(async (method: string) => method === "thread/turns/list"
+      ? { data: [{ id: "stopped", status: "interrupted", items: [] }] }
+      : method === "turn/start" ? { turn: { id: "continued" } } : {});
+    const controls = new CodexSessionControls(restarted);
+    await controls.refreshTurn(id);
+    expect(f.client.call).not.toHaveBeenCalledWith("thread/resume", expect.anything());
+    expect(restarted.list()[0]).toMatchObject({ status: "error", turnStatus: "interrupted", completedResult: null });
+    expect(controls.snapshot(id)).toMatchObject({ activeTurnId: null, turnStatus: "interrupted" });
+    await controls.send(id, "Continue where you left off.", "resume-after-restart", [], { resumeInterrupted: true });
+    expect(f.client.call).toHaveBeenCalledWith("turn/start", expect.objectContaining({ threadId: "native-own-thread" }));
+    restarted.handle({ method: "turn/started", params: { threadId: "native-own-thread", turn: { id: "continued" } } });
+    expect(restarted.list()[0]).toMatchObject({ status: "running", turnStatus: "inProgress" });
+  });
+  it("keeps a newly started turn when an older history read finishes", async () => {
+    const f = fixture(), id = await session(f);
+    Object.assign(f.store.get(id), { codexThreadId: "native-own-thread", hasTurns: true, status: "running", turnStatus: "inProgress", lastTurnId: "old" });
+    f.client.call.mockImplementation(async () => {
+      f.store.handle({ method: "turn/started", params: { threadId: "native-own-thread", turn: { id: "new" } } });
+      return { data: [{ id: "old", status: "interrupted", items: [] }] };
+    });
+    await f.store.call("thread/turns/list", { threadId: id, limit: 1, itemsView: "notLoaded", sortDirection: "desc" });
+    expect(f.store.list()[0]).toMatchObject({ status: "running", turnStatus: "inProgress", lastTurnId: "new" });
   });
   it("isolates state and strips inherited App connection overrides without changing the parent environment", () => {
     const f = fixture(), foreign = path.join(f.root, "native"); mkdirSync(foreign); writeFileSync(path.join(foreign, "sentinel"), "unchanged");

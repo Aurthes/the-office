@@ -11,6 +11,7 @@ export type OfficeAgent = {
   lastActivityAt?: number;
   needsReview?: boolean;
   needsInput?: boolean;
+  turnStatus?: string | null;
   hasPendingSchedule?: boolean;
   status: "working" | "idle" | "error";
   color: string;

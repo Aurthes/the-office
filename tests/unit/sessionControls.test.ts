@@ -111,11 +111,45 @@ describe("shared-session composer", () => {
     const call = vi.fn((method: string) => method === "session.continue" ? pending : Promise.resolve({ ...snapshot, activeTurnId: null, turnStatus: "interrupted" }));
     render(React.createElement(SessionControls, { client: { call }, threadId: "interrupted-play", onItems: vi.fn() }));
     const play = await screen.findByRole("button", { name: "Continue interrupted task" });
+    expect(screen.getByRole("status")).toHaveTextContent("Interrupted");
+    expect(screen.getByRole("status")).toHaveClass("text-rose-300");
     expect(play.querySelector("svg")).not.toBeNull();
     fireEvent.click(play); fireEvent.click(play);
     expect(call.mock.calls.filter(([method]) => method === "session.continue")).toHaveLength(1);
     expect(call).toHaveBeenCalledWith("session.continue", { threadId: "interrupted-play", requestId: expect.any(String) });
     await act(async () => resolve({ status: "started" }));
+  });
+  it("restores Play and the interruption warning after a backend reconnect resets stream versions", async () => {
+    let subscriptionId = "";
+    let eventHandler: (event: { event: string; payload?: unknown }) => void = () => {};
+    let statusHandler: (status: "connected" | "connecting" | "disconnected") => void = () => {};
+    const call = vi.fn(async (method: string, params: unknown) => {
+      if (method === "session.subscribe") subscriptionId = (params as { subscriptionId: string }).subscriptionId;
+      return {};
+    });
+    const client = { call, onEvent: (handler: typeof eventHandler) => { eventHandler = handler; return () => {}; },
+      onStatus: (handler: typeof statusHandler) => { statusHandler = handler; return () => {}; } };
+    render(React.createElement(SessionControls, { client, threadId: "restart-stream", onItems: vi.fn() }));
+    await waitFor(() => expect(subscriptionId).not.toBe(""));
+    const push = (version: number, turnStatus: string, activeTurnId: string | null) => eventHandler({ event: "session.stream", payload: {
+      ...snapshot, threadId: "restart-stream", subscriptionId, version, turnStatus, activeTurnId,
+      features: { dictation: false, voice: false, prediction: false },
+    } });
+    act(() => push(100, "inProgress", "old"));
+    await screen.findByRole("button", { name: "Steer" });
+    act(() => statusHandler("disconnected"));
+    expect(screen.getByRole("textbox", { name: "Send to session" })).toBeDisabled();
+    const previous = subscriptionId;
+    act(() => statusHandler("connected"));
+    await waitFor(() => expect(subscriptionId).not.toBe(previous));
+    act(() => push(1, "interrupted", null));
+    const play = await screen.findByRole("button", { name: "Continue interrupted task" });
+    expect(screen.getByRole("status")).toHaveTextContent("Interrupted");
+    fireEvent.click(play);
+    await waitFor(() => expect(call).toHaveBeenCalledWith("session.continue", expect.objectContaining({ threadId: "restart-stream" })));
+    act(() => push(2, "inProgress", "new"));
+    await screen.findByRole("button", { name: "Steer" });
+    expect(screen.queryByText("Interrupted")).toBeNull();
   });
   it("keeps Send when an interrupted task has a typed follow-up", async () => {
     const call = vi.fn<(method: string) => Promise<unknown>>(async () => ({ ...snapshot, activeTurnId: null, turnStatus: "interrupted" }));

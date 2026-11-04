@@ -185,7 +185,7 @@ class CodexOfficeStore {
       // Reuse the first latest-turn read to recover questions from public history
       // for Office rows created before structured questions were supported.
       const latestRead = method === "thread/turns/list" && params.limit === 1 && params.sortDirection === "desc";
-      const previousStatus = row.status, previousCompletion = row.completionKey;
+      const previousStatus = row.status, previousCompletion = row.completionKey, previousTurn = row.lastTurnId;
       const restoreQuestions = latestRead && !Array.isArray(row.pendingQuestions);
       if (restoreQuestions) mapped.itemsView = "full";
       try {
@@ -196,10 +196,13 @@ class CodexOfficeStore {
         }
         // Reconcile persisted running/unknown rows after an Office restart.
         // A live event received during this read remains authoritative.
-        if (latestRead && row.status === previousStatus && row.completionKey === previousCompletion) {
-          const turn = result.data[0], status = turn?.status === "inProgress" ? "running" : turn?.status === "failed" ? "error" : "idle";
+        if (latestRead && row.status === previousStatus && row.completionKey === previousCompletion && row.lastTurnId === previousTurn) {
+          const turn = result.data[0], turnStatus = turn?.status || null;
+          const status = turnStatus === "inProgress" ? "running" : ["failed", "interrupted"].includes(turnStatus) ? "error" : "idle";
           const completionKey = turn?.status === "completed" ? turn.id : null;
-          if (row.status !== status || row.completionKey !== completionKey) { row.status = status; row.completionKey = completionKey; updated = true; }
+          if (row.status !== status || row.completionKey !== completionKey || row.turnStatus !== turnStatus || row.lastTurnId !== (turn?.id || null)) {
+            row.status = status; row.turnStatus = turnStatus; row.lastTurnId = turn?.id || null; row.completionKey = completionKey; updated = true;
+          }
         }
         if (updated) this.save();
         return result;
@@ -220,8 +223,8 @@ class CodexOfficeStore {
     if (!nativeId) return frame;
     const row = this.data.sessions.find(s => s.codexThreadId === nativeId);
     if (!row) return null;
-    if (frame.method === "turn/started") { row.hasTurns = true; row.status = "running"; row.completionKey = null; row.updatedAt = Date.now(); this.save(); }
-    if (frame.method === "turn/completed") { row.status = p.turn.status === "failed" ? "error" : "idle"; row.updatedAt = Date.now(); row.completionKey = p.turn.status === "completed" ? p.turn.id : null; this.save(); }
+    if (frame.method === "turn/started") { row.hasTurns = true; row.status = "running"; row.turnStatus = "inProgress"; row.lastTurnId = p.turn.id; row.completionKey = null; row.updatedAt = Date.now(); this.save(); }
+    if (frame.method === "turn/completed") { row.status = ["failed", "interrupted"].includes(p.turn.status) ? "error" : "idle"; row.turnStatus = p.turn.status; row.lastTurnId = p.turn.id; row.updatedAt = Date.now(); row.completionKey = p.turn.status === "completed" ? p.turn.id : null; this.save(); }
     if (frame.method === "item/completed" && ["agentMessage", "userMessage"].includes(p.item?.type)) {
       const previous = row.pendingQuestions || [], pending = pendingAfterItem(previous, p.item);
       if (pending !== previous) { row.pendingQuestions = pending; this.save(); }

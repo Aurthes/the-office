@@ -3,6 +3,10 @@ import { getAgentActivity, workChatter } from "@/features/retro-office/core/agen
 import { paintCrewNameplate } from "@/features/ring-ship/crewNameplate";
 
 describe("game-like agent activity", () => {
+  it("marks interrupted sessions red and clears the warning when work resumes", () => {
+    expect(getAgentActivity({ status: "error", turnStatus: "interrupted" })).toMatchObject({ kind: "error", marker: "!", color: "#fb7185", label: "Interrupted" });
+    expect(getAgentActivity({ status: "working", turnStatus: "inProgress" })).toMatchObject({ kind: "working", marker: "⚙︎" });
+  });
   it("reuses the nameplate canvas and restores text alignment after speech", () => {
     const c = { clearRect: vi.fn(), fillRect: vi.fn(), fillText: vi.fn(), beginPath: vi.fn(), roundRect: vi.fn(), fill: vi.fn(), stroke: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), save: vi.fn(), restore: vi.fn(), translate: vi.fn(), rotate: vi.fn(), textAlign: "left", textBaseline: "alphabetic" };
     let width = 0, height = 0;

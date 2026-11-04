@@ -5,14 +5,15 @@ const ACTIVITIES = {
   waiting: { kind: "waiting", marker: "!", color: "#facc15", label: "Needs your input" },
   review: { kind: "review", marker: "?", color: "#facc15", label: "New result to review" },
   error: { kind: "error", marker: "!", color: "#fb7185", label: "Error" },
+  interrupted: { kind: "error", marker: "!", color: "#fb7185", label: "Interrupted" },
   idle: { kind: "idle", marker: "", color: "#9cb4c3", label: "Idle" },
 } as const;
 export type AgentActivity = typeof ACTIVITIES[keyof typeof ACTIVITIES];
 
 // A new run supersedes an old unread result. Errors and input requests must
 // remain visible even when the native turn is still nominally running.
-export function getAgentActivity(agent: Pick<OfficeAgent, "status" | "needsInput" | "needsReview">): AgentActivity {
-  if (agent.status === "error") return ACTIVITIES.error;
+export function getAgentActivity(agent: Pick<OfficeAgent, "status" | "turnStatus" | "needsInput" | "needsReview">): AgentActivity {
+  if (agent.status === "error") return agent.turnStatus === "interrupted" ? ACTIVITIES.interrupted : ACTIVITIES.error;
   if (agent.needsInput) return ACTIVITIES.waiting;
   if (agent.status === "working") return ACTIVITIES.working;
   if (agent.needsReview) return ACTIVITIES.review;
