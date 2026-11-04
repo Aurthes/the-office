@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, Link2, Users } from "lucide-react";
-import { AgentAvatar } from "@/features/agents/components/AgentAvatar";
+import { CharacterPortrait } from "./CharacterPortrait";
 import { getAgentActivity } from "@/features/retro-office/core/agentActivity";
 import { OrganizationPanel } from "@/features/ring-ship/OrganizationPanel";
 import { CEO_ID, type OrganizationView } from "@/lib/office/organization";
@@ -12,11 +12,11 @@ import { organizeChatRoster } from "../operations/chatRoster";
 import { reportingForest, type AgentDirectoryView, type DirectoryAgent, type ReportingNode } from "../operations/agentDirectory";
 import "./agent-directory.css";
 
-export function AgentDirectory({ agents, organization, view, onViewChange, search, onSearchChange, selectedId, onOpenChat, onOpenTask, actions, taskError, focusRequest, hasConversation }: {
+export function AgentDirectory({ agents, organization, view, onViewChange, search, onSearchChange, selectedId, onOpenChat, onOpenTask, taskError, focusRequest }: {
   agents: DirectoryAgent[]; organization: OrganizationView; view: AgentDirectoryView; onViewChange: (view: AgentDirectoryView) => void;
   search: string; onSearchChange: (search: string) => void; selectedId: string | null;
-  onOpenChat: (id: string) => void; onOpenTask: (id: string) => void; actions?: ReactNode; taskError?: string;
-  focusRequest?: { id: string; request: number } | null; hasConversation: boolean;
+  onOpenChat: (id: string) => void; onOpenTask: (id: string) => void; taskError?: string;
+  focusRequest?: { id: string; request: number } | null;
 }) {
   const t = useUiText(), container = useRef<HTMLElement>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -53,7 +53,7 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
   }, [collapsed, focusRequest, view]);
   const card = (agent: DirectoryAgent, subtitle: string) => <div className="directory-agent" data-selected={agent.id === selectedId} data-person-id={agent.id} style={{ borderLeftColor: agent.color }}>
     <button type="button" className="directory-agent-open" aria-label={agent.id === CEO_ID ? t("CEO organization") : t("Open session: {0}", { "0": agent.name })} onClick={() => { setInspected(agent.id); if (agent.id !== CEO_ID) onOpenChat(agent.id); }}>
-      <AgentAvatar seed={agent.id} name={agent.name} avatarProfile={agent.avatarProfile} size={32} />
+      <CharacterPortrait name={agent.name} profile={agent.avatarProfile} />
       <span className="directory-agent-copy"><strong title={agent.name}>{agent.name}</strong><small title={subtitle}>{subtitle}</small></span>
       <span className="directory-agent-status"><AgentActivityIndicator activity={agent.activity} /><ScheduledTaskIndicator active={agent.hasPendingSchedule} /></span>
     </button>
@@ -72,8 +72,8 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
       {children.length && expanded ? <ul>{children.map(branch)}</ul> : null}
     </li>;
   };
-  return <aside id="session-chat-list" ref={container} aria-label={t("Agents")} className={`agent-directory ${view === "organization" ? "agent-directory--organization" : "session-chat-list"}`} data-conversation={hasConversation}>
-    <header className="directory-heading"><Users size={16} /><strong>{t("Agents")}</strong><span>{agents.length}</span><div className="directory-actions">{actions}</div></header>
+  return <aside id="session-chat-list" ref={container} aria-label={t("Agents")} className="agent-directory session-chat-list">
+    <header className="directory-heading"><Users size={16} /><strong>{t("Agents")}</strong><span>{agents.length}</span></header>
     <div className="directory-controls">
       <select aria-label={t("Organize agents")} value={view} onChange={event => onViewChange(event.target.value as AgentDirectoryView)}>
         <option value="project">{t("By project")}</option><option value="organization">{t("Reporting lines")}</option><option value="activity">{t("Recently active")}</option>
@@ -82,7 +82,7 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
     </div>
     {taskError ? <p className="directory-notice" role="status">{t(taskError)}</p> : null}
     {view === "organization" ? <>
-      <div className="directory-tree-tools"><span>{t("Reporting lines")}</span><button type="button" onClick={() => setCollapsed(new Set())}>{t("Expand all")}</button><button type="button" onClick={() => setCollapsed(new Set(organization.people.map(person => person.id)))}>{t("Collapse all")}</button></div>
+      <div className="directory-tree-tools"><button type="button" onClick={() => setCollapsed(new Set())}>{t("Expand all")}</button><button type="button" onClick={() => setCollapsed(new Set(organization.people.map(person => person.id)))}>{t("Collapse all")}</button></div>
       <div className="directory-scroll"><ul className="directory-tree" aria-label={t("Reporting lines")}>{forest.map(branch)}</ul>{query && !visible.size ? <p className="directory-empty">{t("No matching agents.")}</p> : null}
         <details className="directory-position" key={inspected}><summary>{t("Organization details")} · {organization.people.find(person => person.id === inspected)?.name}</summary><OrganizationPanel key={inspected} organization={organization} personId={inspected} /></details>
       </div>
