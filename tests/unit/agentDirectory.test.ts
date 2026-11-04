@@ -7,6 +7,7 @@ import { currentTasksByAgent, reportingForest, taskCode, type DirectoryAgent, ty
 import { CEO_ID, type OrganizationView } from "@/lib/office/organization";
 import { setUiLanguage } from "@/lib/i18n/ui-language";
 
+vi.mock("@/features/ring-ship/characterPortrait", () => ({ characterPortrait: vi.fn(async () => "data:image/png;base64,cG9ydHJhaXQ=") }));
 beforeEach(() => setUiLanguage("en"));
 afterEach(cleanup);
 const agents: DirectoryAgent[] = [
@@ -21,7 +22,7 @@ const organization: OrganizationView = { ceoAvatar: null, savePosition: vi.fn(),
   { id: "review", name: "Reviewer", title: "Worker", department: "Open Workspace", departmentId: null, reportsTo: [CEO_ID] },
 ] };
 function fixture(view: "project" | "activity" | "organization" = "project", search = "") {
-  const props = { agents, organization, view, search, onSearchChange: vi.fn(), selectedId: null, onViewChange: vi.fn(), onOpenChat: vi.fn(), onOpenTask: vi.fn(), hasConversation: false };
+  const props = { agents, organization, view, search, onSearchChange: vi.fn(), selectedId: null, onViewChange: vi.fn(), onOpenChat: vi.fn(), onOpenTask: vi.fn() };
   const result = render(createElement(AgentDirectory, props));
   return { ...result, props };
 }
@@ -31,7 +32,7 @@ it.each(["project", "activity", "organization"] as const)("preserves avatars, at
   expect(screen.getByRole("img", { name: "Needs your input" })).toBeTruthy();
   expect(screen.getByRole("img", { name: "New result to review" })).toBeTruthy();
   expect(screen.getAllByRole("img", { name: "Pending scheduled task" }).length).toBeGreaterThan(0);
-  expect(screen.getAllByAltText("Avatar for Worker 3").length).toBeGreaterThan(0);
+  expect(screen.getAllByRole("img", { name: "Portrait of Worker 3" }).length).toBeGreaterThan(0);
   fireEvent.click(screen.getAllByRole("button", { name: "Open task: Agent View Compression (AVC)" })[0]);
   expect(props.onOpenTask).toHaveBeenCalledWith("avc");
   expect(props.onOpenChat).not.toHaveBeenCalled();

@@ -818,8 +818,6 @@ export function OfficeScreen({
   const sessionView = process.env.NEXT_PUBLIC_CLAW3D_SESSION_VIEW === "1";
   const [chatRosterCollapsed, setChatRosterCollapsed] = useState(false);
   const [directoryView, setDirectoryView] = useState<AgentDirectoryView>("project");
-  const [organizationChatOpen, setOrganizationChatOpen] = useState(false);
-  const conversationVisible = !sessionView || directoryView !== "organization" || organizationChatOpen;
   const [taskBoardRequest, setTaskBoardRequest] = useState<{ id?: string } | null>(null);
   const [chatExpanded, setChatExpanded] = useState(false);
   const openSessionWorkspace = useCallback(() => setChatExpanded(true), []);
@@ -840,7 +838,7 @@ export function OfficeScreen({
   const organizationState = useOfficeOrganization({ roster: companyRoster, names: organizationNames, coordinator: settingsCoordinator, gatewayUrl, enabled: sessionView && status === "connected" });
   const [organizationFocus, setOrganizationFocus] = useState<{ id: string; request: number } | null>(null);
   const organization = { ...organizationState, focusRequest: organizationFocus, focusPerson: (id: string) => {
-    setDirectoryView("organization"); setOrganizationChatOpen(false); setChatRosterCollapsed(false); setSessionSearch(""); setChatOpen(true);
+    setDirectoryView("organization"); setChatRosterCollapsed(false); setSessionSearch(""); setChatOpen(true);
     setOrganizationFocus(previous => ({ id, request: (previous?.request || 0) + 1 }));
   } };
   const [companyCreationAvailable, setCompanyCreationAvailable] = useState(false);
@@ -1086,7 +1084,6 @@ export function OfficeScreen({
     ) => {
       setSelectedChatAgentId(agentId);
       if (options?.openChat !== false) {
-        setOrganizationChatOpen(true);
         setChatRosterCollapsed(false);
         setChatOpen(true);
       }
@@ -1103,7 +1100,7 @@ export function OfficeScreen({
         };
       });
     },
-    [dispatch, setChatOpen, setChatRosterCollapsed, setOrganizationChatOpen],
+    [dispatch, setChatOpen, setChatRosterCollapsed],
   );
   const handleSelectFloor = useCallback(
     async (floorId: FloorId) => {
@@ -1193,13 +1190,12 @@ export function OfficeScreen({
   const focusChatTarget = useCallback(
     (agentId: string) => {
       setSelectedChatAgentId(agentId);
-      setOrganizationChatOpen(true);
       setChatRosterCollapsed(false);
       setChatOpen(true);
 
         dispatch({ type: "selectAgent", agentId });
     },
-    [dispatch, setChatOpen, setChatRosterCollapsed, setOrganizationChatOpen],
+    [dispatch, setChatOpen, setChatRosterCollapsed],
   );
   const openAgentEditor = useCallback(
     (agentId: string, initialSection: AgentEditorSection = "avatar") => {
@@ -3111,7 +3107,7 @@ export function OfficeScreen({
     return lines.join("\n");
   }, [state.agents]);
 
-  const { readById } = useCompletionReadState(sessionView && chatOpen && conversationVisible && focusedChatAgent?.status === "idle" && focusedChatAgent.completedResult
+  const { readById } = useCompletionReadState(sessionView && chatOpen && focusedChatAgent?.status === "idle" && focusedChatAgent.completedResult
     ? { id: focusedChatAgent.agentId, key: focusedChatAgent.completedResult.key } : null);
   const fieldwork = useFieldworkTasks(client, state.agents, companyRoster, sessionView && status === "connected", gatewayUrl);
   const allVisibleAgents = useMemo(
@@ -3148,7 +3144,7 @@ export function OfficeScreen({
     return chatRosterEntries.map(entry => ({ ...entry, color: agents.get(entry.id)!.color, avatarProfile: agents.get(entry.id)?.avatarProfile, task: currentTasks.tasks.get(entry.id) }));
   }, [chatRosterEntries, allVisibleAgents, currentTasks.tasks]);
   const changeDirectoryView = (view: AgentDirectoryView) => {
-    setDirectoryView(view); setChatRosterCollapsed(false); setOrganizationChatOpen(false);
+    setDirectoryView(view); setChatRosterCollapsed(false);
   };
 
   const normalizedOpenClawConsoleSearch = openClawConsoleSearch
@@ -3285,12 +3281,12 @@ export function OfficeScreen({
   const emptyFleetMessage =
     state.error?.trim() ||
     "Connected to the gateway, but no agents were loaded into the office.";
-  const sessionListToggle = <button type="button" onClick={() => { if (directoryView === "organization") { setOrganizationChatOpen(false); setChatRosterCollapsed(false); } else setChatRosterCollapsed(value => !value); }}
-    aria-label={t(directoryView === "organization" ? "Show organization" : chatRosterCollapsed ? "Open session list" : "Close session list")} aria-expanded={directoryView === "organization" ? !organizationChatOpen : !chatRosterCollapsed} aria-controls="session-chat-list"
+  const sessionListToggle = <button type="button" onClick={() => setChatRosterCollapsed(value => !value)}
+    aria-label={t(chatRosterCollapsed ? "Open session list" : "Close session list")} aria-expanded={!chatRosterCollapsed} aria-controls="session-chat-list"
     title={`${t("Sessions ·")} ${chatRosterEntries.length}`} className="session-header-button"><PanelLeft size={18} /></button>;
   const sessionWindowActions = <>
-    {directoryView !== "organization" ? <button type="button" onClick={() => setChatExpanded(value => !value)} aria-label={t(chatExpanded ? "Restore chat window" : "Expand chat window")}
-      title={t(chatExpanded ? "Restore" : "Expand")} className="session-header-button office-chat-expand hidden md:inline-flex">{chatExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button> : null}
+    <button type="button" onClick={() => setChatExpanded(value => !value)} aria-label={t(chatExpanded ? "Restore chat window" : "Expand chat window")}
+      title={t(chatExpanded ? "Restore" : "Expand")} className="session-header-button office-chat-expand hidden md:inline-flex">{chatExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
     <button type="button" onClick={() => setChatOpen(false)} aria-label={t("Close chat and return to office")} title={t("Close chat")} className="session-header-button"><X size={18} /></button>
   </>;
   const acceptCreatedSession = async (threadId?: string, avatarProfile?: AgentAvatarProfile) => {
@@ -3354,7 +3350,7 @@ export function OfficeScreen({
 
   return (
     <main className="office-responsive relative h-full w-full overflow-hidden bg-black">
-      {voice.status !== "off" && (!chatOpen || !conversationVisible || focusedChatAgent?.agentId !== voice.threadId) ? <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-3 right-3 z-[90] mx-auto max-w-lg">
+      {voice.status !== "off" && (!chatOpen || focusedChatAgent?.agentId !== voice.threadId) ? <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-3 right-3 z-[90] mx-auto max-w-lg">
         <SessionVoiceCall voice={voice} owner={state.agents.find(agent => agent.agentId === voice.threadId)?.name || voice.threadId || "Codex"} onReturn={() => { if (voice.threadId) handleOpenAgentChat(voice.threadId); }} />
       </div> : null}
       {!sessionView ? <OfficeFloorNav
@@ -3426,7 +3422,7 @@ export function OfficeScreen({
             }
           }}
           onAgentChatSelect={handleOpenAgentChat}
-          activeChatAgentId={sessionView && chatOpen && conversationVisible ? selectedChatAgentId : null}
+          activeChatAgentId={sessionView && chatOpen ? selectedChatAgentId : null}
           chatExpanded={chatExpanded}
           onOpenAgentDirectory={sessionView ? () => { changeDirectoryView("organization"); setSessionSearch(""); setChatOpen(true); } : undefined}
           onOpenTaskBoard={sessionView ? () => setTaskBoardRequest({}) : undefined}
@@ -3728,7 +3724,7 @@ export function OfficeScreen({
       {sessionView && chatOpen ? <button type="button" aria-label={t("Click the office to close chat")} className="fixed inset-0 z-40 cursor-default bg-transparent" onClick={() => setChatOpen(false)} /> : null}
       <div
         className={sessionView && chatOpen
-          ? `office-session-chat fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[#11161e] text-white shadow-2xl md:inset-y-3 md:right-3 md:left-auto md:rounded-xl md:border md:border-white/15 ${chatExpanded || directoryView === "organization" ? "md:w-[calc(100vw-1.5rem)]" : "md:w-[min(960px,calc(100vw-1.5rem))]"}`
+          ? `office-session-chat fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[#11161e] text-white shadow-2xl md:inset-y-3 md:right-3 md:left-auto md:rounded-xl md:border md:border-white/15 ${chatExpanded ? "md:w-[calc(100vw-1.5rem)]" : "md:w-[min(960px,calc(100vw-1.5rem))]"}`
           : `office-chat-dock fixed bottom-3 ${sessionView ? "z-50" : "z-30"} flex flex-col items-end gap-2 right-3 ${debugEnabled ? "hidden" : ""}`}
         style={sessionView && chatOpen && chatViewport ? { height: chatViewport.height, top: chatViewport.top, bottom: "auto" } : undefined}
       >
@@ -3742,10 +3738,10 @@ export function OfficeScreen({
               height: "min(560px, calc(100vh - 5.5rem))",
             }}
           >
-            {sessionView ? (!chatRosterCollapsed || directoryView === "organization") ? <AgentDirectory agents={directoryAgents} organization={organization} view={directoryView}
-              onViewChange={changeDirectoryView} search={sessionSearch} onSearchChange={setSessionSearch} selectedId={conversationVisible ? selectedChatAgentId : null}
+            {sessionView ? !chatRosterCollapsed ? <AgentDirectory agents={directoryAgents} organization={organization} view={directoryView}
+              onViewChange={changeDirectoryView} search={sessionSearch} onSearchChange={setSessionSearch} selectedId={selectedChatAgentId}
               onOpenChat={handleOpenAgentChat} onOpenTask={id => setTaskBoardRequest({ id })} taskError={currentTasks.error}
-              focusRequest={organizationFocus} hasConversation={conversationVisible} actions={!conversationVisible ? sessionWindowActions : undefined} /> : null : <div
+              focusRequest={organizationFocus} /> : null : <div
               className={`flex shrink-0 flex-col border-r border-white/10 transition-[width] ${chatRosterCollapsed ? "w-12" : "w-52"}`}
             >
               <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
@@ -3832,9 +3828,9 @@ export function OfficeScreen({
                 )}
               </div>
             </div>}
-            {sessionView && directoryView !== "organization" && !chatRosterCollapsed ? <SessionListDivider /> : null}
+            {sessionView && !chatRosterCollapsed ? <SessionListDivider /> : null}
 
-            {conversationVisible ? <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               {sessionView && !focusedChatAgent ? <header className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 p-2">{sessionListToggle}{sessionWindowActions}</header> : null}
               {focusedChatAgent ? (
                 sessionView ? <ExistingSessionPanel onOpenWorkspace={openSessionWorkspace} key={focusedChatAgent.agentId} client={client} threadId={focusedChatAgent.agentId}
@@ -3919,7 +3915,7 @@ export function OfficeScreen({
               ) : (
                 <div className="flex flex-1 items-center justify-center font-mono text-[12px] text-white/30">{t("Select an agent to chat.")}</div>
               )}
-            </div> : null}
+            </div>
           </div>
         )}
 

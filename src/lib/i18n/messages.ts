@@ -109,6 +109,7 @@ export const ZH_CN: Record<string, string> = {
   "Any weekend plans?": "周末有什么安排？",
   "You had to be there.": "你当时在场就懂了。",
   "Organize agents": "排列成员",
+  "Portrait of {name}": "{name} 的角色头像",
   "By project": "按项目",
   "Reporting lines": "组织架构",
   "Search agents, projects or tasks": "搜索员工、项目或任务",
