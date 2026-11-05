@@ -7,11 +7,11 @@ import { useNativeDictation } from "../../src/features/office/components/useNati
 import { DICTATION_SHORTCUT_KEY } from "../../src/features/office/components/dictationShortcutSettings";
 let port: { onmessage: ((event: { data: unknown }) => void) | null; postMessage: (value: unknown) => void };
 const stopTrack = vi.fn();
-function microphone() {
+function microphone(addModule: () => Promise<void> = async () => {}) {
   class Context {
     state = "running"; destination = {}; onstatechange?: () => void;
     resume = async () => {}; close = async () => { this.state = "closed"; };
-    audioWorklet = { addModule: vi.fn(async () => {}) };
+    audioWorklet = { addModule: vi.fn(addModule) };
     createMediaStreamSource = () => ({ connect: vi.fn(), disconnect: vi.fn() });
   }
   class Worklet {
@@ -26,6 +26,32 @@ function microphone() {
 }
 afterEach(() => { cleanup(); localStorage.removeItem(DICTATION_SHORTCUT_KEY); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.restoreAllMocks(); });
 describe("browser recording to native dictation", () => {
+  it("loads the recorder during microphone permission instead of waiting for it", async () => {
+    let loaded!: () => void, granted!: (value: unknown) => void;
+    const load = vi.fn(() => new Promise<void>(resolve => { loaded = resolve; }));
+    const stream = microphone(load);
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: () => new Promise(resolve => { granted = resolve; }) } });
+    const { result } = renderHook(() => useNativeDictation("parallel-recorder", "", vi.fn()));
+    let starting!: Promise<void>; act(() => { starting = result.current.start(); });
+    expect(load).toHaveBeenCalledOnce(); expect(result.current.phase).toBe("starting");
+    await act(async () => { loaded(); });
+    expect(result.current.phase).toBe("starting");
+    await act(async () => { granted(stream); await starting; });
+    expect(result.current.phase).toBe("recording");
+    act(() => result.current.discard()); expect(stopTrack).toHaveBeenCalledOnce();
+  });
+  it("handles an early recorder failure and releases a microphone granted later", async () => {
+    let failed!: (error: Error) => void, granted!: (value: unknown) => void;
+    const stream = microphone(() => new Promise<void>((_resolve, reject) => { failed = reject; }));
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: () => new Promise(resolve => { granted = resolve; }) } });
+    const inserted = vi.fn(), fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    const { result } = renderHook(() => useNativeDictation("recorder-load-failed", "", inserted));
+    let starting!: Promise<void>; act(() => { starting = result.current.start(); });
+    await act(async () => { failed(new Error("recorder unavailable")); });
+    await act(async () => { granted(stream); await starting; });
+    expect(result.current.phase).toBe("error"); expect(stopTrack).toHaveBeenCalledOnce();
+    expect(inserted).not.toHaveBeenCalled(); expect(fetcher).not.toHaveBeenCalled();
+  });
   it("stops and keeps a recording when its retained session is hidden, without transcribing or sending", async () => {
     microphone(); const inserted = vi.fn(), fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
     const call = vi.fn(async (method: string) => method === "session.attach" ? { connected: true, version: 1, activeTurnId: null, items: [], approvals: [], features: { voice: false, prediction: false, dictationHTTP: true } } : {});

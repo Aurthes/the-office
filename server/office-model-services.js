@@ -79,7 +79,9 @@ function createOfficeDictation({ token, findThread, home, refreshAuth, onStatus 
       }
       const response = await fetch(auth.apiKey ? "https://api.openai.com/v1/audio/transcriptions" : "https://chatgpt.com/backend-api/transcribe", {
         method: "POST", headers, body: form, signal, redirect: "error",
-        dispatcher: dispatcher ||= new EnvHttpProxyAgent(),
+        // Dictation requests are usually spaced farther apart than Undici's
+        // four-second default. Reuse the connection between short recordings.
+        dispatcher: dispatcher ||= new EnvHttpProxyAgent({ keepAliveTimeout: 60000, keepAliveMaxTimeout: 60000 }),
       });
       // An expired subscription token gets one renewal via the Office-owned
       // Codex client. Network/service failures never resend audio automatically.

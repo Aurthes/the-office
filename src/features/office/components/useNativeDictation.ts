@@ -181,6 +181,10 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
       const context = new AudioContext();
       const current: Capture = { context, frames: [], samples: 0, stopped: false }; attempted = current; capture.current = current;
       const resume = context.resume();
+      // Bundle a fingerprinted asset so repeat recordings use the browser cache.
+      // Load it while microphone permission/device setup is still in progress.
+      const worklet = context.audioWorklet.addModule(new URL("../../../../public/audio/native-dictation-recorder.js", import.meta.url));
+      void worklet.catch(() => {}); // Permission may still be pending when loading fails.
       // Native preparation overlaps microphone permission and worklet setup.
       if (latest.current.client) {
         const bridge: Bridge = { abort: new AbortController(), id: crypto.randomUUID(), client: latest.current.client, connected: false, sent: 0, pending: new Set(), ready: Promise.resolve() };
@@ -192,7 +196,7 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }); current.stream = stream;
       await resume;
       if (!mounted.current || stopRequested.current || capture.current !== current) { current.stopped = true; if (current.bridge) cancelBridge(current.bridge); stream.getTracks().forEach(track => track.stop()); await context.close().catch(() => {}); if (capture.current === current) { capture.current = null; if (mounted.current) setPhase("idle"); } return; }
-      await context.audioWorklet.addModule("/audio/native-dictation-recorder.js");
+      await worklet;
       if (!mounted.current || stopRequested.current || capture.current !== current) { current.stopped = true; if (current.bridge) cancelBridge(current.bridge); stream.getTracks().forEach(track => track.stop()); await context.close().catch(() => {}); if (capture.current === current) { capture.current = null; if (mounted.current) setPhase("idle"); } return; }
       const node = new AudioWorkletNode(context, "native-dictation-recorder"); current.node = node;
       node.onprocessorerror = () => { if (!current.stopped) void finishCapture(false); };
