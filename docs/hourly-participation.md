@@ -1,7 +1,13 @@
 # Hourly market participation
 
-The control-room monitor and `/market-participation/` show two equally weighted
-measures: our executed notional / market executed notional, and our execution
+The control-room monitor and `/market-participation/` use hourly grouped bar
+charts as the primary view. Toggle notional or execution count instantly; choose
+24 hours, 72 hours or 7 days. RPI and non-RPI bars sit side by side. Account,
+exchange and symbol filters apply to the entire time series. Symbol mode selects
+one account/symbol target to keep charts readable. Click a bar to expand that
+hour’s raw facts; the supporting table is collapsed by default.
+
+The two measures are: our executed notional / market executed notional, and our execution
 count / market trade count. Both use the same symbol, order class and whole hour.
 Classes are RPI and non-RPI; GTC, post-only, IOC and FOK belong to non-RPI.
 Counts refer to individual executions, including partial fills, not filled orders.
@@ -87,7 +93,12 @@ Create `claw3d/participation.json` below Studio's resolved state directory:
 
 Only an active registered online SSH host is accepted. Omitting `host` reads local
 snapshots. The read-only `/api/monitoring/participation?hour=<epoch-ms>` endpoint
-uses existing SSH transport reuse and a 15-second cache. Its global `updatedAt`
+uses existing SSH transport reuse. The `window=24|72|168` query returns a
+continuous hourly series, with `level=exchange|account|symbol` and optional
+`exchange`, `account`, `symbol`, `type`, `focus` filters. Missing hours remain gaps.
+The backend reuses the same aggregation as the table; it checks file modification
+times in one batch and transfers only changed snapshots, then sends compact
+aggregates to the browser. Cached snapshots are bounded to 192 files. Its global `updatedAt`
 is the collector heartbeat; a historical hour's publication time is not used as
 the freshness signal. Add `/market-participation/` as a chart monitor link through
 the existing monitor configuration, preserving other links. It opens inside the
