@@ -363,7 +363,7 @@ it("shows hour-long elapsed time without wrapping back to minutes", async () => 
   expect(screen.getByRole("timer")).toHaveTextContent("2:00:00");
 });
 
-it("shows a 15 second capacity countdown and lets Stop cancel the backend retry", async () => {
+it("shows a 15 second recovery countdown and lets Stop cancel the backend retry", async () => {
   vi.useFakeTimers(); let stopped = false;
   const call = vi.fn(async (method: string) => {
     if (method === "session.stop") stopped = true;
@@ -371,13 +371,23 @@ it("shows a 15 second capacity countdown and lets Stop cancel the backend retry"
   });
   render(React.createElement(SessionControls, { client: { call }, threadId: "capacity-countdown", onItems: vi.fn() }));
   await act(async () => {});
-  expect(screen.getByText("Model is busy. Retrying in 15 seconds…")).toBeInTheDocument();
+  expect(screen.getByText("Retrying in 15 seconds…")).toBeInTheDocument();
   expect(screen.queryByRole("timer")).toBeNull();
   expect(screen.queryByRole("alert")).toBeNull();
   await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
-  expect(screen.getByText("Model is busy. Retrying in 11 seconds…")).toBeInTheDocument();
+  expect(screen.getByText("Retrying in 11 seconds…")).toBeInTheDocument();
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Stop" })); });
   expect(call).toHaveBeenCalledWith("session.stop", { threadId: "capacity-countdown" });
-  expect(screen.queryByText(/Model is busy/)).toBeNull();
+  expect(screen.queryByText(/Retrying in/)).toBeNull();
+  expect(call.mock.calls.some(([m]) => m === "session.send" || m === "session.continue")).toBe(false);
+});
+
+it("shows the retry limit for an interrupted turn even without a provider error message", async () => {
+  const call = vi.fn<(method: string) => Promise<unknown>>(async () => ({ ...snapshot, activeTurnId: null, turnStatus: "interrupted", error: null, retryAt: null, retryExhausted: true,
+    features: { dictation: false, voice: false, prediction: false } }));
+  render(React.createElement(SessionControls, { client: { call }, threadId: "recovery-exhausted", onItems: vi.fn() }));
+  await act(async () => {});
+  expect(screen.getByRole("alert")).toHaveTextContent("Automatic retry stopped after 3 attempts.");
+  expect(screen.getByRole("button", { name: "Continue interrupted task" })).toBeEnabled();
   expect(call.mock.calls.some(([m]) => m === "session.send" || m === "session.continue")).toBe(false);
 });

@@ -5,17 +5,20 @@ const { answerQuestions } = require("./codex-session-questions");
 const { messageInput } = require("./codex-session-uploads");
 const { sessionSettings, sessionChoices, settingsPatch } = require("./codex-session-settings");
 const supportedApprovals = new Set(["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval"]);
-const CAPACITY_RETRY_MS = 15000;
-function capacityError(error) {
-  return ["serverOverloaded", "policyCapacityUnavailable"].includes(error?.codexErrorInfo)
-    || error?.message?.trim().toLowerCase() === "selected model is at capacity. please try a different model.";
-}
+const RETRY_DELAY_MS = 15000;
+const MAX_AUTO_RETRIES = 3;
 
 class CodexSessionControls {
   constructor(client, asyncQuestions = () => [], options = {}) { this.client = client; this.asyncQuestions = asyncQuestions; this.options = options; this.states = new Map(); this.requests = new Map(); this.sends = new Map(); this.attaching = new Map(); }
   state(id) {
-    if (!this.states.has(id)) this.states.set(id, { version: 0, turnVersion: 0, activeTurnId: null, activeTurnStartedAt: null, items: new Map(), turnStatus: null, error: null });
+    if (!this.states.has(id)) this.states.set(id, { version: 0, turnVersion: 0, activeTurnId: null, activeTurnStartedAt: null, items: new Map(), turnStatus: null, error: null,
+      recovery: { attempts: 0, stopped: false, ...this.options.recovery?.read(id) } });
     return this.states.get(id);
+  }
+  saveRecovery(id, patch) {
+    const state = this.state(id), next = { ...state.recovery, ...patch };
+    if (JSON.stringify(next) === JSON.stringify(state.recovery)) return;
+    state.recovery = next; this.options.recovery?.write(id, next);
   }
   requireReady() { if (!this.client?.ready) throw new Error("Codex is disconnected"); }
   retryChanged(id) { this.state(id).version++; this.options.changed?.(id); }
@@ -26,21 +29,36 @@ class CodexSessionControls {
   }
   scheduleRetry(id, turn) {
     const state = this.state(id);
-    if (this.closed || turn.status !== "failed" || !capacityError(turn.error) || state.retryHandledTurnId === turn.id) return;
+    if (this.closed || !turn?.id || !["failed", "interrupted"].includes(turn.status) || state.recovery.stopped
+      || state.recovery.attempts >= MAX_AUTO_RETRIES || state.retryHandledTurnId === turn.id) return;
     this.cancelRetry(id);
-    const retry = { turnId: turn.id, at: Date.now() + CAPACITY_RETRY_MS, dispatching: false };
+    const retry = { turnId: turn.id, at: Date.now() + RETRY_DELAY_MS, dispatching: false };
     state.retryHandledTurnId = turn.id; state.retry = retry;
     retry.timer = setTimeout(() => {
       retry.dispatching = true; this.retryChanged(id);
-      // Resume the confirmed failed turn's conversation, never replay its input
-      // or retry an ambiguous transport failure. One backend owns this timer.
-      void this.send(id, "Continue where you left off.", `capacity-${crypto.randomUUID()}`, [], { capacityRetry: retry })
-        .catch(error => { if (state.retry === retry) state.error = error.message; })
-        .finally(() => { if (state.retry === retry) this.cancelRetry(id); });
-    }, CAPACITY_RETRY_MS);
+      // Count before dispatch so a restart cannot reset the limit. Every attempt
+      // rechecks the latest native turn; original inputs are never replayed.
+      void Promise.resolve().then(() => {
+        if (this.closed || state.retry !== retry) return;
+        this.saveRecovery(id, { attempts: state.recovery.attempts + 1 });
+        return this.send(id, "Continue where you left off.", `retry-${crypto.randomUUID()}`, [], { automaticRetry: retry });
+      }).catch(error => { if (state.retry === retry) { state.error = error.message; retry.failed = true; } })
+        .finally(() => {
+          if (state.retry !== retry) return;
+          this.cancelRetry(id);
+          if (retry.failed) {
+            state.retryHandledTurnId = null;
+            this.scheduleRetry(id, { id: state.lastTurnId, status: state.turnStatus });
+          }
+        });
+    }, RETRY_DELAY_MS);
     retry.timer.unref?.(); this.retryChanged(id);
   }
   close() { this.closed = true; for (const id of this.states.keys()) this.cancelRetry(id); }
+  async recover(id) {
+    const turn = await this.refreshTurn(id);
+    if (turn) this.scheduleRetry(id, turn);
+  }
   async attach(id) {
     this.requireReady();
     if (!this.attaching.has(id)) {
@@ -92,7 +110,9 @@ class CodexSessionControls {
       : null;
     state.activeTurnId = turn?.status === "inProgress" ? turn.id : null;
     state.turnStatus = turn?.status || null; state.error = turn?.error?.message || null;
+    if (turn?.status === "completed") this.saveRecovery(id, { attempts: 0 });
     state.version++;
+    return turn;
   }
   handle(frame) {
     const p = frame.params || {}, id = p.threadId;
@@ -109,6 +129,7 @@ class CodexSessionControls {
     if (frame.method === "serverRequest/resolved") { this.requests.delete(String(p.requestId)); state.version++; return; }
     if (frame.method === "turn/started") {
       state.turnVersion++;
+      if (!state.autoStarting && !state.retry?.dispatching) this.saveRecovery(id, { attempts: 0, stopped: false });
       this.cancelRetry(id); state.lastTurnId = p.turn.id;
       state.activeTurnStartedAt = Number.isFinite(p.turn.startedAt) ? p.turn.startedAt * 1000
         : state.activeTurnId === p.turn.id ? state.activeTurnStartedAt : Date.now();
@@ -118,6 +139,7 @@ class CodexSessionControls {
       state.turnVersion++;
       if (state.activeTurnId === p.turn.id || (!state.activeTurnId && !state.lastTurnId)) {
         state.lastTurnId = p.turn.id; state.activeTurnId = null; state.activeTurnStartedAt = null; state.turnStatus = p.turn.status; state.error = p.turn.error?.message || null;
+        if (p.turn.status === "completed") this.saveRecovery(id, { attempts: 0 });
         this.scheduleRetry(id, p.turn);
       }
       for (const [key, request] of this.requests) if (request.params.threadId === id && request.params.turnId === p.turn.id) this.requests.delete(key);
@@ -176,7 +198,9 @@ class CodexSessionControls {
       items.push(visible); bytes += size;
     }
     const hasMore = items.length < changed.length;
-    return { connected: true, version: hasMore ? items.at(-1).version : state.version, hasMore, activeTurnId: state.activeTurnId, activeTurnStartedAt: state.activeTurnStartedAt, turnStatus: state.turnStatus, error: state.error, retryAt: state.retry?.at ?? null, retrying: Boolean(state.retry?.dispatching), settings: state.settings, tokenUsage: state.tokenUsage, ...(this.options.features ? { features: { ...this.options.features, ...(this.options.composer ? { chatReferences: this.options.composer.canReference(id) } : {}) } } : {}), items,
+    return { connected: true, version: hasMore ? items.at(-1).version : state.version, hasMore, activeTurnId: state.activeTurnId, activeTurnStartedAt: state.activeTurnStartedAt, turnStatus: state.turnStatus, error: state.error, retryAt: state.retry?.at ?? null, retrying: Boolean(state.retry?.dispatching),
+      retryExhausted: !state.retry && !state.recovery.stopped && state.recovery.attempts >= MAX_AUTO_RETRIES && ["failed", "interrupted"].includes(state.turnStatus),
+      settings: state.settings, tokenUsage: state.tokenUsage, ...(this.options.features ? { features: { ...this.options.features, ...(this.options.composer ? { chatReferences: this.options.composer.canReference(id) } : {}) } } : {}), items,
       questions,
       approvalCount: [...this.requests.values()].filter(r => r.params.threadId === id && r.method !== "item/tool/requestUserInput").length,
       approvals: [...this.requests.values()].filter(r => r.params.threadId === id && r.method !== "item/tool/requestUserInput").slice(0, 2).map(request => {
@@ -187,9 +211,9 @@ class CodexSessionControls {
           details: item?.details, supported: request.supported && !oversized && (request.method !== "item/fileChange/requestApproval" || Boolean(item?.details && !item.incompleteDetails)) };
       }) };
   }
-  async send(id, text, requestId, attachments = [], { resumeInterrupted = false, onlyIfIdle = false, capacityRetry = null, references = [] } = {}) {
+  async send(id, text, requestId, attachments = [], { resumeInterrupted = false, onlyIfIdle = false, automaticRetry = null, references = [] } = {}) {
     this.requireReady();
-    if (!capacityRetry) this.cancelRetry(id);
+    if (!automaticRetry) this.cancelRetry(id);
     const prepared = this.options.composer ? await this.options.composer.prepare(id, text, references) : { text, items: [] };
     const input = [...await messageInput(prepared.text, attachments, id), ...prepared.items];
     if (typeof requestId !== "string" || requestId.length > 100 || !requestId) throw new Error("缺少发送请求 ID");
@@ -202,33 +226,58 @@ class CodexSessionControls {
     const entry = { id, resumeInterrupted, hash: crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex") };
     this.sends.set(requestId, entry);
     if (this.sends.size > 128) this.sends.delete(this.sends.keys().next().value);
+    if (!automaticRetry) this.saveRecovery(id, { attempts: 0, stopped: false });
     await this.attach(id); await this.refreshTurn(id);
     const active = this.state(id).activeTurnId;
-    if (capacityRetry) {
+    if (automaticRetry) {
       const allowed = !this.options.canRetry || await this.options.canRetry(id);
       const state = this.state(id);
-      if (!allowed || state.retry !== capacityRetry || active || state.activeTurnId || state.lastTurnId !== capacityRetry.turnId || state.turnStatus !== "failed") return { status: "cancelled" };
+      if (this.closed || !allowed || state.recovery.stopped || state.retry !== automaticRetry || active || state.activeTurnId) return { status: "cancelled" };
+      if (state.lastTurnId !== automaticRetry.turnId || !["failed", "interrupted"].includes(state.turnStatus)) {
+        this.cancelRetry(id);
+        this.scheduleRetry(id, { id: state.lastTurnId, status: state.turnStatus });
+        return { status: "cancelled" };
+      }
     }
     if (onlyIfIdle && active) { this.sends.delete(requestId); return { status: "busy" }; }
     if (resumeInterrupted && (active || this.state(id).turnStatus !== "interrupted")) throw new Error("This task is no longer interrupted. Refresh the conversation before continuing.");
     // The desktop uses this identity to display external steering as a user
     // message. Reuse the send ID so duplicate requests keep the same identity.
     const submittedAt = Date.now();
-    const result = await this.client.call(active ? "turn/steer" : "turn/start", { threadId: id, input, clientUserMessageId: requestId, ...(active ? { expectedTurnId: active } : this.options.settings?.overrides(id) || {}) });
+    const current = this.state(id);
+    const previousTurnId = current.lastTurnId;
+    let result;
+    if (automaticRetry) current.autoStarting = automaticRetry;
+    try {
+      result = await this.client.call(active ? "turn/steer" : "turn/start", { threadId: id, input, clientUserMessageId: requestId, ...(active ? { expectedTurnId: active } : this.options.settings?.overrides(id) || {}) });
+    } finally { if (current.autoStarting === automaticRetry) current.autoStarting = null; }
     const turnId = result.turn?.id || result.turnId;
     const state = this.state(id);
-    state.activeTurnStartedAt = Number.isFinite(result.turn?.startedAt) ? result.turn.startedAt * 1000
-      : state.activeTurnId === turnId ? state.activeTurnStartedAt : active ? null : submittedAt;
-    this.state(id).activeTurnId = turnId;
-    this.state(id).turnStatus = "inProgress";
-    this.state(id).error = null;
+    // Native completion can arrive before the start RPC resolves. Its terminal
+    // state (and next retry timer) must win over the delayed start response.
+    if (state.lastTurnId === previousTurnId || state.activeTurnId === turnId) {
+      state.activeTurnStartedAt = Number.isFinite(result.turn?.startedAt) ? result.turn.startedAt * 1000
+        : state.activeTurnId === turnId ? state.activeTurnStartedAt : active ? null : submittedAt;
+      state.activeTurnId = turnId; state.turnStatus = "inProgress"; state.error = null;
+    }
     this.state(id).version++;
+    // Stop can arrive after turn/start was sent but before its result. Interrupt
+    // that exact returned turn rather than allowing the cancelled retry to run.
+    if (automaticRetry?.stopRequested && !automaticRetry.interruptRequested && state.activeTurnId === turnId) {
+      automaticRetry.interruptRequested = true;
+      await this.client.call("turn/interrupt", { threadId: id, turnId });
+    }
     return entry.result = { status: active ? "steered" : "started", turnId };
   }
   async stop(id) {
-    this.requireReady(); this.cancelRetry(id); await this.attach(id); await this.refreshTurn(id);
+    this.requireReady();
+    const retry = this.state(id).retry || this.state(id).autoStarting;
+    if (retry) retry.stopRequested = true;
+    this.saveRecovery(id, { stopped: true });
+    this.cancelRetry(id); await this.attach(id); await this.refreshTurn(id);
     const turnId = this.state(id).activeTurnId;
     if (!turnId) return { status: "idle" };
+    if (retry) retry.interruptRequested = true;
     await this.client.call("turn/interrupt", { threadId: id, turnId });
     return { status: "interruptRequested", turnId };
   }

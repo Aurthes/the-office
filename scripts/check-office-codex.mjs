@@ -37,6 +37,10 @@ const provider = http.createServer((request, response) => {
   let body = ""; request.on("data", data => { body += data; }); request.on("end", () => {
     const payload = JSON.parse(body); payloads.push(payload);
     const last = [...(payload.input || [])].reverse().find(item => item.role === "user");
+    if (JSON.stringify(last).includes("OFFICE_GENERIC_FAILURE")) {
+      response.writeHead(400, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: { message: "Synthetic non-capacity failure", type: "invalid_request_error", code: "synthetic_error" } })); return;
+    }
     if (JSON.stringify(last).includes("OFFICE_CAPACITY")) {
       response.writeHead(503, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: { message: "Selected model is at capacity. Please try a different model.", type: "server_error", code: "server_is_overloaded" } })); return;
@@ -183,6 +187,13 @@ try {
   await until(() => JSON.stringify(payloads.at(-1).input.filter(i => i.role === "user").at(-1)).includes("Continue where you left off.") && JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].status === "idle", "Background capacity recovery did not finish", 25000);
   const capacityHistory = (await client.call("session.history", { threadId })).messages;
   check("capacity recovery continues once after 15 seconds without an open chat", Date.now() - capacityStart >= 15000 && capacityHistory.filter(m => m.role === "user" && m.content === "OFFICE_CAPACITY").length === 1 && capacityHistory.filter(m => m.role === "user" && m.content === "Continue where you left off.").length === 1 && JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].codexThreadId === originalNativeId);
+  await client.call("session.send", { threadId, message: "OFFICE_GENERIC_FAILURE", requestId: "generic-failure" });
+  await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].turnStatus === "failed", "Generic failure was not persisted");
+  await stop(); client = await start();
+  check("non-capacity failure is queued for recovery after gateway restart", (await client.call("office.snapshot")).agents[0].status === "running");
+  await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].status === "idle", "Generic failure did not recover after restart", 25000);
+  const genericHistory = (await client.call("session.history", { threadId })).messages;
+  check("restart recovery does not replay the failed user input", genericHistory.filter(m => m.role === "user" && m.content === "OFFICE_GENERIC_FAILURE").length === 1 && genericHistory.filter(m => m.role === "user" && m.content === "Continue where you left off.").length === 2);
   await client.call("session.send", { threadId, message: "OFFICE_HOLD", requestId: "send-3" });
   await until(() => JSON.stringify(payloads.at(-1)).includes("OFFICE_HOLD"), "Hold did not start");
   const runningTiming = await client.call("session.attach", { threadId });
@@ -197,9 +208,17 @@ try {
   // Interrupted sessions deliberately keep the red attention marker, not idle.
   await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].turnStatus === "interrupted", "Interrupted turn was not persisted");
   check("interrupted turn is available for Play", (await client.call("session.attach", { threadId })).turnStatus === "interrupted" && !(await client.call("office.snapshot")).agents[0].completedResult);
+  await stop(); client = await start();
+  check("explicit Stop survives gateway restart without automatic recovery", (await client.call("session.attach", { threadId })).retryAt === null && (await client.call("office.snapshot")).agents[0].status === "error");
   await client.call("session.continue", { threadId, requestId: "play-continue" });
   await until(() => JSON.stringify(payloads.at(-1).input).includes("Continue where you left off.") && JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].status === "idle", "Play continuation did not finish");
   check("Play continues with original history and native identity", JSON.stringify(payloads.at(-1).input).includes("OFFICE_FIRST_MARKER") && JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].codexThreadId === originalNativeId);
+  await client.call("session.send", { threadId, message: "OFFICE_HOLD", requestId: "restart-running" });
+  await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].status === "running", "Restart fixture was not running");
+  await stop(); client = await start();
+  check("backend interruption is queued without Play or opening the chat", (await client.call("office.snapshot")).agents[0].status === "running");
+  await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].status === "idle", "Backend interruption did not automatically recover", 25000);
+  check("backend interruption continues the same native thread", JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].codexThreadId === originalNativeId);
   const scheduleConfig = { name: "Fixture report", threadId, prompt: "OFFICE_SCHEDULE_MARKER", firstRunAt: Date.now(), intervalMinutes: 60, enabled: true };
   const rosterEventsBeforeSchedule = client.events.filter(event => event.event === "roster.updated").length;
   const createdSchedule = await client.call("schedule.create", { ...scheduleConfig, requestId: "schedule-create" });

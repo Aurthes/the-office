@@ -958,6 +958,8 @@ export const ZH_CN: Record<string, string> = {
   "Stop request submitted": "停止请求已提交",
   "Model is busy. Retrying in {seconds} seconds…": "模型繁忙，{seconds} 秒后自动重试…",
   "Retrying the session…": "正在重试会话…",
+  "Retrying in {seconds} seconds…": "{seconds} 秒后自动重试…",
+  "Automatic retry stopped after 3 attempts.": "自动重试 3 次后仍未恢复，已停止重试。",
   "Approval reply submitted; waiting for confirmation": "审批答复已提交，等待后台确认",
   "Action failed. Check the session before retrying.": "操作失败，请核对原会话后再试",
   "Choose attachments": "选择附件",

@@ -52,6 +52,10 @@ const native = new CodexOfficeClient({
 store = new CodexOfficeStore(directory, native, changed, id => Boolean(voice?.active?.threadId === id || controls?.state(id).activeTurnId || workspace?.snapshot(id)?.running || workspace?.starts.has(id)));
 controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features,
   changed: id => { stream?.changed(id); changed(); },
+  recovery: {
+    read: id => store.data.sessions.find(row => row.id === id)?.recovery,
+    write: (id, recovery) => { const row = store.data.sessions.find(row => row.id === id); if (row) { row.recovery = recovery; store.save(); } },
+  },
   canRetry: async id => !stopping && native.ready && !store.isBusy(id) && !store.starting.has(id)
     && !store.pendingQuestions(id).length && !controls.snapshot(id).approvalCount && !controls.questions(id).some(q => !q.submitted)
     && (await account()).loggedIn,
@@ -235,13 +239,14 @@ async function close(code = 0) {
 }
 for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => void close());
 async function restoreSessionStates() {
-  // Stored turn reads restore status without loading chats or starting work.
+  // Reconcile the original native turn before recovering a failed/interrupted
+  // task. Stop intent and the retry budget persist across gateway restarts.
   const rows = store.list().filter(row => row.codexThreadId);
   let next = 0;
   await Promise.all(Array.from({ length: Math.min(4, rows.length) }, async () => {
     while (next < rows.length && !stopping) {
       const row = rows[next++];
-      try { await controls.refreshTurn(row.id); stream.changed(row.id); }
+      try { await controls.recover(row.id); stream.changed(row.id); }
       catch (error) { console.warn(`Could not restore Office session status ${row.id}: ${error.message}`); }
     }
   }));
