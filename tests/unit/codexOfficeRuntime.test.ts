@@ -140,6 +140,36 @@ describe("independent Office runtime", () => {
     await f.store.call("thread/turns/list", { threadId: id, limit: 1, itemsView: "notLoaded", sortDirection: "desc" });
     expect(f.store.list()[0]).toMatchObject({ status: "running", turnStatus: "inProgress", lastTurnId: "new" });
   });
+  it("persists the automatic recovery budget in Office state across store and controller reconstruction", async () => {
+    vi.useFakeTimers();
+    const f = fixture(), id = await session(f);
+    let store = f.store, controls: InstanceType<typeof CodexSessionControls>;
+    Object.assign(store.get(id), { codexThreadId: "native-own-thread", hasTurns: true });
+    let latest = { id: "initial", status: "failed", error: { message: "Any provider failure" } }, starts = 0;
+    const emit = () => controls.handle(store.handle({ method: latest.status === "inProgress" ? "turn/started" : "turn/completed", params: { threadId: "native-own-thread", turn: latest } }));
+    const makeControls = () => new CodexSessionControls(store, () => [], { recovery: {
+      read: () => store.get(id).recovery,
+      write: (_id: string, recovery: unknown) => { store.get(id).recovery = recovery; store.save(); },
+    } });
+    f.client.call.mockImplementation(async method => {
+      if (method === "thread/turns/list") return { data: [latest] };
+      if (method === "turn/start") { latest = { ...latest, id: `retry-${++starts}`, status: "inProgress" }; emit(); return { turn: latest }; }
+      return {};
+    });
+    controls = makeControls();
+    try {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        await controls.recover(id); await vi.advanceTimersByTimeAsync(15000);
+        expect(starts).toBe(attempt);
+        latest = { ...latest, status: "failed" }; emit(); controls.close();
+        expect(JSON.parse(readFileSync(store.file, "utf8")).sessions[0].recovery.attempts).toBe(attempt);
+        store = new CodexOfficeStore(f.directory, f.client); controls = makeControls();
+      }
+      await controls.recover(id); await vi.advanceTimersByTimeAsync(60000);
+      expect(starts).toBe(3); expect(controls.snapshot(id).retryExhausted).toBe(true);
+      expect(f.client.call.mock.calls.filter(([m]) => m === "turn/start").every(([, p]) => JSON.stringify(p).includes("native-own-thread"))).toBe(true);
+    } finally { controls.close(); vi.useRealTimers(); }
+  });
   it("isolates state and strips inherited App connection overrides without changing the parent environment", () => {
     const f = fixture(), foreign = path.join(f.root, "native"); mkdirSync(foreign); writeFileSync(path.join(foreign, "sentinel"), "unchanged");
     const environment = { PATH: "/bin", CODEX_HOME: foreign, CODEX_SQLITE_HOME: foreign, CODEX_APP_SERVER_WS_URL: "ws://old", CODEX_ORIGINATOR_OVERRIDE: "native-app", CLAW3D_CODEX_CONTROL_SOCKET: "/old.sock", BROWSER_USE_ACCESS_PIPE_PATH: "/app-browser.sock", NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S: "app-tool-identity", OPENAI_API_KEY: "feature-api-test-key" };

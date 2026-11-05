@@ -263,14 +263,24 @@ without falling back to a paid API or attaching to the native App.
 
 ## Reproduce validation
 
-Capacity failures (`serverOverloaded`, `policyCapacityUnavailable`, or the known
-"Selected model is at capacity" error) receive one gateway-owned continuation
-after 15 seconds. Another confirmed capacity failure starts another 15-second
-wait. The timer survives closing the chat, shows a cancellable countdown, and
-keeps the worker in the working state. Stop, a new user message, or a new turn
-cancels it. Authentication, quota, policy and ambiguous transport failures are
-not automatically continued. Native in-progress retries remain native; merely
-opening an old failed conversation never restarts its work.
+Confirmed failed or interrupted turns receive a gateway-owned continuation
+after 15 seconds, regardless of error code. Each recovery episode permits at
+most three automatic attempts; success or new user input resets that budget.
+The retry count and explicit Stop intent persist in Office metadata, so a
+gateway restart cannot reset the limit or restart a stopped session. Startup
+reconciles the latest native turns and also recovers existing failed/interrupted
+sessions. Older installations did not record manual Stop intent; it cannot be
+reconstructed retrospectively from an interrupted status alone.
+
+The timer survives closing the chat, shows a cancellable countdown, and keeps
+the worker in the working state. Stop cancels the timer or interrupts its
+in-flight continuation. A new user message or new turn cancels the old timer.
+Every automatic attempt rechecks the same original conversation for a terminal
+turn, available account, no active work, and no pending approval/question. It
+never replays the original user input or attachments. An ambiguous RPC result
+is checked against the latest native turn before another attempt; an active or
+completed turn is never replayed. Native in-progress retries remain native.
+Merely opening a historical conversation does not schedule a continuation.
 
 Run the focused unit tests and TypeScript check, then the opt-in integration:
 
