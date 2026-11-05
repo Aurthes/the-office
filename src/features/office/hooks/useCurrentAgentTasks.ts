@@ -1,10 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
 import type { GatewayClient } from "@/lib/gateway/GatewayClient";
-import { currentTasksByAgent, type RunningTask } from "../operations/agentDirectory";
+import { currentTasksByAgent, type DirectoryTaskSummary } from "../operations/agentDirectory";
 
 export function useCurrentAgentTasks(client: Pick<GatewayClient, "call" | "onEvent">, enabled: boolean, gateway: string) {
-  const [snapshot, setSnapshot] = useState<{ gateway: string; tasks: RunningTask[]; error: string }>({ gateway, tasks: [], error: "" });
+  const [snapshot, setSnapshot] = useState<{ gateway: string; tasks: DirectoryTaskSummary[]; error: string }>({ gateway, tasks: [], error: "" });
   useEffect(() => {
     if (!enabled) return;
     let stopped = false, loading = false, again = false;
@@ -13,10 +13,10 @@ export function useCurrentAgentTasks(client: Pick<GatewayClient, "call" | "onEve
       if (loading) { again = true; return; }
       loading = true;
       try {
-        const tasks: RunningTask[] = [];
+        const tasks: DirectoryTaskSummary[] = [];
         let total = 0;
         do {
-          const page = await client.call<{ todos: RunningTask[]; total: number }>("todo.list", { status: "running", offset: tasks.length, limit: 25 });
+          const page = await client.call<{ todos: DirectoryTaskSummary[]; total: number }>("todo.list", { status: "all", offset: tasks.length, limit: 25 });
           if (stopped) return;
           if (!Array.isArray(page.todos)) throw new Error("Current tasks are unavailable.");
           tasks.push(...page.todos); total = page.total;
@@ -24,7 +24,7 @@ export function useCurrentAgentTasks(client: Pick<GatewayClient, "call" | "onEve
         } while (tasks.length < total);
         if (!stopped) setSnapshot({ gateway, tasks, error: "" });
       } catch {
-        if (!stopped) setSnapshot({ gateway, tasks: [], error: "Current tasks are unavailable." });
+        if (!stopped) setSnapshot(previous => ({ gateway, tasks: previous.gateway === gateway ? previous.tasks : [], error: "Current tasks are unavailable." }));
       } finally {
         loading = false;
         if (again && !stopped) { again = false; void load(); }
@@ -36,5 +36,5 @@ export function useCurrentAgentTasks(client: Pick<GatewayClient, "call" | "onEve
     void load();
     return () => { stopped = true; off(); clearTimeout(timer); window.removeEventListener("focus", refresh); };
   }, [client, enabled, gateway]);
-  return { tasks: currentTasksByAgent(enabled && snapshot.gateway === gateway ? snapshot.tasks : []), error: enabled && snapshot.gateway === gateway ? snapshot.error : "" };
+  return { tasks: currentTasksByAgent(snapshot.gateway === gateway ? snapshot.tasks : []), error: enabled && snapshot.gateway === gateway ? snapshot.error : "" };
 }

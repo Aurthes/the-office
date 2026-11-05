@@ -4,8 +4,8 @@ import type { ChatRosterEntry } from "./chatRoster";
 
 export type AgentDirectoryView = "project" | "activity" | "organization";
 export type CurrentAgentTask = { id: string; title: string; code: string };
-export type DirectoryAgent = ChatRosterEntry & { color: string; avatarProfile?: AgentAvatarProfile | null; task?: CurrentAgentTask };
-export type RunningTask = { id: string; title: string; assigneeId: string | null; status: string; archived: boolean };
+export type DirectoryAgent = ChatRosterEntry & { color: string; avatarProfile?: AgentAvatarProfile | null; tasks?: CurrentAgentTask[] };
+export type DirectoryTaskSummary = { id: string; title: string; assigneeId: string | null; status: string; archived: boolean };
 
 // A title such as "Agent View Compression (AVC)" explicitly supplies its code.
 // Other titles use initials, or a short readable title for languages without spaces.
@@ -18,11 +18,15 @@ export function taskCode(title: string): string {
   return chars.slice(0, 8).join("") + (chars.length > 8 ? "…" : "");
 }
 
-export function currentTasksByAgent(tasks: RunningTask[]): Map<string, CurrentAgentTask> {
-  const result = new Map<string, CurrentAgentTask>();
+// Assignment lasts until completion, archive or reassignment, including pauses.
+export function currentTasksByAgent(tasks: DirectoryTaskSummary[]): Map<string, CurrentAgentTask[]> {
+  const result = new Map<string, CurrentAgentTask[]>();
   for (const task of tasks) {
-    if (task.status !== "running" || task.archived || !task.assigneeId || result.has(task.assigneeId)) continue;
-    result.set(task.assigneeId, { id: task.id, title: task.title, code: taskCode(task.title) });
+    if (task.status === "done" || task.archived || !task.assigneeId) continue;
+    const assigned = result.get(task.assigneeId) || [];
+    if (assigned.some(existing => existing.id === task.id)) continue;
+    assigned.push({ id: task.id, title: task.title, code: taskCode(task.title) });
+    result.set(task.assigneeId, assigned);
   }
   return result;
 }

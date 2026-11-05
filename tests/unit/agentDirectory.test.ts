@@ -11,7 +11,7 @@ vi.mock("@/features/ring-ship/characterPortrait", () => ({ characterPortrait: vi
 beforeEach(() => setUiLanguage("en"));
 afterEach(cleanup);
 const agents: DirectoryAgent[] = [
-  { id: "worker", name: "Worker 3", color: "#ffcc00", activity: getAgentActivity({ status: "working" }), hasPendingSchedule: true, updatedAt: 100, projectId: "office", projectName: "Office", task: { id: "avc", title: "Agent View Compression (AVC)", code: "AVC" } },
+  { id: "worker", name: "Worker 3", color: "#ffcc00", activity: getAgentActivity({ status: "working" }), hasPendingSchedule: true, updatedAt: 100, projectId: "office", projectName: "Office", tasks: [{ id: "avc", title: "Agent View Compression (AVC)", code: "AVC" }] },
   { id: "head", name: "Ranger", color: "#00cccc", activity: getAgentActivity({ status: "idle", needsInput: true }), updatedAt: 200, projectId: "office", projectName: "Office" },
   { id: "review", name: "Reviewer", color: "#cc00cc", activity: getAgentActivity({ status: "idle", needsReview: true }), updatedAt: 50, projectId: null, projectName: "Open Workspace" },
 ];
@@ -60,13 +60,43 @@ it("keeps ancestor paths when searching by a task code and lets branches collaps
   expect(within(tree).getAllByRole("button", { name: "Open session: Worker 3" })).toHaveLength(2);
   expect(within(tree).getByLabelText("Also reports here")).toBeTruthy();
 });
-it("uses real running task bindings and readable codes without reviving old or unassigned work", () => {
+it("keeps all open assignments including queued and paused work, excluding completed, archived and unassigned work", () => {
   const task = { id: "avc", title: "Agent View Compression (AVC)", status: "running", archived: false, assigneeId: "worker" };
-  const result = currentTasksByAgent([task, { ...task, id: "paused", status: "paused", assigneeId: "head" }, { ...task, id: "archived", archived: true, assigneeId: "review" }, { ...task, id: "orphan", assigneeId: null }]);
-  expect([...result.keys()]).toEqual(["worker"]);
-  expect(result.get("worker")).toEqual({ id: "avc", title: task.title, code: "AVC" });
+  const result = currentTasksByAgent([task, task, { ...task, id: "paused", status: "paused" }, { ...task, id: "queued", status: "queued", assigneeId: "head" }, { ...task, id: "done", status: "done" }, { ...task, id: "archived", archived: true }, { ...task, id: "orphan", assigneeId: null }]);
+  expect([...result.keys()]).toEqual(["worker", "head"]);
+  expect(result.get("worker")?.map(task => task.id)).toEqual(["avc", "paused"]);
+  expect(result.get("head")).toEqual([{ id: "queued", title: task.title, code: "AVC" }]);
   expect(taskCode("Background Music Theme")).toBe("BMT");
   expect(taskCode("整理实验数据")).toBe("整理实验数据");
+});
+it.each(["project", "activity", "organization"] as const)("keeps idle agents' assignments accessible and searchable in %s", view => {
+  const { props, rerender } = fixture(view);
+  const assigned = [...agents[0].tasks!, { id: "sync", title: "Server Sync (SYNC)", code: "SYNC" }];
+  const idle = { ...agents[0], activity: getAgentActivity({ status: "idle" }), tasks: assigned };
+  rerender(createElement(AgentDirectory, { ...props, agents: [idle, ...agents.slice(1)] }));
+  const trigger = screen.getAllByRole("button", { name: "Tasks assigned to Worker 3: 2" })[0];
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  expect(screen.queryByRole("group", { name: "Tasks assigned to Worker 3" })).toBeNull();
+  fireEvent.click(trigger);
+  // Shared reporting references must not open a second copy of the list.
+  const list = screen.getByRole("group", { name: "Tasks assigned to Worker 3" });
+  expect(within(list).getAllByRole("button")).toHaveLength(2);
+  fireEvent.keyDown(list, { key: "Escape" });
+  expect(document.activeElement).toBe(trigger);
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole("button", { name: "Open task: Server Sync (SYNC)" }));
+  expect(props.onOpenTask).toHaveBeenCalledWith("sync");
+  expect(props.onOpenChat).not.toHaveBeenCalled();
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  rerender(createElement(AgentDirectory, { ...props, agents: [idle, ...agents.slice(1)], search: "SYNC" }));
+  expect(screen.getAllByRole("button", { name: "Tasks assigned to Worker 3: 2" }).length).toBeGreaterThan(0);
+  expect(screen.queryByRole("button", { name: "Open session: Reviewer" })).toBeNull();
+  rerender(createElement(AgentDirectory, { ...props, agents: [idle], search: "", view: "activity" }));
+  fireEvent.click(screen.getByRole("button", { name: "Tasks assigned to Worker 3: 2" }));
+  rerender(createElement(AgentDirectory, { ...props, agents: [{ ...idle, tasks: [assigned[0]] }], search: "", view: "activity" }));
+  expect(screen.getByRole("button", { name: "Open task: Agent View Compression (AVC)" })).toBeTruthy();
+  expect(screen.queryByRole("group", { name: "Tasks assigned to Worker 3" })).toBeNull();
 });
 it("retains every reporting edge and unconfigured session, with bounded references for shared subtrees", () => {
   const people = [...organization.people, { id: "newbie", name: "Newbie", title: "Worker", department: "Office", departmentId: "office", reportsTo: ["worker"] }];

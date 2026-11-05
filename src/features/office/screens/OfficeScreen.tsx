@@ -3149,7 +3149,7 @@ export function OfficeScreen({
   const currentTasks = useCurrentAgentTasks(client, sessionView && chatOpen && status === "connected", gatewayUrl);
   const directoryAgents = useMemo<DirectoryAgent[]>(() => {
     const agents = new Map(allVisibleAgents.map(agent => [agent.id, agent]));
-    return chatRosterEntries.map(entry => ({ ...entry, color: agents.get(entry.id)!.color, avatarProfile: agents.get(entry.id)?.avatarProfile, task: currentTasks.tasks.get(entry.id) }));
+    return chatRosterEntries.map(entry => ({ ...entry, color: agents.get(entry.id)!.color, avatarProfile: agents.get(entry.id)?.avatarProfile, tasks: currentTasks.tasks.get(entry.id) }));
   }, [chatRosterEntries, allVisibleAgents, currentTasks.tasks]);
   const changeDirectoryView = (view: AgentDirectoryView) => {
     setDirectoryView(view); setChatRosterCollapsed(false);
