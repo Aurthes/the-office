@@ -19,11 +19,25 @@ directory resolution when that variable is unset. `sources.json` contains:
 ```json
 {
   "clips": [
-    { "id": "call-1", "file": "call-1.mp3" },
-    { "id": "call-2", "file": "call-2.mp3" }
+    { "id": "call-1", "file": "call-1.mp3", "group": "focus" },
+    { "id": "result-1", "file": "result-1.mp3", "group": "review" },
+    { "id": "input-1", "file": "input-1.mp3", "group": "waiting" },
+    { "id": "error-1", "file": "error-1.mp3", "group": "error" }
   ]
 }
 ```
+
+`focus` is the normal selected-character pool and the default for older clips
+without a group. `review` plays for a new yellow question mark, `waiting` for a
+new yellow exclamation mark, and `error` for a new red exclamation mark. Each
+event picks a random clip only from its group, without an immediate repeat when
+there is a choice. A missing group stays silent instead of using another sound.
+
+Status calls work without character focus, including in background tabs, after
+the browser's first interaction. The first populated roster is a baseline;
+unchanged markers and temporary empty rosters do not replay notifications.
+Simultaneous changes produce one call, preferring error, then input, then review.
+Status calls interrupt ordinary calls and share their mute control and player.
 
 Files must be direct children of this directory, in MP3, WAV or Ogg format.
 Preserve source/rights information in the private manifest as appropriate. No

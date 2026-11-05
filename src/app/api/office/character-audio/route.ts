@@ -10,11 +10,13 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const directory = path.join(resolveStateDir(), "claw3d", "character-audio");
   try {
-    const manifest = JSON.parse(await fs.readFile(path.join(directory, "sources.json"), "utf8")) as { clips: Array<{ id: string; file: string }> };
+    const manifest = JSON.parse(await fs.readFile(path.join(directory, "sources.json"), "utf8")) as { clips: Array<{ id: string; file: string; group?: string }> };
     const clips = await Promise.all(manifest.clips.map(async clip => {
       if (typeof clip.id !== "string" || typeof clip.file !== "string" || path.basename(clip.file) !== clip.file || !/\.(mp3|wav|ogg)$/i.test(clip.file)) throw new Error("Invalid clip");
+      const group = clip.group ?? "focus";
+      if (!["focus", "review", "waiting", "error"].includes(group)) throw new Error("Invalid clip group");
       const bytes = await fs.readFile(path.join(directory, clip.file));
-      return { id: clip.id, base64: bytes.toString("base64") };
+      return { id: clip.id, group, base64: bytes.toString("base64") };
     }));
     return Response.json({ clips }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

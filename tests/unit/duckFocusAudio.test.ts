@@ -10,7 +10,12 @@ function harness() {
   vi.useFakeTimers();
   let hidden = false;
   vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
-  const clips = [1, 2, 3, 4].map(sample => ({ id: String(sample), base64: btoa(String.fromCharCode(sample)) }));
+  // Sample numbers match the preview: short/focus, review, waiting, error,
+  // followed by the four original focus calls.
+  const clips = Array.from({ length: 16 }, (_, index) => index + 1).map(sample => ({
+    id: String(sample), base64: btoa(String.fromCharCode(sample)),
+    group: sample <= 2 || sample >= 13 ? "focus" : sample <= 6 ? "review" : sample <= 10 ? "waiting" : "error",
+  }));
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ clips }) })));
   class Source {
     buffer: Buffer | null = null;
@@ -117,10 +122,12 @@ it("quacks once for each new yellow marker without focus or periodic repeats", a
   expect(engine.sources).toHaveLength(0);
   view.rerender({ agents: [worker({ status: "working", needsInput: true })] }); await h.settle();
   expect(engine.sources).toHaveLength(1); expect(engine.sources[0].start).toHaveBeenCalledOnce();
+  expect([7, 8, 9, 10]).toContain(engine.sources[0].buffer?.sample);
   view.rerender({ agents: [worker({ status: "working", needsInput: true })] }); await h.settle();
   expect(engine.sources).toHaveLength(1);
   view.rerender({ agents: [worker({ needsReview: true })] }); await h.settle();
   expect(engine.sources).toHaveLength(2); expect(engine.sources[0].stop).toHaveBeenCalledOnce();
+  expect([3, 4, 5, 6]).toContain(engine.sources[1].buffer?.sample);
   act(() => engine.sources[1].finish());
   await h.advance(60_000); expect(engine.sources).toHaveLength(2);
 });
@@ -138,7 +145,7 @@ it("baselines the first populated roster and does not replay markers after trans
   expect(engine.sources).toHaveLength(1);
 });
 
-it("alerts in background tabs for yellow markers and stays silent for red errors", async () => {
+it("alerts in background tabs for yellow markers and red errors", async () => {
   const h = harness();
   const view = renderHook(({ agents }) => useDuckFocusAudio(null, agents), { initialProps: { agents: [worker()] } });
   await h.settle(); await h.unlock(); const engine = h.engines[0]; h.visibility(true);
@@ -147,9 +154,57 @@ it("alerts in background tabs for yellow markers and stays silent for red errors
   h.visibility(false); h.visibility(true); expect(engine.sources[0].stop).not.toHaveBeenCalled();
   act(() => engine.sources[0].finish());
   view.rerender({ agents: [worker({ status: "error", needsInput: true, needsReview: true })] }); await h.settle();
-  expect(engine.sources).toHaveLength(1);
-  view.rerender({ agents: [worker({ needsReview: true })] }); await h.settle();
   expect(engine.sources).toHaveLength(2);
+  expect([11, 12]).toContain(engine.sources[1].buffer?.sample);
+  view.rerender({ agents: [worker({ status: "error", needsInput: true, needsReview: true })] }); await h.settle();
+  expect(engine.sources).toHaveLength(2);
+  view.rerender({ agents: [worker({ needsReview: true })] }); await h.settle();
+  expect(engine.sources).toHaveLength(3);
+});
+
+it.each([
+  { kind: "review", patch: { needsReview: true }, random: 0, sample: 3 },
+  { kind: "review", patch: { needsReview: true }, random: .999, sample: 6 },
+  { kind: "waiting", patch: { needsInput: true }, random: 0, sample: 7 },
+  { kind: "waiting", patch: { needsInput: true }, random: .999, sample: 10 },
+  { kind: "error", patch: { status: "error" as const }, random: 0, sample: 11 },
+  { kind: "error", patch: { status: "error" as const }, random: .999, sample: 12 },
+])("selects only the $kind group at random=$random", async ({ patch, random, sample }) => {
+  const h = harness(); vi.spyOn(Math, "random").mockReturnValue(random);
+  const view = renderHook(({ agents }) => useDuckFocusAudio(null, agents), { initialProps: { agents: [worker()] } });
+  await h.settle(); await h.unlock();
+  view.rerender({ agents: [worker(patch)] }); await h.settle();
+  expect(h.engines[0].sources).toHaveLength(1);
+  expect(h.engines[0].sources[0].buffer?.sample).toBe(sample);
+});
+
+it.each([1, 2, 13, 14, 15, 16])("includes preview clip %i in normal calls without using status sounds", async sample => {
+  const h = harness(), pool = [1, 2, 13, 14, 15, 16];
+  vi.spyOn(Math, "random").mockReturnValue((pool.indexOf(sample) + .01) / pool.length);
+  renderHook(() => useDuckFocusAudio("worker")); await h.settle(); await h.unlock();
+  expect(h.engines[0].sources[0].buffer?.sample).toBe(sample);
+});
+
+it.each([false, true])("prefers an error over simultaneous yellow markers, reversed roster=%s", async reversed => {
+  const h = harness(); vi.spyOn(Math, "random").mockReturnValue(0);
+  const idle = ["review", "error", "waiting"].map(id => worker({ id }));
+  const view = renderHook(({ agents }) => useDuckFocusAudio(null, agents), { initialProps: { agents: idle } });
+  await h.settle(); await h.unlock();
+  const next = [worker({ id: "review", needsReview: true }), worker({ id: "error", status: "error" }), worker({ id: "waiting", needsInput: true })];
+  view.rerender({ agents: reversed ? next.reverse() : next }); await h.settle();
+  expect(h.engines[0].sources).toHaveLength(1);
+  expect(h.engines[0].sources[0].buffer?.sample).toBe(11);
+});
+
+it("keeps legacy calls in the normal pool and does not substitute them for missing status sounds", async () => {
+  const h = harness();
+  const clips = h.clips.filter(clip => clip.group === "focus").map(({ id, base64 }) => ({ id, base64 }));
+  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ clips }) })));
+  const view = renderHook(({ agents }) => useDuckFocusAudio("worker", agents), { initialProps: { agents: [worker()] } });
+  await h.settle(); await h.unlock();
+  view.rerender({ agents: [worker({ needsInput: true })] }); await h.settle();
+  const engine = h.engines[0]; expect(engine.sources).toHaveLength(1);
+  expect(engine.sources[0].stop).not.toHaveBeenCalled();
 });
 
 it("respects gesture unlock and mute without delayed catch-up alerts", async () => {
