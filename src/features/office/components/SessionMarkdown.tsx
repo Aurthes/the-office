@@ -2,8 +2,8 @@
 import { memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { createPortal } from "react-dom";
-import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { defaultUrlTransform, type Components } from "react-markdown";
+import { ChatMarkdown } from "@/components/chat-markdown";
 import type { SessionAsset } from "./SessionControls";
 import { visibleUserText } from "@/lib/text/codex-visible-text";
 import { useUiText } from "@/lib/i18n/ui-language";
@@ -147,7 +147,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({ content, assets =
     {user && attachments.length ? <div className="session-user-attachments flex flex-wrap justify-end gap-2">{attachments}</div> : null}
     {(!user || text.trim()) ? <div ref={textRef} className={user ? `session-user-text${collapsible ? " session-user-text--collapsible" : ""}` : undefined}>
     <div id={textId} className="agent-markdown min-w-0 break-words text-base leading-relaxed [&_a]:text-sky-200 [&_a]:underline [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={transform} components={components}>{excerpt}</ReactMarkdown>
+      <ChatMarkdown urlTransform={transform} components={components}>{excerpt}</ChatMarkdown>
     </div>
     {collapsible ? <button type="button" className="session-message-toggle" aria-expanded={expanded} aria-controls={textId}
       aria-label={t(expanded ? "Collapse message" : "Expand message")} onClick={toggleExpanded}>
