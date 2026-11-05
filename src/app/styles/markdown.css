@@ -9,6 +9,25 @@
   margin: 0;
 }
 
+.agent-markdown .katex {
+  font-size: 1.05em;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.agent-markdown .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 1rem 0;
+  padding: 0.35em 0;
+  text-align: left;
+}
+
+.agent-markdown .katex-display > .katex {
+  text-align: left;
+}
+
 .agent-markdown p + p,
 .agent-markdown ul,
 .agent-markdown ol,

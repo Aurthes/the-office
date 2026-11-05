@@ -11,8 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import type { AgentState as AgentRecord } from "@/features/agents/state/store";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { ChatMarkdown } from "@/components/chat-markdown";
 import { markdownCodeComponents } from "@/components/markdown-code-block";
 import { Check, ChevronRight, Clock, Mic, Paperclip, Pencil, Trash2, X } from "lucide-react";
 import type { GatewayModelChoice } from "@/lib/gateway/models";
@@ -315,9 +314,9 @@ const ToolCallDetails = memo(function ToolCallDetails({
       </summary>
       {open && body ? (
         <div className="agent-markdown agent-tool-markdown mt-1 text-foreground">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownCodeComponents}>
+          <ChatMarkdown components={markdownCodeComponents}>
             {body}
-          </ReactMarkdown>
+          </ChatMarkdown>
         </div>
       ) : null}
     </details>
@@ -391,7 +390,7 @@ const ThinkingDetailsRow = memo(function ThinkingDetailsRow({
                 key={`thinking-event-${index}-${event.text.slice(0, 48)}`}
                 className="agent-markdown min-w-0 text-foreground/85"
               >
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownCodeComponents}>{event.text}</ReactMarkdown>
+                <ChatMarkdown components={markdownCodeComponents}>{event.text}</ChatMarkdown>
               </div>
             ) : (
               <ToolCallDetails
@@ -427,7 +426,7 @@ const UserMessageCard = memo(function UserMessageCard({
         ) : null}
       </div>
       <div className="agent-markdown type-body px-3 py-3 text-foreground dark:px-3.5 dark:py-3.5">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownCodeComponents}>{text}</ReactMarkdown>
+        <ChatMarkdown components={markdownCodeComponents}>{text}</ChatMarkdown>
       </div>
     </div>
   );
@@ -560,15 +559,15 @@ const AssistantMessageCard = memo(function AssistantMessageCard({
                     }
                     return (
                       <div className="agent-markdown text-foreground">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownCodeComponents}>{rewritten}</ReactMarkdown>
+                        <ChatMarkdown components={markdownCodeComponents}>{rewritten}</ChatMarkdown>
                       </div>
                     );
                   })()
                 ) : (
                   <div className="agent-markdown text-foreground">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownCodeComponents}>
+                    <ChatMarkdown components={markdownCodeComponents}>
                       {contentText}
-                    </ReactMarkdown>
+                    </ChatMarkdown>
                   </div>
                 )}
               </div>
