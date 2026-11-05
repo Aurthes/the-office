@@ -129,7 +129,8 @@ class Collector:
         while not self.stop.is_set():
             subscribed, acknowledged, pending = set(), {}, {}
             try:
-                async with connect(url, open_timeout=10, ping_interval=20, ping_timeout=15, max_size=8 * 1024 * 1024, max_queue=64) as ws:
+                headers = {"X-Gate-Size-Decimal": "1"} if exchange == "gate" else None
+                async with connect(url, additional_headers=headers, open_timeout=10, ping_interval=20, ping_timeout=15, max_size=8 * 1024 * 1024, max_queue=64) as ws:
                     last_ping, counter = 0, 0
                     while not self.stop.is_set():
                         wanted = {i["native"]: i for i in self.instruments.values() if (i["exchange"], i["category"]) == (exchange, category)}

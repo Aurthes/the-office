@@ -30,6 +30,9 @@ or loss of either feed invalidate coverage. Matching checks timestamps and
 notional, handles either arrival order, and rejects unmatched filtered records.
 This estimate depends on the filtered feed retaining its observed semantics.
 The monitor does not treat `is_internal` as RPI.
+Gate REST and WebSocket connections request `X-Gate-Size-Decimal: 1`.
+Without this header, fractional contract quantities can truncate to zero, which
+corrupts both notional and execution counts. Preserve it on every reconnect.
 
 Only hours observed from start to end, with complete account synchronization and
 known order classes, show participation after a 120-second settlement window.
