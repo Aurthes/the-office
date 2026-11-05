@@ -5,6 +5,15 @@ import { OfficeOnboarding } from "@/features/onboarding/components/OfficeOnboard
 import { CompanyActions } from "@/features/office/components/CompanyActions";
 import { OfficeCodexAccount } from "@/features/office/components/OfficeCodexAccount";
 afterEach(cleanup);
+it("forces a fresh account read only for an explicit retry",async()=>{
+ let notify!:(value:{event:string})=>void;
+ const call=vi.fn().mockRejectedValueOnce(new Error("Unavailable")).mockResolvedValue({loggedIn:true});
+ const client={call,onEvent:(listener:typeof notify)=>{notify=listener;return()=>{};}};
+ render(React.createElement(OfficeCodexAccount,{client,quiet:true}));
+ fireEvent.click(await screen.findByRole("button",{name:"Retry"}));await act(async()=>{});
+ expect(call.mock.calls).toEqual([["office.account",{}],["office.account",{refresh:true}]]);
+ await act(async()=>notify({event:"office.account"}));expect(call).toHaveBeenLastCalledWith("office.account",{});
+});
 it("reads the shared account once on mount and checks again on reconnect or account changes",async()=>{
  let status!: (value:"connected"|"disconnected")=>void,notify!: (value:{event:string})=>void;
  const call=vi.fn(async()=>({loggedIn:true}));

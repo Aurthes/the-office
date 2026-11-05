@@ -362,11 +362,13 @@ function createGatewayProxy(options) {
       });
 
       upstreamWs.on("message", (upRaw) => {
-        const upParsed = safeJsonParse(String(upRaw ?? ""));
-        if (upParsed && isObject(upParsed) && upParsed.type === "res") {
-          const resId = typeof upParsed.id === "string" ? upParsed.id : "";
-          if (resId && connectRequestId && resId === connectRequestId) {
-            connectResponseSent = true;
+        if (!connectResponseSent) {
+          const upParsed = safeJsonParse(String(upRaw ?? ""));
+          if (upParsed && isObject(upParsed) && upParsed.type === "res") {
+            const resId = typeof upParsed.id === "string" ? upParsed.id : "";
+            if (resId && connectRequestId && resId === connectRequestId) {
+              connectResponseSent = true;
+            }
           }
         }
         if (browserWs.readyState === WebSocket.OPEN) {

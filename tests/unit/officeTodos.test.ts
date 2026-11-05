@@ -18,6 +18,17 @@ function fixture() {
   return { directory, todos, deps, create, change, projects, agents, advance: (ms: number) => { now += ms; } };
 }
 describe("central Office task records", () => {
+  it("builds the roster once per list while preserving live and historical display names", () => {
+    const f = fixture(); for (let i = 0; i < 25; i++) f.create({ title: `Task ${i}` });
+    const agents = vi.spyOn(f.todos, "agents"), projects = vi.spyOn(f.todos, "projects");
+    const result = f.todos.list({});
+    expect(result.todos).toHaveLength(25); expect(agents).toHaveBeenCalledTimes(1); expect(projects).toHaveBeenCalledTimes(1);
+    expect(result.todos.every((row: { assigneeName: string; departmentName: string; assigneeAvailable: boolean }) => row.assigneeName === "Alice" && row.departmentName === "Alpha" && row.assigneeAvailable)).toBe(true);
+    f.agents.splice(0, 1); f.projects[0].name = "Renamed";
+    const later = f.todos.list({});
+    expect(later.todos.every((row: { assigneeName: string; departmentName: string; assigneeAvailable: boolean }) => row.assigneeName === "Alice" && row.departmentName === "Renamed" && !row.assigneeAvailable)).toBe(true);
+    expect(agents).toHaveBeenCalledTimes(2);
+  });
   it("times phases, advances automatically, pauses and reopens without losing elapsed work", () => {
     const f = fixture(), row = f.create();
     expect(f.todos.get({ id: row.id }).todo.elapsedMs).toBe(0);

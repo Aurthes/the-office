@@ -25,26 +25,60 @@ const definitions = [
   ["restore", "Restore an archived unfinished to-do. Completed work stays archived: add or reopen a phase to follow up.", ["id", "revision", "actorId"], ["id", "revision", "actorId"]],
 ];
 const tools = definitions.map(([name, description, keys, required]) => ({ name: `todo_${name}`, description, annotations: { readOnlyHint: ["list", "get"].includes(name), destructiveHint: false, openWorldHint: false }, inputSchema: { type: "object", properties: Object.fromEntries(keys.map(key => [key, properties[key]])), required, additionalProperties: false } }));
-function gateway(method, params) {
-  return new Promise((resolve, reject) => {
-    const address = process.env.OFFICE_TASK_GATEWAY_URL, token = process.env.OFFICE_TASK_GATEWAY_TOKEN;
-    if (!address || !token) return reject(new Error("Office task service is unavailable"));
-    const ws = new WebSocket(address), id = "call", auth = "auth";
-    const timer = setTimeout(() => finish(new Error("Office task request timed out; read its outcome before retrying")), 20000);
-    let settled = false;
-    function finish(error, value) { if (settled) return; settled = true; clearTimeout(timer); ws.close(); if (error) reject(error); else resolve(value); }
-    ws.on("open", () => ws.send(JSON.stringify({ type: "req", id: auth, method: "connect", params: { auth: { token } } })));
-    ws.on("message", raw => {
+function createGatewayClient({ address = process.env.OFFICE_TASK_GATEWAY_URL, token = process.env.OFFICE_TASK_GATEWAY_TOKEN, timeoutMs = 20000 } = {}) {
+  let connection, serial = 0, closed = false;
+  function retire(current, error) {
+    if (current.closed) return;
+    current.closed = true;
+    if (connection === current) connection = null;
+    for (const request of current.pending.values()) { clearTimeout(request.timer); request.reject(error); }
+    current.pending.clear(); current.ws.terminate();
+  }
+  function send(current, frame) {
+    try { current.ws.send(JSON.stringify(frame), error => { if (error) retire(current, new Error("Office task service is disconnected")); }); }
+    catch { retire(current, new Error("Office task service is disconnected")); }
+  }
+  function dispatch(current, request) {
+    if (request.sent || !current.ready || current.closed) return;
+    request.sent = true; send(current, request.frame);
+  }
+  function connect() {
+    const current = { ws: new WebSocket(address), pending: new Map(), ready: false, closed: false };
+    current.ws.on("open", () => send(current, { type: "req", id: "auth", method: "connect", params: { auth: { token } } }));
+    current.ws.on("message", raw => {
       let frame; try { frame = JSON.parse(String(raw)); } catch { return; }
-      if (frame.type !== "res") return;
-      if (!frame.ok) return finish(new Error(frame.error?.message || "Office request failed"));
-      if (frame.id === auth) ws.send(JSON.stringify({ type: "req", id, method, params }));
-      else if (frame.id === id) finish(null, frame.payload);
+      if (current.closed || frame.type !== "res") return;
+      if (frame.id === "auth" && !current.ready) {
+        if (!frame.ok) return retire(current, new Error(frame.error?.message || "Office request failed"));
+        current.ready = true;
+        for (const request of current.pending.values()) dispatch(current, request);
+        return;
+      }
+      const request = current.pending.get(frame.id);
+      if (!request) return;
+      current.pending.delete(frame.id); clearTimeout(request.timer);
+      if (frame.ok) request.resolve(frame.payload);
+      else request.reject(new Error(frame.error?.message || "Office request failed"));
     });
-    ws.on("error", () => finish(new Error("Office task service is disconnected")));
-    ws.on("close", () => finish(new Error("Office task connection closed; read the outcome before retrying")));
-  });
+    current.ws.on("error", () => retire(current, new Error("Office task service is disconnected")));
+    current.ws.on("close", () => retire(current, new Error("Office task connection closed; read the outcome before retrying")));
+    return current;
+  }
+  return {
+    call(method, params) {
+      return new Promise((resolve, reject) => {
+        if (closed || !address || !token) return reject(new Error("Office task service is unavailable"));
+        const current = connection || (connection = connect()), id = `call-${++serial}`;
+        const request = { resolve, reject, frame: { type: "req", id, method, params } };
+        request.timer = setTimeout(() => retire(current, new Error("Office task request timed out; read its outcome before retrying")), timeoutMs);
+        current.pending.set(id, request); dispatch(current, request);
+      });
+    },
+    close() { closed = true; if (connection) retire(connection, new Error("Office task service is disconnected")); },
+  };
 }
+let bridge;
+function gateway(method, params) { return (bridge ||= createGatewayClient()).call(method, params); }
 async function handle(frame) {
   if (frame.method === "initialize") return { protocolVersion: frame.params?.protocolVersion || "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "office_tasks", version: "1" } };
   if (frame.method === "ping") return {};
@@ -62,6 +96,6 @@ if (require.main === module) {
     let frame; try { frame = JSON.parse(line); } catch { return; }
     if (frame.id === undefined) return;
     void handle(frame).then(result => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: frame.id, result }) + "\n"), error => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: frame.id, error: { code: -32601, message: error.message } }) + "\n"));
-  });
+  }).on("close", () => bridge?.close());
 }
-module.exports = { tools, handle };
+module.exports = { tools, handle, createGatewayClient };

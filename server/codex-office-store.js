@@ -180,7 +180,7 @@ class CodexOfficeStore {
           mapped.includeStartupContext = false;
           mapped.initialItems = [{ role: "developer", text: clipText(contextText, 4000).content }, ...recent];
         }
-        row.attemptedTurn = true; this.save();
+        if (!row.attemptedTurn) { row.attemptedTurn = true; this.save(); }
       }
       // Reuse the first latest-turn read to recover questions from public history
       // for Office rows created before structured questions were supported.

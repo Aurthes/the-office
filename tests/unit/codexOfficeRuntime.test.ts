@@ -28,6 +28,17 @@ async function session(f: ReturnType<typeof fixture>) {
   return (await f.store.createSession({ name: "Own chat", projectId: project.id, requestId: "session" })).threadId;
 }
 describe("independent Office runtime", () => {
+  it("persists the first attempted turn before dispatch but skips unchanged later writes", async () => {
+    const f = fixture(), id = await session(f);
+    const original = f.client.call.getMockImplementation()!;
+    f.client.call.mockImplementation(async (method, params) => {
+      if (method === "turn/start") expect(JSON.parse(readFileSync(path.join(f.directory, "office.json"), "utf8")).sessions.find((row: { id: string }) => row.id === id).attemptedTurn).toBe(true);
+      return original(method, params);
+    });
+    const save = vi.spyOn(f.store, "save");
+    await f.store.call("turn/start", { threadId: id, input: [] }); expect(save.mock.calls.length).toBeGreaterThan(0);
+    save.mockClear(); await f.store.call("turn/start", { threadId: id, input: [] }); expect(save).not.toHaveBeenCalled();
+  });
   it("refreshes task context on an existing thread when work switches without resetting native settings", async () => {
     const f = fixture(), id = await session(f);
     let todoId = "first";

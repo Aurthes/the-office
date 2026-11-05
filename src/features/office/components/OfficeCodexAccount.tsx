@@ -11,7 +11,8 @@ export function OfficeCodexAccount({ client, onAccountChange, quiet = false }: {
   const [browserFlow, setBrowserFlow] = useState(false), [checked, setChecked] = useState(false), [retry, setRetry] = useState(0);
   useEffect(() => {
     let stopped = false;
-    const refresh = () => { void client.call("office.account", {}).then(value => {
+    let forceRefresh = retry > 0;
+    const refresh = () => { const options = forceRefresh ? { refresh: true } : {}; forceRefresh = false; void client.call("office.account", options).then(value => {
       if (!stopped) {
         const account = value as { loggedIn: boolean; loginFlow?: string };
         setRequired(!account.loggedIn); setBrowserFlow(account.loginFlow === "browser"); setChecked(true); setError("");

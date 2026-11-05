@@ -11,7 +11,7 @@ const MAX_AUTO_RETRIES = 3;
 class CodexSessionControls {
   constructor(client, asyncQuestions = () => [], options = {}) { this.client = client; this.asyncQuestions = asyncQuestions; this.options = options; this.states = new Map(); this.requests = new Map(); this.sends = new Map(); this.attaching = new Map(); }
   state(id) {
-    if (!this.states.has(id)) this.states.set(id, { version: 0, turnVersion: 0, activeTurnId: null, activeTurnStartedAt: null, items: new Map(), turnStatus: null, error: null,
+    if (!this.states.has(id)) this.states.set(id, { version: 0, turnVersion: 0, turnStateKnown: false, activeTurnId: null, activeTurnStartedAt: null, items: new Map(), turnStatus: null, error: null,
       recovery: { attempts: 0, stopped: false, ...this.options.recovery?.read(id) } });
     return this.states.get(id);
   }
@@ -64,13 +64,16 @@ class CodexSessionControls {
     if (!this.attaching.has(id)) {
       // Native resume rejoins a loaded thread or restores the same stored
       // thread. Omit overrides so Codex restores its tools and configuration.
-      const pending = this.client.call("thread/resume", { threadId: id, excludeTurns: true }).then(async result => {
+      const entry = { ready: false };
+      entry.pending = this.client.call("thread/resume", { threadId: id, excludeTurns: true }).then(async result => {
         if (!this.state(id).settings) this.saveSettings(id, result);
-        await this.refreshTurn(id); return true;
-      }).catch(error => { this.attaching.delete(id); throw error; });
-      this.attaching.set(id, pending);
+        await this.refreshTurn(id); entry.ready = true;
+      }).catch(error => { if (this.attaching.get(id) === entry) this.attaching.delete(id); throw error; });
+      this.attaching.set(id, entry);
     }
-    await this.attaching.get(id);
+    const entry = this.attaching.get(id), refreshed = !entry.ready;
+    await entry.pending;
+    return refreshed;
   }
   saveSettings(id, result) {
     const settings = this.options.settings ? this.options.settings.current(id, result) : sessionSettings(result);
@@ -102,6 +105,7 @@ class CodexSessionControls {
     // Token usage, questions and item updates do not supersede a turn read.
     // Only a newer turn lifecycle event can make its status obsolete.
     if (state.turnVersion !== version) return;
+    state.turnStateKnown = true;
     const turn = result.data[0];
     state.lastTurnId = turn?.id;
     const sameTurn = state.activeTurnId === turn?.id;
@@ -128,6 +132,7 @@ class CodexSessionControls {
     }
     if (frame.method === "serverRequest/resolved") { this.requests.delete(String(p.requestId)); state.version++; return; }
     if (frame.method === "turn/started") {
+      state.turnStateKnown = true;
       state.turnVersion++;
       // Start notifications can follow their RPC response. They never reset
       // recovery metadata; only explicit new input or successful completion can.
@@ -139,6 +144,7 @@ class CodexSessionControls {
     if (frame.method === "turn/completed") {
       state.turnVersion++;
       if (state.activeTurnId === p.turn.id || (!state.activeTurnId && !state.lastTurnId)) {
+        state.turnStateKnown = true;
         state.lastTurnId = p.turn.id; state.activeTurnId = null; state.activeTurnStartedAt = null; state.turnStatus = p.turn.status; state.error = p.turn.error?.message || null;
         if (p.turn.status === "completed") this.saveRecovery(id, { attempts: 0 });
         this.scheduleRetry(id, p.turn);
@@ -180,6 +186,11 @@ class CodexSessionControls {
     request.submitted = true; this.state(id).version++;
     return { status: "submitted" };
   }
+  approvalCount(id) {
+    let count = 0;
+    for (const request of this.requests.values()) if (request.params.threadId === id && request.method !== "item/tool/requestUserInput") count++;
+    return count;
+  }
   snapshot(id, since = 0) {
     this.requireReady(); const state = this.state(id);
     const questions = []; let questionBytes = 0;
@@ -203,7 +214,7 @@ class CodexSessionControls {
       retryExhausted: !state.retry && !state.recovery.stopped && state.recovery.attempts >= MAX_AUTO_RETRIES && ["failed", "interrupted"].includes(state.turnStatus),
       settings: state.settings, tokenUsage: state.tokenUsage, ...(this.options.features ? { features: { ...this.options.features, ...(this.options.composer ? { chatReferences: this.options.composer.canReference(id) } : {}) } } : {}), items,
       questions,
-      approvalCount: [...this.requests.values()].filter(r => r.params.threadId === id && r.method !== "item/tool/requestUserInput").length,
+      approvalCount: this.approvalCount(id),
       approvals: [...this.requests.values()].filter(r => r.params.threadId === id && r.method !== "item/tool/requestUserInput").slice(0, 2).map(request => {
         const item = state.items.get(`${request.params.turnId}:${request.params.itemId}`);
         const oversized = Buffer.byteLength(JSON.stringify(request.params)) > 8000;
@@ -228,7 +239,10 @@ class CodexSessionControls {
     this.sends.set(requestId, entry);
     if (this.sends.size > 128) this.sends.delete(this.sends.keys().next().value);
     if (!automaticRetry) this.saveRecovery(id, { attempts: 0, stopped: false });
-    await this.attach(id); await this.refreshTurn(id);
+    const refreshed = await this.attach(id);
+    // Live lifecycle notifications keep ordinary sends current. Exceptional
+    // dispatches still verify native state; uncertain outcomes require a read.
+    if (!this.state(id).turnStateKnown || (!refreshed && (automaticRetry || onlyIfIdle || resumeInterrupted))) await this.refreshTurn(id);
     const active = this.state(id).activeTurnId;
     if (automaticRetry) {
       const allowed = !this.options.canRetry || await this.options.canRetry(id);
@@ -249,8 +263,11 @@ class CodexSessionControls {
     const previousTurnId = current.lastTurnId;
     let result;
     if (automaticRetry) current.autoStarting = automaticRetry;
+    current.turnStateKnown = false;
     try {
       result = await this.client.call(active ? "turn/steer" : "turn/start", { threadId: id, input, clientUserMessageId: requestId, ...(active ? { expectedTurnId: active } : this.options.settings?.overrides(id) || {}) });
+    } catch (error) {
+      current.turnStateKnown = false; throw error;
     } finally { if (current.autoStarting === automaticRetry) current.autoStarting = null; }
     const turnId = result.turn?.id || result.turnId;
     const state = this.state(id);
@@ -260,12 +277,14 @@ class CodexSessionControls {
       state.activeTurnStartedAt = Number.isFinite(result.turn?.startedAt) ? result.turn.startedAt * 1000
         : state.activeTurnId === turnId ? state.activeTurnStartedAt : active ? null : submittedAt;
       state.activeTurnId = turnId; state.turnStatus = "inProgress"; state.error = null;
+      state.turnStateKnown = true;
     }
     this.state(id).version++;
     // Stop can arrive after turn/start was sent but before its result. Interrupt
     // that exact returned turn rather than allowing the cancelled retry to run.
     if (automaticRetry?.stopRequested && !automaticRetry.interruptRequested && state.activeTurnId === turnId) {
       automaticRetry.interruptRequested = true;
+      state.turnStateKnown = false;
       await this.client.call("turn/interrupt", { threadId: id, turnId });
     }
     return entry.result = { status: active ? "steered" : "started", turnId };
@@ -275,17 +294,19 @@ class CodexSessionControls {
     const retry = this.state(id).retry || this.state(id).autoStarting;
     if (retry) retry.stopRequested = true;
     this.saveRecovery(id, { stopped: true });
-    this.cancelRetry(id); await this.attach(id); await this.refreshTurn(id);
+    this.cancelRetry(id); if (!await this.attach(id)) await this.refreshTurn(id);
     const turnId = this.state(id).activeTurnId;
     if (!turnId) return { status: "idle" };
     if (retry) retry.interruptRequested = true;
+    this.state(id).turnStateKnown = false;
     await this.client.call("turn/interrupt", { threadId: id, turnId });
     return { status: "interruptRequested", turnId };
   }
   async compact(id) {
-    this.requireReady(); await this.attach(id); await this.refreshTurn(id);
+    this.requireReady(); if (!await this.attach(id)) await this.refreshTurn(id);
     if (this.state(id).activeTurnId) throw new Error("Wait for the current task to finish before compacting");
     this.cancelRetry(id);
+    this.state(id).turnStateKnown = false;
     await this.client.call("thread/compact/start", { threadId: id });
     return { status: "compactionRequested" };
   }

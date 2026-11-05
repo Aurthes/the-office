@@ -5,6 +5,7 @@ const http = require("node:http");
 const crypto = require("node:crypto");
 const { WebSocketServer, WebSocket } = require("ws");
 const { CodexOfficeClient, officeEnvironment } = require("./codex-office-client");
+const { CodexOfficeAccount } = require("./codex-office-account");
 const { CodexOfficeStore } = require("./codex-office-store");
 const { CodexSessionControls } = require("./codex-session-controls");
 const { CodexSessionStream } = require("./codex-session-stream");
@@ -38,6 +39,7 @@ const native = new CodexOfficeClient({
     'mcp_servers.office_tasks.default_tools_approval_mode="auto"',
   ], home: process.env.CLAW3D_OFFICE_CODEX_HOME || path.join(directory, "codex"), onFrame(frame) {
   if (frame.method === "connection/closed") { if (!stopping) { console.error("Office Codex exited"); void close(1); } return; }
+  if (["account/login/completed", "account/updated"].includes(frame.method)) accountContext.invalidate();
   if (frame.method === "account/login/completed") { login = null; features.accountVersion++; store.defaultModel = null; for (const state of controls.states.values()) state.version++; stream.refresh(); broadcast("office.account", { changed: true, success: frame.params.success, error: frame.params.error }); }
   if (["account/login/completed", "account/updated"].includes(frame.method)) dictate?.refresh({ reset: true });
   workspace?.handle(frame);
@@ -49,6 +51,7 @@ const native = new CodexOfficeClient({
   if (mapped.method === "turn/completed") todos?.finishTurn(mapped.params.threadId, mapped.params.turn?.status || "completed");
   if (mapped.id !== undefined || ["serverRequest/resolved", "turn/completed"].includes(mapped.method)) changed();
 } });
+const accountContext = new CodexOfficeAccount(native);
 store = new CodexOfficeStore(directory, native, changed, id => Boolean(voice?.active?.threadId === id || controls?.state(id).activeTurnId || workspace?.snapshot(id)?.running || workspace?.starts.has(id)));
 controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features,
   changed: id => { stream?.changed(id); changed(); },
@@ -57,7 +60,7 @@ controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { s
     write: (id, recovery) => { const row = store.data.sessions.find(row => row.id === id); if (row) { row.recovery = recovery; store.save(); } },
   },
   canRetry: async id => !stopping && native.ready && !store.isBusy(id) && !store.starting.has(id)
-    && !store.pendingQuestions(id).length && !controls.snapshot(id).approvalCount && !controls.questions(id).some(q => !q.submitted)
+    && !store.pendingQuestions(id).length && !controls.approvalCount(id) && !controls.questions(id).some(q => !q.submitted)
     && (await account()).loggedIn,
 });
 stream = new CodexSessionStream(controls);
@@ -70,17 +73,17 @@ voice = new CodexOfficeVoice(store, controls, (ws, payload) => {
 });
 const agents = () => {
   const pending = schedules.pendingThreadIds();
-  return store.list().map(row => ({ ...row, hasPendingSchedule: pending.has(row.id), status: controls.state(row.id).retry ? "running" : row.status, role: row.project, identity: { name: row.name, emoji: "💬" }, needsInput: Boolean(store.pendingQuestions(row.id).length || controls.questions(row.id).some(q => !q.submitted) || controls.snapshot(row.id).approvalCount) }));
+  return store.list().map(row => ({ ...row, hasPendingSchedule: pending.has(row.id), status: controls.state(row.id).retry ? "running" : row.status, role: row.project, identity: { name: row.name, emoji: "💬" }, needsInput: Boolean(store.pendingQuestions(row.id).length || controls.questions(row.id).some(q => !q.submitted) || controls.approvalCount(row.id)) }));
 };
 const key = id => `agent:${id}:main`;
 const history = (id, cursor) => loadSessionHistoryPage(store.call.bind(store), store.get(id), cursor);
-async function account() { const status = await native.call("account/read", { refreshToken: false }); dictate?.refresh(); return { loggedIn: Boolean(status.account) || status.requiresOpenaiAuth === false, email: status.account?.email || null, requiresAuth: status.requiresOpenaiAuth !== false, loginFlow: process.env.CLAW3D_OFFICE_DESKTOP === "1" ? "browser" : "device", login }; }
+async function account(options) { const status = await accountContext.read(options); return { loggedIn: Boolean(status.account) || status.requiresOpenaiAuth === false, email: status.account?.email || null, requiresAuth: status.requiresOpenaiAuth !== false, loginFlow: process.env.CLAW3D_OFFICE_DESKTOP === "1" ? "browser" : "device", login }; }
 schedules = new OfficeSchedules(directory, {
   getSession: id => store.get(id), changed: () => { broadcast("schedules.updated", {}); changed(); },
   canSend: async id => {
     if (!native.ready || store.isBusy(id) || store.starting.has(id) || store.pendingQuestions(id).length) return false;
     await controls.attach(id); await controls.refreshTurn(id);
-    if (store.isBusy(id) || controls.snapshot(id).approvalCount || controls.questions(id).some(q => !q.submitted)) return false;
+    if (store.isBusy(id) || controls.approvalCount(id) || controls.questions(id).some(q => !q.submitted)) return false;
     return (await account()).loggedIn;
   },
   send: (id, message, requestId) => controls.send(id, message, requestId, [], { onlyIfIdle: true }),
@@ -99,7 +102,7 @@ const methods = {
     store.get(row.assigneeId);
     if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending");
     await controls.attach(row.assigneeId); await controls.refreshTurn(row.assigneeId);
-    if (store.isBusy(row.assigneeId) || store.starting.has(row.assigneeId) || store.pendingQuestions(row.assigneeId).length || controls.snapshot(row.assigneeId).approvalCount || controls.questions(row.assigneeId).some(q => !q.submitted)) throw new Error("This agent is busy or waiting for input. Open its conversation first");
+    if (store.isBusy(row.assigneeId) || store.starting.has(row.assigneeId) || store.pendingQuestions(row.assigneeId).length || controls.approvalCount(row.assigneeId) || controls.questions(row.assigneeId).some(q => !q.submitted)) throw new Error("This agent is busy or waiting for input. Open its conversation first");
     if (todos.raw(p.id).revision !== p.revision) throw new Error("This to-do changed. Refresh it before starting");
     todos.startForAgent(row.assigneeId, row.id);
     try {
@@ -115,7 +118,7 @@ const methods = {
   "schedule.update": p => store.once(p, () => ({ id: schedules.update(p).task.id })),
   "schedule.delete": p => store.once(p, () => schedules.remove(p)),
   "schedule.run": p => store.once(p, () => schedules.runNow(p)),
-  "office.login": async p => { if ((await account()).loggedIn) return { loggedIn: true }; if (login?.loginId) await native.call("account/login/cancel", { loginId: login.loginId }); const browser = process.env.CLAW3D_OFFICE_DESKTOP === "1" && p.flow !== "device"; login = await native.call("account/login/start", { type: browser ? "chatgpt" : "chatgptDeviceCode" }, 30000); return login; },
+  "office.login": async p => { if ((await account({ refresh: true })).loggedIn) return { loggedIn: true }; if (login?.loginId) await native.call("account/login/cancel", { loginId: login.loginId }); const browser = process.env.CLAW3D_OFFICE_DESKTOP === "1" && p.flow !== "device"; login = await native.call("account/login/start", { type: browser ? "chatgpt" : "chatgptDeviceCode" }, 30000); return login; },
   "office.snapshot": async () => { await restoredSessionStates; const listed = agents(); return { defaultId: listed[0]?.id, mainKey: "main", agents: listed, projects: store.projects(), creationAvailable: native.ready }; },
   "agents.list": async () => methods["office.snapshot"](),
   "project.create": p => store.createProject(p),
@@ -253,6 +256,7 @@ async function restoreSessionStates() {
   changed();
 }
 native.initialize().then(() => {
+  void account().catch(() => {});
   restoredSessionStates = restoreSessionStates();
   server.listen(Number(process.env.CODEX_ADAPTER_PORT || 18790), "127.0.0.1", () => {
     schedules.start();

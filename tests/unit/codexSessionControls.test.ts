@@ -12,6 +12,47 @@ function setup(active = false) {
   return { client, controls: new CodexSessionControls(client) };
 }
 describe("shared App session controls", () => {
+  it("attaches once, then sends directly using native lifecycle state", async () => {
+    const { client, controls } = setup();
+    await controls.send("id", "first", "hot-1");
+    expect(client.call.mock.calls.map(([method]) => method)).toEqual(["thread/resume", "thread/turns/list", "turn/start"]);
+    client.call.mockClear();
+    await controls.send("id", "steer", "hot-2");
+    expect(client.call.mock.calls.map(([method]) => method)).toEqual(["turn/steer"]);
+    expect(client.call).toHaveBeenCalledWith("turn/steer", expect.objectContaining({ expectedTurnId: "new-turn" }));
+    controls.handle({ method: "turn/completed", params: { threadId: "id", turn: { id: "active-turn", status: "completed" } } });
+    client.call.mockClear();
+    await controls.send("id", "next", "hot-3");
+    expect(client.call.mock.calls.map(([method]) => method)).toEqual(["turn/start"]);
+  });
+  it("checks native status after an uncertain send without replaying that request", async () => {
+    const { client, controls } = setup(); await controls.attach("id");
+    client.call.mockRejectedValueOnce(new Error("Timed out"));
+    await expect(controls.send("id", "first", "uncertain-1")).rejects.toThrow("Timed out");
+    client.call.mockClear();
+    await expect(controls.send("id", "first", "uncertain-1")).rejects.toThrow("未重复发送");
+    expect(client.call).not.toHaveBeenCalled();
+    await controls.send("id", "new input", "uncertain-2");
+    expect(client.call.mock.calls.map(([method]) => method)).toEqual(["thread/turns/list", "turn/start"]);
+  });
+  it("rechecks after Stop even if its native outcome is uncertain", async () => {
+    const { client, controls } = setup(true); await controls.attach("id");
+    const original = client.call.getMockImplementation()!;
+    client.call.mockImplementation(async (method: string) => { if (method === "turn/interrupt") throw new Error("Timed out"); return original(method); });
+    await expect(controls.stop("id")).rejects.toThrow("Timed out"); client.call.mockClear();
+    await controls.send("id", "new input", "after-stop");
+    expect(client.call.mock.calls.map(([method]) => method)).toEqual(["thread/turns/list", "turn/steer"]);
+  });
+  it("counts approval flags without building or serializing chat snapshots", () => {
+    const { controls } = setup();
+    controls.handle({ id: 1, method: "item/tool/requestUserInput", params: { threadId: "id" } });
+    controls.handle({ id: 2, method: "item/commandExecution/requestApproval", params: { threadId: "id" } });
+    controls.handle({ id: 3, method: "item/fileChange/requestApproval", params: { threadId: "other" } });
+    const snapshot = vi.spyOn(controls, "snapshot");
+    expect(controls.approvalCount("id")).toBe(1); expect(snapshot).not.toHaveBeenCalled();
+    controls.handle({ method: "serverRequest/resolved", params: { threadId: "id", requestId: 2 } });
+    expect(controls.approvalCount("id")).toBe(0);
+  });
   it("uses native compaction without submitting a new user prompt", async () => {
     const { client, controls } = setup();
     await expect(controls.compact("id")).resolves.toEqual({ status: "compactionRequested" });

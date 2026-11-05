@@ -74,8 +74,8 @@ class OfficeTodos {
         elapsedMs: old?.elapsedMs || 0, startedAt: old?.startedAt ?? null, completedAt: old?.completedAt ?? null };
     });
   }
-  view(row, full = false) {
-    const department = this.projects().find(p => p.id === row.departmentId), agent = this.agents().find(a => a.id === row.assigneeId);
+  view(row, full = false, { projects = this.projects(), agents = this.agents() } = {}) {
+    const department = projects.find(p => p.id === row.departmentId), agent = agents.find(a => a.id === row.assigneeId);
     const { events, documentation, ...rest } = row;
     delete rest.requestId; delete rest.requestHash;
     return { ...rest, completedAt: completionTime(row), departmentName: department?.name || row.departmentName, assigneeName: agent?.name || row.assigneeName,
@@ -84,12 +84,13 @@ class OfficeTodos {
       progress: row.phases.filter(p => p.completedAt != null).length, elapsedMs: row.phases.reduce((sum, phase) => sum + duration(phase, this.now()), 0) };
   }
   get(input) { return { todo: this.view(this.raw(input.id), true), serverTime: this.now() }; }
-  catalog() {
-    return { departments: [{ id: null, name: "Open Workspace" }, ...this.projects().map(({ id, name }) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))],
-      agents: this.agents().map(({ id, name, projectId, status }) => ({ id, name, projectId, status })) };
+  catalog({ projects = this.projects(), agents = this.agents() } = {}) {
+    return { departments: [{ id: null, name: "Open Workspace" }, ...projects.map(({ id, name }) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))],
+      agents: agents.map(({ id, name, projectId, status }) => ({ id, name, projectId, status })) };
   }
   list(input = {}) {
-    const catalog = this.catalog(), all = [...this.rows.values()], live = all.filter(row => !row.archived && row.status !== "done");
+    const sources = { projects: this.projects(), agents: this.agents() };
+    const catalog = this.catalog(sources), all = [...this.rows.values()], live = all.filter(row => !row.archived && row.status !== "done");
     const departments = catalog.departments.map(dept => ({ ...dept, total: live.filter(r => r.departmentId === dept.id).length,
       running: live.filter(r => r.departmentId === dept.id && r.status === "running").length, unassigned: live.filter(r => r.departmentId === dept.id && !r.assigneeId && r.status !== "done").length }));
     let rows = input.status === "done" ? all.filter(row => row.status === "done") : input.status === "archived" ? all.filter(row => row.archived || row.status === "done") : live;
@@ -99,7 +100,7 @@ class OfficeTodos {
     if (input.query) { const query = text(input.query, "Search", 200).toLowerCase(); rows = rows.filter(r => `${r.title}\n${r.documentation}\n${r.assigneeName || ""}`.toLowerCase().includes(query)); }
     rows.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
     const offset = Math.max(0, Number.isInteger(input.offset) ? input.offset : 0), limit = Math.min(25, Math.max(1, Number.isInteger(input.limit) ? input.limit : 25));
-    return { todos: rows.slice(offset, offset + limit).map(row => this.view(row)), total: rows.length, offset, limit, ...catalog, departments, serverTime: this.now() };
+    return { todos: rows.slice(offset, offset + limit).map(row => this.view(row, false, sources)), total: rows.length, offset, limit, ...catalog, departments, serverTime: this.now() };
   }
   create(input) {
     const requestId = text(input.requestId, "Creation request ID", 160), hash = crypto.createHash("sha256").update(JSON.stringify({ ...input, requestId: undefined })).digest("hex");
