@@ -23,9 +23,9 @@ const { CodexMessageSearch } = require("./codex-message-search");
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
 const directory = officeEnvironment(path.resolve(process.env.CLAW3D_OFFICE_DATA_DIR || path.join(process.env.CLAW3D_DATA_DIR || path.join(os.homedir(), ".local/share/claw3d"), "office-runtime"))).home;
-const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer, todos;
+const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer, todos, dictate;
 let restoredSessionStates = Promise.resolve();
-const features = { dictation: Boolean(process.env.OPENAI_API_KEY), dictationHTTP: true, voice: true, prediction: true, terminal: true, schedules: true, todos: true, composer: true, accountVersion: 0 };
+const features = { dictation: false, dictationHTTP: true, voice: true, prediction: true, terminal: true, schedules: true, todos: true, composer: true, accountVersion: 0 };
 const broadcast = (event, payload) => { const frame = JSON.stringify({ type: "event", event, seq: seq++, payload }); for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame); };
 function changed() { if (!rosterTimer) rosterTimer = setTimeout(() => { rosterTimer = null; broadcast("roster.updated", { ts: Date.now() }); }, 150); }
 const native = new CodexOfficeClient({
@@ -39,6 +39,7 @@ const native = new CodexOfficeClient({
   ], home: process.env.CLAW3D_OFFICE_CODEX_HOME || path.join(directory, "codex"), onFrame(frame) {
   if (frame.method === "connection/closed") { if (!stopping) { console.error("Office Codex exited"); void close(1); } return; }
   if (frame.method === "account/login/completed") { login = null; features.accountVersion++; store.defaultModel = null; for (const state of controls.states.values()) state.version++; stream.refresh(); broadcast("office.account", { changed: true, success: frame.params.success, error: frame.params.error }); }
+  if (["account/login/completed", "account/updated"].includes(frame.method)) dictate?.refresh({ reset: true });
   workspace?.handle(frame);
   if (composer?.handleToolCall(frame)) return;
   const mapped = store?.handle(frame); if (!mapped) return;
@@ -69,7 +70,7 @@ const agents = () => {
 };
 const key = id => `agent:${id}:main`;
 const history = (id, cursor) => loadSessionHistoryPage(store.call.bind(store), store.get(id), cursor);
-async function account() { const status = await native.call("account/read", { refreshToken: false }); return { loggedIn: Boolean(status.account) || status.requiresOpenaiAuth === false, email: status.account?.email || null, requiresAuth: status.requiresOpenaiAuth !== false, loginFlow: process.env.CLAW3D_OFFICE_DESKTOP === "1" ? "browser" : "device", login }; }
+async function account() { const status = await native.call("account/read", { refreshToken: false }); dictate?.refresh(); return { loggedIn: Boolean(status.account) || status.requiresOpenaiAuth === false, email: status.account?.email || null, requiresAuth: status.requiresOpenaiAuth !== false, loginFlow: process.env.CLAW3D_OFFICE_DESKTOP === "1" ? "browser" : "device", login }; }
 schedules = new OfficeSchedules(directory, {
   getSession: id => store.get(id), changed: () => { broadcast("schedules.updated", {}); changed(); },
   canSend: async id => {
@@ -185,7 +186,14 @@ const methods = {
   "agents.files.get": async () => ({ file: { missing: true } }),
   "exec.approvals.get": async () => ({ file: { agents: {} } }),
 };
-const dictate = createOfficeDictation({ token, findThread: id => store.get(id) });
+dictate = createOfficeDictation({ token, findThread: id => store.get(id), home: native.home,
+  refreshAuth: () => native.call("account/read", { refreshToken: true }),
+  onStatus: status => {
+    Object.assign(features, status);
+    for (const state of controls.states.values()) state.version++;
+    stream.refresh();
+  },
+});
 const server = http.createServer((req, res) => {
   if (req.method === "POST" && req.url?.split("?")[0] === "/dictation") return void dictate(req, res);
   const { rules, defaults, warnings } = native.profile;

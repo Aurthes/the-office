@@ -355,3 +355,68 @@ describe("dictation composer shortcuts", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear recording" }));
   });
 });
+
+describe("dictation capability recovery", () => {
+  async function liveComposer(id: string) {
+    microphone(); let subscriptionId = "";
+    const listeners = new Set<(event: { event: string; payload?: unknown }) => void>();
+    const call = vi.fn(async (method: string, params: unknown) => { if (method === "session.subscribe") subscriptionId = (params as { subscriptionId: string }).subscriptionId; return {}; });
+    const client = { call, onEvent: (listener: (event: { event: string; payload?: unknown }) => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; } };
+    render(React.createElement(SessionControls, { client, threadId: id, onItems: vi.fn() }));
+    await waitFor(() => expect(subscriptionId).not.toBe(""));
+    let version = 0;
+    const push = (available: boolean) => act(() => { for (const listener of listeners) listener({ event: "session.stream", payload: {
+      threadId: id, subscriptionId, version: ++version, connected: true, activeTurnId: null, items: [], approvals: [],
+      features: { dictation: available, dictationHTTP: true, dictationReason: available ? null : "Dictation is temporarily unavailable. Please try again shortly.", voice: false, prediction: false },
+    } }); });
+    push(true); await waitFor(() => expect(screen.getByRole("button", { name: "Dictation" })).toBeEnabled());
+    return { call, push };
+  }
+  it("greys the microphone and retained retry on failure, then retries the same recording after streamed recovery", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ error: "Dictation is temporarily unavailable. Please try again shortly. Recording kept.", dictation: { dictation: false } }, { status: 503 })).mockResolvedValueOnce(Response.json({ text: "recovered transcript" }));
+    vi.stubGlobal("fetch", fetcher); const h = await liveComposer("capability-retry");
+    fireEvent.click(screen.getByRole("button", { name: "Dictation" }));
+    await screen.findByRole("button", { name: "Stop recording and transcribe" });
+    act(() => port.onmessage?.({ data: { pcm: new Int16Array(3200) } }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording and transcribe" }));
+    await screen.findByRole("button", { name: "Retry transcription" }); h.push(false);
+    expect(screen.getByRole("button", { name: "Dictation" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Retry transcription" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Send to session" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Download recording" })).toBeEnabled();
+    h.push(true); fireEvent.click(screen.getByRole("button", { name: "Retry transcription" }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Send to session" })).toHaveValue("recovered transcript"));
+    expect(fetcher.mock.calls[1][1].body).toBe(fetcher.mock.calls[0][1].body);
+    expect(h.call.mock.calls.some(([method]) => method === "session.send" || method === "session.voice.start")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Clear recording" }));
+  });
+  it("still allows stopping an active recording when another request disables dictation", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "temporarily unavailable" }, { status: 503 })));
+    const h = await liveComposer("capability-while-recording"); fireEvent.click(screen.getByRole("button", { name: "Dictation" }));
+    await screen.findByRole("button", { name: "Stop recording and transcribe" });
+    act(() => port.onmessage?.({ data: { pcm: new Int16Array(3200) } })); h.push(false);
+    expect(screen.getByRole("button", { name: "Stop recording and transcribe" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording and transcribe" }));
+    await screen.findByRole("button", { name: "Retry transcription" });
+    expect(stopTrack).toHaveBeenCalledOnce(); expect(screen.getByRole("button", { name: "Dictation" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Clear recording" }));
+  });
+});
+
+
+it("recovers a broken local HTTP path without a gateway event and preserves its audio for manual retry", async () => {
+  vi.useFakeTimers();
+  try {
+    microphone(); const inserted = vi.fn();
+    const fetcher = vi.fn().mockRejectedValueOnce(new Error("network private detail")).mockResolvedValueOnce(Response.json({ text: "recovered locally" })); vi.stubGlobal("fetch", fetcher);
+    const { result } = renderHook(() => useNativeDictation("local-http-recovery", "", inserted));
+    await act(async () => result.current.start()); act(() => port.onmessage?.({ data: { pcm: new Int16Array(3200) } }));
+    await act(async () => result.current.stop());
+    expect(result.current.httpUnavailable).toBe(true); expect(result.current.clip).not.toBeNull(); expect(result.current.error).not.toContain("private detail");
+    const blob = result.current.clip!.blob;
+    await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+    expect(result.current.httpUnavailable).toBe(false); expect(fetcher).toHaveBeenCalledOnce();
+    await act(async () => result.current.retry()); expect(fetcher.mock.calls[1][1].body).toBe(blob);
+    expect(inserted).toHaveBeenCalledExactlyOnceWith("recovered locally"); act(() => result.current.clear());
+  } finally { vi.useRealTimers(); }
+});

@@ -53,7 +53,7 @@ be restored.
 | Exact live token/tool stream from the App's active owner | Unavailable through the unchanged App interface inspected here | Reading persisted records is not a substitute for access to the active owner's event stream. |
 | Rename/archive/restore saved native App chats | Published thread APIs; native fixture readback passed both directions | Disabled in the current adapter. Instant sidebar refresh is unverified; lifecycle actions must not be used as a hidden execution-takeover mechanism. |
 | Create/reassign/manage App projects in both UIs | No stable App project-sync contract established | Experimental CRUD passed in isolation. Native read-only comparison matched folders but not IDs; App management-tool IDs were rejected by protocol reads. No private database/cache writes. |
-| Native App voice calls, dictation, and grey prompt suggestions | Native App integration unavailable | Office has a separate experimental Codex WebRTC voice path on its own threads, subscription-backed sampling for grey suggestions on those threads, and optional public-API dictation. None attaches to the App's calls or sessions; see `office-owned-state.md` for validation and limits. |
+| Native App voice calls, dictation, and grey prompt suggestions | Native App integration unavailable | Office has a separate experimental Codex WebRTC voice path on its own threads, subscription-backed sampling for grey suggestions on those threads, and standalone dictation using its own account (an optional undocumented HTTP route) or an explicit public-API key. None attaches to the App's calls or sessions; see `office-owned-state.md` for validation and limits. |
 | Browse workspace files or run a terminal | Current workspace controls unavailable | They currently use the shared owner. Independent, explicitly scoped file/terminal access is possible without changing the App; it is a separate implementation. |
 | Run conversations owned by Office using an installed Codex | Feasible without changing the App | The existing standalone adapter launches `codex app-server` over stdio. Own-thread text, streaming, and stop already exist. It does not inherit the desktop App's live thread ownership or App-only tools. |
 | Resume a stored thread using an Office-owned server | Documented; isolated sequential handoff retained model-visible history | Another process's loaded thread remains locked even when its turn is idle. Release is required; App-only tool/context parity is not established. |
@@ -90,3 +90,12 @@ The selected baseline is independent Office projects, sessions, and runtime
 state. Read-only native discovery, queued follow-ups, and metadata interoperability
 are not planned product extensions even where a bounded experiment succeeded.
 The audit is retained as evidence, not authorization to rebuild shared controls.
+
+## Standalone dictation exception
+
+Office may optionally call the undocumented ChatGPT one-shot transcription HTTP
+route with its **own** file-backed login. This exception does not authorize
+native App credential discovery or App/session synchronization. Keep the upstream
+host fixed, reject redirects, report the interface maturity, and disable this
+capability on failure while retaining local audio for recovery. See
+`office-owned-state.md` for the exact behavior and validation scope.

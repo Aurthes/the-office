@@ -9,7 +9,7 @@ export async function POST(request: Request) {
     target.protocol = target.protocol === "wss:" ? "https:" : "http:"; target.pathname = "/dictation"; target.search = new URLSearchParams({ threadId }).toString();
     const response = await fetch(target, { method: "POST", body: request.body, duplex: "half", headers: {
       Authorization: "Bearer " + process.env.CLAW3D_GATEWAY_TOKEN, "Content-Type": "audio/wav",
-    }, signal: AbortSignal.any([request.signal, AbortSignal.timeout(660000)]) } as RequestInit & { duplex: "half" });
+    }, redirect: "error", signal: AbortSignal.any([request.signal, AbortSignal.timeout(70000)]) } as RequestInit & { duplex: "half" });
     if (!response.headers.get("content-type")?.includes("application/json")) return Response.json({ error: "The transcription service returned an unexpected response. Recording kept." }, { status: 502, headers: { "Cache-Control": "no-store" } });
     return new Response(response.body, { status: response.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
   } catch {

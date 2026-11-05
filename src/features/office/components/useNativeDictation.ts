@@ -21,6 +21,12 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
   const [clip, setClip] = useState<Clip | null>(() => recordings.get(threadId) || null);
   const [error, setError] = useState(() => recordings.has(threadId) ? "A recording was kept. Retry transcription or download it." : "");
   const [seconds, setSeconds] = useState(0);
+  const [httpUnavailable, setHttpUnavailable] = useState(false);
+  useEffect(() => {
+    if (!httpUnavailable) return;
+    const timer = setTimeout(() => setHttpUnavailable(false), 60000);
+    return () => clearTimeout(timer);
+  }, [httpUnavailable]);
   const [transcriptionTime, setTranscriptionTime] = useState<{ seconds: number; retry: boolean } | null>(null);
   const capture = useRef<Capture | null>(null), request = useRef<AbortController | null>(null);
   const mounted = useRef(true), stopRequested = useRef(false), latest = useRef({ draft, onText, client });
@@ -29,17 +35,24 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
   const transcribe = useCallback(async (audio: Clip, startedAt = performance.now(), retry = true) => {
     if (request.current) return;
     const controller = new AbortController(); request.current = controller; setPhase("transcribing"); setError(""); setTranscriptionTime(null);
+    let serviceFailure = false;
     try {
-      const result = await fetch("/api/session-dictation?" + new URLSearchParams({ threadId }), { method: "POST", body: audio.blob, headers: { "Content-Type": "audio/wav" }, signal: controller.signal });
-      if (result.status === 401 || result.status === 403) throw new Error("Sign in again before retrying transcription. Recording kept.");
-      let data: { text?: unknown; error?: string };
+      const result = await fetch("/api/session-dictation?" + new URLSearchParams({ threadId }), { method: "POST", body: audio.blob, headers: { "Content-Type": "audio/wav" }, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(75000)]) }).catch(cause => { serviceFailure = true; if (controller.signal.aborted) throw cause; throw new Error("Could not connect to Office transcription. Recording kept; please retry."); });
+      if (result.status === 401 || result.status === 403) { serviceFailure = true; throw new Error("Sign in again before retrying transcription. Recording kept."); }
+      let data: { text?: unknown; error?: string; dictation?: { dictation: boolean } };
       try {
         if (result.headers && !/json/i.test(result.headers.get("Content-Type") || "")) throw new Error("Unexpected response type");
         data = await result.json();
+        if (!data || typeof data !== "object") throw new Error("Unexpected response body");
       } catch {
+        serviceFailure = true;
         console.warn("[native-dictation] invalid HTTP response", { status: result.status, redirected: result.redirected, contentType: result.headers?.get("Content-Type") });
         throw new Error("Transcription service returned an invalid response. Recording kept; please retry.");
       }
+      // Gateway capability failures recover through its stream. A broken local
+      // HTTP/proxy path needs its own brief cooldown, since no gateway event is
+      // available for that failure. Never disable for silence or bad audio.
+      serviceFailure = result.status >= 500 && !data.dictation || result.ok && typeof data.text !== "string";
       if (!result.ok || typeof data.text !== "string" || !data.text.trim()) throw new Error(data.error || "Native dictation returned no text. Recording kept.");
       if (mounted.current && request.current === controller && !controller.signal.aborted) {
         const text = audio.base + (audio.base.trim() ? " " : "") + data.text;
@@ -47,7 +60,7 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
         return text;
       }
     } catch (cause) {
-      if (mounted.current && request.current === controller) { setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Transcription cancelled. Recording kept."); setPhase("error"); }
+      if (mounted.current && request.current === controller) { if (serviceFailure && !controller.signal.aborted) setHttpUnavailable(true); setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Transcription cancelled. Recording kept."); setPhase("error"); }
     } finally { if (request.current === controller) request.current = null; }
   }, [threadId]);
   const cancelBridge = useCallback((bridge: Bridge) => {
@@ -232,5 +245,5 @@ export function useNativeDictation(threadId: string, draft: string, onText: (tex
     return () => { mounted.current = false; request.current?.abort(); if (finishingBridge.current) cancelBridge(finishingBridge.current); void finishCapture(false); window.removeEventListener("beforeunload", leave); document.removeEventListener("visibilitychange", hidden); };
   }, [threadId, finishCapture, cancelBridge]);
   const suspend = useCallback(() => finishCapture(false), [finishCapture]);
-  return { phase, clip, error, seconds, transcriptionTime, start, stop: () => finishCapture(), suspend, retry: () => clip && retryTranscription({ ...clip, base: latest.current.draft }), cancel: () => { request.current?.abort(); if (finishingBridge.current) cancelBridge(finishingBridge.current); }, discard, clear, download, busy: ["starting", "recording", "transcribing"].includes(phase) };
+  return { phase, clip, error, seconds, transcriptionTime, httpUnavailable, start, stop: () => finishCapture(), suspend, retry: () => clip && retryTranscription({ ...clip, base: latest.current.draft }), cancel: () => { request.current?.abort(); if (finishingBridge.current) cancelBridge(finishingBridge.current); }, discard, clear, download, busy: ["starting", "recording", "transcribing"].includes(phase) };
 }

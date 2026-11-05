@@ -194,7 +194,8 @@ try {
   await until(() => client.events.some(event => event.event === "session.stream" && event.payload.subscriptionId === "timing-resubscribe"), "No timing resubscription snapshot");
   check("reopening the task stream preserves elapsed-time origin", client.events.findLast(event => event.event === "session.stream" && event.payload.subscriptionId === "timing-resubscribe").payload.activeTurnStartedAt === runningTiming.activeTurnStartedAt);
   check("stop own active turn", (await client.call("session.stop", { threadId })).status === "interruptRequested");
-  await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].status === "idle", "Interrupted turn did not finish");
+  // Interrupted sessions deliberately keep the red attention marker, not idle.
+  await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].turnStatus === "interrupted", "Interrupted turn was not persisted");
   check("interrupted turn is available for Play", (await client.call("session.attach", { threadId })).turnStatus === "interrupted" && !(await client.call("office.snapshot")).agents[0].completedResult);
   await client.call("session.continue", { threadId, requestId: "play-continue" });
   await until(() => JSON.stringify(payloads.at(-1).input).includes("Continue where you left off.") && JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions[0].status === "idle", "Play continuation did not finish");

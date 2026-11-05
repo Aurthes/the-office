@@ -18,8 +18,11 @@ change its launcher or global environment, replace its backend owner, or change
 its configuration to make Office work. Use documented interfaces and disable or
 report unavailable capabilities instead of changing the App. Office-owned Codex
 processes must remain separate from App-owned execution. Historical private-file
-adapters are not an approved backend. Disclose experimental interface maturity
-and validate the installed version. See `docs/codex-integration-boundary.md`.
+adapters are not an approved backend. Standalone dictation has one narrow
+exception: an optional undocumented transcription HTTP route may use Office-owned
+login only, with recoverable capability disabling. This never permits native App
+credential discovery; see `docs/office-owned-state.md`. Disclose experimental
+interface maturity and validate the installed version. See `docs/codex-integration-boundary.md`.
 
 A public method, a successful local probe, or no explicit prohibition is not
 enough to establish cross-client App synchronization. Even documented sharing
@@ -79,7 +82,7 @@ can be validated without them.
 
 ### Service overview
 
-The Office is a Next.js 16 frontend derived from Claw3D (TypeScript, React 19, Three.js) for OpenClaw. It runs a custom Node.js server (`server/index.js`) that bundles a same-origin WebSocket proxy to the upstream OpenClaw Gateway. No database or Docker is required. The only hard system dependency is Node.js 20+ with npm 10+.
+The Office is a Next.js 16 frontend derived from Claw3D (TypeScript, React 19, Three.js) for OpenClaw. It runs a custom Node.js server (`server/index.js`) that bundles a same-origin WebSocket proxy to the upstream OpenClaw Gateway. No database or Docker is required. The only hard system dependency is Node.js 20.18.1+ with npm 10+.
 
 ### Running the app
 

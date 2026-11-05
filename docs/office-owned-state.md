@@ -156,7 +156,7 @@ the operations console. The gateway schedules them independently of browser tabs
 | Images | Signed browser upload, saved image history and public image input passed with the real account and a loopback fixture. Vision answer quality was not measured |
 | Other files and previews | Uploaded host paths, workspace browsing/text reads and existing supported previews. Upload is not universal PDF/Word/Excel understanding; converters/tools must be available separately |
 | Workspace terminal | Public `command/exec` PTY, output, input, resize and terminate tested using the real engine; uses the session's sandbox policy |
-| Dictation | Optional public file-transcription API, recording/cancel/retry/Option/Enter UI. Disabled without a server API key. Mocked tests cover request/error handling and existing recording controls; real transcription, device/browser behavior and account access remain unvalidated |
+| Dictation | Standalone recorded-audio transcription with Office-owned ChatGPT login, or an explicitly configured public-API key. The subscription HTTP endpoint is undocumented, not an app-server RPC or Voice Chat. Failure temporarily disables the capability; audio is retained for manual retry/download. See the scope and recovery behavior below |
 | Suggested prompts | Experimental Codex 0.166.0 `thread/sample` on the completed Office thread, using Office's ChatGPT login and loaded context. No API key or new turn. Real-account sampling, unchanged history and no tool execution verified; account availability and usage limits still apply. Not native App prediction reuse |
 | Live voice | Experimental Codex 0.166.0 WebRTC V3 on the selected Office thread, using Office's ChatGPT login. Browser audio travels directly to the voice service; tasks and approvals use the existing Office handlers. Real-account tests cover an empty chat, generated speech triggering a completed Codex task, received audio packets, and hangup. Physical microphone behavior and subjective voice quality still need manual testing |
 
@@ -175,14 +175,47 @@ sampling or account errors leave the composer without a suggestion. This is
 version-specific behavior verified with Codex 0.166.0, not a stable cross-version
 or native App prediction contract. The Apply button accepts an editable draft on desktop and touch devices; Tab in the input does the same. Clicking the suggestion text only focuses the input. Send submits it.
 
-Dictation remains a separate optional public API. Configure `OPENAI_API_KEY` on
-the **gateway only**, then restart it to enable `/v1/audio/transcriptions`.
-The default model is `gpt-transcribe`; `CLAW3D_TRANSCRIPTION_MODEL` overrides it.
-API access, usage and billing are separate from the Codex account sign-in.
-The [file-transcription guide](https://developers.openai.com/api/docs/guides/speech-to-text)
-documents this route. No private dictation token or prediction-config endpoint
-is used. Transcription errors keep the recording; an HTML response becomes a
-readable service error rather than a JSON parse error. There is no automatic resend.
+Dictation records locally, then submits the completed WAV for text to fill the
+composer. It never starts a Voice Chat session or a Codex turn. The existing
+explicit Enter/send action remains available; merely stopping or retrying a
+recording does not submit a chat message.
+
+Without `OPENAI_API_KEY`, the gateway reads **only its Office-owned Codex home's**
+file-backed ChatGPT login and calls `https://chatgpt.com/backend-api/transcribe`.
+This is an **undocumented, unofficial endpoint**, not a stable public API or a
+guarantee for all accounts. It was separately tested with an Office-owned login
+and synthetic Chinese audio. The implementation does not inspect the native
+App installation, home, keychain, database or sessions. Credentials stay on the
+gateway and requests reject redirects. See the community implementations
+[codex-asr](https://github.com/Wangnov/codex-asr) and
+[GPT Voice](https://github.com/entropyconquers/gpt-voice) for route provenance;
+community results do not establish account entitlement or long-term availability.
+
+An explicitly configured `OPENAI_API_KEY` on the **gateway only** continues to
+select the [public file-transcription API](https://developers.openai.com/api/docs/guides/speech-to-text),
+with `CLAW3D_TRANSCRIPTION_MODEL` or the default `gpt-transcribe`. There is no
+silent fallback to a separately billed provider. Subscription credentials never
+go to the public API. Transcription requests use the service's configured HTTP
+proxy without changing the process-wide network dispatcher.
+
+An expired subscription token or first HTTP 401 gets one renewal through the
+Office-owned Codex client's public `account/read` and one retry. Network,
+timeout, permission, missing-route, rate-limit and unexpected-response failures
+publish a disabled capability to every subscribed composer. The normal cooldown
+is 60 seconds; rate limits honor a bounded `Retry-After` (15 seconds to 15 minutes).
+After cooldown the button permits another **user-initiated** attempt, without
+claiming the upstream is healthy and without uploading retained audio in the
+background. Signing in again immediately re-evaluates availability. Missing login
+stays disabled. There is no automatic resend for network/service failures.
+
+Upstream requests have a 60-second timeout and two concurrent recordings maximum.
+Cancellation, silence, invalid/oversized audio and local request errors do not
+trip the service-wide capability. Failures retain the recording for retry or
+download; users can still stop an active recording while the capability is
+disabled. Errors sent to the UI are fixed messages, never raw upstream bodies,
+credential paths or tokens. Greyed controls explain the reason and recover from
+streamed capability changes without a reload. Account access, browser microphone
+permissions and recording quality can still vary by device.
 
 ## Experimental voice calls
 
