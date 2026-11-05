@@ -98,11 +98,34 @@ async function stop() {
   if (!gateway || gateway.exitCode !== null) return;
   gateway.kill("SIGTERM"); await until(() => gateway.exitCode !== null, "Gateway cleanup failed", 10000);
 }
+async function checkRetryBudget(client, projectId) {
+  const budgetChat = await client.call("session.create", { name: "Retry budget fixture", projectId, requestId: "retry-budget-chat" });
+  const budgetRow = () => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions.find(row => row.id === budgetChat.threadId);
+  await client.call("session.send", { threadId: budgetChat.threadId, message: "OFFICE_RETRY_BUDGET", requestId: "retry-budget-input" });
+  await until(() => budgetRequests >= 2 && budgetRow().turnStatus === "failed", "First automatic budget attempt did not fail", 25000);
+  check("real native start event preserves the first automatic attempt", budgetRow().recovery?.attempts === 1);
+  await stop(); client = await start();
+  await until(() => budgetRow().recovery?.attempts === 3 && budgetRow().turnStatus === "failed" && budgetRequests >= 4, "Three automatic attempts did not finish", 40000);
+  const exhaustedBudget = await client.call("session.attach", { threadId: budgetChat.threadId });
+  console.log(JSON.stringify({ budgetDiagnostic: { requests: budgetRequests, recovery: budgetRow().recovery, status: exhaustedBudget.turnStatus, retryAt: exhaustedBudget.retryAt, retryExhausted: exhaustedBudget.retryExhausted, error: exhaustedBudget.error } }));
+  check("real native engine stops after exactly three automatic attempts", budgetRequests === 4 && exhaustedBudget.retryAt === null && exhaustedBudget.retryExhausted === true);
+  await stop(); client = await start();
+  const afterBudgetRestart = await client.call("session.attach", { threadId: budgetChat.threadId });
+  check("exhausted retry budget survives a real gateway restart", budgetRequests === 4 && afterBudgetRestart.retryAt === null && afterBudgetRestart.retryExhausted === true);
+  await client.call("session.archive", { threadId: budgetChat.threadId, requestId: "archive-budget-fixture" });
+  return client;
+}
+
 try {
   provider.listen(0, "127.0.0.1"); await once(provider, "listening");
   fs.writeFileSync(path.join(home, "config.toml"), `model = "gpt-6.1-sol"\nmodel_provider = "office_check"\n[model_providers.office_check]\nname = "Local test fixture"\nbase_url = "http://127.0.0.1:${provider.address().port}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\nrequest_max_retries = 0\nstream_max_retries = 0\n`);
   const portProbe = net.createServer(); portProbe.listen(0, "127.0.0.1"); await once(portProbe, "listening"); port = portProbe.address().port; await new Promise(r => portProbe.close(r));
   let client = await start(true);
+  if (process.argv.includes("--retry-budget-only")) {
+    const { project } = await client.call("project.create", { name: "Budget only", rootPaths: [workspace], requestId: "budget-only-project" });
+    client = await checkRetryBudget(client, project.id);
+    check("foreign state untouched", JSON.stringify(sourceSnapshot()) === sourceBefore);
+  } else {
   const health = await (await fetch(`http://127.0.0.1:${port}/health`)).json();
   check("configuration is automatically discovered", health.configuration.rules.some(r => r.name === "AGENTS.md" && r.status === "shared") && health.configuration.defaults.includes("model_reasoning_effort") && health.configuration.warnings.length === 0);
   check("clean independent roster", (await client.call("office.snapshot")).agents.length === 0);
@@ -283,26 +306,15 @@ try {
   await client.call("schedule.update", { ...handoffConfig, id: handoff.id, threadId: reader.threadId, enabled: true, requestId: "handoff-resume" });
   check("explicit resume moves the schedule clock to the new conversation", (await client.call("office.snapshot")).agents.find(agent => agent.id === reader.threadId).hasPendingSchedule);
   await client.call("schedule.delete", { id: handoff.id, requestId: "handoff-delete" });
-  const budgetChat = await client.call("session.create", { name: "Retry budget fixture", projectId: project.id, requestId: "retry-budget-chat" });
-  const budgetRow = () => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions.find(row => row.id === budgetChat.threadId);
-  await client.call("session.send", { threadId: budgetChat.threadId, message: "OFFICE_RETRY_BUDGET", requestId: "retry-budget-input" });
-  await until(() => budgetRequests >= 2 && budgetRow().turnStatus === "failed", "First automatic budget attempt did not fail", 25000);
-  check("real native start event preserves the first automatic attempt", budgetRow().recovery?.attempts === 1);
-  await stop(); client = await start();
-  await until(() => budgetRow().recovery?.attempts === 3 && budgetRow().turnStatus === "failed", "Three automatic attempts did not finish", 40000);
-  const exhaustedBudget = await client.call("session.attach", { threadId: budgetChat.threadId });
-  check("real native engine stops after exactly three automatic attempts", budgetRequests === 4 && exhaustedBudget.retryAt === null && exhaustedBudget.retryExhausted === true);
-  await stop(); client = await start();
-  const afterBudgetRestart = await client.call("session.attach", { threadId: budgetChat.threadId });
-  check("exhausted retry budget survives a real gateway restart", budgetRequests === 4 && afterBudgetRestart.retryAt === null && afterBudgetRestart.retryExhausted === true);
-  await client.call("session.archive", { threadId: budgetChat.threadId, requestId: "archive-budget-fixture" });
+  client = await checkRetryBudget(client, project.id);
   await client.call("session.archive", { threadId: reader.threadId, requestId: "archive-reference-reader" });
   await client.call("session.archive", { threadId, requestId: "archive-1" });
   check("own archive", (await client.call("office.snapshot")).agents.length === 0);
   check("foreign state untouched", JSON.stringify(sourceSnapshot()) === sourceBefore);
+  }
   console.log(JSON.stringify({ passed: checks.length, syntheticModelOnly: true, userAppHomeUsed: false }));
 } catch (error) {
-  console.log(JSON.stringify({ diagnostic: { error: error.message, socketState: socket?.readyState, requests: payloads.length, events: diagnosticClient?.events.slice(-8).map(e => ({ event: e.event, turnStatus: e.payload?.turnStatus, error: e.payload?.error, itemCount: e.payload?.items?.length })), gatewayErrors } }));
+  console.log(JSON.stringify({ diagnostic: { error: error.message, socketState: socket?.readyState, requests: payloads.length, events: diagnosticClient?.events.slice(-8).map(e => ({ event: e.event, turnStatus: e.payload?.turnStatus, error: e.payload?.error, itemCount: e.payload?.items?.length })), gatewayErrors, budgetRequests, officeStates: fs.existsSync(path.join(data, "office.json")) ? JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions.map(row => ({ name: row.name, status: row.status, recovery: row.recovery })) : [] } }));
   throw error;
 } finally {
   await stop(); provider.closeAllConnections(); await new Promise(r => provider.close(r));
