@@ -147,6 +147,6 @@ class Reader:
         else:
             path = f"/futures/usdt/orders/{urllib.parse.quote(str(order_id), safe='')}" if category == "perp" else f"/spot/orders/{urllib.parse.quote(str(order_id), safe='')}"
             result = await self.get(exchange, path, {"currency_pair": native} if category == "spot" else {}, account)
-            tif = result.get("tif")
+            tif = result.get("time_in_force" if category == "spot" else "tif")
             valid = {"rpi", "gtc", "ioc", "fok", "poc"}
         return "rpi" if tif in ("RPI", "rpi") else "non-rpi" if tif in valid else None

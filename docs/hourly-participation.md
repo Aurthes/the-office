@@ -25,7 +25,9 @@ market trade can produce a share above 100%; values are not clamped.
 It reads selected account/symbol units from existing strategy cache Redis and
 uses public WebSockets once per physical market. Private REST executions use
 fixed windows, full pagination, overlap and persistent execution-ID deduplication.
-The associated order's actual time-in-force provides its class. A maker flag is
+The associated order's actual time-in-force provides its class: Bybit
+`timeInForce`, Gate perpetual `tif`, and Gate spot `time_in_force`. Keep
+venue/product response schemas explicit; spot and perpetual fields differ. A maker flag is
 not a substitute for RPI. All exchange requests are GET; this service cannot
 submit, amend or cancel orders. There are no changes to strategy processes.
 
