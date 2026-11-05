@@ -163,12 +163,22 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
         setMessages(previous => {
           if (mode !== "older") {
             const ids = new Set(result.messages.map(message => message.id));
-            const prefix = overlap ? previous.slice(0, previous.findIndex(message => ids.has(message.id))) : [];
-            for (const item of prefix) ids.add(item.id);
-            return [...prefix, ...result.messages.map(message => {
+            const page = result.messages.map(message => {
               const live = liveItems.current.get(message.id);
               return live && (live.status === "completed" || live.content.length > message.content.length) ? { ...message, ...live } : message;
-            }), ...[...liveItems.current.values()].filter(item => !ids.has(item.id) && liveBeforeRead.get(item.id) !== item)];
+            });
+            // A bounded history read can lag behind received live messages.
+            // Sync adds canonical entries; absence from that page is not deletion.
+            // Keep unmatched messages beside their next known timeline anchor.
+            const before = new Map<string, Message[]>();
+            let unmatched: Message[] = [];
+            if (mode === "sync") for (const message of previous) {
+              if (ids.has(message.id)) { before.set(message.id, unmatched); unmatched = []; }
+              else unmatched.push(message);
+            }
+            const merged = [...page.flatMap(message => [...(before.get(message.id) || []), message]), ...unmatched];
+            for (const item of merged) ids.add(item.id);
+            return [...merged, ...[...liveItems.current.values()].filter(item => !ids.has(item.id) && liveBeforeRead.get(item.id) !== item)];
           }
           const existing = new Set(previous.map(message => message.id));
           return [...result.messages.filter(message => !existing.has(message.id)), ...previous];

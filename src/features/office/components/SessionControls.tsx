@@ -300,6 +300,8 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
       if (method === "session.rename") { setText(""); onRenamed?.((result as { name: string }).name); setNotice("Chat renamed"); }
       if (method === "session.new" || method === "session.fork") { setText(""); await onOpenThread?.((result as { threadId: string }).threadId); }
       if (method === "session.continue") setNotice("Submitted to the session");
+      // Reconcile accepted input even if its native item notification was missed.
+      if (method === "session.send" || method === "session.continue") onHistorySync?.();
       if (method === "session.stop") setNotice("Stop request submitted");
       if (method === "session.approval.reply") setNotice("Approval reply submitted; waiting for confirmation");
       if (!client.onEvent) await refresh.current?.();

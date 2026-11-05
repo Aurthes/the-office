@@ -104,6 +104,61 @@ it("keeps streamed work below the steer message in the same turn and preserves t
 });
 
 describe("existing session history pagination", () => {
+  it("keeps a received steer and its work in place when resubscription reads history before it is persisted", async () => {
+    const events = sessionEvents(); let subscriptionId = "";
+    const original = { id: "original", turnId: "t", role: "user", content: "Original request" };
+    const steer = { id: "steer", turnId: "t", role: "user", content: "Visible steer request", status: "completed" };
+    const work = { id: "work", turnId: "t", role: "assistant", phase: "commentary", content: "Work after steer" };
+    let persisted = [original];
+    const call = vi.fn(async (method: string, params: unknown) => {
+      if (method === "session.inspect") return { ...metadata(), controlsAvailable: true };
+      if (method === "session.history") return { threadId: "original", messages: persisted, nextCursor: null };
+      if (method === "session.subscribe") subscriptionId = (params as { subscriptionId: string }).subscriptionId;
+      return {};
+    });
+    render(React.createElement(ExistingSessionPanel, { client: { call, onEvent: events.onEvent }, threadId: "original" }));
+    await screen.findByText("Original request");
+    const push = (version: number, items: unknown[]) => act(async () => events.emit({ event: "session.stream", payload: { connected: true, version, threadId: "original", subscriptionId, activeTurnId: "t", approvals: [], items, features: { prediction: false, voice: false, dictation: false } } }));
+    await push(0, []); await push(1, [steer, work]); await screen.findByText("Visible steer request");
+    await act(async () => fireEvent(document, new Event("visibilitychange")));
+    await push(1, [steer, work]);
+    await waitFor(() => expect(call.mock.calls.filter(([method]) => method === "session.history")).toHaveLength(2));
+    expect(screen.getByText("Visible steer request")).toBeVisible();
+    expect(screen.getByText("Work after steer")).toBeVisible();
+    expect(screen.getByText("Visible steer request").closest("article")?.nextElementSibling).toHaveAttribute("aria-label", "Work process");
+    const bubble = screen.getByText("Visible steer request").closest("article");
+    persisted = [original, steer, work];
+    await act(async () => fireEvent(document, new Event("visibilitychange"))); await push(1, [steer, work]);
+    await waitFor(() => expect(call.mock.calls.filter(([method]) => method === "session.history")).toHaveLength(3));
+    expect(screen.getAllByText("Visible steer request")).toHaveLength(1);
+    expect(screen.getByText("Visible steer request").closest("article")).toBe(bubble);
+  });
+
+  it.each([true, false])("reconciles accepted steer from history without an item notification; success=%s", async success => {
+    const events = sessionEvents(); let subscriptionId = ""; const threadId = `steer-ack-${success}`;
+    const messages = [{ id: "original", turnId: "t", role: "user", content: "Initial prompt" }];
+    const call = vi.fn(async (method: string, params: unknown) => {
+      if (method === "session.inspect") return { ...metadata(threadId), controlsAvailable: true };
+      if (method === "session.history") return { threadId, messages: [...messages], nextCursor: null };
+      if (method === "session.subscribe") subscriptionId = (params as { subscriptionId: string }).subscriptionId;
+      if (method === "session.send") {
+        if (!success) throw new Error("Send outcome uncertain");
+        messages.push({ id: "native-steer-id", turnId: "t", role: "user", content: "My steered prompt" });
+        return { status: "steered", turnId: "t" };
+      }
+      return {};
+    });
+    render(React.createElement(ExistingSessionPanel, { client: { call, onEvent: events.onEvent }, threadId }));
+    await screen.findByText("Initial prompt");
+    await act(async () => events.emit({ event: "session.stream", payload: { connected: true, version: 0, threadId, subscriptionId, activeTurnId: "t", approvals: [], items: [], features: { prediction: false, voice: false, dictation: false } } }));
+    const input = screen.getByRole("textbox", { name: "Send to session" });
+    fireEvent.change(input, { target: { value: "My steered prompt" } }); fireEvent.click(screen.getByRole("button", { name: "Steer" }));
+    if (success) { await screen.findByText("My steered prompt"); expect(input).toHaveValue(""); }
+    else { await screen.findByText("Send outcome uncertain"); expect(input).toHaveValue("My steered prompt"); expect(screen.queryByText("My steered prompt", { selector: "p" })).toBeNull(); }
+    expect(call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(1);
+    expect(call.mock.calls.filter(([method]) => method === "session.history")).toHaveLength(success ? 2 : 1);
+  });
+
   it("exposes return-to-Earth for an interactive original session and disables it while busy", async () => {
     const call=vi.fn(async(method:string)=>method==="session.inspect"?{...metadata(),controlsAvailable:true}:method==="session.history"?page("latest",null):{connected:true,version:1,activeTurnId:null,items:[],approvals:[]});
     const onReturnToEarth=vi.fn(), client={call};
@@ -182,7 +237,8 @@ describe("existing session history pagination", () => {
     expect(screen.getAllByText("final reply")).toHaveLength(1);
     expect(screen.getAllByRole("article").at(-1)?.textContent).toContain("final reply");
     expect(screen.queryByText("draft reply")).toBeNull();
-    expect(screen.queryByText("older live reply")).toBeNull();
+    // An older persisted page cannot revoke a genuinely received live item.
+    expect(screen.getByText("older live reply")).toBeVisible();
   });
   it("shows metadata before history finishes and never polls metadata or history", async () => {
     const first = deferred();
