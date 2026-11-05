@@ -16,6 +16,8 @@ it("shows independent notional/count shares and uses the source heartbeat for ol
   render(createElement(ParticipationDashboard));
   expect(await screen.findByText("25%")).toBeInTheDocument();
   expect(screen.getByText("10%")).toBeInTheDocument();
+  fireEvent.change(screen.getByRole("combobox", { name: "Account" }), { target: { value: "one" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "订单类型" }), { target: { value: "rpi" } });
   expect(screen.queryByText(/数据更新已延迟/)).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Account × Symbol 明细" }));
   expect(screen.getByText("btc")).toBeInTheDocument();

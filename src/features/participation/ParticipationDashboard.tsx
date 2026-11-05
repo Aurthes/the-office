@@ -55,9 +55,9 @@ export function ParticipationDashboard() {
     {reply && !reply.configured ? <p className="participation-empty">尚未接入小时成交数据。</p> : null}
     <div className="participation-filters">
       <label>小时（北京时间）<select aria-label="小时" value={selected ?? "latest"} onChange={e => setSelected(e.target.value === "latest" ? undefined : Number(e.target.value))}><option value="latest">最近已结束小时</option>{reply?.hours.map(h => <option key={h} value={h}>{formatHour(h)}–{formatHour(h + 3_600_000)}</option>)}</select></label>
-      <label>交易所<select value={exchange} onChange={e => { setExchange(e.target.value); setAccount(""); }}><option value="">全部</option>{exchanges.map(x => <option key={x}>{x}</option>)}</select></label>
-      <label>Account<select value={account} onChange={e => setAccount(e.target.value)}><option value="">全部</option>{accounts.map(x => <option key={x}>{x}</option>)}</select></label>
-      <label>订单类型<select value={type} onChange={e => setType(e.target.value)}><option value="">两种类型</option><option value="rpi">RPI</option><option value="non-rpi">non-RPI</option></select></label>
+      <label>交易所<select aria-label="交易所" value={exchange} onChange={e => { setExchange(e.target.value); setAccount(""); }}><option value="">全部</option>{exchanges.map(x => <option key={x}>{x}</option>)}</select></label>
+      <label>Account<select aria-label="Account" value={account} onChange={e => setAccount(e.target.value)}><option value="">全部</option>{accounts.map(x => <option key={x}>{x}</option>)}</select></label>
+      <label>订单类型<select aria-label="订单类型" value={type} onChange={e => setType(e.target.value)}><option value="">两种类型</option><option value="rpi">RPI</option><option value="non-rpi">non-RPI</option></select></label>
       <label>Symbol<input value={symbol} onChange={e => setSymbol(e.target.value)} placeholder="搜索 symbol" /></label>
     </div>
     <nav className="participation-levels" aria-label="汇总层级">{([["exchange", "Exchange 汇总"], ["account", "Account 汇总"], ["symbol", "Account × Symbol 明细"]] as const).map(([key, label]) => <button type="button" key={key} aria-pressed={level === key} onClick={() => setLevel(key)}>{label}</button>)}</nav>
