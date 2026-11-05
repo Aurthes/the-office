@@ -67,6 +67,42 @@ it("uses live turn state to open work and folds it as the official response begi
   expect(screen.getByText("The official response")).toBeVisible();
 });
 
+it("keeps streamed work below the steer message in the same turn and preserves that order after reload", async () => {
+  const events = sessionEvents(); let subscriptionId = "";
+  let messages = [
+    { id: "before", turnId: "working", role: "assistant", phase: "commentary", content: "Before steering" },
+    { id: "call", turnId: "working", role: "tool", content: "Original call" },
+  ];
+  const call = vi.fn(async (method: string, params: unknown) => {
+    if (method === "session.inspect") return { ...metadata(), controlsAvailable: true };
+    if (method === "session.history") return { threadId: "original", messages, nextCursor: null };
+    if (method === "session.subscribe") subscriptionId = (params as { subscriptionId: string }).subscriptionId;
+    return {};
+  });
+  const props = { client: { call, onEvent: events.onEvent }, threadId: "original" };
+  const push = (version: number, items: unknown[]) => act(async () => events.emit({ event: "session.stream", payload: { connected: true, version, threadId: "original", subscriptionId, activeTurnId: "working", approvals: [], items, features: { dictation: false, voice: false, prediction: false } } }));
+  const view = render(React.createElement(ExistingSessionPanel, props));
+  await waitFor(() => expect(subscriptionId).not.toBe("")); await push(0, []);
+  await screen.findByText("Before steering");
+  const steered = [
+    { id: "steer", turnId: "working", role: "user", content: "Use the mobile layout" },
+    { id: "after", turnId: "working", role: "assistant", phase: "commentary", content: "After steering" },
+    { id: "call-2", turnId: "working", role: "tool", content: "Mobile check" },
+  ];
+  await push(1, steered);
+  const assertOrder = () => {
+    const groups = screen.getAllByLabelText("Work process") as HTMLDetailsElement[];
+    expect(groups.map(group => group.open)).toEqual([false, true]);
+    expect(screen.getByText("Use the mobile layout").closest("article")?.nextElementSibling).toBe(groups[1]);
+    expect(screen.getByText("After steering").closest("details")).toBe(groups[1]);
+  };
+  assertOrder();
+  messages = [...messages, ...steered]; view.unmount(); subscriptionId = "";
+  render(React.createElement(ExistingSessionPanel, props));
+  await waitFor(() => expect(subscriptionId).not.toBe("")); await push(0, []);
+  await screen.findByText("After steering"); assertOrder();
+});
+
 describe("existing session history pagination", () => {
   it("exposes return-to-Earth for an interactive original session and disables it while busy", async () => {
     const call=vi.fn(async(method:string)=>method==="session.inspect"?{...metadata(),controlsAvailable:true}:method==="session.history"?page("latest",null):{connected:true,version:1,activeTurnId:null,items:[],approvals:[]});

@@ -68,25 +68,25 @@ function WorkProcess({ items, defaultOpen, highlightedMessageId }: { items: Live
 
 export const SessionTranscript = memo(function SessionTranscript({ messages, activeTurnId = null, onForkFrom, forkDisabled = false, highlightedMessageId }: { messages: LiveSessionItem[]; activeTurnId?: string | null; onForkFrom?: (lastTurnId: string) => void; forkDisabled?: boolean; highlightedMessageId?: string }) {
   const t = useUiText();
-  const groups = new Map<string, { id: string; items: LiveSessionItem[] }>();
   const answeredTurns = new Set(messages.filter(message => message.role === "assistant" && message.phase === "final_answer").map(message => message.turnId));
   const forkPoints = new Map<string, string>();
   for (const message of messages) {
     if (message.turnId && message.turnId !== activeTurnId && message.role === "assistant" && message.source !== "voice" && message.phase !== "commentary" && message.phase !== "partial_answer") forkPoints.set(message.turnId, message.id);
   }
-  const blocks: ({ message: LiveSessionItem } | { group: { id: string; items: LiveSessionItem[] } })[] = [];
+  const blocks: ({ message: LiveSessionItem } | { group: { id: string; turnId?: string; items: LiveSessionItem[] } })[] = [];
   for (const message of messages) {
     if (message.role === "user" && !visibleUserText(message.content).trim() && !message.assets?.some(asset => asset.inline || asset.attached)) continue;
     if (message.role === "tool" || message.phase === "commentary") {
-      const id = message.turnId || message.id;
-      let group = groups.get(id);
-      if (!group) { group = { id, items: [] }; groups.set(id, group); blocks.push({ group }); }
-      group.items.push(message);
+      // Steers share a turn ID. Only adjacent work belongs in the same box,
+      // otherwise new responses jump above the user message that prompted them.
+      const previous = blocks.at(-1);
+      if (message.turnId && previous && "group" in previous && previous.group.turnId === message.turnId) previous.group.items.push(message);
+      else blocks.push({ group: { id: message.id, turnId: message.turnId, items: [message] } });
     } else blocks.push({ message });
   }
   return blocks.map(block => {
     if ("group" in block) {
-      const working = block.group.id === activeTurnId && !answeredTurns.has(block.group.id);
+      const working = block === blocks.at(-1) && block.group.turnId === activeTurnId && !answeredTurns.has(block.group.turnId);
       // Reset the default only when work starts or the official answer begins.
       const highlight = block.group.items.some(item => item.id === highlightedMessageId) ? highlightedMessageId : undefined;
       return <WorkProcess key={`process:${block.group.id}:${working}:${highlight || ""}`} items={block.group.items} defaultOpen={working || Boolean(highlight)} highlightedMessageId={highlight} />;

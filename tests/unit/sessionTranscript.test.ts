@@ -1,8 +1,69 @@
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { SessionTranscript } from "../../src/features/office/components/SessionTranscript";
 afterEach(cleanup);
+
+it("continues below each steer in a new work box while updates stay with their original calls", async () => {
+  const initial = [
+    { id: "question", turnId: "t", role: "user", content: "Check the code" },
+    { id: "before", turnId: "t", role: "assistant", phase: "commentary", content: "Inspecting the code" },
+    { id: "call", turnId: "t", role: "tool", content: "First command", status: "inProgress" },
+  ];
+  const view = render(React.createElement(SessionTranscript, { messages: initial, activeTurnId: "t" }));
+  expect((screen.getByLabelText("Work process") as HTMLDetailsElement).open).toBe(true);
+  const steer = { id: "steer", turnId: "t", role: "user", content: "Check the tests too" };
+  view.rerender(React.createElement(SessionTranscript, { messages: [...initial, steer], activeTurnId: "t" }));
+  expect((screen.getByLabelText("Work process") as HTMLDetailsElement).open).toBe(false);
+  const continued = [...initial, steer,
+    { id: "after", turnId: "t", role: "assistant", phase: "commentary", content: "Inspecting the tests" },
+    { id: "next-call", turnId: "t", role: "tool", content: "Second command" },
+  ];
+  view.rerender(React.createElement(SessionTranscript, { messages: continued, activeTurnId: "t" }));
+  let groups = screen.getAllByLabelText("Work process") as HTMLDetailsElement[];
+  expect(groups.map(group => group.open)).toEqual([false, true]);
+  expect([...view.container.children].map(node => node.getAttribute("data-message-id") || node.getAttribute("aria-label"))).toEqual(["question", "Work process", "steer", "Work process"]);
+  expect(within(groups[1]).getByText("Inspecting the tests")).toBeVisible();
+  fireEvent.click(groups[0].querySelector("summary")!);
+  fireEvent.click(await within(groups[0]).findByText("Tool calls · 1 items"));
+  await within(groups[0]).findByText("First command");
+  view.rerender(React.createElement(SessionTranscript, { messages: continued.map(item => item.id === "call" ? { ...item, status: "completed", content: "First command completed" } : item), activeTurnId: "t" }));
+  groups = screen.getAllByLabelText("Work process") as HTMLDetailsElement[];
+  expect(within(groups[0]).getByText("First command completed")).toBeVisible();
+  expect(within(groups[1]).queryByText("First command completed")).toBeNull();
+  // A user can fold the latest work without subsequent streaming reopening it.
+  fireEvent.click(groups[1].querySelector("summary")!);
+  await waitFor(() => expect(groups[1].open).toBe(false));
+  view.rerender(React.createElement(SessionTranscript, { messages: [...continued,
+    { id: "delta", turnId: "t", role: "assistant", phase: "commentary", content: "Tests checked" },
+  ], activeTurnId: "t" }));
+  expect(screen.queryByText("Tests checked")).toBeNull();
+  view.rerender(React.createElement(SessionTranscript, { messages: [...continued,
+    { id: "steer-2", turnId: "t", role: "user", content: "Now check mobile" },
+    { id: "mobile", turnId: "t", role: "assistant", phase: "commentary", content: "Checking mobile" },
+  ], activeTurnId: "t" }));
+  groups = screen.getAllByLabelText("Work process") as HTMLDetailsElement[];
+  expect(groups).toHaveLength(3);
+  expect(within(groups[2]).getByText("Checking mobile")).toBeVisible();
+  expect(screen.getByText("Now check mobile").closest("article")?.nextElementSibling).toBe(groups[2]);
+});
+
+it("keeps historical work in order around steers and visible answers, and opens only the searched work box", () => {
+  const messages = [
+    { id: "before", turnId: "t", role: "assistant", phase: "commentary", content: "Original work" },
+    { id: "steer", turnId: "t", role: "user", content: "Change direction" },
+    { id: "after", turnId: "t", role: "assistant", phase: "commentary", content: "Steered work" },
+    { id: "partial", turnId: "t", role: "assistant", phase: "partial_answer", content: "Partial response" },
+    { id: "last", turnId: "t", role: "assistant", phase: "commentary", content: "Last check" },
+    { id: "final", turnId: "t", role: "assistant", phase: "final_answer", content: "Final response" },
+  ];
+  const view = render(React.createElement(SessionTranscript, { messages, activeTurnId: "t" }));
+  expect([...view.container.children].map(node => node.getAttribute("data-message-id") || node.getAttribute("aria-label"))).toEqual(["Work process", "steer", "Work process", "partial", "Work process", "final"]);
+  expect(screen.getAllByLabelText("Work process").every(group => !(group as HTMLDetailsElement).open)).toBe(true);
+  view.rerender(React.createElement(SessionTranscript, { messages, highlightedMessageId: "after" }));
+  expect(screen.getAllByLabelText("Work process").map(group => (group as HTMLDetailsElement).open)).toEqual([false, true, false]);
+  expect(screen.getByText("Steered work").closest("[data-message-id]")).toHaveAttribute("data-search-match", "true");
+});
 
 it("forks at the last answer of a completed turn, excluding work logs, user messages and the active turn",()=>{
   const onForkFrom=vi.fn(),messages=[
