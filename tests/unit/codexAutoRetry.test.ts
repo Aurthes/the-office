@@ -158,6 +158,12 @@ describe("backend-owned automatic recovery", () => {
     f.emit("inProgress", capacity, "running"); await f.controls.stop("id"); f.emit("interrupted");
     await f.restart().recover("id"); await vi.advanceTimersByTimeAsync(60000); expect(f.starts()).toHaveLength(0);
   });
+  it("does not let a late native start revoke an explicit Stop", async () => {
+    const f = fixture(); f.emit("failed"); await f.controls.stop("id");
+    f.emit("inProgress", capacity, "late-native-start"); f.emit("interrupted");
+    await f.restart().recover("id"); await vi.advanceTimersByTimeAsync(60000);
+    expect(f.starts()).toHaveLength(0); expect(f.controls.snapshot("id").retryAt).toBeNull();
+  });
   it("resets the budget after a successful turn or an explicit new user message", async () => {
     const f = fixture(); f.emit("failed");
     for (let i = 0; i < 3; i++) { await vi.advanceTimersByTimeAsync(15000); f.emit("failed"); }
