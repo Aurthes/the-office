@@ -379,7 +379,10 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
       }
       if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); }
     }} onPaste={event => {
-      event.stopPropagation(); // This composer handles paste before the library's document listener.
+      event.stopPropagation();
+      // Next delegates React events to document too. Stop the mention editor's
+      // other listener on that same node from inserting this paste a second time.
+      event.nativeEvent.stopImmediatePropagation();
       if (event.clipboardData.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)); return; }
       // Dictation tools can restore the clipboard before Chrome's default paste
       // reads it again. Insert this event's text while keeping native undo/caret.
