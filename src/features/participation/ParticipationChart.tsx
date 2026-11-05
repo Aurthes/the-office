@@ -4,7 +4,7 @@ import { participationGroupKey, type OrderClass, type ParticipationGroup, type P
 
 export const formatParticipationHour = (ms: number) => new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(ms);
 export const formatParticipationShare = (value: number | null) => value === null ? "—" : `${(value * 100).toLocaleString("zh-CN", { maximumFractionDigits: 4 })}%`;
-const clock = (ms: number) => new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", hourCycle: "h23" }).format(ms);
+const clock = (ms: number) => new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", hourCycle: "h23" }).formatToParts(ms).find(p => p.type === "hour")!.value;
 const number = (value: number) => value.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 
 export function ParticipationChart({ group, points, metric, types, maximum, selected, onSelect }: {
@@ -42,7 +42,7 @@ export function ParticipationChart({ group, points, metric, types, maximum, sele
                 <title>{label}{row ? `；我们的${metric === "count" ? "笔数" : "成交额"} ${number(row.own[metric])} / 市场 ${number(row.market[metric])}` : "；数据未完整"}</title>
               </rect>;
             })}
-            {i % Math.max(1, Math.ceil(points.length / 6)) === 0 || i === points.length - 1 ? <text x={i * band + band / 2} y={222} textAnchor="middle" className="participation-x-label">{i === 0 || clock(point.hour) === "00" || points.length > 48 ? formatParticipationHour(point.hour) : `${clock(point.hour)}:00`}</text> : null}
+            {i % Math.max(1, Math.ceil(points.length / 6)) === 0 || i === points.length - 1 ? <text x={i === 0 ? 2 : i === points.length - 1 ? width - 2 : i * band + band / 2} y={222} textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"} className="participation-x-label">{i === 0 || clock(point.hour) === "00" || points.length > 48 ? formatParticipationHour(point.hour) : `${clock(point.hour)}:00`}</text> : null}
           </g>)}
         </svg>
       </div>
