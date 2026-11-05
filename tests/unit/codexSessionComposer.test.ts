@@ -16,8 +16,8 @@ async function fixture() {
     if (method === "thread/start") return { thread: { id: "native-reader" } };
     if (method === "thread/timeline/list") return { data: [{ type: "item", turnId: "turn", item: { id: "message", type: "userMessage", content: [{ type: "text", text: "Target conversation context" }] } }], nextCursor: "older" };
     if (method === "skills/list") return { data: [{ skills: [{ name: "enabled", path: "/skills/enabled/SKILL.md", description: "Enabled skill", enabled: true }, { name: "disabled", path: "/skills/disabled/SKILL.md", description: "Disabled skill", enabled: false }] }] };
-    if (method === "app/list") return { data: [{ id: "allowed", name: "Allowed", isAccessible: true, isEnabled: true }, { id: "blocked", name: "Blocked", isAccessible: true, isEnabled: true }], nextCursor: null };
-    if (method === "app/installed") return { apps: [{ id: "allowed", enabled: true, callable: true }, { id: "blocked", enabled: true, callable: false }] };
+    if (method === "app/list") throw new Error("Remote app directory unavailable");
+    if (method === "app/installed") return { apps: [{ id: "allowed", runtimeName: "Allowed", enabled: true, callable: true }, { id: "blocked", enabled: true, callable: false }, { id: "disabled", enabled: false, callable: false }] };
     return {};
   });
   const client = { ready: true, call, respond: vi.fn() };
@@ -103,6 +103,21 @@ describe("official Office composer integration", () => {
     f.client.call.mockImplementation(async () => ({ data: [{ skills: Array.from({ length: 80 }, (_, index) => ({ name: `skill-${index}`, path: `/skills/${index}/SKILL.md`, description: "", enabled: true })) }] }));
     expect((await f.composer.options(f.reader, "skill", "skill-79")).options[0].id).toBe("/skills/79/SKILL.md");
     expect((await f.composer.prepare(f.reader, "Run it", [{ kind: "skill", id: "/skills/79/SKILL.md" }])).items[0].name).toBe("skill-79");
+  });
+  it("reads installed app policy for the native thread and revalidates before sending", async () => {
+    const f = await fixture(); f.store.get(f.reader).codexThreadId = "native-reader";
+    const options = (await f.composer.options(f.reader, "app")).options;
+    expect(options).toEqual([
+      { kind: "app", id: "allowed", name: "Allowed", description: "", disabled: false },
+      { kind: "app", id: "blocked", name: "blocked", description: "", disabled: true },
+    ]);
+    expect(f.client.call).toHaveBeenCalledWith("app/installed", { threadId: "native-reader", forceRefresh: false });
+    expect(f.client.call.mock.calls.some(([method]) => method === "app/list")).toBe(false);
+    f.client.call.mockResolvedValueOnce({ apps: [{ id: "allowed", runtimeName: "Allowed", enabled: true, callable: false }] });
+    await expect(f.composer.prepare(f.reader, "Use it", [{ kind: "app", id: "allowed" }])).rejects.toThrow("no longer available");
+    f.client.call.mockRejectedValueOnce(new Error("runtime disconnected"));
+    await expect(f.composer.options(f.reader, "app")).rejects.toThrow("runtime disconnected");
+    expect((await f.composer.options(f.reader, "app")).options[0].name).toBe("Allowed");
   });
   it("rejects file references escaping an attached workspace through a symlink", async () => {
     const f = await fixture();

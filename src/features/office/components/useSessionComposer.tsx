@@ -37,11 +37,12 @@ export function useSessionComposer({ client, threadId, enabled, chatReferences, 
   useEffect(() => {
     if (!kind) return;
     let stopped = false;
+    // Opening a picker needs no debounce; searching within it still does.
     const timer = setTimeout(() => {
       void client.call("session.composer.options", { threadId, kind, query }).then(value => {
         if (!stopped) { setResult({ ...value as Result, key }); setSelected(0); }
       }).catch(cause => { if (!stopped) setResult({ key, options: [], error: cause instanceof Error ? cause.message : "Could not load composer options" }); });
-    }, kind === "file" ? 180 : 80);
+    }, query ? kind === "file" ? 180 : 80 : 0);
     return () => { stopped = true; clearTimeout(timer); };
   }, [client, threadId, kind, query, key]);
   useLayoutEffect(() => {

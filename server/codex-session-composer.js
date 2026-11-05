@@ -34,10 +34,11 @@ class CodexSessionComposer {
         .map(skill => ({ kind, id: skill.path, name: skill.name, description: skill.shortDescription || skill.description }));
     }
     const scope = row.codexThreadId ? { threadId: row.codexThreadId } : {};
-    const [catalog, runtime] = await Promise.all([this.store.client.call("app/list", { ...scope, limit: 100 }), this.store.client.call("app/installed", scope)]);
-    const callable = new Set(runtime.apps.filter(app => app.enabled && app.callable).map(app => app.id));
-    return catalog.data.filter(app => app.isAccessible && app.isEnabled)
-      .map(app => ({ kind, id: app.id, name: app.name, description: app.description || "", disabled: !callable.has(app.id) }));
+    // This picker references installed apps; it does not browse the remote app
+    // directory. Read current runtime policy without waiting for that catalog.
+    const runtime = await this.store.client.call("app/installed", { ...scope, forceRefresh: false });
+    return runtime.apps.filter(app => app.enabled)
+      .map(app => ({ kind, id: app.id, name: app.runtimeName || app.id, description: "", disabled: !app.callable }));
   }
   async options(id, kind, query = "") {
     const row = this.store.get(id);
