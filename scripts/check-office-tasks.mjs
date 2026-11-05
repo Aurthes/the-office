@@ -133,6 +133,52 @@ export async function checkOfficeTasks({ page, call, expect, setModelFixture, sc
   await expect(page.getByRole("combobox", { name: "Task status", exact: true })).toHaveValue("all");
   await expect(board.getByText("No to-dos here yet.", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Close task board", exact: true }).click();
+  // Task badges follow unfinished assignments even while the session is idle.
+  await page.getByRole("button", { name: "CHAT", exact: true }).click();
+  await page.getByRole("button", { name: "Open session: Mac verification recruit", exact: true }).first().click();
+  const directory = page.locator("#session-chat-list");
+  await expect(directory).toBeVisible();
+  await page.getByRole("combobox", { name: "Organize agents", exact: true }).selectOption("activity");
+  let assigned = (await call("todo.create", { title: "Persistent assignment (PA)", departmentId: alpha.id, assigneeId: agent.id, phases: [{ title: "First" }, { title: "Second" }], requestId: "persistent-assignment-browser" })).todo;
+  const badge = directory.getByRole("button", { name: "Open task: Persistent assignment (PA)", exact: true });
+  await expect(badge).toBeVisible(); // Queued, with an idle agent.
+  assigned = (await call("todo.start", { id: assigned.id, revision: assigned.revision })).todo;
+  await expect(badge).toBeVisible();
+  assigned = (await call("todo.complete", { id: assigned.id, revision: assigned.revision, phaseId: assigned.phases[0].id })).todo;
+  await expect(badge).toBeVisible(); // Completing one phase retains the assignment.
+  assigned = (await call("todo.pause", { id: assigned.id, revision: assigned.revision })).todo;
+  await expect(badge).toBeVisible();
+  const extra = (await call("todo.create", { title: "Secondary assignment (SA)", departmentId: alpha.id, assigneeId: agent.id, phases: [{ title: "Execute" }], requestId: "secondary-assignment-browser" })).todo;
+  const count = directory.getByRole("button", { name: "Tasks assigned to Mac verification recruit: 2", exact: true });
+  await expect(count).toBeVisible();
+  await count.click();
+  const assignedList = directory.getByRole("group", { name: "Tasks assigned to Mac verification recruit", exact: true });
+  await expect(assignedList.getByRole("button")).toHaveCount(2);
+  // Expanded task titles stay inside the narrow sidebar and remain clickable.
+  await page.setViewportSize({ width: 390, height: 844 });
+  const contained = await assignedList.evaluate(node => {
+    const list = node.getBoundingClientRect(), sidebar = node.closest("aside").getBoundingClientRect();
+    return list.left >= sidebar.left && list.right <= sidebar.right + 1 && node.scrollWidth <= node.clientWidth + 1;
+  });
+  if (!contained) throw Error("Assigned task dropdown overflows the sidebar");
+  if (screenshots) await page.screenshot({ path: path.join(screenshots, browserName + "-assigned-tasks-mobile.png") });
+  await assignedList.getByRole("button", { name: "Open task: Secondary assignment (SA)", exact: true }).click();
+  await expect(board.getByRole("heading", { name: "Secondary assignment (SA)", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close task board", exact: true }).click();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const otherAgent = roster.agents.find(other => other.id !== agent.id);
+  let moved = (await call("todo.edit", { id: extra.id, revision: extra.revision, assigneeId: otherAgent.id })).todo;
+  await expect(count).toHaveCount(0);
+  await expect(badge).toBeVisible();
+  const movedCard = directory.locator(`[data-person-id="${otherAgent.id}"]`);
+  await expect(movedCard.getByRole("button", { name: "Open task: Secondary assignment (SA)", exact: true })).toBeVisible();
+  moved = (await call("todo.edit", { id: moved.id, revision: moved.revision, assigneeId: null })).todo;
+  await expect(directory.getByRole("button", { name: "Open task: Secondary assignment (SA)", exact: true })).toHaveCount(0);
+  await call("todo.archive", { id: moved.id, revision: moved.revision });
+  await call("todo.complete", { id: assigned.id, revision: assigned.revision, phaseId: assigned.phases[1].id });
+  await expect(badge).toHaveCount(0);
+  await page.getByRole("button", { name: "Close chat and return to office", exact: true }).click();
+  console.log(JSON.stringify({ assignedBadgesPersistQueuedPausedIdle: true, phaseCompletionKeepsBadge: true, multipleAssignmentsExpandable: true, mobileAssignmentListFits: true, taskLinksOpenDetails: true, reassignmentMovesBadge: true, unassignmentAndCompletionRemoveBadge: true }));
   setModelFixture(null);
   console.log(JSON.stringify({ globalTaskEntry: true, singleControlRoomWhiteboard: true, pnlScreenIndependent: true, departmentFilter: true, sharedTaskRecords: true, generalChatCreatesNoTask: true, generalFollowupCreatesNoTask: true, casualChatLeavesPausedTimerStopped: true, phaseAdvance: true, humanEditing: true, agentMcpProgress: true, mobileTaskBoard: true, autoArchiveOnCompletion: true, phaseAndTaskCompletionTimes: true, followupPreservesHistory: true, archiveRestore: true }));
 }

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, Link2, Users } from "lucide-react";
 import { CharacterPortrait } from "./CharacterPortrait";
 import { getAgentActivity } from "@/features/retro-office/core/agentActivity";
@@ -9,10 +9,27 @@ import { useUiText } from "@/lib/i18n/ui-language";
 import { AgentActivityIndicator } from "./AgentActivityIndicator";
 import { ScheduledTaskIndicator } from "./ScheduledTaskIndicator";
 import { organizeChatRoster } from "../operations/chatRoster";
-import { reportingForest, type AgentDirectoryView, type DirectoryAgent, type ReportingNode } from "../operations/agentDirectory";
+import { reportingForest, type AgentDirectoryView, type CurrentAgentTask, type DirectoryAgent, type ReportingNode } from "../operations/agentDirectory";
 import { MessageSearchResults, type MessageSearchTarget } from "./MessageSearchResults";
 import type { SessionClient } from "./SessionControls";
 import "./agent-directory.css";
+
+function AssignedTaskMenu({ name, tasks, onOpenTask }: { name: string; tasks: CurrentAgentTask[]; onOpenTask: (id: string) => void }) {
+  const t = useUiText(), id = useId(), trigger = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const escape = (event: KeyboardEvent) => {
+    if (open && event.key === "Escape") { event.stopPropagation(); setOpen(false); trigger.current?.focus(); }
+  };
+  return <>
+    <button ref={trigger} type="button" className="directory-task directory-task-count" title={tasks.map(task => task.title).join("\n")}
+      aria-label={t("Tasks assigned to {name}: {count}", { name, count: tasks.length })} aria-expanded={open} aria-controls={id}
+      onKeyDown={escape} onClick={() => setOpen(value => !value)}>{t("{count} tasks", { count: tasks.length })}<ChevronDown size={11} aria-hidden="true" /></button>
+    {open ? <div id={id} className="directory-task-list" role="group" aria-label={t("Tasks assigned to {name}", { name })} onKeyDown={escape}>
+      {tasks.map(task => <button type="button" key={task.id} className="directory-task-link" aria-label={t("Open task: {name}", { name: task.title })}
+        onClick={() => { setOpen(false); onOpenTask(task.id); }}><span className="directory-task-code">{task.code}</span><span className="directory-task-title">{task.title}</span></button>)}
+    </div> : null}
+  </>;
+}
 
 export function AgentDirectory({ agents, organization, view, onViewChange, search, onSearchChange, selectedId, onOpenChat, onOpenTask, taskError, focusRequest, client, onOpenMessage }: {
   agents: DirectoryAgent[]; organization: OrganizationView; view: AgentDirectoryView; onViewChange: (view: AgentDirectoryView) => void;
@@ -28,7 +45,7 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
   const forest = useMemo(() => reportingForest(organization.people, agents), [organization.people, agents]);
   const byId = new Map(agents.map(agent => [agent.id, agent]));
   const query = search.trim().toLocaleLowerCase();
-  const matches = (agent: DirectoryAgent) => !query || [agent.name, agent.id, agent.projectName, agent.task?.code, agent.task?.title].some(value => value?.toLocaleLowerCase().includes(query));
+  const matches = (agent: DirectoryAgent) => !query || [agent.name, agent.id, agent.projectName, ...(agent.tasks || []).flatMap(task => [task.code, task.title])].some(value => value?.toLocaleLowerCase().includes(query));
   const groups = organizeChatRoster(agents.filter(matches), view === "activity" ? "activity" : "project");
   const visible = new Set<string>();
   if (query) {
@@ -55,14 +72,17 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
     });
     return () => cancelAnimationFrame(frame);
   }, [collapsed, focusRequest, view]);
-  const card = (agent: DirectoryAgent, subtitle: string) => <div className="directory-agent" data-selected={agent.id === selectedId} data-person-id={agent.id} style={{ borderLeftColor: agent.color }}>
+  const card = (agent: DirectoryAgent, subtitle: string) => {
+    const tasks = agent.tasks || [];
+    return <div className="directory-agent" data-selected={agent.id === selectedId} data-person-id={agent.id} style={{ borderLeftColor: agent.color }}>
     <button type="button" className="directory-agent-open" aria-label={agent.id === CEO_ID ? t("CEO organization") : t("Open session: {0}", { "0": agent.name })} onClick={() => { setInspected(agent.id); if (agent.id !== CEO_ID) onOpenChat(agent.id); }}>
       <CharacterPortrait name={agent.name} profile={agent.avatarProfile} />
       <span className="directory-agent-copy"><strong title={agent.name}>{agent.name}</strong><small title={subtitle}>{subtitle}</small></span>
       <span className="directory-agent-status"><AgentActivityIndicator activity={agent.activity} /><ScheduledTaskIndicator active={agent.hasPendingSchedule} /></span>
     </button>
-    {agent.task ? <button type="button" className="directory-task" title={agent.task.title} aria-label={t("Open task: {name}", { name: agent.task.title })} onClick={() => onOpenTask(agent.task!.id)}>{agent.task.code}</button> : null}
+    {tasks.length === 1 ? <button type="button" className="directory-task" title={tasks[0].title} aria-label={t("Open task: {name}", { name: tasks[0].title })} onClick={() => onOpenTask(tasks[0].id)}>{tasks[0].code}</button> : tasks.length > 1 ? <AssignedTaskMenu name={agent.name} tasks={tasks} onOpenTask={onOpenTask} /> : null}
   </div>;
+  };
   const branch = (node: ReportingNode): ReactNode => {
     const { person, reference, children } = node;
     if (query && !visible.has(person.id)) return null;

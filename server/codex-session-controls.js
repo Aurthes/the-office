@@ -129,9 +129,8 @@ class CodexSessionControls {
     if (frame.method === "serverRequest/resolved") { this.requests.delete(String(p.requestId)); state.version++; return; }
     if (frame.method === "turn/started") {
       state.turnVersion++;
-      // Only explicit new user input clears Stop; a late native start event
-      // cannot revoke it after an uncertain request or a reconnect.
-      if (!state.autoStarting && !state.retry?.dispatching) this.saveRecovery(id, { attempts: 0 });
+      // Start notifications can follow their RPC response. They never reset
+      // recovery metadata; only explicit new input or successful completion can.
       this.cancelRetry(id); state.lastTurnId = p.turn.id;
       state.activeTurnStartedAt = Number.isFinite(p.turn.startedAt) ? p.turn.startedAt * 1000
         : state.activeTurnId === p.turn.id ? state.activeTurnStartedAt : Date.now();

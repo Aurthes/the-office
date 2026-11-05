@@ -184,6 +184,7 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   await page.getByRole('tab',{name:'Wings',exact:true}).click();await page.getByRole('button',{name:'Layered feathers',exact:true}).click();
   await page.getByRole('button',{name:'Cancel',exact:true}).click();await page.getByRole('button',{name:'Back to chat',exact:true}).click();
   await page.reload({waitUntil:'domcontentloaded'});
+  await page.getByRole('button',{name:'CHAT',exact:true}).click();
   await page.getByRole('button',{name:'Open session: Mac verification recruit',exact:true}).first().waitFor({timeout:30000});
   await page.getByRole('button',{name:'Open session: Mac verification recruit',exact:true}).first().click();
   await page.getByText('OFFICE_MAC_PACKAGE_REPLY_OK',{exact:true}).first().waitFor({timeout:20000});
@@ -203,26 +204,33 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
    await call('session.create',{name,projectId,requestId:name});await new Promise(resolve=>setTimeout(resolve,10));
   }
   const list=page.locator('#session-chat-list'),order=page.getByRole('combobox',{name:'Organize agents',exact:true});
-  const names=()=>list.getByRole('button').filter({hasText:'Roster '}).allTextContents();
+  const names=()=>list.getByRole('button',{name:/^Open session: Roster /}).evaluateAll(buttons=>buttons.map(button=>button.getAttribute('aria-label').replace('Open session: ','')));
   await expect.poll(names).toEqual(['Roster Alpha New','Roster Zebra','Roster Alpha Old']);
   await order.selectOption('project');
-  await expect(list.getByRole('heading')).toHaveText(['Alpha team','Open Workspace','Zebra team']);
+  await expect(list.getByRole('heading')).toHaveText(['Alpha team2','Open Workspace1','Zebra team1']);
   await expect.poll(names).toEqual(['Roster Alpha New','Roster Alpha Old','Roster Zebra']);
   await expect(page.getByRole('heading',{name:'Mac verification recruit',exact:true})).toBeVisible();
-  await page.getByRole('textbox',{name:'Search sessions',exact:true}).fill('Alpha team');
+  await page.getByRole('searchbox',{name:'Search sessions',exact:true}).fill('Alpha team');
   await expect.poll(names).toEqual(['Roster Alpha New','Roster Alpha Old']);
   await order.selectOption('activity');
   await expect.poll(names).toEqual(['Roster Alpha New','Roster Alpha Old']);
-  await page.getByRole('textbox',{name:'Search sessions',exact:true}).fill('');
+  await page.getByRole('searchbox',{name:'Search sessions',exact:true}).fill('');
   await expect.poll(names).toEqual(['Roster Alpha New','Roster Zebra','Roster Alpha Old']);
   await order.selectOption('project');
   await page.getByRole('button',{name:'Close session list',exact:true}).click();
   await expect(list).toBeHidden();
   await page.getByRole('button',{name:'Close chat and return to office',exact:true}).click();
+  await page.getByRole('button',{name:'CHAT',exact:true}).click();
   await page.getByRole('button',{name:'Open session: Mac verification recruit',exact:true}).first().click();
-  await expect(list).toBeVisible();await expect(order).toHaveValue('project');
+  await expect(list).toBeVisible();await expect(order).toHaveValue('activity');
+  await order.selectOption('project');
   if(option('--screenshots'))await page.screenshot({path:path.join(option('--screenshots'),browserName+'-agent-projects.png')});
   await page.getByRole('button',{name:'Close chat and return to office',exact:true}).click();
+  if(args.includes('--office-tasks-only')){
+   await checkOfficeTasks({page,call,expect,setModelFixture:value=>{modelFixture=value},screenshots:option('--screenshots'),browserName,fs,path});
+   if(errors.length)throw Error(errors.join('\n'));
+   return;
+  }
   const wholeShip=page.getByRole('button',{name:'Whole ship',exact:true});
   if(await wholeShip.getAttribute('aria-pressed')!=='true')await wholeShip.click();
   await expect(wholeShip).toHaveAttribute('aria-pressed','true');
