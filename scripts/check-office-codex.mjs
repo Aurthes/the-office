@@ -32,11 +32,16 @@ function sourceSnapshot(directory = foreign) {
 }
 let sourceBefore = JSON.stringify(sourceSnapshot());
 const payloads = [], checks = []; let gateway, socket, referenceTargetId;
-let diagnosticClient, gatewayErrors = "";
+let diagnosticClient, gatewayErrors = "", budgetRequests = 0;
 const provider = http.createServer((request, response) => {
   let body = ""; request.on("data", data => { body += data; }); request.on("end", () => {
     const payload = JSON.parse(body); payloads.push(payload);
     const last = [...(payload.input || [])].reverse().find(item => item.role === "user");
+    if ((payload.input || []).some(item => item.role === "user" && JSON.stringify(item).includes("OFFICE_RETRY_BUDGET"))) {
+      budgetRequests++;
+      response.writeHead(400, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: { message: "Persistent synthetic failure", type: "invalid_request_error", code: "synthetic_budget" } })); return;
+    }
     if (JSON.stringify(last).includes("OFFICE_GENERIC_FAILURE")) {
       response.writeHead(400, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: { message: "Synthetic non-capacity failure", type: "invalid_request_error", code: "synthetic_error" } })); return;
@@ -73,8 +78,9 @@ class BrowserClient {
   constructor(ws) {
     this.ws = ws; this.pending = new Map(); this.serial = 0; this.events = [];
     ws.on("message", raw => { const f = JSON.parse(String(raw)); if (f.type === "event") return this.events.push(f); const p = this.pending.get(f.id); if (!p) return; clearTimeout(p.timer); this.pending.delete(f.id); if (f.ok) p.resolve(f.payload); else p.reject(new Error(f.error?.message)); });
+    ws.on("close", (code, reason) => { for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error(`Test connection closed: ${code} ${reason}`)); } this.pending.clear(); });
   }
-  call(method, params = {}) { return new Promise((resolve, reject) => { const id = String(++this.serial), timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`Timed out: ${method}`)); }, 20000); this.pending.set(id, { resolve, reject, timer }); this.ws.send(JSON.stringify({ type: "req", id, method, params })); }); }
+  call(method, params = {}) { if (this.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error(`Test connection is closed: ${method}`)); return new Promise((resolve, reject) => { const id = String(++this.serial), timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`Timed out: ${method}`)); }, 20000); this.pending.set(id, { resolve, reject, timer }); this.ws.send(JSON.stringify({ type: "req", id, method, params })); }); }
 }
 const token = crypto.randomBytes(32).toString("hex"); let port;
 async function start(useBundled = false) {
@@ -265,6 +271,7 @@ try {
   check("manual compaction emits the native context-compaction lifecycle", true);
   const handoffConfig = { ...scheduleConfig, threadId: forked.threadId, firstRunAt: Date.now() + 3600000 };
   const handoff = await client.call("schedule.create", { ...handoffConfig, requestId: "handoff-create" });
+  await client.call("session.unsubscribe", { subscriptionId: "compact-check" });
   const archiveFork = { threadId: forked.threadId, requestId: "archive-fork-reader" };
   await client.call("session.archive", archiveFork);
   await client.call("session.archive", archiveFork);
@@ -276,6 +283,19 @@ try {
   await client.call("schedule.update", { ...handoffConfig, id: handoff.id, threadId: reader.threadId, enabled: true, requestId: "handoff-resume" });
   check("explicit resume moves the schedule clock to the new conversation", (await client.call("office.snapshot")).agents.find(agent => agent.id === reader.threadId).hasPendingSchedule);
   await client.call("schedule.delete", { id: handoff.id, requestId: "handoff-delete" });
+  const budgetChat = await client.call("session.create", { name: "Retry budget fixture", projectId: project.id, requestId: "retry-budget-chat" });
+  const budgetRow = () => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions.find(row => row.id === budgetChat.threadId);
+  await client.call("session.send", { threadId: budgetChat.threadId, message: "OFFICE_RETRY_BUDGET", requestId: "retry-budget-input" });
+  await until(() => budgetRequests >= 2 && budgetRow().turnStatus === "failed", "First automatic budget attempt did not fail", 25000);
+  check("real native start event preserves the first automatic attempt", budgetRow().recovery?.attempts === 1);
+  await stop(); client = await start();
+  await until(() => budgetRow().recovery?.attempts === 3 && budgetRow().turnStatus === "failed", "Three automatic attempts did not finish", 40000);
+  const exhaustedBudget = await client.call("session.attach", { threadId: budgetChat.threadId });
+  check("real native engine stops after exactly three automatic attempts", budgetRequests === 4 && exhaustedBudget.retryAt === null && exhaustedBudget.retryExhausted === true);
+  await stop(); client = await start();
+  const afterBudgetRestart = await client.call("session.attach", { threadId: budgetChat.threadId });
+  check("exhausted retry budget survives a real gateway restart", budgetRequests === 4 && afterBudgetRestart.retryAt === null && afterBudgetRestart.retryExhausted === true);
+  await client.call("session.archive", { threadId: budgetChat.threadId, requestId: "archive-budget-fixture" });
   await client.call("session.archive", { threadId: reader.threadId, requestId: "archive-reference-reader" });
   await client.call("session.archive", { threadId, requestId: "archive-1" });
   check("own archive", (await client.call("office.snapshot")).agents.length === 0);

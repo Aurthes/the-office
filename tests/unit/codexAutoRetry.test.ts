@@ -130,6 +130,22 @@ describe("backend-owned automatic recovery", () => {
     expect(f.controls.snapshot("id")).toMatchObject({ turnStatus: "failed", retryAt: null, retryExhausted: true });
     await vi.advanceTimersByTimeAsync(120000); expect(f.starts()).toHaveLength(3);
   });
+  it("preserves the budget when native start notifications arrive after the RPC response", async () => {
+    const f = fixture(), normal = f.client.call.getMockImplementation()!; let index = 0;
+    f.client.call.mockImplementation(async (method, params) => {
+      if (method === "turn/start") {
+        const turn = { id: `response-first-${++index}`, status: "inProgress" }; f.setLatest(turn); return { turn, params };
+      }
+      return normal(method, params);
+    });
+    f.emit("failed");
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await vi.advanceTimersByTimeAsync(15000);
+      f.emit("inProgress", capacity, `response-first-${attempt}`); f.emit("failed");
+    }
+    expect(f.controls.snapshot("id")).toMatchObject({ retryAt: null, retryExhausted: true });
+    await f.restart().recover("id"); await vi.advanceTimersByTimeAsync(60000); expect(f.starts()).toHaveLength(3);
+  });
   it("keeps a native failure that arrives before turn/start returns, including its next retry", async () => {
     const f = fixture(), normal = f.client.call.getMockImplementation()!; let index = 0;
     f.client.call.mockImplementation(async (method, params) => {
