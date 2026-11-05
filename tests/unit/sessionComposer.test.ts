@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionControls } from "../../src/features/office/components/SessionControls";
 const snapshot = { connected: true, version: 1, activeTurnId: null, items: [], approvals: [], features: { composer: true, chatReferences: true, dictation: false, voice: false, prediction: false } };
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 function edit(input: HTMLElement, value: string, start = (input as HTMLTextAreaElement).value.length, end = start, caret = value.length) {
   (input as HTMLTextAreaElement).setSelectionRange(start, end); fireEvent.select(input);
   fireEvent.change(input, { target: { value, selectionStart: caret, selectionEnd: caret } });
@@ -18,6 +18,22 @@ function fixture(id: string, extra = {}, props: Partial<React.ComponentProps<typ
   return call;
 }
 describe("native composer menu", () => {
+  it("opens an empty menu immediately and still debounces changing search text", async () => {
+    const call = fixture("composer-menu-latency");
+    const input = screen.getByLabelText("Send to session"); await waitFor(() => expect(input).toBeEnabled());
+    vi.useFakeTimers(); call.mockClear();
+    fireEvent.change(input, { target: { value: "/" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(call).toHaveBeenCalledWith("session.composer.options", { threadId: "composer-menu-latency", kind: "command", query: "" });
+    call.mockClear(); fireEvent.change(input, { target: { value: "/c" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(79); });
+    expect(call).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "/co" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(79); });
+    expect(call).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(call).toHaveBeenCalledExactlyOnceWith("session.composer.options", { threadId: "composer-menu-latency", kind: "command", query: "co" });
+  });
   it("routes slash fork through the cloning scene owner without a duplicate RPC or model message", async () => {
     const onFork=vi.fn(),call=fixture("source",{}, {onFork});
     const input=screen.getByLabelText("Send to session");await waitFor(()=>expect(input).toBeEnabled());
