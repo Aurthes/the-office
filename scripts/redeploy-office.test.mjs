@@ -148,6 +148,31 @@ async function productionAssets(f, collide = false) {
   }
 }
 
+test("public Studio rejects absent or mismatched build modes before stopping the old service", mac, async t => {
+  const f = await fixture(t, ["studio"]);
+  await productionAssets(f);
+  const candidate = f.services[0].candidate;
+  const value = JSON.parse(execFileSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", candidate], { encoding: "utf8" }));
+  Object.assign(value.EnvironmentVariables, { NEXT_PUBLIC_CLAW3D_SESSION_VIEW: "1", NEXT_PUBLIC_CLAW3D_WEB_ACCESS: "1" });
+  writePlist(candidate, value);
+  const manifest = path.join(f.root, "new/.next/required-server-files.json");
+  assert.throws(() => prepare(f.planFile, path.join(f.root, "jobs")), /Candidate browser modes/);
+  for (const flags of [
+    { NEXT_PUBLIC_CLAW3D_SESSION_VIEW: "0", NEXT_PUBLIC_CLAW3D_WEB_ACCESS: "1" },
+    { NEXT_PUBLIC_CLAW3D_SESSION_VIEW: "1", NEXT_PUBLIC_CLAW3D_WEB_ACCESS: "0" },
+  ]) {
+    fs.writeFileSync(manifest, JSON.stringify({ config: { env: flags } }));
+    assert.throws(() => prepare(f.planFile, path.join(f.root, "jobs")), /Candidate browser modes/);
+  }
+  assert.equal(await version(f.services[0].health), "old");
+  fs.writeFileSync(manifest, JSON.stringify({ config: { env: {
+    NEXT_PUBLIC_CLAW3D_SESSION_VIEW: "1", NEXT_PUBLIC_CLAW3D_WEB_ACCESS: "1",
+  } } }));
+  const result = await f.start();
+  assert.equal(result.phase, "succeeded", JSON.stringify(result));
+  assert.equal(await version(f.services[0].health), "new");
+});
+
 test("production Studio preserves old deferred assets before starting the replacement", mac, async t => {
   const f = await fixture(t, ["studio"]); await productionAssets(f);
   const entry = path.join(f.root, "new/server/index.js");

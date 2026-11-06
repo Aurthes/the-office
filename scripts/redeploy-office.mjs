@@ -55,7 +55,7 @@ function alive(pid) {
     throw error;
   }
 }
-function describe(bytes, file) {
+function describe(bytes, file, validateBuild = false) {
   const value = plist(bytes), kind = value.Label?.match(/^[\w.-]+\.claw3d\.(gateway|studio)$/)?.[1];
   if (!kind) throw new Error("Only Office gateway/studio LaunchAgents are allowed");
   const args = value.ProgramArguments, cwd = value.WorkingDirectory;
@@ -68,6 +68,15 @@ function describe(bytes, file) {
   const files = [args[1]];
   if (value.EnvironmentVariables?.NODE_ENV === "production" && kind === "studio") {
     files.push(path.join(cwd, ".next/BUILD_ID"), path.join(cwd, "node_modules/next/package.json"));
+    const flags = ["NEXT_PUBLIC_CLAW3D_SESSION_VIEW", "NEXT_PUBLIC_CLAW3D_WEB_ACCESS"];
+    if (validateBuild && flags.some(flag => value.EnvironmentVariables[flag] === "1")) {
+      const manifest = path.join(cwd, ".next/required-server-files.json");
+      const built = fs.existsSync(manifest) ? JSON.parse(fs.readFileSync(manifest, "utf8")).config?.env : null;
+      if (flags.some(flag => built?.[flag] !== (value.EnvironmentVariables[flag] || "0"))) {
+        throw new Error("Candidate browser modes differ from service configuration; rebuild with npm run build:office (or explicit public flags)");
+      }
+      files.push(manifest);
+    }
   }
   const lockfile = path.join(cwd, "package-lock.json");
   if (fs.existsSync(lockfile)) files.push(lockfile);
@@ -191,7 +200,7 @@ export function prepare(planFile, stateDirectory = defaultState) {
     const original = path.resolve(row.plist), candidate = path.resolve(row.candidate);
     if (fs.lstatSync(original).isSymbolicLink()) throw new Error("Service plist must not be a symlink");
     const before = fs.readFileSync(original), after = fs.readFileSync(candidate);
-    const old = describe(before, original), next = describe(after, candidate);
+    const old = describe(before, original), next = describe(after, candidate, true);
     if (old.label !== next.label) throw new Error("Candidate service label changed");
     return { ...next, old, plist: original, health: healthURL(row.health), index,
       beforeHash: digest(before), afterHash: digest(after), mode: fs.statSync(original).mode & 0o777,

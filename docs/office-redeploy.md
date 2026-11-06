@@ -4,6 +4,15 @@ Build and validate the candidate in a separate directory **before** redeploying.
 Never build over a running or rollback release. Keep its dependencies and build
 available until the replacement has passed acceptance.
 
+For the Codex spaceship UI behind authenticated web access, build with
+`npm run build:office`. This sets both `NEXT_PUBLIC_CLAW3D_SESSION_VIEW=1` and
+`NEXT_PUBLIC_CLAW3D_WEB_ACCESS=1` **during compilation**. Setting them only when
+starting Studio cannot change an existing browser bundle. The desktop build keeps
+its separate local-only configuration. The deploy preflight checks a public
+Studio candidate's compiled modes against its service configuration and rejects
+missing or mismatched modes before stopping the running service. Rebuild older
+packages that lack this build metadata; copying an old `.next` is not validation.
+
 Use the shared entry point instead of writing a new stop/start script:
 
 ```sh

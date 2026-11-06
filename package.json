@@ -11,6 +11,7 @@
     "desktop:build": "node scripts/build-macos.mjs",
     "prebuild": "node scripts/generate-workstation-geometry.mjs",
     "build": "next build",
+    "build:office": "node scripts/build-office.mjs",
     "start": "node server/index.js",
     "lint": "eslint .",
     "cleanup:ux-artifacts": "node scripts/cleanup-ux-artifacts.mjs",
