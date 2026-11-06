@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Mic, MicOff, PhoneOff, X } from "lucide-react";
+import { Mic, MicOff, PhoneOff } from "lucide-react";
 import type { SessionClient } from "./SessionControls";
 import type { SessionVoiceController } from "./useSessionVoice";
 import { useUiText } from "@/lib/i18n/ui-language";
@@ -26,7 +26,7 @@ export function SessionVoiceCall({ voice, owner, onReturn }: { voice: SessionVoi
   </section>;
 }
 
-export function SessionVoiceSettings({ client, voice, onClose }: { client: SessionClient; voice: SessionVoiceController; onClose: () => void }) {
+export function SessionVoiceSettings({ client, voice }: { client: SessionClient; voice: SessionVoiceController }) {
   const t = useUiText();
   const [voices, setVoices] = useState<string[] | null>(null);
   const [error, setError] = useState(false);
@@ -40,8 +40,8 @@ export function SessionVoiceSettings({ client, voice, onClose }: { client: Sessi
     }).catch(() => { if (!stopped) setError(true); });
     return () => { stopped = true; };
   }, [client]);
-  return <section aria-label={t("Voice settings")} className="mb-3 rounded-xl border border-white/15 bg-black/15 p-3">
-    <div className="mb-2 flex items-center justify-between"><h3 className="font-semibold">{t("Voice settings")}</h3><button aria-label={t("Close voice settings")} onClick={onClose} className="grid h-9 w-9 place-items-center"><X size={16} /></button></div>
+  return <section aria-label={t("Voice settings")} className="mb-3 rounded-xl border border-white/15 bg-black/15 p-3 text-xs text-white">
+    <h3 className="mb-2 font-semibold">{t("Voice settings")}</h3>
     <label className="flex items-center justify-between gap-3">{t("Voice")}<select aria-label={t("Select voice")} value={voice.settings.voice} disabled={!voices} onChange={event => voice.updateSettings({ ...voice.settings, voice: event.target.value })} className="max-w-[65%] rounded border border-white/20 bg-[#17232f] p-2 text-sm disabled:opacity-50">
       <option value="">{t("Default voice")}</option>
       {voice.settings.voice && !voices?.includes(voice.settings.voice) ? <option value={voice.settings.voice}>{voice.settings.voice}</option> : null}

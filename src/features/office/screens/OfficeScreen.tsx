@@ -24,7 +24,7 @@ import { RetainedSessionPanels } from "@/features/office/components/RetainedSess
 import { SessionMessageLocation } from "@/features/office/components/SessionMessageLocation";
 import type { MessageSearchTarget } from "@/features/office/components/MessageSearchResults";
 import { useSessionVoice } from "@/features/office/components/useSessionVoice";
-import { SessionVoiceCall } from "@/features/office/components/SessionVoice";
+import { SessionVoiceCall, SessionVoiceSettings } from "@/features/office/components/SessionVoice";
 import { SessionListDivider } from "@/features/office/components/SessionListDivider";
 import { CompanyActions } from "@/features/office/components/CompanyActions";
 import { SHARED_PROJECT_ID } from "@/features/ring-ship/layout";
@@ -3419,6 +3419,7 @@ export function OfficeScreen({
           onOpenOnboarding={handleOpenOnboarding}
           feedEvents={feedEvents}
           gatewayStatus={status}
+          voiceSettings={sessionView ? <SessionVoiceSettings client={client} voice={voice} /> : undefined}
           runCountByAgentId={runCountByAgentId}
           lastSeenByAgentId={lastSeenByAgentId}
           streamingTextByAgentId={streamingTextByAgentId}

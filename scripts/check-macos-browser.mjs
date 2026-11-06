@@ -112,7 +112,6 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
    if(option('--screenshots')){fs.mkdirSync(option('--screenshots'),{recursive:true});await page.screenshot({path:path.join(option('--screenshots'),browserName+'-composer-'+scenario+'.png')})}
    return layout;
   };
-  let overlayChecked=false;
   for(const pointer of ['mouse','touch']){
    if(pointer==='touch'&&browserName==='webkit')continue;
    const touch=pointer==='touch'?await context.newCDPSession(page):null;
@@ -120,17 +119,21 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
     if(touch){await touch.send('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:1});expect(await page.evaluate(()=>matchMedia('(pointer: coarse)').matches)).toBe(true);}
     for(const [width,height] of [[1440,1000],[844,390],[768,1000],[390,844],[320,740]]){
      await page.setViewportSize({width,height});
-     // A voice-capable session has the fourth tool shown in the user's screenshot.
-     // Add the identical-sized tool only to the browser layout fixture.
-     const tools=page.locator('.session-composer-tools');
-     await tools.evaluate(element=>{if(element.children.length<4){const button=element.firstElementChild.cloneNode(true);button.dataset.layoutFixture='true';button.setAttribute('aria-label','Voice settings layout fixture');element.append(button);}});
-     const result=await checkComposer(pointer+'-'+width+'x'+height);
-     overlayChecked ||= result.overlap;
+     const input=page.getByRole('textbox',{name:'Send to session',exact:true});
+     await expect(page.getByRole('button',{name:'Stop',exact:true})).toBeVisible();
+     await expect(page.getByRole('button',{name:'Steer',exact:true})).toHaveCount(0);
+     await checkComposer(pointer+'-'+width+'x'+height+'-stop');
+     await input.fill('Draft for the running task');
+     await expect(page.getByRole('button',{name:'Stop',exact:true})).toHaveCount(0);
+     await expect(page.getByRole('button',{name:'Steer',exact:true})).toBeVisible();
+     await checkComposer(pointer+'-'+width+'x'+height+'-steer');
+     await input.fill('');
     }
    }finally{if(touch){await touch.send('Emulation.setTouchEmulationEnabled',{enabled:false});await touch.detach();}}
   }
-  if(!overlayChecked)throw Error('The narrowest panel must exercise right-hand overlap at minimum button size');
-  await page.locator('[data-layout-fixture]').evaluateAll(elements=>elements.forEach(element=>element.remove()));
+  const audioPlacement=await page.locator('.session-composer-actions').evaluate(actions=>['Dictation','Voice chat'].every(name=>[...actions.querySelectorAll('.session-composer-submit > button')].some(button=>button.getAttribute('aria-label')===name))&&actions.querySelector('.session-composer-tools').children.length===1);
+  if(!audioPlacement)throw Error('Dictation and voice chat must sit beside the primary action');
+  await expect(page.getByRole('button',{name:'Voice settings',exact:true})).toHaveCount(0);
   // Exercise progressive disclosure in the real UI without extra model calls.
   // Fractional fixture versions sit between the native hold and completion.
   await page.setViewportSize({width:1440,height:1000});
@@ -184,13 +187,33 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   await page.getByRole('tab',{name:'Wings',exact:true}).click();await page.getByRole('button',{name:'Layered feathers',exact:true}).click();
   await page.getByRole('button',{name:'Cancel',exact:true}).click();await page.getByRole('button',{name:'Back to chat',exact:true}).click();
   await page.reload({waitUntil:'domcontentloaded'});
-  await page.getByRole('button',{name:'CHAT',exact:true}).click();
+  await page.getByRole('button',{name:/^CHAT(?:\s+\d+)?$/}).click();
   await page.getByRole('button',{name:'Open session: Mac verification recruit',exact:true}).first().waitFor({timeout:30000});
   await page.getByRole('button',{name:'Open session: Mac verification recruit',exact:true}).first().click();
   await page.getByText('OFFICE_MAC_PACKAGE_REPLY_OK',{exact:true}).first().waitFor({timeout:20000});
   await expect.poll(readMessageTimes).toEqual(messageTimes);
   const again=JSON.parse(fs.readFileSync(settingsFile));const reloaded=Object.values(again.avatars).flatMap(g=>Object.values(g)).find(p=>p.duck);
   if(JSON.stringify(reloaded.duck)!==saved)throw Error('Reload or canceled edit changed saved recruit style');
+  // Settings navigation changes subscriptions; verify it after stream fixtures.
+  await page.setViewportSize({width:1440,height:1000});
+  await page.getByRole('button',{name:'Close chat and return to office',exact:true}).click();
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  const voiceSettings=page.getByRole('region',{name:'Voice settings',exact:true});
+  await expect(voiceSettings).toBeVisible();
+  const suppression=voiceSettings.getByRole('checkbox',{name:'Noise suppression',exact:true});
+  await suppression.uncheck();
+  await page.getByRole('button',{name:'Close studio settings',exact:true}).click();
+  // The chat launcher includes the active task count while work is running.
+  await page.getByRole('button',{name:/^CHAT(?:\s+\d+)?$/}).click();
+  await page.getByRole('button',{name:'Close chat and return to office',exact:true}).click();
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  await expect(voiceSettings.getByRole('checkbox',{name:'Noise suppression',exact:true})).not.toBeChecked();
+  if(option('--screenshots'))await page.screenshot({path:path.join(option('--screenshots'),browserName+'-global-voice-settings.png')});
+  await suppression.check();
+  await page.getByRole('button',{name:'Close studio settings',exact:true}).click();
+  await page.getByRole('button',{name:/^CHAT(?:\s+\d+)?$/}).click();
+  console.log(JSON.stringify({combinedStopSteer:true,audioControlsOnRight:true,globalVoiceSettings:true,globalVoiceSettingsPersistAcrossChatNavigation:true}));
+  if(args.includes('--composer-only')){if(errors.length)throw Error(errors.join('\n'));return;}
   // Create metadata-only agents in this disposable Office; no extra model calls.
   const config=JSON.parse(fs.readFileSync(path.join(data,'desktop.json'))),pending=new Map();let serial=0;
   rosterSocket=new WebSocket('ws://127.0.0.1:'+config.gatewayPort);
@@ -220,7 +243,7 @@ if(!["chromium","chrome","webkit"].includes(browserName))throw new Error("Choose
   await page.getByRole('button',{name:'Close session list',exact:true}).click();
   await expect(list).toBeHidden();
   await page.getByRole('button',{name:'Close chat and return to office',exact:true}).click();
-  await page.getByRole('button',{name:'CHAT',exact:true}).click();
+  await page.getByRole('button',{name:/^CHAT(?:\s+\d+)?$/}).click();
   await page.getByRole('button',{name:'Open session: Mac verification recruit',exact:true}).first().click();
   await expect(list).toBeVisible();await expect(order).toHaveValue('activity');
   await order.selectOption('project');

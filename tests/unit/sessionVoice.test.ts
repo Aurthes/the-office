@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@t
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSessionVoice, type SessionVoiceController } from "../../src/features/office/components/useSessionVoice";
 import { SessionControls, type SessionClient } from "../../src/features/office/components/SessionControls";
+import { SettingsPanel } from "../../src/features/office/components/panels/SettingsPanel";
 import { SessionVoiceCall, SessionVoiceSettings } from "../../src/features/office/components/SessionVoice";
 
 class Peer {
@@ -137,11 +138,21 @@ describe("voice lifetime and original session ownership", () => {
   it("saves supported settings for the next call and sends the chosen native voice", async () => {
     const { client, call } = makeClient();
     let current!: SessionVoiceController;
-    function Settings() { const voice = useSessionVoice(client); React.useEffect(() => { current = voice; }); return React.createElement(SessionVoiceSettings, { client, voice, onClose: () => {} }); }
-    render(React.createElement(Settings));
+    function Office({ selected }: { selected: string }) {
+      const voice = useSessionVoice(client); React.useEffect(() => { current = voice; });
+      return React.createElement(React.Fragment, null,
+        React.createElement(SettingsPanel, { officeTitle: "Office", officeTitleLoaded: true, onOfficeTitleChange: () => {}, voiceSettings: React.createElement(SessionVoiceSettings, { client, voice }) }),
+        React.createElement(SessionControls, { key: selected, client, threadId: selected, onItems: () => {}, voice }));
+    }
+    const view = render(React.createElement(Office, { selected: "original" }));
+    expect(screen.queryByRole("button", { name: "Voice settings" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close voice settings" })).toBeNull();
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Select voice" })).not.toBeDisabled());
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "cove" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Select voice" }), { target: { value: "cove" } });
     fireEvent.click(screen.getByRole("checkbox", { name: "Noise suppression" }));
+    view.rerender(React.createElement(Office, { selected: "other" }));
+    expect(screen.getByRole("combobox", { name: "Select voice" })).toHaveValue("cove");
+    expect(screen.getByRole("checkbox", { name: "Noise suppression" })).not.toBeChecked();
     await act(async () => current.start("owner"));
     expect(getUserMedia).toHaveBeenCalledWith({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true } });
     expect(call).toHaveBeenCalledWith("session.voice.start", expect.objectContaining({ threadId: "owner", voice: "cove" }));

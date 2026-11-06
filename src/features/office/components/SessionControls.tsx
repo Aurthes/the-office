@@ -1,10 +1,10 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Headphones, Mic, Paperclip, Play, SlidersHorizontal, Square, X } from "lucide-react";
+import { Headphones, Mic, Paperclip, Play, Square, X } from "lucide-react";
 import { SessionSettings, type ChatSettings } from "./SessionSettings";
 import { SessionContextUsage } from "./SessionContextUsage";
 import { useSessionVoice, type SessionVoiceController } from "./useSessionVoice";
-import { SessionVoiceCall, SessionVoiceSettings } from "./SessionVoice";
+import { SessionVoiceCall } from "./SessionVoice";
 import { SessionQuestions, type SessionQuestionRequest } from "./SessionQuestions";
 import { useNativeDictation } from "./useNativeDictation";
 import { useDictationShortcut } from "./useDictationShortcut";
@@ -159,7 +159,6 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
   }, [dictation.transcriptionTime, dictation.busy]);
   const localVoice = useSessionVoice(client);
   const voice = sharedVoice || localVoice;
-  const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false);
   const recording = dictation.phase === "starting" || dictation.phase === "recording";
   const dictationUnavailable = state?.features?.dictation === false;
   const dictationReason = state?.features?.dictationReason || "Dictation is unavailable.";
@@ -199,6 +198,7 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
   };
   const removeFile = (id: string) => { uploadRequests.current.get(id)?.abort(); updateUploads(uploadsRef.current.filter(item => item.id !== id)); };
   const canContinue = Boolean(state?.turnStatus === "interrupted" && !state.activeTurnId && !text.trim() && !uploads.length && !composer.references.length && !dictation.busy && voice.status === "off");
+  const showStop = Boolean((state?.activeTurnId || state?.retryAt) && !dictation.busy && !text.trim() && !uploads.length && !composer.references.length);
   const readyToSend = canContinue || Boolean((recording || text.trim() || suggestedText || uploads.length || composer.references.length) && uploads.every(file => file.ref) && dictation.phase !== "transcribing");
   const send = () => {
     if (busy || settingsBusy || !state?.connected || !readyToSend) return;
@@ -357,7 +357,6 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
       <span className="min-w-0 truncate" title={file.name}>{file.name}</span><span className={file.error ? "text-rose-200" : "shrink-0 text-white/40"}>{file.error ? t(file.error) : (!file.ref ? t("Uploading…") : Math.max(1, Math.ceil(file.size / 1024)) + " KB")}</span>
       <button aria-label={t("Remove attachment {name}", { name: file.name })} disabled={busy} onClick={() => removeFile(file.id)} className="min-h-9 shrink-0 px-2 text-white/60"><X size={14} /></button>
     </div>)}</div> : null}
-    {voiceSettingsOpen ? <SessionVoiceSettings client={client} voice={voice} onClose={() => setVoiceSettingsOpen(false)} /> : null}
     {voice.status !== "off" && voice.threadId === threadId ? <div className="mb-3"><SessionVoiceCall voice={voice} /></div> : null}
     {state?.approvals.length ? <div className="mb-3 max-h-[32vh] space-y-3 overflow-y-auto" aria-label={t("Pending approvals")}>
       {state.approvals.map(request => <div key={request.requestId} className="rounded border border-amber-300/40 bg-amber-900/15 p-2">
@@ -405,9 +404,6 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
       <div className="session-composer-tools flex shrink-0 items-center gap-1">
         {dictation.busy ? <button aria-label={t("Cancel recording")} title={t("Cancel recording (Esc)")} onClick={dictation.discard} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5"><X size={19} /></button> :
           <button aria-label={t("Add attachments")} title={t("Add attachments, drag files, or paste images")} disabled={busy || settingsBusy || !state?.connected} onClick={() => picker.current?.click()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Paperclip size={19} /></button>}
-        <button aria-label={recording ? t("Stop recording and transcribe") : t("Dictation")} title={!recording && dictationUnavailable ? t(dictationReason) : dictationShortcut === "off" ? t("Click to record. Enter: transcribe and send. Esc: cancel.") : t("Click to record. {shortcut}: tap to toggle, hold to dictate. Enter: transcribe and send. Esc: cancel.", { shortcut: dictationShortcutLabel(dictationShortcut) })} disabled={(!recording && dictationUnavailable) || dictation.phase === "transcribing" || (!recording && (busy || settingsBusy || !state?.connected || voice.status !== "off"))} onClick={() => { if (recording) void stopDictation(); else void dictation.start(); }} className={"grid h-10 w-10 place-items-center rounded-lg disabled:opacity-40 " + (dictation.phase === "recording" ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65 hover:bg-white/5")}><Mic size={19} /></button>
-        {!dictation.busy ? <button aria-label={t("Voice chat")} title={state?.features?.voice === false ? t("Live voice is not connected to the Office runtime yet") : t("Start an experimental voice call in this session")} disabled={state?.features?.voice === false || busy || settingsBusy || !state?.connected || dictation.busy || voice.status !== "off"} onClick={() => void voice.start(threadId)} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button> : null}
-        {state?.features?.voice !== false ? <button aria-label={t("Voice settings")} aria-expanded={voiceSettingsOpen} title={t("Voice settings")} onClick={() => setVoiceSettingsOpen(value => !value)} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5"><SlidersHorizontal size={18} /></button> : null}
       </div>
       {dictation.busy ? <span role="status" className="session-composer-status min-w-0 truncate text-xs text-rose-200">
         {dictation.phase === "starting" ? t("Preparing microphone…") : dictation.phase === "transcribing" ? t("Transcribing…") : t("Recording · {time}", { time: `${Math.floor(dictation.seconds / 60)}:${String(Math.floor(dictation.seconds % 60)).padStart(2, "0")}` })}
@@ -419,9 +415,14 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
         </span> : null}
       </span>}
       <div className="session-composer-submit flex shrink-0 items-center gap-2">
+        <button aria-label={recording ? t("Stop recording and transcribe") : t("Dictation")} title={!recording && dictationUnavailable ? t(dictationReason) : dictationShortcut === "off" ? t("Click to record. Enter: transcribe and send. Esc: cancel.") : t("Click to record. {shortcut}: tap to toggle, hold to dictate. Enter: transcribe and send. Esc: cancel.", { shortcut: dictationShortcutLabel(dictationShortcut) })} disabled={(!recording && dictationUnavailable) || dictation.phase === "transcribing" || (!recording && (busy || settingsBusy || !state?.connected || voice.status !== "off"))} onClick={() => { if (recording) void stopDictation(); else void dictation.start(); }} className={"session-composer-audio grid h-10 w-10 place-items-center rounded-lg disabled:opacity-40 " + (dictation.phase === "recording" ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65 hover:bg-white/5")}><Mic size={19} /></button>
+        {!dictation.busy ? <button aria-label={t("Voice chat")} title={state?.features?.voice === false ? t("Live voice is not connected to the Office runtime yet") : t("Start an experimental voice call in this session")} disabled={state?.features?.voice === false || busy || settingsBusy || !state?.connected || dictation.busy || voice.status !== "off"} onClick={() => void voice.start(threadId)} className="session-composer-audio grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button> : null}
         {!state?.settings && state?.tokenUsage ? <SessionContextUsage usage={state.tokenUsage} above /> : null}
-        {(state?.activeTurnId || state?.retryAt) && !dictation.busy ? <button aria-label={t("Stop")} title={t("Stop")} disabled={busy || settingsBusy} onClick={() => void action("session.stop", {})} className="session-composer-stop grid h-10 w-10 place-items-center rounded-lg text-rose-200 hover:bg-white/5 disabled:opacity-40"><Square size={15} fill="currentColor" aria-hidden="true" /></button> : null}
-        <button aria-label={canContinue ? t("Continue interrupted task") : recording ? t("Transcribe and send") : undefined} title={canContinue ? t("Continue interrupted task") : recording ? t("Transcribe and send (Enter)") : undefined} disabled={busy || settingsBusy || !state?.connected || !readyToSend} onClick={send} className="min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40">{busy ? t("Submitting…") : canContinue ? <Play size={18} fill="currentColor" aria-hidden="true" /> : dictation.busy ? t("Send") : state?.activeTurnId ? t("Steer") : t("Send")}</button>
+        <button aria-label={showStop ? t("Stop") : canContinue ? t("Continue interrupted task") : recording ? t("Transcribe and send") : undefined} title={showStop ? t("Stop") : canContinue ? t("Continue interrupted task") : recording ? t("Transcribe and send (Enter)") : undefined}
+          disabled={busy || settingsBusy || !state?.connected || (!showStop && !readyToSend)} onClick={showStop ? () => void action("session.stop", {}) : send}
+          className={showStop ? "session-composer-stop grid h-10 w-10 place-items-center rounded-lg text-rose-200 hover:bg-white/5 disabled:opacity-40" : "min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40"}>
+          {showStop ? <Square size={15} fill="currentColor" aria-hidden="true" /> : busy ? t("Submitting…") : canContinue ? <Play size={18} fill="currentColor" aria-hidden="true" /> : dictation.busy ? t("Send") : state?.activeTurnId ? t("Steer") : t("Send")}
+        </button>
       </div>
     </div>
 

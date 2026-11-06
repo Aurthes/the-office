@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import type { StudioGatewayAdapterType } from "@/lib/studio/settings";
 import { useUiLanguage } from "@/lib/i18n/ui-language";
 import { useUiText } from "@/lib/i18n/ui-language";
@@ -17,6 +18,7 @@ type SettingsPanelProps = {
   onGatewayTokenChange?: (value: string) => void;
   onGatewayAdapterTypeChange?: (value: StudioGatewayAdapterType) => void;
   onOpenOnboarding?: () => void;
+  voiceSettings?: ReactNode;
   officeTitle: string;
   officeTitleLoaded: boolean;
   onOfficeTitleChange: (title: string) => void;
@@ -35,6 +37,7 @@ export function SettingsPanel({
   onGatewayTokenChange,
   onGatewayAdapterTypeChange,
   onOpenOnboarding,
+  voiceSettings,
   officeTitle,
   officeTitleLoaded,
   onOfficeTitleChange,
@@ -78,6 +81,7 @@ export function SettingsPanel({
         <p className="mt-2 text-[10px] text-white/65">{t("Tap to start or stop. Hold to dictate, release to insert text. Enter sends; Shift+Enter adds a line; Esc cancels recording.")}</p>
         <p className="mt-2 text-[10px] text-amber-100/80">{t("System-wide shortcuts take priority over webpages. Choose a different shortcut if Codex or another app uses the same keys.")}</p>
       </section>
+      {voiceSettings}
       <div className="rounded-lg border border-cyan-500/10 bg-black/20 px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div>

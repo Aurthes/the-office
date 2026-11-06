@@ -153,7 +153,7 @@ describe("shared-session composer", () => {
       features: { dictation: false, voice: false, prediction: false },
     } });
     act(() => push(100, "inProgress", "old"));
-    await screen.findByRole("button", { name: "Steer" });
+    await screen.findByRole("button", { name: "Stop" });
     act(() => statusHandler("disconnected"));
     expect(screen.getByRole("textbox", { name: "Send to session" })).toBeDisabled();
     const previous = subscriptionId;
@@ -165,7 +165,7 @@ describe("shared-session composer", () => {
     fireEvent.click(play);
     await waitFor(() => expect(call).toHaveBeenCalledWith("session.continue", expect.objectContaining({ threadId: "restart-stream" })));
     act(() => push(2, "inProgress", "new"));
-    await screen.findByRole("button", { name: "Steer" });
+    await screen.findByRole("button", { name: "Stop" });
     expect(screen.queryByText("Interrupted")).toBeNull();
   });
   it("keeps Send when an interrupted task has a typed follow-up", async () => {
