@@ -15,6 +15,7 @@ const { loadSessionHistoryPage } = require("./codex-session-history");
 const { createOfficeDictation } = require("./office-model-services");
 const { CodexSessionPredictions } = require("./codex-session-predictions");
 const { readAiCenter } = require("./ai-center");
+const { consumeOpenAiResetCredit } = require("./ai-center-openai");
 const { questionReplyMessage } = require("./codex-session-questions");
 const { OfficeTodos } = require("./office-todos");
 const { OfficeSchedules } = require("./office-schedules");
@@ -113,6 +114,7 @@ const methods = {
   }),
   "office.account": account,
   "office.usage": () => readAiCenter(native),
+  "office.resetCredit.consume": p => consumeOpenAiResetCredit(native, p),
   "schedule.list": () => ({ ...schedules.list(), sessions: store.list().map(({ id, name, project }) => ({ id, name, project })) }),
   "schedule.create": p => store.once(p, () => ({ id: schedules.create(p).task.id })),
   "schedule.update": p => store.once(p, () => ({ id: schedules.update(p).task.id })),

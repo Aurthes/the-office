@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, ArrowUpRight, BrainCircuit, CalendarClock, Cpu, KeyRound, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, BrainCircuit, CalendarClock, Cpu, KeyRound, RefreshCw, Ticket, X } from "lucide-react";
 import type { GatewayClient } from "@/lib/gateway/GatewayClient";
 import { useUiText } from "@/lib/i18n/ui-language";
-import type { AiCenterSnapshot, QuotaWindow } from "./ai-center";
+import type { AiCenterSnapshot, QuotaWindow, ResetCredit, ResetCreditResult } from "./ai-center";
 import "./ai-center.css";
 
 const formatNumber = (value: number | null | undefined) => value == null ? "—" : new Intl.NumberFormat().format(value);
@@ -32,8 +32,12 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
 }) {
   const t = useUiText(), dialog = useRef<HTMLDialogElement>(null);
   const [snapshot, setSnapshot] = useState<AiCenterSnapshot | null>(null), [loading, setLoading] = useState(false);
+  const [sampledAt, setSampledAt] = useState(0);
   const [providerId, setProviderId] = useState("");
   const [error, setError] = useState(false), [refresh, setRefresh] = useState(0);
+  const resetAttempts = useRef(new Map<string, string>()), resetInFlight = useRef(false);
+  const [pendingReset, setPendingReset] = useState<string | null>(null);
+  const [resetFeedback, setResetFeedback] = useState<{ text: string; error: boolean } | null>(null);
   useEffect(() => {
     const node = dialog.current;
     if (open && !node?.open) node?.showModal();
@@ -49,7 +53,7 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
       try {
         const result = await client.call<AiCenterSnapshot>("office.usage", {});
         if (!Array.isArray(result?.providers)) throw new Error("Usage unavailable");
-        if (!stopped) { setSnapshot(result); setError(false); }
+        if (!stopped) { setSnapshot(result); setSampledAt(Date.now()); setError(false); }
       } catch { if (!stopped) setError(true); }
       finally { pending = false; if (!stopped) setLoading(false); }
     };
@@ -62,6 +66,29 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
   const daily = data?.usage?.daily, peak = Math.max(1, ...(daily?.map(day => day.tokens) || []));
   const available = !!data && !error && !!(data.account || data.limits || data.usage || data.api.status === "available");
   const credit = data?.limits?.find(bucket => bucket.credits)?.credits;
+  const coupons = data?.resetCredits;
+  const applyReset = async (coupon: ResetCredit, clickedAt: number) => {
+    if (!open || !client || !connected || loading || error || data?.id !== "openai" || resetInFlight.current || coupon.resetType !== "codexRateLimits") return;
+    if (typeof coupon.expiresAt === "number" && coupon.expiresAt * 1000 <= clickedAt) {
+      setResetFeedback({ text: "This coupon has expired. Refreshing inventory.", error: false });
+      setRefresh(value => value + 1); return;
+    }
+    const idempotencyKey = resetAttempts.current.get(coupon.id) || crypto.randomUUID();
+    resetAttempts.current.set(coupon.id, idempotencyKey);
+    resetInFlight.current = true; setPendingReset(coupon.id); setResetFeedback(null);
+    try {
+      const result = await client.call<ResetCreditResult>("office.resetCredit.consume", { creditId: coupon.id, idempotencyKey });
+      const messages = { reset: "Quota reset applied.", alreadyRedeemed: "This reset was already applied.",
+        nothingToReset: "No quota window is eligible for a reset. No coupon was used.", noCredit: "No reset coupon is available. Refreshing inventory." };
+      if (!Object.hasOwn(messages, result?.outcome)) throw new Error("Unknown reset result");
+      resetAttempts.current.delete(coupon.id);
+      setResetFeedback({ text: messages[result.outcome], error: false });
+      // Read the provider's new limits and inventory; never invent a new balance.
+      setRefresh(value => value + 1);
+    } catch {
+      setResetFeedback({ text: "Could not confirm the reset. Refresh usage or retry the same coupon.", error: true });
+    } finally { resetInFlight.current = false; setPendingReset(null); }
+  };
   if (typeof document === "undefined") return null;
   return createPortal(<dialog ref={dialog} className="ai-dialog" aria-labelledby="ai-center-title"
     onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
@@ -93,6 +120,27 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
               <h3>{bucket.name}</h3>{bucket.windows.length ? bucket.windows.map((window, index) => <UsageWindow key={index} value={window} />) : <UsageWindow value={null} />}
             </div>) : <p className="ai-unavailable">{loading ? t("Loading usage…") : t("Subscription limits are not available for this account.")}</p>}
             <p className="ai-card-note">{t("Token usage and subscription limits use different units.")}</p>
+            {data?.id === "openai" ? <section className="ai-reset-coupons" aria-label={t("Quota reset coupons")}>
+              <div className="ai-card-heading"><span><Ticket size={16} />{t("Quota reset coupons")}</span><small>{coupons ? t("{count} available", { count: coupons.availableCount }) : "—"}</small></div>
+              <p className="ai-card-caption">{t("Use one coupon to reset eligible Codex limits.")}</p>
+              {coupons ? coupons.availableCount === 0 ? <p className="ai-unavailable">{t("No available reset coupons.")}</p>
+                : coupons.credits?.length ? <>
+                  <ul className="ai-coupon-list">{coupons.credits.map(coupon => {
+                    const expired = typeof coupon.expiresAt === "number" && coupon.expiresAt * 1000 <= sampledAt;
+                    const expiry = coupon.expiresAt === null ? t("No expiration") : coupon.expiresAt === undefined ? t("Expiration not provided")
+                      : t("Expires {time}", { time: new Date(coupon.expiresAt * 1000).toLocaleString() });
+                    return <li className="ai-coupon" key={coupon.id}>
+                      <div><b>{coupon.title || t("Reset coupon")}</b><small>{expiry}{expired ? ` · ${t("Expired")}` : ""}</small>
+                        {coupon.resetType !== "codexRateLimits" ? <small>{t("This coupon type is not supported.")}</small> : null}</div>
+                      <button type="button" className="ai-coupon-apply" disabled={!connected || loading || error || pendingReset !== null || expired || coupon.resetType !== "codexRateLimits"}
+                        onClick={() => void applyReset(coupon, Date.now())}>{t(pendingReset === coupon.id ? "Applying…" : "Apply reset")}</button>
+                    </li>;
+                  })}</ul>
+                  {coupons.credits.length < coupons.availableCount ? <p className="ai-card-note">{t("Showing {shown} of {total} available coupons; the provider returned partial details.", { shown: coupons.credits.length, total: coupons.availableCount })}</p> : null}
+                </> : <p className="ai-unavailable">{t("Coupon details are not available. Refresh to load expiration dates.")}</p>
+                : <p className="ai-unavailable">{t("Reset coupon inventory is unavailable. Try refreshing usage.")}</p>}
+            </section> : null}
+            {resetFeedback && (!data || data.id === "openai") ? <p className="ai-reset-feedback" role={resetFeedback.error ? "alert" : "status"}>{t(resetFeedback.text)}</p> : null}
           </section>
           <section className="ai-card">
             <div className="ai-card-heading"><span><Cpu size={17} />{t("Token activity")}</span><small>{t("ACCOUNT")}</small></div>

@@ -4,7 +4,7 @@ import { buildShipLayout, SHIP_AISLE_WIDTH } from "@/features/ring-ship/layout";
 import { AI_CORE_BASE_RADIUS, aiCorePose } from "@/features/ring-ship/ai-center-geometry";
 const require = createRequire(import.meta.url);
 const { readAiCenter } = require("../../server/ai-center.js");
-const { readOpenAiUsage } = require("../../server/ai-center-openai.js");
+const { readOpenAiUsage, consumeOpenAiResetCredit } = require("../../server/ai-center-openai.js");
 const { officeEnvironment } = require("../../server/codex-office-client.js");
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,6 +19,49 @@ function client(responses: Record<string, unknown>) {
 }
 
 describe("AI Center account telemetry", () => {
+  it("keeps available coupon details and authoritative counts, without returning used history or private fields", async () => {
+    const result = await readOpenAiUsage(client({ "account/rateLimits/read": { rateLimitResetCredits: { availableCount: 8, credits: [
+      { id: "later", status: "available", resetType: "codexRateLimits", expiresAt: 1900000000, title: "Later", privateToken: "secret" },
+      { id: "used", status: "redeemed", resetType: "codexRateLimits", expiresAt: 2000000000 },
+      { id: "early", status: "available", resetType: "codexRateLimits", expiresAt: 1800000000 },
+      { id: "early", status: "available", resetType: "codexRateLimits", expiresAt: 1800000000 },
+      { id: "pending", status: "redeeming", resetType: "codexRateLimits" },
+      { id: "forever", status: "available", resetType: "codexRateLimits", expiresAt: null },
+      { id: "future-type", status: "available", resetType: "newType", expiresAt: "unknown" },
+      { id: "", status: "available", resetType: "codexRateLimits" },
+    ] } } }), { env: {} });
+    expect(result.resetCredits.availableCount).toBe(8);
+    expect(result.resetCredits.credits.map((row: { id: string }) => row.id)).toEqual(["early", "later", "forever", "future-type"]);
+    expect(result.resetCredits.credits[2].expiresAt).toBeNull();
+    expect(result.resetCredits.credits[3]).toMatchObject({ resetType: "unknown", expiresAt: undefined });
+    expect(JSON.stringify(result)).not.toMatch(/privateToken|secret|redeemed|pending/);
+  });
+  it.each([undefined, null, { availableCount: -1 }, { availableCount: 1.5 }])("does not turn unavailable coupon inventory into zero: %j", async summary => {
+    const result = await readOpenAiUsage(client({ "account/rateLimits/read": { rateLimitResetCredits: summary } }), { env: {} });
+    expect(result.resetCredits).toBeNull();
+  });
+  it("keeps count-only coupon availability distinct from an empty detail list", async () => {
+    for (const credits of [null, []]) {
+      const result = await readOpenAiUsage(client({ "account/rateLimits/read": { rateLimitResetCredits: { availableCount: 3, credits } } }), { env: {} });
+      expect(result.resetCredits).toEqual({ availableCount: 3, credits });
+    }
+  });
+  it.each(["reset", "alreadyRedeemed", "nothingToReset", "noCredit"])("forwards a selected coupon and the same logical request ID: %s", async outcome => {
+    const native = client({ "account/rateLimitResetCredit/consume": { outcome, privateToken: "secret" } });
+    const params = { creditId: "selected-coupon", idempotencyKey: "stable-attempt", ignored: "not forwarded" };
+    expect(await consumeOpenAiResetCredit(native, params)).toEqual({ outcome });
+    expect(native.call).toHaveBeenCalledExactlyOnceWith("account/rateLimitResetCredit/consume", { creditId: params.creditId, idempotencyKey: params.idempotencyKey }, 15000);
+  });
+  it.each([null, {}, { idempotencyKey: "attempt" }, { creditId: "coupon" }, { creditId: " ", idempotencyKey: "attempt" }])("rejects incomplete reset requests before calling Codex: %j", async params => {
+    const native = client({});
+    await expect(consumeOpenAiResetCredit(native, params)).rejects.toThrow("Choose a reset coupon");
+    expect(native.call).not.toHaveBeenCalled();
+  });
+  it.each([new Error("private token secret failed"), { outcome: "unknown" }])("does not leak native errors or guess success", async response => {
+    const native = client({ "account/rateLimitResetCredit/consume": response });
+    await expect(consumeOpenAiResetCredit(native, { creditId: "coupon", idempotencyKey: "attempt" })).rejects.toThrow("Could not confirm the reset");
+    expect(native.call).toHaveBeenCalledOnce();
+  });
   it("retains real zeroes, unknown fields, and every metered subscription bucket without exposing auth", async () => {
     const native = client({
       "account/read": { account: { type: "chatgpt", planType: "pro", email: "private@example.com", accessToken: "secret" } },

@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AiCenterDashboard } from "@/features/ring-ship/AiCenterDashboard";
 import type { AiCenterSnapshot, AiProviderSnapshot } from "@/features/ring-ship/ai-center";
@@ -14,12 +14,107 @@ const provider: AiProviderSnapshot = {
   api: { status: "available", models: [{ model: "model-a", rpm: 0, tpm: 1000, rpd: null }] },
 };
 const snapshot: AiCenterSnapshot = { fetchedAt: "2026-11-01T00:00:00Z", providers: [provider] };
+const couponSnapshot = (count = 3, ids = ["soon", "later", "forever"]): AiCenterSnapshot => ({ ...snapshot, providers: [{ ...provider,
+  resetCredits: { availableCount: count, credits: ids.map((id, index) => ({ id, title: `${id} coupon`, resetType: "codexRateLimits", expiresAt: id === "forever" ? null : Math.floor(Date.now() / 1000) + 86400 * (index + 1) })) },
+}] });
 beforeEach(() => {
   localStorage.clear();
   Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.open = true; } });
   Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.open = false; } });
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
+
+it("lists unused coupons and expiration details without consuming one on load", async () => {
+  const call = vi.fn().mockResolvedValue(couponSnapshot());
+  render(createElement(AiCenterDashboard, { open: true, client: { call }, connected: true, onClose: vi.fn() }));
+  await screen.findByRole("region", { name: "Quota reset coupons" });
+  expect(screen.getByText("3 available")).toBeInTheDocument();
+  expect(screen.getByText("No expiration")).toBeInTheDocument();
+  expect(screen.getAllByText(/^Expires /)).toHaveLength(2);
+  expect(screen.getAllByRole("button", { name: "Apply reset" })).toHaveLength(3);
+  expect(call).toHaveBeenCalledExactlyOnceWith("office.usage", {});
+});
+
+it("uses the selected coupon once, blocks duplicate clicks, and reads the actual new quotas", async () => {
+  let resolve: (value: { outcome: string }) => void = () => {};
+  let reads = 0;
+  const call = vi.fn().mockImplementation((method: string) => method === "office.usage" ? Promise.resolve(++reads === 1 ? couponSnapshot() : {
+    ...couponSnapshot(2, ["later", "forever"]), providers: [{ ...couponSnapshot(2, ["later", "forever"]).providers[0], limits: [{ ...provider.limits![0], windows: [{ usedPercent: 0, windowDurationMins: 300, resetsAt: 1800000000 }] }] }],
+  }) : new Promise<{ outcome: string }>(done => { resolve = done; }));
+  render(createElement(AiCenterDashboard, { open: true, client: { call }, connected: true, onClose: vi.fn() }));
+  const row = (await screen.findByText("soon coupon")).closest("li")!;
+  const button = within(row).getByRole("button", { name: "Apply reset" });
+  fireEvent.click(button); fireEvent.click(button);
+  expect(call.mock.calls.filter(([method]) => method === "office.resetCredit.consume")).toHaveLength(1);
+  expect(screen.getByRole("progressbar", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "25");
+  expect(screen.getAllByRole("button", { name: /Apply reset|Applying/ }).every(button => (button as HTMLButtonElement).disabled)).toBe(true);
+  await act(async () => { resolve({ outcome: "reset" }); });
+  await screen.findByText("2 available");
+  expect(screen.queryByText("soon coupon")).not.toBeInTheDocument();
+  expect(screen.getByRole("progressbar", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "0");
+  expect(screen.getByRole("status")).toHaveTextContent("Quota reset applied.");
+});
+
+it("reuses the same attempt ID after an ambiguous failure and a manual refresh", async () => {
+  let attempts = 0, completed = false;
+  const call = vi.fn().mockImplementation((method: string) => {
+    if (method === "office.usage") return Promise.resolve(completed ? couponSnapshot(2, ["later", "forever"]) : couponSnapshot());
+    if (++attempts === 1) return Promise.reject(new Error("Private provider error"));
+    completed = true; return Promise.resolve({ outcome: "alreadyRedeemed" });
+  });
+  render(createElement(AiCenterDashboard, { open: true, client: { call }, connected: true, onClose: vi.fn() }));
+  const click = () => fireEvent.click(within(screen.getByText("soon coupon").closest("li")!).getByRole("button", { name: "Apply reset" }));
+  await screen.findByText("soon coupon"); click();
+  expect(await screen.findByRole("alert")).toHaveTextContent("Could not confirm the reset");
+  fireEvent.click(screen.getByRole("button", { name: "Refresh AI usage" }));
+  await screen.findByText("soon coupon"); click();
+  await screen.findByText("2 available");
+  const redeem = call.mock.calls.filter(([method]) => method === "office.resetCredit.consume");
+  expect(redeem).toHaveLength(2);
+  expect(redeem[0][1]).toEqual(redeem[1][1]);
+  expect(redeem[0][1]).toMatchObject({ creditId: "soon", idempotencyKey: expect.any(String) });
+  expect(screen.getByRole("status")).toHaveTextContent("already applied");
+});
+
+it.each(["nothingToReset", "noCredit"])("handles the provider's %s outcome and refreshes inventory", async outcome => {
+  let redeemed = false;
+  const call = vi.fn().mockImplementation((method: string) => {
+    if (method === "office.usage") return Promise.resolve(redeemed && outcome === "noCredit" ? couponSnapshot(0, []) : couponSnapshot());
+    redeemed = true; return Promise.resolve({ outcome });
+  });
+  render(createElement(AiCenterDashboard, { open: true, client: { call }, connected: true, onClose: vi.fn() }));
+  fireEvent.click(within((await screen.findByText("soon coupon")).closest("li")!).getByRole("button", { name: "Apply reset" }));
+  await waitFor(() => expect(call.mock.calls.filter(([method]) => method === "office.usage")).toHaveLength(2));
+  expect(screen.getByRole("status")).toHaveTextContent(outcome === "noCredit" ? "No reset coupon is available" : "No coupon was used");
+});
+
+it("does not consume a coupon that expired after it was rendered", async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-11-06T00:00:00Z"));
+  const initial = couponSnapshot(1, ["soon"]); initial.providers[0].resetCredits!.credits![0].expiresAt = Date.now() / 1000 + 1;
+  const call = vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(couponSnapshot(0, []));
+  render(createElement(AiCenterDashboard, { open: true, client: { call }, connected: true, onClose: vi.fn() }));
+  await act(async () => {});
+  vi.setSystemTime(new Date("2026-11-06T00:00:02Z"));
+  fireEvent.click(screen.getByRole("button", { name: "Apply reset" }));
+  await act(async () => {});
+  expect(call.mock.calls.every(([method]) => method === "office.usage")).toBe(true);
+  expect(screen.getByRole("status")).toHaveTextContent("expired");
+});
+
+it("keeps count-only inventory honest and disables expired or unknown coupon types", async () => {
+  const initial = couponSnapshot(4, ["expired", "unknown"]);
+  initial.providers[0].resetCredits!.credits![0].expiresAt = Date.now() / 1000 - 1;
+  initial.providers[0].resetCredits!.credits![1].resetType = "unknown";
+  const call = vi.fn().mockResolvedValueOnce(initial).mockResolvedValue({ ...snapshot, providers: [{ ...provider, resetCredits: { availableCount: 3, credits: null } }] });
+  render(createElement(AiCenterDashboard, { open: true, client: { call }, connected: true, onClose: vi.fn() }));
+  await screen.findByText("4 available");
+  expect(screen.getAllByRole("button", { name: "Apply reset" }).every(button => (button as HTMLButtonElement).disabled)).toBe(true);
+  expect(screen.getByText(/Showing 2 of 4/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Refresh AI usage" }));
+  await screen.findByText("3 available");
+  expect(screen.getByText(/Coupon details are not available/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Apply reset" })).not.toBeInTheDocument();
+});
 
 it("shows actual quota windows, real zeroes and unknown values, and closes through its controls", async () => {
   const call = vi.fn().mockResolvedValue(snapshot), onClose = vi.fn();

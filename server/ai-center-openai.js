@@ -2,6 +2,32 @@
 
 const number = value => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 const text = value => typeof value === "string" ? value.slice(0, 160) : null;
+const identifier = (value, max) => typeof value === "string" && value.trim().length > 0 && value.length <= max;
+const timestamp = value => Number.isSafeInteger(value) && value >= 0 && value <= 8_640_000_000_000 ? value : undefined;
+function resetCredits(value) {
+  if (!value || !Number.isSafeInteger(value.availableCount) || value.availableCount < 0) return null;
+  const seen = new Set();
+  const credits = Array.isArray(value.credits) ? value.credits.flatMap(credit => {
+    if (!credit || credit.status !== "available" || !identifier(credit.id, 512) || seen.has(credit.id)) return [];
+    seen.add(credit.id);
+    return [{ id: credit.id, title: text(credit.title), resetType: credit.resetType === "codexRateLimits" ? "codexRateLimits" : "unknown",
+      expiresAt: credit.expiresAt === null ? null : timestamp(credit.expiresAt) }];
+  }).sort((a, b) => (a.expiresAt ?? Infinity) - (b.expiresAt ?? Infinity)) : null;
+  return { availableCount: value.availableCount, credits };
+}
+
+async function consumeOpenAiResetCredit(native, params) {
+  if (!identifier(params?.creditId, 512) || !identifier(params?.idempotencyKey, 200)) throw new Error("Choose a reset coupon and provide a request ID.");
+  try {
+    const result = await native.call("account/rateLimitResetCredit/consume", { creditId: params.creditId, idempotencyKey: params.idempotencyKey }, 15000);
+    if (!["reset", "alreadyRedeemed", "nothingToReset", "noCredit"].includes(result?.outcome)) throw new Error("Unknown reset outcome");
+    return { outcome: result.outcome };
+  } catch {
+    // A lost reply is not permission to consume another coupon. The UI retains
+    // this attempt's idempotency key and always submits the selected credit ID.
+    throw new Error("Could not confirm the reset. Refresh usage or retry the same coupon.");
+  }
+}
 function window(value) {
   if (!value || number(value.usedPercent) === null) return null;
   return { usedPercent: value.usedPercent, windowDurationMins: number(value.windowDurationMins), resetsAt: number(value.resetsAt) };
@@ -55,8 +81,9 @@ async function readOpenAiUsage(native, { env = process.env, fetchImpl = fetch } 
     links: { limits: "https://platform.openai.com/settings/organization/limits", usage: "https://platform.openai.com/usage" },
     account: identity ? { type: text(identity.type), plan: text(identity.planType) } : null,
     limits: quota.status === "fulfilled" ? limits(quota.value) : null,
+    resetCredits: quota.status === "fulfilled" ? resetCredits(quota.value?.rateLimitResetCredits) : null,
     usage: tokens.status === "fulfilled" ? usage(tokens.value) : null,
     api: api.status === "fulfilled" ? api.value : { status: "unavailable", models: [] } };
 }
 
-module.exports = { readOpenAiUsage };
+module.exports = { readOpenAiUsage, consumeOpenAiResetCredit };
