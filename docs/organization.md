@@ -48,6 +48,11 @@ without treating it as accepted. Inspect the worker first; active work must be
 stopped before recall. The first version uses one responsible assignee and one
 active handoff chain per goal, rather than parallel branches of the same task.
 
+Results follow the task's actual handoff chain, not every reporting manager.
+A direct user request to a Head ends at that Head: workers return to the Head,
+and CEO is not notified. A request initiated through CEO returns through the
+participating managers to CEO for the final response.
+
 A task stores its handoff history and current assignment. Existing phase IDs,
 prior timing and unrelated tasks remain intact. Open handoffs prevent final
 completion, archival and ordinary reassignment, including through the task board.

@@ -85,6 +85,7 @@ describe("real-session Office delegation", () => {
     expect(() => f.todos.change(f.input(task.id, f.worker, { phaseId: task.phases[1].id }), "complete")).toThrow("responsible manager");
     f.todos.change(f.input(task.id, f.manager, { phaseId: task.phases[1].id }), "complete");
     expect(f.todos.raw(task.id)).toMatchObject({ status: "done", archived: true });
+    expect(f.send.mock.calls.map(([id]: [string]) => id)).toEqual([f.worker, f.manager]); // The Head's CEO is outside this task's handoff chain.
   });
   it("returns specific feedback, resubmits and keeps the same phases and task identity", async () => {
     const f = await fixture(), task = f.create(); await f.delegate(task.id);
@@ -105,6 +106,7 @@ describe("real-session Office delegation", () => {
     await f.runtime.submit(f.input(task.id, f.manager, { report: "Integrated and verified outcome" })); await f.settle();
     await f.runtime.review(f.input(task.id, CEO, { accept: true, notes: "Verified integrated outcome" }));
     expect(activeDelegation(f.todos.raw(task.id))).toBeUndefined(); expect(f.todos.raw(task.id).assigneeId).toBe(CEO);
+    expect(f.send.mock.calls.map(([id]: [string]) => id)).toEqual([f.manager, f.worker, f.manager, CEO]);
   });
   it("refuses unrelated, busy or newly moved reports before changing ownership", async () => {
     const f = await fixture(), task = f.create();
