@@ -5,7 +5,8 @@ const path = require("node:path");
 const os = require("node:os");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
-const run = (command, args) => promisify(execFile)(command, args, { timeout: 2500, maxBuffer: 512 * 1024, env: { ...process.env, LC_ALL: "C" } }).then(result => result.stdout);
+// Process start identities must not depend on the caller's language or zone.
+const run = (command, args) => promisify(execFile)(command, args, { timeout: 2500, maxBuffer: 512 * 1024, env: { ...process.env, LC_ALL: "C", TZ: "UTC" } }).then(result => result.stdout);
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/;
 const directory = () => process.env.CLAW3D_BACKGROUND_PROCESSES_DIR?.trim() || path.join(process.env.CLAW3D_DATA_DIR || path.join(os.homedir(), ".local/share/claw3d"), "background-processes");
 

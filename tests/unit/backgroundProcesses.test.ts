@@ -95,10 +95,10 @@ describe("local background task monitor", () => {
     const f = await fixture(), pipe = path.join(f.root, "pipe.log"); execFileSync("mkfifo", [pipe]);
     expect(await tailFile(pipe)).toMatchObject({ available: false, content: "" });
   });
-  it("uses the same process identity across caller language environments", async () => {
+  it("uses the same process identity across caller languages and time zones", async () => {
     const expected = (await readProcesses()).get(process.pid).started;
     const script = "require(" + JSON.stringify(path.resolve("server/background-processes.js")) + ").readProcesses().then(rows => process.stdout.write(rows.get(" + process.pid + ").started));";
-    const localized = execFileSync(process.execPath, ["-e", script], { env: { ...process.env, LC_ALL: "fr_FR.UTF-8" }, encoding: "utf8" });
+    const localized = execFileSync(process.execPath, ["-e", script], { env: { ...process.env, LC_ALL: "fr_FR.UTF-8", TZ: "America/New_York" }, encoding: "utf8" });
     expect(localized).toBe(expected);
   });
 });
