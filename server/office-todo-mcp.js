@@ -7,6 +7,7 @@ const properties = {
   id: { type: "string", description: "To-do ID" }, revision: { type: "integer", description: "Current revision from list/get; required for changes" },
   actorId: { type: "string", description: "Your Office agent ID from the current Office context" },
   title: { type: "string", maxLength: 200 }, documentation: { type: "string", maxLength: 24000 },
+  allDepartments: { type: "boolean", description: "Read all department responsibilities, existing Heads, members and roles; read-only, grants no additional authority" },
   departmentId: { type: ["string", "null"] }, assigneeId: { type: ["string", "null"] },
   phases: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", properties: { id: { type: "string" }, title: { type: "string" }, notes: { type: "string" } }, required: ["title"], additionalProperties: false } },
   phaseId: { type: "string" }, requestId: { type: "string", description: "Unique stable creation request ID; reuse on retry" }, reason: { type: "string" },
@@ -17,7 +18,7 @@ const properties = {
   accept: { type: "boolean" }, notes: { type: "string", minLength: 1, maxLength: 6000, description: "Manager's verification evidence when accepting, or concrete correction feedback when returning" },
 };
 const definitions = [
-  ["organization", "Read your live role, default delegation strategy, managers and existing direct reports. Reporting lines are data, not additional permissions. Use your own actorId.", ["actorId"], ["actorId"]],
+  ["organization", "Read your live role, managers and direct reports plus department responsibilities, existing Heads, members and roles. Default: all departments for CEO, own department for others. Set allDepartments=true for the full directory, or departmentId for one department (null means Open Workspace). Everyone may look up other departments; this grants no delegation or filesystem permissions. Use your own actorId.", ["actorId", "departmentId", "allDepartments"], ["actorId"]],
   ["delegate", "Hand the current task to an available existing direct report's real conversation. Include bounded scope, deliverables, acceptance criteria and original user restrictions. Reuse this task and requestId on retry; the delegating manager retains acceptance responsibility. Does not create an employee or interrupt other work.", ["id", "revision", "actorId", "assigneeId", "instructions", "acceptanceCriteria", "requestId"], ["id", "revision", "actorId", "assigneeId", "instructions", "acceptanceCriteria", "requestId"]],
   ["submit", "Submit the active delegated work and evidence to its delegating manager for acceptance. Keeps the same task open and notifies the manager's real conversation when available. Leave the final unfinished phase for acceptance. Reuse requestId on retry.", ["id", "revision", "actorId", "report", "requestId"], ["id", "revision", "actorId", "report", "requestId"]],
   ["review", "The delegating manager verifies a submitted result, then accepts it with evidence or returns specific feedback. Acceptance does not close the task or replace an upstream manager's acceptance. Reuse requestId on retry.", ["id", "revision", "actorId", "accept", "notes", "requestId"], ["id", "revision", "actorId", "accept", "notes", "requestId"]],

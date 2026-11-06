@@ -8,7 +8,7 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
   fs.mkdirSync(path.join(stateDirectory, "claw3d"), { recursive: true });
   fs.writeFileSync(path.join(stateDirectory, "claw3d/settings.json"), JSON.stringify({ office: { [`ws://localhost:${new URL(client.ws.url).port}`]: { organization: {
     [ceo]: { title: "CEO", reportsTo: [] }, [manager]: { title: "Head", reportsTo: [ceo] }, [worker]: { title: "Worker", reportsTo: [manager] },
-  } } } }));
+  }, departmentDescriptions: { [project.id]: "Scoped fixture product work", "open-workspace": "Unassigned fixture work" } } } }));
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   async function until(predicate, label, timeout = 25000) {
     const end = Date.now() + timeout;
@@ -24,6 +24,10 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
   const before = JSON.stringify(nativeIds());
   client = await restart();
   await client.call("office.snapshot"); // Wait for native turn reconciliation, not just HTTP readiness.
+  const own = await client.call("todo.organization", { actorId: worker });
+  const directory = await client.call("todo.organization", { actorId: worker, allDepartments: true });
+  const shared = await client.call("todo.organization", { actorId: worker, departmentId: null });
+  check("department context defaults to own scope and explicit read-only lookups use saved responsibilities", own.departments.length === 1 && own.departments[0].id === project.id && own.departments[0].description === "Scoped fixture product work" && directory.departments.length === 2 && shared.departments[0].id === "open-workspace" && directory.departments.find(row => row.id === project.id).heads[0].id === manager);
   const tools = await client.call("session.mcp", { threadId: manager });
   check("existing resumed conversations discover delegation MCP tools", tools.servers.some(server => server.name === "office_tasks" && server.tools === 15));
   const task = (await client.call("todo.create", { actorId: manager, assigneeId: manager, title: "One delegated user goal", phases: [{ title: "Execute" }, { title: "Manager acceptance" }], requestId: "delegation-task" })).todo;
@@ -49,7 +53,7 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
         else if (stage === 4) operation = ["todo_review", { ...args, accept: true, notes: "Read the corrected report and verified the expected result and no deployment." }];
         else if (stage === 5 || stage === 6) operation = ["todo_complete", { id: task.id, revision: current.revision, actorId: caller, phaseId: task.phases[stage - 5].id }];
       } else {
-        if (stage === 0 || stage === 5) operation = ["todo_get", { id: task.id }];
+        if (stage === 0 || stage === 5) operation = ["todo_organization", { actorId: caller, ...(stage === 0 ? { allDepartments: true } : { departmentId: null }) }];
         else if (stage === 1 || stage === 2) operation = ["todo_complete", { id: task.id, revision: current.revision, actorId: caller, phaseId: task.phases[stage - 1].id }];
         else if (stage === 3 || stage === 6) operation = ["todo_submit", { ...args, report: stage === 3 ? "First result with test evidence" : "Corrected verified result; no deployment. Artifact: loopback fixture only." }];
       }
@@ -84,6 +88,7 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
     check(`real ${id === manager ? "manager" : "worker"} conversation contains handoff and replies`, history.messages.some(message => message.role === "assistant" && message.content.includes("OFFICE_HANDOFF_FIXTURE_OK")) && history.messages.some(message => message.role === "user" && message.content.includes(task.id)));
   }
   check("real tool chain includes delegation, submission and two manager reviews", operations.filter(([, name]) => name === "todo_review").length === 2 && operations.filter(([, name]) => name === "todo_submit").length === 2);
+  check("actual resumed MCP calls can read all departments and Open Workspace", operations.filter(([, name]) => name === "todo_organization").length === 2 && payloads.some(payload => JSON.stringify(payload).includes("Unassigned fixture work")));
   setModelFixture(null);
   return client;
 }

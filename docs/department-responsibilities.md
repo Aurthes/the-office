@@ -45,3 +45,25 @@ are separate buttons.
 Responsibilities describe work routing. They do not grant permissions, replace
 reporting relationships, or introduce an additional delegation system. Default
 agent-context scope and routing are gateway concerns using this same data source.
+
+The gateway reads the same `departmentDescriptions` field and builds the same
+directory through `OfficeCompany.context`. Default turn context includes every
+department for the CEO and the current department for other employees, including
+current Heads, members and roles. Settings changes are injected into an existing
+conversation on its next turn; there is no additional model call or polling.
+
+The existing read-only `todo_organization` tool accepts `allDepartments: true` for
+the full directory or `departmentId` for one department (`null` selects Open
+Workspace). Everyone may query other departments. This does not grant authority
+to delegate outside existing direct reports or change file/access policy. Invalid
+queries fail rather than silently selecting an arbitrary department.
+
+The shared company workflow tells the agent to respect an explicit user
+assignment, otherwise match saved responsibilities and select the department's
+existing available Head through the existing task handoff. Product/strategy
+specific work stays with its owner rather than general research. Unmatched work
+goes to the existing Open Workspace Head. Missing Heads or reporting restrictions
+are explained through the actual task chain or to the user, not bypassed by
+inventing managers or departments. New departments require an explicit user
+instruction. Matching uses the existing model context, not another classifier or
+a new routing service. Descriptions remain data, not additional permissions.
