@@ -84,6 +84,8 @@ describe("local background task monitor", () => {
     for (const secret of ["user:password", "signature=secret", "abc.def", '"private"', "sk-12345678901234567890"]) expect(clean).not.toContain(secret);
     expect(elapsedSeconds("03:04")).toBe(184); expect(elapsedSeconds("1-02:03:04")).toBe(93784);
     expect(parseProcesses(" 9 03:04 Z Fri Nov  6 00:00:00 2026\n").get(9).zombie).toBe(true);
+    const environment = redactLog('WORKER_TOKEN=prefix-token OPENAI_API_KEY=prefix-api AWS_SECRET_ACCESS_KEY=prefix-secret dbPassword=prefix-password --worker-token prefix-cli');
+    for (const value of ["prefix-token", "prefix-api", "prefix-secret", "prefix-password", "prefix-cli"]) expect(environment).not.toContain(value);
   });
   it("can sample this test process using the host's real process table", async () => {
     const processes = await readProcesses(); expect(processes.get(process.pid)).toMatchObject({ pid: process.pid, zombie: false });
@@ -92,5 +94,11 @@ describe("local background task monitor", () => {
   it("does not block on a named pipe presented as a log file", async () => {
     const f = await fixture(), pipe = path.join(f.root, "pipe.log"); execFileSync("mkfifo", [pipe]);
     expect(await tailFile(pipe)).toMatchObject({ available: false, content: "" });
+  });
+  it("uses the same process identity across caller language environments", async () => {
+    const expected = (await readProcesses()).get(process.pid).started;
+    const script = "require(" + JSON.stringify(path.resolve("server/background-processes.js")) + ").readProcesses().then(rows => process.stdout.write(rows.get(" + process.pid + ").started));";
+    const localized = execFileSync(process.execPath, ["-e", script], { env: { ...process.env, LC_ALL: "fr_FR.UTF-8" }, encoding: "utf8" });
+    expect(localized).toBe(expected);
   });
 });

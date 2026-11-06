@@ -5,7 +5,7 @@ const path = require("node:path");
 const os = require("node:os");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
-const run = (command, args) => promisify(execFile)(command, args, { timeout: 2500, maxBuffer: 512 * 1024 }).then(result => result.stdout);
+const run = (command, args) => promisify(execFile)(command, args, { timeout: 2500, maxBuffer: 512 * 1024, env: { ...process.env, LC_ALL: "C" } }).then(result => result.stdout);
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/;
 const directory = () => process.env.CLAW3D_BACKGROUND_PROCESSES_DIR?.trim() || path.join(process.env.CLAW3D_DATA_DIR || path.join(os.homedir(), ".local/share/claw3d"), "background-processes");
 
@@ -54,8 +54,8 @@ function redactLog(value) {
     })
     .replace(/\b(Bearer|Basic)\s+[a-zA-Z0-9._~+/=-]+/gi, "$1 [redacted]")
     .replace(/\bsk-[a-zA-Z0-9_-]{12,}\b/g, "[redacted]")
-    .replace(/\b(password|passwd|token|access_token|refresh_token|api[_-]?key|secret|cookie|authorization)\b(["']?\s*[:=]\s*["']?)[^\s"',;&}]+/gi, "$1$2[redacted]")
-    .replace(/--(password|token|secret|api-key)\s+(?:"[^"]*"|'[^']*'|\S+)/gi, "--$1 [redacted]");
+    .replace(/\b([a-z0-9_-]*(?:password|passwd|token|api[_-]?key|secret(?:[_-]?(?:access[_-]?)?key)?|cookie|authorization))\b(["']?\s*[:=]\s*["']?)[^\s"',;&}]+/gi, "$1$2[redacted]")
+    .replace(/(--[a-z0-9_-]*(?:password|token|secret|api[_-]?key))\s+(?:"[^"]*"|'[^']*'|\S+)/gi, "$1 [redacted]");
 }
 async function tailFile(file) {
   if (!file || !path.isAbsolute(file) || file === "/dev/null") return { content: "", updatedAt: null, truncated: false, available: false };
