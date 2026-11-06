@@ -72,6 +72,7 @@ export const ZH_CN: Record<string, string> = {
   "Tree view": "树状视图",
   "{count} to-dos": "{count} 个待办",
   "All phases completed": "全部阶段已完成",
+  "Completed phases ({count})": "已完成步骤（{count}）",
   "No documentation yet.": "还没有任务文档。",
   "Activity history": "操作记录",
   "No to-dos here yet.": "这里还没有待办。",

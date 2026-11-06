@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeft, Check, ClipboardList, List, ListTree, MessageSquare, Pause, Play, Plus, RefreshCw, X } from "lucide-react";
 import type { GatewayClient } from "@/lib/gateway/GatewayClient";
@@ -26,6 +26,14 @@ const taskCompletionTime = (todo: OfficeTodo) => {
 function CompletionTime({ at, kind }: { at: number | null; kind: "task" | "phase" }) {
   const t = useUiText();
   return <span className="todo-completed-at" data-completion-kind={kind}>{at == null ? t("Completion time not recorded") : <>{t("Completed at")}: <time dateTime={new Date(at).toISOString()} title={new Date(at).toISOString()}>{new Date(at).toLocaleString(undefined, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}</time></>}</span>;
+}
+
+function TaskPhases({ phases, className, children }: { phases: Phase[]; className: string; children: (phase: Phase) => ReactNode }) {
+  const t = useUiText(), completed = phases.filter(phase => phase.completedAt != null), unfinished = phases.filter(phase => phase.completedAt == null);
+  return <>
+    {completed.length ? <details className="todo-completed-phases"><summary>{t("Completed phases ({count})", { count: completed.length })}</summary><ol className={className}>{completed.map(children)}</ol></details> : null}
+    {unfinished.length ? <ol className={className}>{unfinished.map(children)}</ol> : null}
+  </>;
 }
 
 export function TaskBoard({ open, departmentId, taskId, onClose, onOpenSession, client, connected }: {
@@ -109,7 +117,7 @@ export function TaskBoard({ open, departmentId, taskId, onClose, onOpenSession, 
       {todo.status === "done" ? <CompletionTime at={taskCompletionTime(todo)} kind="task" /> : null}
       <span className="todo-current">{todo.phases.find(phase => phase.startedAt != null)?.title || todo.phases.find(phase => phase.completedAt == null)?.title || t("All phases completed")}</span>
     </button>
-    {tree ? <ol className="todo-phase-tree">{todo.phases.map(phase => <li key={phase.id} data-current={phase.startedAt != null}><span>{phase.completedAt != null ? "✓" : phase.startedAt != null ? "●" : "○"} {phase.title}{phase.completedAt != null ? <CompletionTime at={phase.completedAt} kind="phase" /> : null}</span><time>{taskDuration(phaseTime(phase, now))}</time></li>)}</ol> : null}
+    {tree ? <TaskPhases phases={todo.phases} className="todo-phase-tree">{phase => <li key={phase.id} data-current={phase.startedAt != null}><span>{phase.completedAt != null ? "✓" : phase.startedAt != null ? "●" : "○"} {phase.title}{phase.completedAt != null ? <CompletionTime at={phase.completedAt} kind="phase" /> : null}</span><time>{taskDuration(phaseTime(phase, now))}</time></li>}</TaskPhases> : null}
   </article>;
   if (!portal) return null;
   return createPortal(<dialog ref={dialog} className="todo-dialog" aria-labelledby="todo-board-title" onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
@@ -141,7 +149,7 @@ export function TaskBoard({ open, departmentId, taskId, onClose, onOpenSession, 
               {detail.status === "done" ? <CompletionTime at={taskCompletionTime(detail)} kind="task" /> : null}
               <div className="todo-actions">{!detail.archived ? <><button type="button" disabled={disabled} onClick={() => edit(detail)}>{t("Edit")}</button><button type="button" disabled={disabled || detail.status === "done"} onClick={() => action(detail.status === "running" ? "pause" : "start")}>{detail.status === "running" ? <Pause size={14} /> : <Play size={14} />}{t(detail.status === "running" ? "Pause timer" : "Start timer")}</button><button className="todo-primary" type="button" disabled={disabled || !detail.assigneeAvailable || detail.status === "done"} onClick={() => action("run")}><Play size={14} />{t("Start with agent")}</button><button type="button" disabled={disabled} onClick={() => action("archive")}>{t("Archive")}</button></> : detail.status === "done" ? <><button type="button" disabled={disabled} onClick={() => edit(detail)}>{t("Edit")}</button><button type="button" className="todo-primary" disabled={disabled || detail.phases.length >= 20} onClick={() => edit(detail, true)}><Plus size={14} />{t("Add follow-up")}</button></> : <button type="button" disabled={disabled} onClick={() => action("restore")}>{t("Restore")}</button>}
                 {detail.assigneeId ? <button type="button" disabled={!detail.assigneeAvailable} onClick={() => { onClose(); onOpenSession(detail.assigneeId!); }}><MessageSquare size={14} />{t("Open conversation")}</button> : null}</div>
-              <h3>{t("Phases")}</h3><ol className="todo-phase-list">{detail.phases.map(phase => <li key={phase.id} data-current={phase.startedAt != null}><label><input type="checkbox" checked={phase.completedAt != null} disabled={disabled || (detail.archived && detail.status !== "done")} onChange={() => action(phase.completedAt != null ? "reopen" : "complete", { phaseId: phase.id })} /><span>{phase.title}{phase.completedAt != null ? <CompletionTime at={phase.completedAt} kind="phase" /> : null}{phase.notes ? <small>{phase.notes}</small> : null}</span></label><time>{taskDuration(phaseTime(phase, now))}</time></li>)}</ol>
+              <h3>{t("Phases")}</h3><TaskPhases key={detail.id} phases={detail.phases} className="todo-phase-list">{phase => <li key={phase.id} data-current={phase.startedAt != null}><label><input type="checkbox" checked={phase.completedAt != null} disabled={disabled || (detail.archived && detail.status !== "done")} onChange={() => action(phase.completedAt != null ? "reopen" : "complete", { phaseId: phase.id })} /><span>{phase.title}{phase.completedAt != null ? <CompletionTime at={phase.completedAt} kind="phase" /> : null}{phase.notes ? <small>{phase.notes}</small> : null}</span></label><time>{taskDuration(phaseTime(phase, now))}</time></li>}</TaskPhases>
               <h3>{t("Documentation")}</h3><p className="todo-documentation">{detail.documentation || t("No documentation yet.")}</p>
               <details className="todo-history"><summary>{t("Activity history")}</summary>{detail.events?.slice().reverse().map((event, index) => <p key={index}><time>{new Date(event.at).toLocaleString()}</time> · {event.actor.name || "Office"}<br />{event.message}</p>)}</details>
             </article>}

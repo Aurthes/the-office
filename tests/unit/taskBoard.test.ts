@@ -101,3 +101,43 @@ it("starts a follow-up draft from archived completed work and preserves every ol
   fireEvent.click(screen.getByRole("button", { name: "Save to-do" }));
   await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.edit", expect.objectContaining({ phases: [{ id: "plan", title: "Plan release", notes: "Record evidence" }, { id: "verify", title: "Validate release", notes: "" }, { title: "Follow-up", notes: "" }] })));
 });
+
+it("collapses completed phases in task cards while leaving unfinished phases visible", async () => {
+  fixture(undefined, { progress: 1, phases: [{ id: "plan", title: "Plan release", elapsedMs: 3000, startedAt: null, completedAt: 1000 }, { id: "verify", title: "Validate release", elapsedMs: 0, startedAt: Date.now(), completedAt: null }] });
+  await screen.findByRole("dialog", { name: "Task board" });
+  const card = await screen.findByTestId("todo-card");
+  const group = within(card).getByText("Completed phases (1)").closest("details")!;
+  expect(group).not.toHaveAttribute("open");
+  expect(within(group).getByText(/Plan release/)).not.toBeVisible();
+  expect(within(card).getByText(/● Validate release/)).toBeVisible();
+  fireEvent.click(within(card).getByText("Completed phases (1)"));
+  expect(within(group).getByText(/Plan release/)).toBeVisible();
+});
+
+it("keeps phase notes, completion times and undo available after expanding the detail group", async () => {
+  const f = fixture(undefined, { progress: 1, phases: [{ id: "plan", title: "Plan release", notes: "Saved evidence", elapsedMs: 3000, startedAt: null, completedAt: 1000 }, { id: "verify", title: "Validate release", elapsedMs: 0, startedAt: null, completedAt: null }] }, "todo");
+  await screen.findByRole("dialog", { name: "Task board" });
+  const summary = await screen.findByText("Completed phases (1)"), group = summary.closest("details")!;
+  expect(group).not.toHaveAttribute("open");
+  expect(screen.getByRole("checkbox", { name: "Validate release" })).toBeVisible();
+  expect(screen.getByRole("checkbox", { name: /Plan release/ })).not.toBeVisible();
+  fireEvent.click(summary);
+  expect(screen.getByText("Saved evidence")).toBeVisible();
+  expect(group.querySelector('[data-completion-kind="phase"] time')).toHaveAttribute("datetime", new Date(1000).toISOString());
+  fireEvent.click(screen.getByRole("checkbox", { name: /Plan release/ }));
+  await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.reopen", expect.objectContaining({ id: "todo", revision: 4, phaseId: "plan" })));
+});
+
+it("preserves an expanded group across refreshes and resets it when the board is reopened", async () => {
+  const f = fixture(undefined, { progress: 1, phases: [{ id: "plan", title: "Plan release", elapsedMs: 3000, startedAt: null, completedAt: 1000 }, { id: "verify", title: "Validate release", elapsedMs: 0, startedAt: null, completedAt: null }] }, "todo");
+  await screen.findByRole("dialog", { name: "Task board" });
+  await screen.findByRole("checkbox", { name: "Validate release" });
+  fireEvent.click(await screen.findByText("Completed phases (1)"));
+  const group = document.querySelector(".todo-completed-phases")!;
+  fireEvent.click(screen.getByRole("button", { name: "Refresh task board" }));
+  await waitFor(() => expect(f.call.mock.calls.filter(([method]) => method === "todo.get").length).toBeGreaterThan(1));
+  expect(group).toHaveAttribute("open");
+  f.rerender(createElement(TaskBoard, { ...f.props, open: false }));
+  f.rerender(createElement(TaskBoard, { ...f.props, open: true }));
+  await waitFor(() => expect(document.querySelector(".todo-detail .todo-completed-phases")).not.toHaveAttribute("open"));
+});
