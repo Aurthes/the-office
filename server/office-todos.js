@@ -219,6 +219,9 @@ class OfficeTodos {
       .sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 20)
       .map(row => { const entry = activeDelegation(row); return { id: row.id, assigneeId: row.assigneeId, managerId: entry.managerId, workerId: entry.workerId, state: entry.state, delivery: entry.delivery?.state }; });
   }
+  assertCanArchiveAgent(agentId) {
+    if (this.delegated(agentId).length) throw new Error("Review or recall this agent's open delegations before archiving the conversation");
+  }
   bound(agentId) {
     const preferred = this.rows.get(this.bindings.get(agentId));
     if (preferred && !preferred.archived && preferred.status !== "done" && preferred.assigneeId === agentId) return preferred;

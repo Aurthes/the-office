@@ -51,6 +51,8 @@ active handoff chain per goal, rather than parallel branches of the same task.
 A task stores its handoff history and current assignment. Existing phase IDs,
 prior timing and unrelated tasks remain intact. Open handoffs prevent final
 completion, archival and ordinary reassignment, including through the task board.
+Employees involved in open handoffs must finish or recall them before their
+conversation can be archived, so a task cannot lose its responsible manager.
 A report and successful model turn never imply acceptance. The board shows the
 handoff chain, criteria, reports and review notes; submitted work is labelled
 **Awaiting manager review**. Questions and small tasks continue to be answered

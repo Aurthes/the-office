@@ -171,6 +171,7 @@ const methods = {
   "session.archive": async p => {
     if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before archiving");
     if (controls.state(p.threadId).activeTurnId) throw new Error("Stop the active task before archiving");
+    todos.assertCanArchiveAgent(p.threadId);
     const result = await store.archiveSession(p);
     schedules.pauseForSession(p.threadId);
     return result;

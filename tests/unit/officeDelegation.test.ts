@@ -150,12 +150,15 @@ describe("real-session Office delegation", () => {
   });
   it("recalls failed work without claiming acceptance and leaves unrelated tasks untouched", async () => {
     const f = await fixture(), task = f.create(), other = f.create(f.peer); await f.delegate(task.id);
+    for (const id of [f.manager, f.worker]) expect(() => f.todos.assertCanArchiveAgent(id)).toThrow("Review or recall");
+    expect(() => f.todos.assertCanArchiveAgent(f.peer)).not.toThrow();
     f.store.get(f.worker).status = "running";
     await expect(f.runtime.recall(f.input(task.id, f.manager, { reason: "Worker unavailable" }))).rejects.toThrow("Stop");
     f.store.get(f.worker).status = "idle";
     await f.runtime.recall(f.input(task.id, f.manager, { reason: "Confirmed worker stopped; taking it back" }));
     expect(activeDelegation(f.todos.raw(task.id))).toBeUndefined(); expect(f.todos.raw(task.id)).toMatchObject({ assigneeId: f.manager, status: "paused" });
     expect(f.todos.raw(task.id).delegations[0].state).toBe("recalled"); expect(f.todos.raw(other.id)).toEqual(expect.objectContaining({ assigneeId: f.peer, status: "queued" }));
+    for (const id of [f.manager, f.worker]) expect(() => f.todos.assertCanArchiveAgent(id)).not.toThrow();
   });
   it("does not replay a dispatch that was in flight at restart", async () => {
     const f = await fixture(), task = f.create(); await f.delegate(task.id); f.available.set(f.manager, false);
