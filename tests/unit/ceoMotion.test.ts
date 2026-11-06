@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CEO_ID } from "@/lib/office/organization";
 import { advanceCeo, ceoActivity, ceoBody, ceoHome, createCeoState, type CeoAction } from "@/features/ring-ship/ceoMotion";
 import { buildShipLayout, shipDeck, shipPoint } from "@/features/ring-ship/layout";
 import { isWalkable, footingRadius, walkableSegment } from "@/features/ring-ship/walkableSurface";
@@ -39,7 +40,7 @@ describe("CEO daily life", () => {
       advanceCeo(s, layout, .05, [other]);
       expect(Math.hypot(s.position.x - target.x, s.position.z - target.z)).toBeGreaterThanOrEqual(s.radius + other.radius + .029);
     }
-    expect(ceoBody(s)).toMatchObject({ id: "npc:ceo", deck: 0, position: s.position });
+    expect(ceoBody(s)).toMatchObject({ id: CEO_ID, deck: 0, position: s.position });
   });
   it("settles at an occupied routine stop instead of circling it forever", () => {
     const s = createCeoState(layout, 42);

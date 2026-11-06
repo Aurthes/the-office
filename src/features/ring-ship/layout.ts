@@ -1,6 +1,8 @@
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
 import { BAR_LAYOUT } from "./barLayout";
 import { BREAK_ROOM } from "./breakRoomLayout";
+import { CEO_ID } from "@/lib/office/organization";
+import { monitorChairPose } from "./monitor-room-geometry";
 
 export type RingIndex = 0 | 1 | 2;
 export type DeckIndex = 0 | 1 | 2;
@@ -22,7 +24,7 @@ export type ShipCabin = {
   id: string; deck: DeckIndex; ring: RingIndex; slot: number; kind: CabinKind; name: string; color: string;
   projectId?: string; agentIds: string[];
 };
-export type ShipSeat = ShipPoint & { agentId: string; cabinId: string; projectId: string; deck: DeckIndex; ring: RingIndex; angle: number; facing: number };
+export type ShipSeat = ShipPoint & { agentId: string; cabinId: string; projectId: string; deck: DeckIndex; ring: RingIndex; angle: number; facing: number; seatHeight?: number; surfaceHeight?: number };
 export type ShipLayout = {
   allocation: ShipAllocation; rings: ShipRing[]; cabins: ShipCabin[];
   seats: Record<string, ShipSeat>; radius: number; spokes: number[];
@@ -85,7 +87,7 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
   projects.set(SHARED_PROJECT_ID, { id: SHARED_PROJECT_ID, name: "Shared workspace", agentIds: [] });
   const seen = new Set<string>();
   for (const member of roster.members) {
-    if (seen.has(member.id)) continue;
+    if (member.id === CEO_ID || seen.has(member.id)) continue;
     seen.add(member.id);
     const group = projects.get(member.projectId || "") ?? projects.get(SHARED_PROJECT_ID)!;
     group.agentIds.push(member.id);
@@ -193,6 +195,12 @@ export function buildShipLayout(roster: CompanyRoster, previous?: ShipAllocation
   if (monitor) {
     allocation.monitorRoom = { deck: monitor.deck, ring: monitor.ring, slot: monitor.slot };
     Object.assign(monitor, { id: "public:monitor", kind: "monitor", name: "Monitor room", color: "#71d3c8" });
+    if (roster.members.some(member => member.id === CEO_ID)) {
+      const chair = monitorChairPose({ allocation, rings }, monitor);
+      seats[CEO_ID] = { ...chair.point, agentId: CEO_ID, cabinId: monitor.id, projectId: SHARED_PROJECT_ID, deck: monitor.deck,
+        ring: monitor.ring, angle: cabinAngle({ allocation }, monitor.slot), facing: chair.facing, seatHeight: chair.seatHeight, surfaceHeight: chair.surfaceHeight };
+      monitor.agentIds = [CEO_ID];
+    }
   }
   const savedLab = previous?.cloningRoom;
   const lab = savedLab

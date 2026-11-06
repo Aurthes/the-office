@@ -1,4 +1,4 @@
-import { normalizeOrganization, mergeOrganization, type OfficeOrganization, type OfficePosition } from "@/lib/office/organization";
+import { CEO_ID, LEGACY_CEO_ID, normalizeOrganization, mergeOrganization, type OfficeOrganization, type OfficePosition } from "@/lib/office/organization";
 
 import {
   DEFAULT_ACTIVE_FLOOR_ID,
@@ -663,7 +663,8 @@ const normalizeAvatars = (value: unknown): Record<string, StudioAgentAvatars> =>
     if (!isRecord(gatewayRaw)) continue;
     const entries: StudioAgentAvatars = {};
     for (const [agentIdRaw, avatarRaw] of Object.entries(gatewayRaw)) {
-      const agentId = coerceString(agentIdRaw);
+      if (agentIdRaw === LEGACY_CEO_ID && Object.hasOwn(gatewayRaw, CEO_ID)) continue;
+      const agentId = agentIdRaw === LEGACY_CEO_ID ? CEO_ID : coerceString(agentIdRaw);
       if (!agentId) continue;
       entries[agentId] = normalizeAgentAvatarProfile(avatarRaw, agentId);
     }
@@ -962,7 +963,8 @@ export const mergeStudioSettings = (
       if (!isRecord(gatewayPatch)) continue;
       const existing = nextAvatars[gatewayKey] ? { ...nextAvatars[gatewayKey] } : {};
       for (const [agentIdRaw, avatarPatchRaw] of Object.entries(gatewayPatch)) {
-        const agentId = coerceString(agentIdRaw);
+        if (agentIdRaw === LEGACY_CEO_ID && Object.hasOwn(gatewayPatch, CEO_ID)) continue;
+        const agentId = agentIdRaw === LEGACY_CEO_ID ? CEO_ID : coerceString(agentIdRaw);
         if (!agentId) continue;
         if (avatarPatchRaw === null) {
           delete existing[agentId];

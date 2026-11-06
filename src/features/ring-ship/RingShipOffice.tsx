@@ -16,9 +16,6 @@ import type { OfficeAgent, RenderAgent } from "@/features/retro-office/core/type
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
 import { AGENT_SCALE } from "@/features/retro-office/core/constants";
 import { createDuckAppearanceFromSeed, normalizeDuckAppearance } from "@/lib/avatars/duck";
-import { CEO_ID } from "@/lib/office/organization";
-import { CeoCharacter } from "./CeoCharacter";
-import type { CharacterBody } from "./characterCollision";
 import { DuckCrewModel } from "./DuckCrewModel";
 import { CompanyWorkAreaMenu } from "@/features/office/components/CompanyWorkAreaMenu";
 import { SettingsPanel } from "@/features/office/components/panels/SettingsPanel";
@@ -274,7 +271,7 @@ function placeNameplate(frame: NameplatePlacement, time: number, x: number, y: n
   return lift;
 }
 
-function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId, companionsRef, ceoBodyRef, arrivalsRef, visibleDeck, onDeckChange }: { visibleDeck: number; onDeckChange: (id: string, deck: DeckIndex) => void; arrivalsRef: RefObject<Map<string, CloneArrival>>; agents: OfficeAgent[]; layout: ShipLayout; focus: string; onOpen: (id: string) => void; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null; companionsRef: RefObject<Map<CompanionKind, CompanionState>>; ceoBodyRef: RefObject<CharacterBody | null> }) {
+function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId, companionsRef, arrivalsRef, visibleDeck, onDeckChange }: { visibleDeck: number; onDeckChange: (id: string, deck: DeckIndex) => void; arrivalsRef: RefObject<Map<string, CloneArrival>>; agents: OfficeAgent[]; layout: ShipLayout; focus: string; onOpen: (id: string) => void; lookupRef: RefObject<Map<string, RenderAgent>>; chatAgentId?: string | null; companionsRef: RefObject<Map<CompanionKind, CompanionState>> }) {
   const agentsRef = useRef<RenderAgent[]>([]);
   const nameplatePlacement = useRef<NameplatePlacement>({ frame: -1, rects: [] });
   const [hovered, setHovered] = useState<string | null>(null);
@@ -291,7 +288,7 @@ function Crew({ agents, layout, focus, onOpen, lookupRef, chatAgentId, companion
   }, [agents, layout, lookupRef, arrivalsRef, onDeckChange]);
   useFrame((state, delta) => {
     const crew = agentsRef.current as MovingAgent[], prior = crew.map(a => a.deck);
-    advanceCrew(crew, layout, performance.now(), delta, chatAgentId, [...companionsRef.current.values()].map(companionBody).concat(ceoBodyRef.current ? [ceoBodyRef.current] : []));
+    advanceCrew(crew, layout, performance.now(), delta, chatAgentId, [...companionsRef.current.values()].map(companionBody));
     crew.forEach((a, i) => { if (a.deck !== prior[i]) onDeckChange(a.id, a.deck); });
   }, -1);
   return <>{agents.map(agent => {
@@ -469,7 +466,6 @@ export function RingShipOffice(props: Props) {
     setCloneFlight(null);onCloneFinished?.();
   },[cloneFlight,cloningCabin,onCloneFinished]);
   const cloneFocus=useMemo(()=>cloneFlight&&cloningCabin?{point:cloningPoint(layout,cloningCabin,0,.1),angle:cabinAngle(layout,cloningCabin.slot),deck:cloningCabin.deck}:null,[cloneFlight,cloningCabin,layout]);
-  const ceoBodyRef = useRef<CharacterBody | null>(null);
   const companionsRef = useRef(new Map<CompanionKind, CompanionState>());
   const [returnFlight, setReturnFlight] = useState<ReturnFlight | null>(null);
   const [returnStage, setReturnStage] = useState<ReturnStage>("walking");
@@ -524,7 +520,7 @@ export function RingShipOffice(props: Props) {
   const returnCamera=useMemo(()=>returnFlight && ["boarding","sealing","waiting","launching","done"].includes(returnStage) && visibleDeck===0 && !shipView
     // Frame the exit while the hatch seals, before the short muzzle flash.
     ? {point:returnFlight.pod,launch:["sealing","waiting","launching","done"].includes(returnStage)}:null,[returnFlight,returnStage,visibleDeck,shipView]);
-  const { onOpenTaskBoard, onOpenAgentDirectory } = props;
+  const { onOpenTaskBoard } = props;
   const openTaskBoard = useCallback(() => {
     closeObject(); if (onOpenTaskBoard) onOpenTaskBoard(); else setLocalTodoOpen(true);
     const cabin = layout.cabins.find(c => c.kind === "monitor");
@@ -536,14 +532,13 @@ export function RingShipOffice(props: Props) {
   const objectEnabled = !busy && !cloneFlight && !navigationOpen && !props.activeChatAgentId && !returnFlight && !monitorOpen && !serversOpen && !terminalHost && !tasksOpen && !todoOpen && !musicOpen && !settingsOpen && !aiOpen;
   const objectFocus = objectEnabled && inspectedObject && (inspectedObject.space ? inspectedObject.space.seed === system.seed : !shipView && inspectedObject.deck === visibleDeck && currentLayout.cabins.some(c => c.id === inspectedObject.cabinId)) ? inspectedObject : null;
   const duckFocus = !busy && !cloneFlight && !navigationOpen && !returnFlight && !monitorOpen && !serversOpen && !terminalHost && !tasksOpen && !todoOpen && !musicOpen && !settingsOpen && !aiOpen && !shipView
-    ? props.activeChatAgentId || (objectFocus?.kind === "ceo" ? objectFocus.id : !objectFocus && currentLayout.seats[validFocus] ? validFocus : null) : null;
+    ? props.activeChatAgentId || (!objectFocus && currentLayout.seats[validFocus] ? validFocus : null) : null;
   const duckAudio = useDuckFocusAudio(duckFocus, agents);
   const inspectObject = useCallback((object: ShipObject) => {
     if (object.kind === "taskWhiteboard") { openTaskBoard(); return; }
-    if (object.id === CEO_ID && onOpenAgentDirectory) { closeObject(); onOpenAgentDirectory(); return; }
     setInspectedObject(object); setFocus(previous => ({ id: "", request: previous.request + 1 }));
     if (!object.space) setDeck(object.deck); setWhole(false); setLiftOpen(false);
-  }, [openTaskBoard, closeObject, onOpenAgentDirectory]);
+  }, [openTaskBoard]);
   const reserveCount = layout.cabins.filter(c => c.kind === "reserve").length;
   const travel = useCallback((destination: DeckIndex, id = "") => {
     if (busy || destination === visibleDeck) return;
@@ -580,7 +575,7 @@ export function RingShipOffice(props: Props) {
     }),
   ];
   const button = "flex h-9 min-w-9 items-center justify-center rounded-lg border border-white/15 bg-[#122735]/90 px-2 text-xs text-[#b8cccf] hover:border-[#d7af77]/70";
-  return <div className={`ship-office relative h-full w-full overflow-hidden bg-[#081421] text-[#deebea]${navigationOpen ? " star-navigation-active" : ""}`} data-star-system={system.id} data-navigation-phase={navigationPreview ? navigation.phase : undefined} data-ship-focused-person={objectFocus?.id === CEO_ID ? CEO_ID : props.activeChatAgentId || (currentLayout.seats[validFocus] ? validFocus : undefined)} data-ship-deck={visibleDeck} data-ship-mode={shipView ? "ship" : "deck"} data-ship-travelling={busy} data-ship-visible-crew={visibleAgents.length} data-ship-sectors={layout.allocation.sectors} data-ship-reserves={reserveCount} data-ship-projects={roster.projects.length} data-ship-placed={agents.filter(agent => layout.seats[agent.id]).length}>
+  return <div className={`ship-office relative h-full w-full overflow-hidden bg-[#081421] text-[#deebea]${navigationOpen ? " star-navigation-active" : ""}`} data-star-system={system.id} data-navigation-phase={navigationPreview ? navigation.phase : undefined} data-ship-focused-person={props.activeChatAgentId || (currentLayout.seats[validFocus] ? validFocus : undefined)} data-ship-deck={visibleDeck} data-ship-mode={shipView ? "ship" : "deck"} data-ship-travelling={busy} data-ship-visible-crew={visibleAgents.length} data-ship-sectors={layout.allocation.sectors} data-ship-reserves={reserveCount} data-ship-projects={roster.projects.length} data-ship-placed={agents.filter(agent => layout.seats[agent.id]).length}>
     {renderProbeEnabled ? <Suspense fallback={null}><RenderProbe onShadowsChange={setProbeShadows} /></Suspense> : null}
     <Canvas orthographic frameloop={monitorOpen || serversOpen || todoOpen || !!terminalHost ? "never" : "always"} dpr={[0.85, 1.5]} camera={{ position: [25, 40, 36], zoom: 12, near: 0.1, far: 5000 }} shadows={probeShadows}
       gl={{ antialias: true, powerPreference: "high-performance" }} onPointerMissed={() => { setLiftOpen(false); closeObject(); }} onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.95; gl.domElement.dataset.shipReady = "true"; }}>
@@ -589,9 +584,8 @@ export function RingShipOffice(props: Props) {
       <Lighting radius={layout.radius} view={shipView || busy ? -1 : visibleDeck} travelling={busy} dimmed={navigationOpen && navigation.phase !== "warp"} />
       <ShipHull layout={layout} deck={visibleDeck} whole={shipView} busy={busy} />
       {decks.map((value, index) => <group key={index} position={[0, index * DECK_STEP, 0]} visible={shipView || busy || index === visibleDeck}>
-        {index === 0 && props.organization?.ceoAvatar ? <CeoCharacter layout={value} profile={props.organization.ceoAvatar} active={!busy && (shipView || visibleDeck === 0)} enabled={objectEnabled && (shipView || visibleDeck === 0)} onSelect={inspectObject} bodyRef={ceoBodyRef} crewRef={crewLookupRef} companionsRef={companionsRef} /> : null}
         <StaticShip layout={value} serverHosts={serverHosts} enabled={objectEnabled && (shipView || index === visibleDeck)} selectedId={objectFocus?.id} onSelect={inspectObject} /><ReturnPodBay layout={value} active={!!returnFlight}/>
-        {index === 0 ? <ShipCompanions layout={value} active={!busy && (shipView || visibleDeck === 0)} enabled={objectEnabled && (shipView || visibleDeck === 0)} selectedId={objectFocus?.id} onSelect={inspectObject} companionsRef={companionsRef} crewRef={shipView ? undefined : crewLookupRef} chatAgentId={props.activeChatAgentId} ceoBodyRef={ceoBodyRef} /> : null}
+        {index === 0 ? <ShipCompanions layout={value} active={!busy && (shipView || visibleDeck === 0)} enabled={objectEnabled && (shipView || visibleDeck === 0)} selectedId={objectFocus?.id} onSelect={inspectObject} companionsRef={companionsRef} crewRef={shipView ? undefined : crewLookupRef} chatAgentId={props.activeChatAgentId} /> : null}
         {value.cabins.filter(c => c.kind === "quarters").map(cabin => <HibernationBay key={cabin.id} layout={value} cabin={cabin} lookupRef={crewLookupRef} onOpen={open} interactive={objectEnabled && !shipView && index === visibleDeck} />)}
         {value.cabins.filter(c => c.kind === "ai").map(cabin => <AiComputationCore key={cabin.id} layout={value} cabin={cabin} interactive={objectEnabled && !shipView && index === visibleDeck} onOpen={() => select(cabin.id)} />)}
       </group>)}
@@ -606,7 +600,7 @@ export function RingShipOffice(props: Props) {
         </group>)}
         {visibleDeck === 0 && !navigationOpen ? currentLayout.cabins.filter(c => c.kind === "servers").map(cabin => <ServerRoomScreen key={cabin.id} layout={currentLayout} cabin={cabin} hosts={serverHosts} showLabels={objectEnabled && selected?.id === cabin.id} onOpen={openServers} />) : null}
       </group> : null}
-      {!busy ? <Crew agents={agents.filter(a=>a.id!==returnFlight?.agentId&&a.id!==cloneFlight?.agentId&&!(cloneFlight&&a.id===clonedAgentId))} layout={layout} visibleDeck={shipView ? -1 : visibleDeck} onDeckChange={crewDeckChanged} focus={validFocus} onOpen={open} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} companionsRef={companionsRef} ceoBodyRef={ceoBodyRef} arrivalsRef={cloneArrivals} /> : null}
+      {!busy ? <Crew agents={agents.filter(a=>a.id!==returnFlight?.agentId&&a.id!==cloneFlight?.agentId&&!(cloneFlight&&a.id===clonedAgentId))} layout={layout} visibleDeck={shipView ? -1 : visibleDeck} onDeckChange={crewDeckChanged} focus={validFocus} onOpen={open} lookupRef={crewLookupRef} chatAgentId={props.activeChatAgentId} companionsRef={companionsRef} arrivalsRef={cloneArrivals} /> : null}
       {cloningCabin ? <group visible={shipView||visibleDeck===cloningCabin.deck}><CloningLab layout={layout} cabin={cloningCabin} flight={cloneFlight} resultRef={cloneResultRef} onStage={setCloneState} onComplete={cloneComplete} interactive={objectEnabled&&(shipView||visibleDeck===cloningCabin.deck)} selectedId={objectFocus?.id} onSelect={inspectObject}/></group>:null}
       {returnFlight ? <group visible={!shipView}>
         <ReturnPodJourney key={returnFlight.requestId} flight={returnFlight} resultRef={archiveResultRef} transferRef={returnTransferRef} displayDeck={visibleDeck} onStage={returnPhaseChanged} onComplete={returnComplete}/>

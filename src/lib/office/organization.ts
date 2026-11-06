@@ -1,7 +1,9 @@
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
 import type { AgentAvatarProfile } from "@/lib/avatars/profile";
+import identities from "./identities.json";
 
-export const CEO_ID = "npc:ceo";
+export const CEO_ID = identities.ceo;
+export const LEGACY_CEO_ID = identities.legacyCeo;
 export const OPEN_DEPARTMENT_ID = "open-workspace";
 export type OfficePosition = { title: string; reportsTo: string[] };
 export type OfficeOrganization = Record<string, OfficePosition>;
@@ -14,9 +16,10 @@ export function normalizeOrganization(value: unknown): OfficeOrganization {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return Object.fromEntries(Object.entries(value).flatMap(([id, raw]) => {
     if (!id.trim() || id.length > 160 || ["__proto__", "constructor", "prototype"].includes(id) || !raw || typeof raw !== "object") return [];
+    if (id === LEGACY_CEO_ID && Object.hasOwn(value, CEO_ID)) return [];
     const position = raw as Record<string, unknown>;
-    return [[id, { title: typeof position.title === "string" ? position.title.trim().slice(0, 80) || "Worker" : "Worker",
-      reportsTo: Array.isArray(position.reportsTo) ? [...new Set(position.reportsTo.filter((parent): parent is string => typeof parent === "string" && !!parent.trim() && parent.length <= 160))] : [] }]];
+    return [[id === LEGACY_CEO_ID ? CEO_ID : id, { title: typeof position.title === "string" ? position.title.trim().slice(0, 80) || "Worker" : "Worker",
+      reportsTo: Array.isArray(position.reportsTo) ? [...new Set(position.reportsTo.filter((parent): parent is string => typeof parent === "string" && !!parent.trim() && parent.length <= 160).map(parent => parent === LEGACY_CEO_ID ? CEO_ID : parent))] : [] }]];
   }));
 }
 
@@ -35,14 +38,15 @@ export function assertReportingStructure(organization: OfficeOrganization) {
 }
 
 export function mergeOrganization(current: OfficeOrganization = {}, patch: Record<string, OfficePosition | null> | null): OfficeOrganization {
-  const next = patch === null ? {} : { ...current, ...normalizeOrganization(patch) };
-  for (const [id, value] of Object.entries(patch || {})) if (value === null) delete next[id];
+  const next = patch === null ? {} : { ...normalizeOrganization(current), ...normalizeOrganization(patch) };
+  for (const [id, value] of Object.entries(patch || {})) if (value === null) delete next[id === LEGACY_CEO_ID ? CEO_ID : id];
   assertReportingStructure(next);
   return next;
 }
 
 // Project membership stays in the existing roster. Only titles and upward edges are stored here.
 export function reconcileOrganization(current: OfficeOrganization, roster: CompanyRoster, preferredHeads: Record<string, string> = {}): OfficeOrganization {
+  current = normalizeOrganization(current);
   const ids = new Set([CEO_ID, ...roster.members.map(member => member.id)]);
   const resolved = new Map<string, string[]>();
   const survivingManagers = (id: string, path = new Set<string>()): string[] => {
@@ -57,6 +61,7 @@ export function reconcileOrganization(current: OfficeOrganization, roster: Compa
   next[CEO_ID] ||= { title: "CEO", reportsTo: [] };
   const departments = new Map<string, string[]>();
   for (const member of roster.members) {
+    if (member.id === CEO_ID) continue;
     const department = member.projectId || OPEN_DEPARTMENT_ID;
     departments.set(department, [...(departments.get(department) || []), member.id]);
   }
@@ -103,8 +108,8 @@ export function organizationPatch(current: OfficeOrganization, next: OfficeOrgan
 }
 
 export function organizationPeople(organization: OfficeOrganization, roster: CompanyRoster, names: ReadonlyMap<string, string>): OrganizationPerson[] {
-  return [{ id: CEO_ID, name: "CEO", department: "Company", departmentId: null, ...(organization[CEO_ID] || { title: "CEO", reportsTo: [] }) },
-    ...roster.members.map(member => ({ ...member, name: names.get(member.id) || member.id,
+  return [{ id: CEO_ID, name: names.get(CEO_ID) || "CEO", department: "Company", departmentId: null, ...(organization[CEO_ID] || { title: "CEO", reportsTo: [] }) },
+    ...roster.members.filter(member => member.id !== CEO_ID).map(member => ({ ...member, name: names.get(member.id) || member.id,
       department: roster.projects.find(project => project.id === member.projectId)?.name || "Open Workspace",
       departmentId: member.projectId, ...(organization[member.id] || { title: "Worker", reportsTo: [] }) }))];
 }

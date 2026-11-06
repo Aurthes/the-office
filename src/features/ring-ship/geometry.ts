@@ -257,7 +257,7 @@ export function buildShipGeometry(layout: ShipLayout, models: ModelTemplates = {
   }
   const seats: SeatAccess[] = Object.values(layout.seats).map(seat => ({ key: seat.agentId, cabinId: seat.cabinId, point: seat, facing: seat.facing }));
   for (const cabin of layout.cabins) {
-    if (cabin.kind === "monitor" && cabin.deck === 0) seats.push({ key: CEO_ID, cabinId: cabin.id, ...monitorChairPose(layout, cabin) });
+    if (cabin.kind === "monitor" && cabin.deck === 0 && !layout.seats[CEO_ID]) seats.push({ key: CEO_ID, cabinId: cabin.id, ...monitorChairPose(layout, cabin) });
     if (cabin.kind === "break") BREAK_ROOM.seats.forEach((_, i) => seats.push({ key: breakSeatKey(cabin.id, i), cabinId: cabin.id, ...breakSeatPose(layout, cabin, i) }));
   }
   return b.finish(seats);

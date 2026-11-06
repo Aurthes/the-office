@@ -75,7 +75,7 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
   const card = (agent: DirectoryAgent, subtitle: string) => {
     const tasks = agent.tasks || [];
     return <div className="directory-agent" data-selected={agent.id === selectedId} data-person-id={agent.id} style={{ borderLeftColor: agent.color }}>
-    <button type="button" className="directory-agent-open" aria-label={agent.id === CEO_ID ? t("CEO organization") : t("Open session: {0}", { "0": agent.name })} onClick={() => { setInspected(agent.id); if (agent.id !== CEO_ID) onOpenChat(agent.id); }}>
+    <button type="button" className="directory-agent-open" aria-label={t("Open session: {0}", { "0": agent.name })} onClick={() => { setInspected(agent.id); onOpenChat(agent.id); }}>
       <CharacterPortrait name={agent.name} profile={agent.avatarProfile} />
       <span className="directory-agent-copy"><strong title={agent.name}>{agent.name}</strong><small title={subtitle}>{subtitle}</small></span>
       <span className="directory-agent-status"><AgentActivityIndicator activity={agent.activity} /><ScheduledTaskIndicator active={agent.hasPendingSchedule} /></span>

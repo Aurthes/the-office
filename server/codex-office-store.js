@@ -7,6 +7,7 @@ const { loadSessionHistoryPage } = require("./codex-session-history");
 const { clipText } = require("./codex-session-items");
 const { pendingAfterItem } = require("./codex-session-questions");
 const { OFFICE_CHAT_TOOLS } = require("./codex-session-composer");
+const { ceo: CEO_ID } = require("../src/lib/office/identities.json");
 
 const ACCESS = {
   ":read-only": { approvalPolicy: "on-request", sandbox: "read-only", policy: "readOnly" },
@@ -80,6 +81,16 @@ class CodexOfficeStore {
     const name = this.name(input.name), project = input.projectId ? this.project(input.projectId) : null;
     const workspace = this.directory(project ? project.rootPaths[0] : input.workspace);
     return this.once(input, () => { const session = { id: crypto.randomUUID(), name, workspace, projectId: project?.id ?? null, updatedAt: Date.now(), status: "idle", settings: { model: null, effort: null, accessMode: ":workspace" } }; this.data.sessions.push(session); return { threadId: session.id }; });
+  }
+  ensureCeo() {
+    // The organization root is a normal Office session. Never resurrect an
+    // archived session, reset its settings, or start a Codex turn at startup.
+    if (this.data.sessions.some(row => row.id === CEO_ID)) return;
+    const workspace = path.join(path.dirname(this.file), "workspaces", "ceo");
+    fs.mkdirSync(workspace, { recursive: true, mode: 0o700 });
+    this.data.sessions.push({ id: CEO_ID, name: "CEO", workspace: this.directory(workspace), projectId: null,
+      updatedAt: Date.now(), status: "idle", settings: { model: null, effort: null, accessMode: ":workspace" } });
+    this.save();
   }
   async firefighter() {
     const existing = this.list().find(row => row.projectId == null && row.name.trim().toLowerCase() === "firefighter");

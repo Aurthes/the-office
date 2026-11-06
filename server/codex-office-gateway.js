@@ -54,6 +54,7 @@ const native = new CodexOfficeClient({
 } });
 const accountContext = new CodexOfficeAccount(native);
 store = new CodexOfficeStore(directory, native, changed, id => Boolean(voice?.active?.threadId === id || controls?.state(id).activeTurnId || workspace?.snapshot(id)?.running || workspace?.starts.has(id)));
+store.ensureCeo();
 controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features,
   changed: id => { stream?.changed(id); changed(); },
   recovery: {

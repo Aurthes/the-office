@@ -2,10 +2,10 @@ import { cabinAngle, shipPoint, type ShipCabin, type ShipLayout } from "./layout
 import type { Builder } from "./geometry";
 import workstationModels from "@/features/retro-office/core/workstation-models.json";
 
-export function monitorChairPose(layout: ShipLayout, cabin: ShipCabin) {
+export function monitorChairPose(layout: Pick<ShipLayout, "allocation" | "rings">, cabin: ShipCabin) {
   const model = workstationModels.chairDesk;
   return { point: shipPoint(layout.rings[cabin.ring].radius + .2, cabinAngle(layout, cabin.slot)),
-    facing: cabinAngle(layout, cabin.slot) + Math.PI,
+    facing: cabinAngle(layout, cabin.slot) + Math.PI, surfaceHeight: 1.175,
     seatHeight: .08 + (model.seat[1] - model.min[1]) * .8 / (model.max[0] - model.min[0]) };
 }
 

@@ -21,6 +21,14 @@ const organization: OrganizationView = { ceoAvatar: null, savePosition: vi.fn(),
   { id: "worker", name: "Worker 3", title: "Worker", department: "Office", departmentId: "office", reportsTo: ["head", CEO_ID] },
   { id: "review", name: "Reviewer", title: "Worker", department: "Open Workspace", departmentId: null, reportsTo: [CEO_ID] },
 ] };
+it("opens the real CEO session from the organization tree instead of only inspecting the NPC", () => {
+  const onOpenChat = vi.fn();
+  const ceo: DirectoryAgent = { ...agents[0], id: CEO_ID, name: "CEO", projectId: null, projectName: "Company", tasks: [] };
+  render(createElement(AgentDirectory, { agents: [ceo, ...agents], organization, view: "organization", search: "", onSearchChange: vi.fn(), selectedId: null, onViewChange: vi.fn(), onOpenChat, onOpenTask: vi.fn() }));
+  expect(document.querySelectorAll(`[data-person-id="${CEO_ID}"]`)).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Open session: CEO" }));
+  expect(onOpenChat).toHaveBeenCalledExactlyOnceWith(CEO_ID);
+});
 function fixture(view: "project" | "activity" | "organization" = "project", search = "") {
   const props = { agents, organization, view, search, onSearchChange: vi.fn(), selectedId: null, onViewChange: vi.fn(), onOpenChat: vi.fn(), onOpenTask: vi.fn() };
   const result = render(createElement(AgentDirectory, props));
@@ -50,7 +58,7 @@ it("groups projects by default and orders recent activity by actual timestamps",
 it("keeps ancestor paths when searching by a task code and lets branches collapse", () => {
   const { props, rerender } = fixture("organization", "AVC");
   const tree = screen.getByRole("list", { name: "Reporting lines" });
-  expect(within(tree).getByRole("button", { name: "CEO organization" })).toBeTruthy();
+  expect(within(tree).getByRole("button", { name: "Open session: CEO" })).toBeTruthy();
   expect(within(tree).getByRole("button", { name: "Open session: Ranger" })).toBeTruthy();
   expect(within(tree).queryByRole("button", { name: "Open session: Reviewer" })).toBeNull();
   rerender(createElement(AgentDirectory, { ...props, search: "" }));
