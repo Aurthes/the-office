@@ -55,6 +55,7 @@ import { MonitorDashboard, ServerRoomDashboard } from "./MonitorDashboard";
 import type { FirefightHandler } from "@/lib/monitoring/firefighter";
 import { SpaceActivity } from "./SpaceActivity";
 import { SpaceTrafficNotice } from "./SpaceTrafficNotice";
+import { ResetCouponNotice } from "./ResetCouponNotice";
 import { emptySpaceMotion } from "./space-activity";
 import { ListeningBar } from "./ListeningBar";
 import { ShipCompanions } from "./ShipCompanions";
@@ -616,7 +617,10 @@ export function RingShipOffice(props: Props) {
       <LiftEntry deck={visibleDeck} whole={shipView} open={liftOpen} disabled={busy || !!props.activeChatAgentId || navigationOpen} counts={counts} onOpen={() => { closeObject(); setLiftOpen(true); }} onClose={() => setLiftOpen(false)} onTravel={travel} />
       <LiftJourney trip={trip} layout={layout} controlsRef={controlsRef} overlayRef={overlayRef} onArrive={arrive} onComplete={complete} />
     </Canvas>
-    {activityEnabled ? <SpaceTrafficNotice key={system.id} motion={spaceMotion} seed={system.seed} paused={!objectEnabled} /> : null}
+    <div className="ship-alerts">
+      {objectEnabled && gatewayStatus === "connected" ? <ResetCouponNotice client={props.atmAnalytics?.client} onOpen={openAiCenter} /> : null}
+      {activityEnabled ? <SpaceTrafficNotice key={system.id} motion={spaceMotion} seed={system.seed} paused={!objectEnabled} /> : null}
+    </div>
     <fieldset className="contents" disabled={busy||!!cloneFlight}>
     <div className="ship-heading pointer-events-none absolute left-1/2 top-5 z-10 -translate-x-1/2 text-center">
       <div className="truncate text-xs font-semibold uppercase tracking-[0.28em] text-[#e3c894]">{officeTitle}</div>

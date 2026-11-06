@@ -15,3 +15,11 @@ export type AiProviderSnapshot = {
   api: { status: "not_configured" | "available" | "unavailable"; models: Array<{ model: string; rpm: number | null; tpm: number | null; rpd: number | null }> };
 };
 export type AiCenterSnapshot = { fetchedAt: string; providers: AiProviderSnapshot[] };
+
+export function expiringResetCredits(snapshot: AiCenterSnapshot | null, now: number): ResetCredit[] {
+  const inventory = snapshot?.providers.find(provider => provider.id === "openai")?.resetCredits;
+  if (!inventory?.availableCount) return [];
+  return (inventory.credits ?? []).filter(coupon => typeof coupon.expiresAt === "number"
+    && coupon.expiresAt * 1000 > now && coupon.expiresAt * 1000 <= now + 3 * 86400_000)
+    .sort((a, b) => a.expiresAt! - b.expiresAt!);
+}
