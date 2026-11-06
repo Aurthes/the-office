@@ -17,7 +17,7 @@ const { CodexSessionPredictions } = require("./codex-session-predictions");
 const { readAiCenter } = require("./ai-center");
 const { consumeOpenAiResetCredit } = require("./ai-center-openai");
 const { questionReplyMessage } = require("./codex-session-questions");
-const { OfficeTodos, activeDelegation } = require("./office-todos");
+const { OfficeTodos, activeDelegation, handlingAgentId } = require("./office-todos");
 const { OfficeSchedules } = require("./office-schedules");
 const { CodexSessionComposer } = require("./codex-session-composer");
 const { CodexMessageSearch } = require("./codex-message-search");
@@ -98,7 +98,7 @@ schedules = new OfficeSchedules(directory, {
 todos = new OfficeTodos(directory, { projects: () => store.projects(), agents, changed: id => broadcast("todos.updated", { id }) });
 const company = new OfficeCompany(store);
 store.companyContext = id => company.forTurn(id);
-store.todoContext = id => { const row = todos.bound(id); return { protocol: 4, agentId: id, todoId: row?.id || null, departmentId: store.get(id).projectId ?? null, delegatedTasks: todos.delegated(id) }; };
+store.todoContext = id => { const row = todos.bound(id); return { protocol: 5, agentId: id, todoId: row?.id || null, assigneeId: row?.assigneeId || null, handlingAgentId: row ? handlingAgentId(row) : null, reviewerId: activeDelegation(row || {})?.state === "review" ? activeDelegation(row).managerId : null, departmentId: store.get(id).projectId ?? null, delegatedTasks: todos.delegated(id) }; };
 delegation = new OfficeDelegation({ store, todos, company, stopping: () => stopping,
   canRecall: async id => {
     if (store.data.sessions.find(row => row.id === id)?.archived) return true;
@@ -126,21 +126,22 @@ const methods = {
   "todo.run": p => store.once(p, async () => {
     const row = todos.raw(p.id);
     if (row.revision !== p.revision) throw new Error("This to-do changed. Refresh it before starting");
-    if (!row.assigneeId) throw new Error("Assign an agent before starting work");
-    store.get(row.assigneeId);
+    const recipient = handlingAgentId(row), entry = activeDelegation(row);
+    if (!recipient) throw new Error("Assign an agent before starting work");
+    store.get(recipient);
     if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending");
-    await controls.attach(row.assigneeId); await controls.refreshTurn(row.assigneeId);
-    if (store.isBusy(row.assigneeId) || store.starting.has(row.assigneeId) || store.pendingQuestions(row.assigneeId).length || controls.approvalCount(row.assigneeId) || controls.questions(row.assigneeId).some(q => !q.submitted)) throw new Error("This agent is busy or waiting for input. Open its conversation first");
+    await controls.attach(recipient); await controls.refreshTurn(recipient);
+    if (store.isBusy(recipient) || store.starting.has(recipient) || store.pendingQuestions(recipient).length || controls.approvalCount(recipient) || controls.questions(recipient).some(q => !q.submitted)) throw new Error("This agent is busy or waiting for input. Open its conversation first");
     if (todos.raw(p.id).revision !== p.revision) throw new Error("This to-do changed. Refresh it before starting");
     const delivery = activeDelegation(row)?.delivery;
-    if (delivery?.recipientId === row.assigneeId) todos.delivery(row.id, delivery.requestId, "sending");
-    todos.startForAgent(row.assigneeId, row.id);
+    if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "sending");
+    todos.startForAgent(recipient, row.id);
     try {
-      const result = await controls.send(row.assigneeId, `Work on Office to-do ${row.id}: ${row.title}\nRead its full plan and documentation using office_tasks.todo_get. Keep phase progress and documentation current; finish only verified work.`, p.requestId, [], { onlyIfIdle: true });
+      const result = await controls.send(recipient, (entry?.state === "review" ? `Office delegation submitted for your acceptance. Task ${row.id}: ${row.title}\nRead office_tasks.todo_get, verify the report and artifacts, then use todo_review with evidence to accept or return. Submission alone is not acceptance.` : row.acceptanceManagerId && !entry ? `Finish manager acceptance for Office task ${row.id}: ${row.title}\nRead office_tasks.todo_get and the accepted reports. Complete only verified remaining phases; preserve the execution assignee.` : `Work on Office to-do ${row.id}: ${row.title}\nRead its full plan and documentation using office_tasks.todo_get. Keep phase progress and documentation current; finish only verified work.`), p.requestId, [], { onlyIfIdle: true });
       if (result.status === "busy") throw new Error("Agent became busy; the task was not sent");
-      if (delivery?.recipientId === row.assigneeId) todos.delivery(row.id, delivery.requestId, "sent");
-      return { id: row.id, threadId: row.assigneeId };
-    } catch (error) { if (delivery?.recipientId === row.assigneeId) todos.delivery(row.id, delivery.requestId, "uncertain", error.message); todos.finishTurn(row.assigneeId, "failed to start"); throw error; }
+      if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "sent");
+      return { id: row.id, threadId: recipient };
+    } catch (error) { if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "uncertain", error.message); todos.finishTurn(recipient, "failed to start"); throw error; }
   }),
   "office.account": account,
   "office.usage": () => readAiCenter(native),

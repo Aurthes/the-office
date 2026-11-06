@@ -202,6 +202,8 @@ export const ZH_CN: Record<string, string> = {
   "Work directly": "默认自己处理",
   "Delegate when useful": "适合时委派",
   "Prefer delegation": "优先委派",
+  "Review by {name}": "待 {name} 验收",
+  "Open review with manager": "请上级验收",
   "Awaiting manager review": "等待上级验收",
   "Delegation and acceptance": "委派与验收",
   "Recalled by manager": "上级已收回",

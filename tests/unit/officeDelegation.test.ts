@@ -77,7 +77,7 @@ describe("real-session Office delegation", () => {
       expect(() => f.todos.change(f.input(task.id, f.worker, extra), action)).toThrow(/acceptance|delegation/);
     }
     await f.runtime.submit(f.input(task.id, f.worker, { report: "Tests passed; artifact /tmp/result. No deployment." })); await f.settle();
-    expect(f.todos.raw(task.id)).toMatchObject({ assigneeId: f.manager, archived: false, completedAt: null });
+    expect(f.todos.raw(task.id)).toMatchObject({ assigneeId: f.worker, archived: false, completedAt: null });
     expect(activeDelegation(f.todos.raw(task.id)).state).toBe("review");
     await expect(f.runtime.review(f.input(task.id, f.worker, { accept: true, notes: "I accept myself" }))).rejects.toThrow("delegating manager");
     await f.runtime.review(f.input(task.id, f.manager, { accept: true, notes: "Read artifact and independently confirmed the expected result." }));
@@ -105,7 +105,7 @@ describe("real-session Office delegation", () => {
     expect(activeDelegation(f.todos.raw(task.id))).toMatchObject({ managerId: CEO, workerId: f.manager, state: "working" });
     await f.runtime.submit(f.input(task.id, f.manager, { report: "Integrated and verified outcome" })); await f.settle();
     await f.runtime.review(f.input(task.id, CEO, { accept: true, notes: "Verified integrated outcome" }));
-    expect(activeDelegation(f.todos.raw(task.id))).toBeUndefined(); expect(f.todos.raw(task.id).assigneeId).toBe(CEO);
+    expect(activeDelegation(f.todos.raw(task.id))).toBeUndefined(); expect(f.todos.raw(task.id).assigneeId).toBe(f.worker);
     expect(f.send.mock.calls.map(([id]) => id)).toEqual([f.manager, f.worker, f.manager, CEO]);
   });
   it("refuses unrelated, busy or newly moved reports before changing ownership", async () => {
@@ -170,4 +170,95 @@ describe("real-session Office delegation", () => {
     await new OfficeDelegation({ store: f.store, todos: restored, company: f.company, canSend: f.canSend, send: f.send }).flush();
     expect(f.send).toHaveBeenCalledTimes(1); expect(activeDelegation(restored.raw(task.id)).report).toContain("Durable evidence");
   });
+});
+
+it("separates execution, notification and binding throughout nested acceptance", async () => {
+  const f = await fixture(), task = f.create(CEO);
+  await f.delegate(task.id, CEO, f.manager);
+  expect(f.todos.get({ id: task.id }).todo).toMatchObject({ assigneeId: f.manager, handlingAgentId: f.manager, acceptanceManagerId: CEO, reviewerId: null });
+  await f.delegate(task.id);
+  expect(f.todos.raw(task.id).assigneeId).toBe(f.worker);
+  await f.runtime.submit(f.input(task.id, f.worker, { report: "Actual worker artifact" })); await f.settle();
+  expect(f.todos.get({ id: task.id }).todo).toMatchObject({ assigneeId: f.worker, handlingAgentId: f.manager, reviewerId: f.manager });
+  expect(f.todos.bound(f.worker)).toBeNull(); expect(f.todos.bound(f.manager).id).toBe(task.id);
+  expect(f.todos.list({ assigneeId: f.worker }).total).toBe(1); expect(f.todos.list({ assigneeId: CEO }).total).toBe(0);
+  expect(f.todos.delegated(f.manager)).toMatchObject([{ assigneeId: f.worker, reviewerId: f.manager }]);
+  expect(() => f.todos.startForAgent(f.worker, task.id)).toThrow(/assigned/);
+  expect(() => f.todos.change(f.input(task.id, f.worker, { phaseId: task.phases[0].id }), "complete")).toThrow(/responsible/);
+  // A reviewer finishing cannot pause unrelated execution by the same worker.
+  const other = f.create(f.worker); f.todos.startForAgent(f.worker, other.id);
+  f.todos.finishTurn(f.worker, "completed");
+  expect(f.todos.raw(task.id).status).toBe("running");
+  await f.runtime.review(f.input(task.id, f.manager, { accept: true, notes: "Inspected worker artifact" }));
+  await f.runtime.submit(f.input(task.id, f.manager, { report: "Forward verified worker result" })); await f.settle();
+  expect(f.todos.get({ id: task.id }).todo).toMatchObject({ assigneeId: f.worker, handlingAgentId: CEO, reviewerId: CEO });
+  expect(f.todos.bound(CEO).id).toBe(task.id);
+  expect(f.send.mock.calls.at(-1)?.[0]).toBe(CEO);
+  await f.runtime.review(f.input(task.id, CEO, { accept: true, notes: "Verified final artifact" }));
+  for (const phase of task.phases) f.todos.change(f.input(task.id, CEO, { phaseId: phase.id }), "complete");
+  expect(f.todos.get({ id: task.id }).todo).toMatchObject({ status: "done", assigneeId: f.worker, handlingAgentId: CEO, reviewerId: null });
+});
+it("changes execution only when a Head actually takes accepted work back on", async () => {
+  const f = await fixture(), task = f.create(CEO); await f.delegate(task.id, CEO, f.manager); await f.delegate(task.id);
+  await f.runtime.submit(f.input(task.id, f.worker, { report: "Worker artifact" })); await f.settle();
+  await f.runtime.review(f.input(task.id, f.manager, { accept: true, notes: "Read artifact" }));
+  expect(f.todos.raw(task.id).assigneeId).toBe(f.worker);
+  f.todos.change(f.input(task.id, f.manager), "start");
+  expect(f.todos.raw(task.id).assigneeId).toBe(f.manager);
+  await f.runtime.submit(f.input(task.id, f.manager, { report: "Head made and checked integration changes" })); await f.settle();
+  expect(f.todos.raw(task.id).assigneeId).toBe(f.manager);
+});
+it("keeps attribution on return until the recipient actually resumes execution", async () => {
+  const f = await fixture(), task = f.create(CEO); await f.delegate(task.id, CEO, f.manager); await f.delegate(task.id);
+  await f.runtime.submit(f.input(task.id, f.worker, { report: "Artifact" })); await f.settle();
+  await f.runtime.review(f.input(task.id, f.manager, { accept: true, notes: "Verified" }));
+  await f.runtime.submit(f.input(task.id, f.manager, { report: "Forwarded evidence" })); await f.settle();
+  f.available.set(f.manager, false);
+  await f.runtime.review(f.input(task.id, CEO, { accept: false, notes: "Head must fix integration" }));
+  expect(f.todos.get({ id: task.id }).todo).toMatchObject({ assigneeId: f.worker, handlingAgentId: f.manager, reviewerId: null });
+  f.available.set(f.manager, true); await f.runtime.flush();
+  expect(f.todos.raw(task.id).assigneeId).toBe(f.manager);
+});
+it("resets acceptance ownership on explicit reassignment after a resolved handoff", async () => {
+  const f = await fixture(), task = f.create(); await f.delegate(task.id);
+  await f.runtime.submit(f.input(task.id, f.worker, { report: "Artifact" })); await f.settle();
+  await f.runtime.review(f.input(task.id, f.manager, { accept: true, notes: "Verified" }));
+  f.todos.change(f.input(task.id, f.manager, { assigneeId: f.peer }), "edit");
+  expect(f.todos.get({ id: task.id }).todo).toMatchObject({ assigneeId: f.peer, handlingAgentId: f.peer, acceptanceManagerId: null });
+  for (const phase of task.phases) f.todos.change(f.input(task.id, f.peer, { phaseId: phase.id }), "complete");
+  expect(f.todos.raw(task.id).status).toBe("done");
+});
+it("recovers only provable legacy pending-review attribution and persists it once", async () => {
+  const f = await fixture(), task = f.create(CEO); await f.delegate(task.id, CEO, f.manager); await f.delegate(task.id);
+  f.available.set(f.manager, false);
+  await f.runtime.submit(f.input(task.id, f.worker, { report: "Persistent artifact" })); await f.settle();
+  const file = path.join(f.root, "office/todos", task.id + ".json"), old = JSON.parse(readFileSync(file, "utf8"));
+  delete old.acceptanceManagerId; old.assigneeId = f.manager; old.assigneeName = "Manager"; writeFileSync(file, JSON.stringify(old));
+  const restored = new OfficeTodos(path.join(f.root, "office"), f.deps);
+  const current = restored.get({ id: task.id }).todo;
+  expect(current).toMatchObject({ assigneeId: f.worker, handlingAgentId: f.manager, reviewerId: f.manager, acceptanceManagerId: CEO });
+  const again = new OfficeTodos(path.join(f.root, "office"), f.deps);
+  expect(again.get({ id: task.id }).todo.revision).toBe(current.revision);
+  expect(again.bound(f.manager).id).toBe(task.id); expect(again.bound(f.worker)).toBeNull();
+  expect(again.raw(task.id).delegations).toEqual(old.delegations);
+});
+it("leaves completed legacy assignment history unchanged", async () => {
+  const f = await fixture(), task = f.create(); await f.delegate(task.id);
+  await f.runtime.submit(f.input(task.id, f.worker, { report: "Artifact" })); await f.settle();
+  await f.runtime.review(f.input(task.id, f.manager, { accept: true, notes: "Verified" }));
+  for (const phase of task.phases) f.todos.change(f.input(task.id, f.manager, { phaseId: phase.id }), "complete");
+  const file = path.join(f.root, "office/todos", task.id + ".json"), old = JSON.parse(readFileSync(file, "utf8"));
+  delete old.acceptanceManagerId; old.assigneeId = f.manager; old.assigneeName = "Manager"; writeFileSync(file, JSON.stringify(old));
+  new OfficeTodos(path.join(f.root, "office"), f.deps);
+  expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(old);
+});
+
+it("does not count offline time when migrating a legacy running review", async () => {
+  const f = await fixture(), task = f.create(); await f.delegate(task.id);
+  f.available.set(f.manager, false); await f.runtime.submit(f.input(task.id, f.worker, { report: "Evidence" })); await f.settle();
+  const file = path.join(f.root, "office/todos", task.id + ".json"), old = JSON.parse(readFileSync(file, "utf8"));
+  delete old.acceptanceManagerId; old.assigneeId = f.manager; old.status = "running"; old.savedAt = 2000;
+  old.phases[0].startedAt = 1000; old.phases[0].elapsedMs = 500; writeFileSync(file, JSON.stringify(old));
+  const restored = new OfficeTodos(path.join(f.root, "office"), { ...f.deps, now: () => 999000 });
+  expect(restored.get({ id: task.id }).todo).toMatchObject({ status: "paused", elapsedMs: 1500, assigneeId: f.worker });
 });

@@ -16,11 +16,11 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
   }
   // A new row may briefly show idle before its first native start event.
   // Wait for a terminal turn status before testing restart/resume.
-  for (const id of [manager, worker]) {
+  for (const id of [ceo, manager, worker]) {
     await client.call("session.send", { threadId: id, message: "Seed an existing conversation", requestId: "seed-" + id });
     await until(async () => { const state = await client.call("session.inspect", { threadId: id, includeHistory: false }); return state.status === "idle" && state.turnStatus === "completed"; }, "Seed turn did not finish");
   }
-  const nativeIds = () => JSON.parse(fs.readFileSync(path.join(data, "office.json"), "utf8")).sessions.filter(row => [manager, worker].includes(row.id)).map(row => [row.id, row.codexThreadId]);
+  const nativeIds = () => JSON.parse(fs.readFileSync(path.join(data, "office.json"), "utf8")).sessions.filter(row => [ceo, manager, worker].includes(row.id)).map(row => [row.id, row.codexThreadId]);
   const before = JSON.stringify(nativeIds());
   client = await restart();
   await client.call("office.snapshot"); // Wait for native turn reconciliation, not just HTTP readiness.
@@ -30,19 +30,25 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
   check("department context defaults to own scope and explicit read-only lookups use saved responsibilities", own.departments.length === 1 && own.departments[0].id === project.id && own.departments[0].description === "Scoped fixture product work" && directory.departments.length === 2 && shared.departments[0].id === "open-workspace" && directory.departments.find(row => row.id === project.id).heads[0].id === manager);
   const tools = await client.call("session.mcp", { threadId: manager });
   check("existing resumed conversations discover delegation MCP tools", tools.servers.some(server => server.name === "office_tasks" && server.tools === 15));
-  const task = (await client.call("todo.create", { actorId: manager, assigneeId: manager, title: "One delegated user goal", phases: [{ title: "Execute" }, { title: "Manager acceptance" }], requestId: "delegation-task" })).todo;
-  const operations = [], stages = new Map([[manager, 0], [worker, 0]]);
+  const task = (await client.call("todo.create", { actorId: ceo, assigneeId: ceo, title: "One delegated user goal", phases: [{ title: "Execute" }, { title: "Manager acceptance" }], requestId: "delegation-task" })).todo;
+  const operations = [], observations = [], stages = new Map([[ceo, 0], [manager, 0], [worker, 0]]);
   let sawBusyInbox = false, number = 0;
   setModelFixture(async (payload, res) => {
     try {
       const serialized = (payload.input || []).filter(item => item.role === "developer").flatMap(item => item.content || []).map(item => item.text || "").join("\n");
       const caller = [...serialized.matchAll(/"company":\{"agentId":"([^"]+)"/g)].at(-1)?.[1];
-      if (![manager, worker].includes(caller)) throw new Error("Fixture could not identify Office caller context");
+      if (![ceo, manager, worker].includes(caller)) throw new Error("Fixture could not identify Office caller context");
       const stage = stages.get(caller); stages.set(caller, stage + 1);
       const current = (await client.call("todo.get", { id: task.id })).todo;
+      observations.push({ caller, stage, assignee: current.assigneeId, handler: current.handlingAgentId, reviewer: current.reviewerId });
       const args = { id: task.id, revision: current.revision, actorId: caller, requestId: "fixture-op-" + (++number) };
       let operation;
-      if (caller === manager) {
+      if (caller === ceo) {
+        if (stage === 0) operation = ["todo_delegate", { ...args, assigneeId: manager, instructions: "Deliver this fixture through your worker, inspect it and submit to me. Do not deploy.", acceptanceCriteria: "Verified nested result with execution attribution preserved" }];
+        else if (stage === 1) await until(async () => (await client.call("todo.get", { id: task.id })).todo.delegations?.[0]?.state === "review", "Head did not submit to CEO");
+        else if (stage === 2) operation = ["todo_review", { ...args, accept: true, notes: "Read the Head report and worker evidence, verified nested result." }];
+        else if (stage === 3 || stage === 4) operation = ["todo_complete", { id: task.id, revision: current.revision, actorId: caller, phaseId: task.phases[stage - 3].id }];
+      } else if (caller === manager) {
         if (stage === 0) operation = ["todo_delegate", { ...args, assigneeId: worker, instructions: "Implement one bounded fixture result. Do not deploy.", acceptanceCriteria: "Verified result and explicit no-deployment confirmation" }];
         else if (stage === 1) {
           // Keep the manager genuinely busy until the worker has submitted.
@@ -51,7 +57,7 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
           sawBusyInbox = submitted.delegations.at(-1).delivery.state === "pending" && !submitted.archived;
         } else if (stage === 2) operation = ["todo_review", { ...args, accept: false, notes: "Return once: include the missing no-deployment confirmation." }];
         else if (stage === 4) operation = ["todo_review", { ...args, accept: true, notes: "Read the corrected report and verified the expected result and no deployment." }];
-        else if (stage === 5 || stage === 6) operation = ["todo_complete", { id: task.id, revision: current.revision, actorId: caller, phaseId: task.phases[stage - 5].id }];
+        else if (stage === 5) operation = ["todo_submit", { ...args, report: "Inspected corrected worker artifact and verification; no deployment. Forwarding to actual delegating CEO." }];
       } else {
         if (stage === 0 || stage === 5) operation = ["todo_organization", { actorId: caller, ...(stage === 0 ? { allDepartments: true } : { departmentId: null }) }];
         else if (stage === 1 || stage === 2) operation = ["todo_complete", { id: task.id, revision: current.revision, actorId: caller, phaseId: task.phases[stage - 1].id }];
@@ -74,21 +80,25 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
       res.end();
     } catch (error) { console.error(error); res.writeHead(500); res.end(error.message); }
   });
-  await client.call("session.send", { threadId: manager, message: "Implement the bounded fixture goal through your direct report and verify it. Do not deploy.", requestId: "manager-start" });
+  await client.call("session.send", { threadId: ceo, message: "Implement the bounded fixture goal through your direct report and verify it. Do not deploy.", requestId: "manager-start" });
   await until(async () => (await client.call("todo.get", { id: task.id })).todo.status === "done", "Native delegation chain did not finish", 45000);
-  await until(async () => (await client.call("office.snapshot")).agents.filter(row => [manager, worker].includes(row.id)).every(row => row.status === "idle"), "Native handoff turns did not finish");
+  await until(async () => (await client.call("office.snapshot")).agents.filter(row => [ceo, manager, worker].includes(row.id)).every(row => row.status === "idle"), "Native handoff turns did not finish");
   const finished = (await client.call("todo.get", { id: task.id })).todo;
   check("handoff keeps both pre-existing native thread identities", JSON.stringify(nativeIds()) === before);
   check("busy manager keeps a persistent pending review instead of being steered", sawBusyInbox);
   check("worker cannot close the final phase without manager acceptance", payloads.some(payload => JSON.stringify(payload).includes("obtain manager acceptance")));
-  check("manager can return and accept the corrected report through real MCP", finished.delegations.length === 1 && finished.delegations[0].state === "accepted" && finished.delegations[0].report.includes("no deployment") && finished.events.some(event => event.message.includes("Manager returned for changes")));
+  check("manager can return and accept the corrected report through real MCP", finished.delegations.length === 2 && finished.delegations.every(entry => entry.state === "accepted" && entry.report.includes("no deployment")) && finished.events.some(event => event.message.includes("Manager returned for changes")));
   check("one user goal stays one task until manager closes it", (await client.call("todo.list", { status: "done" })).total === 1 && (await client.call("todo.list")).total === 0 && finished.archived);
-  for (const id of [manager, worker]) {
+  for (const id of [ceo, manager, worker]) {
     const history = await client.call("session.history", { threadId: id });
-    check(`real ${id === manager ? "manager" : "worker"} conversation contains handoff and replies`, history.messages.some(message => message.role === "assistant" && message.content.includes("OFFICE_HANDOFF_FIXTURE_OK")) && history.messages.some(message => message.role === "user" && message.content.includes(task.id)));
+    check(`real ${id === ceo ? "CEO" : id === manager ? "manager" : "worker"} conversation contains handoff and replies`, history.messages.some(message => message.role === "assistant" && message.content.includes("OFFICE_HANDOFF_FIXTURE_OK")) && history.messages.some(message => message.role === "user" && message.content.includes(task.id)));
   }
-  check("real tool chain includes delegation, submission and two manager reviews", operations.filter(([, name]) => name === "todo_review").length === 2 && operations.filter(([, name]) => name === "todo_submit").length === 2);
+  check("real tool chain includes nested delegation, three submissions and three manager reviews", operations.filter(([, name]) => name === "todo_review").length === 3 && operations.filter(([, name]) => name === "todo_submit").length === 3);
   check("actual resumed MCP calls can read all departments and Open Workspace", operations.filter(([, name]) => name === "todo_organization").length === 2 && payloads.some(payload => JSON.stringify(payload).includes("Unassigned fixture work")));
+  check("CEO delegation assigns actual Head execution", observations.some(row => row.caller === manager && row.stage === 0 && row.assignee === manager && row.handler === manager));
+  check("worker review notifies Head without changing execution attribution", observations.some(row => row.caller === manager && row.stage === 2 && row.assignee === worker && row.handler === manager && row.reviewer === manager));
+  check("Head submits along parent chain while retaining worker execution attribution", observations.some(row => row.caller === ceo && row.stage === 2 && row.assignee === worker && row.handler === ceo && row.reviewer === ceo));
+  check("CEO final acceptance and completion retain actual worker assignment", finished.assigneeId === worker && finished.acceptanceManagerId === ceo && finished.handlingAgentId === ceo && finished.reviewerId === null);
   setModelFixture(null);
   return client;
 }

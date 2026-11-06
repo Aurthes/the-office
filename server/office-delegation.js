@@ -1,5 +1,5 @@
 "use strict";
-const { activeDelegation } = require("./office-todos");
+const { activeDelegation, handlingAgentId } = require("./office-todos");
 
 // Handoffs use the same task and normal session sender. The task itself is the
 // durable inbox; only pending, definitely unsent deliveries may be dispatched.
@@ -56,7 +56,7 @@ class OfficeDelegation {
     try {
       if (!await this.canSend(recipient) || this.stopping()) return;
       const current = this.todos.raw(id), currentEntry = activeDelegation(current);
-      if (current.archived || current.status === "done" || current.assigneeId !== recipient || currentEntry?.delivery?.requestId !== requestId || currentEntry.delivery.state !== "pending") return;
+      if (current.archived || current.status === "done" || handlingAgentId(current) !== recipient || currentEntry?.delivery?.requestId !== requestId || currentEntry.delivery.state !== "pending") return;
       if (currentEntry.state === "working") this.company.assertDelegate(currentEntry.managerId, recipient);
       const message = currentEntry.state === "review"
         ? `Office delegation submitted for your acceptance. Task ${id}: ${current.title}\nRead office_tasks.todo_get, inspect the report and artifacts, and verify the acceptance criteria. Use todo_review with evidence to accept or return it. Do not mark it complete just because the worker submitted. This is a system task notification, not a new user goal.`

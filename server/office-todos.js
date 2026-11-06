@@ -15,6 +15,11 @@ const completionTime = row => {
   return times.length && times.every(time => Number.isFinite(time)) ? Math.max(...times) : null;
 };
 const activeDelegation = row => (row.delegations || []).findLast(entry => !["accepted", "recalled"].includes(entry.state));
+// Execution attribution and the person handling the workflow are separate.
+const handlingAgentId = row => {
+  const entry = activeDelegation(row);
+  return entry ? entry.state === "review" ? entry.managerId : entry.workerId : row.acceptanceManagerId || row.assigneeId;
+};
 class OfficeTodos {
   constructor(directory, { projects, agents, changed = () => {}, now = Date.now }) {
     this.directory = path.join(directory, "todos"); this.projects = projects; this.agents = agents; this.changed = changed; this.now = now;
@@ -22,10 +27,26 @@ class OfficeTodos {
     fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
     for (const file of fs.readdirSync(this.directory).filter(file => /^[a-f0-9-]{36}\.json$/.test(file))) {
       const row = JSON.parse(fs.readFileSync(path.join(this.directory, file), "utf8"));
+      const checkpointAt = row.savedAt;
       if (row.version !== 1 || `${row.id}.json` !== file || !Array.isArray(row.phases) || !Number.isInteger(row.revision)) throw new Error("Invalid to-do state; refusing to overwrite it");
       this.rows.set(row.id, row); if (row.requestId) this.requests.set(row.requestId, row.id);
+      if (row.status !== "done" && row.delegations?.length && !Object.hasOwn(row, "acceptanceManagerId")) {
+        const entry = activeDelegation(row);
+        let owner = entry?.managerId || row.assigneeId;
+        for (let i = row.delegations.indexOf(entry || row.delegations.at(-1)) - 1; i >= 0; i--) {
+          const parent = row.delegations[i];
+          if (parent.workerId === owner && parent.state === "working") owner = parent.managerId;
+        }
+        row.acceptanceManagerId = owner;
+        // The old submit branch explicitly assigned the reviewer. Recover only
+        // that provable case, never guess from names or rewrite completed work.
+        if (entry?.state === "review" && row.assigneeId === entry.managerId) {
+          row.assigneeId = entry.workerId; row.assigneeName = this.agents().find(agent => agent.id === entry.workerId)?.name || entry.workerId;
+        }
+        row.revision++; this.event(row, "Separated execution assignment from manager acceptance", { source: "system", name: "Office" }); this.save(row);
+      }
       if (row.status === "running") {
-        this.stopClock(row, row.savedAt); row.status = "paused"; row.revision++;
+        this.stopClock(row, checkpointAt); row.status = "paused"; row.revision++;
         this.event(row, "Office restarted; timer paused at the last checkpoint", { source: "system" }); this.save(row);
       }
       if (row.status === "done" && (!row.archived || row.completedAt !== completionTime(row))) {
@@ -77,10 +98,13 @@ class OfficeTodos {
   }
   view(row, full = false, { projects = this.projects(), agents = this.agents() } = {}) {
     const department = projects.find(p => p.id === row.departmentId), agent = agents.find(a => a.id === row.assigneeId);
+    const handlerId = handlingAgentId(row), handler = agents.find(a => a.id === handlerId), entry = activeDelegation(row);
     const { events, documentation, ...rest } = row;
     delete rest.requestId; delete rest.requestHash;
     if (!full && rest.delegations) rest.delegations = rest.delegations.map(({ id, managerId, workerId, state }) => ({ id, managerId, workerId, state }));
     return { ...rest, completedAt: completionTime(row), departmentName: department?.name || row.departmentName, assigneeName: agent?.name || row.assigneeName,
+      handlingAgentId: handlerId, handlingAgentName: handler?.name || handlerId, handlingAgentAvailable: !!handler,
+      reviewerId: entry?.state === "review" ? entry.managerId : null,
       assigneeAvailable: !!agent, ...(full ? { documentation, events } : {}),
       phases: row.phases.map(phase => full ? { ...phase } : { ...phase, notes: undefined }),
       progress: row.phases.filter(p => p.completedAt != null).length, elapsedMs: row.phases.reduce((sum, phase) => sum + duration(phase, this.now()), 0) };
@@ -113,7 +137,7 @@ class OfficeTodos {
     if (this.rows.size >= 10000) throw new Error("The to-do registry has reached its limit");
     const actor = this.actor(input), row = { version: 1, id: uuid(), revision: 1, title: text(input.title, "To-do title", 200),
       documentation: text(input.documentation || "", "Documentation", 24000, true), ...this.references(input), phases: this.plan(input.phases),
-      status: "queued", archived: false, completedAt: null, createdAt: this.now(), updatedAt: this.now(), events: [], requestId, requestHash: hash, sourceThreadId: input.sourceThreadId || null };
+      status: "queued", archived: false, completedAt: null, acceptanceManagerId: null, createdAt: this.now(), updatedAt: this.now(), events: [], requestId, requestHash: hash, sourceThreadId: input.sourceThreadId || null };
     this.event(row, "To-do created", actor); this.save(row); this.requests.set(requestId, row.id); this.changed(row.id);
     return { todo: this.view(row, true), serverTime: this.now() };
   }
@@ -129,6 +153,7 @@ class OfficeTodos {
       this.stopClock(row);
       if (input.title !== undefined) row.title = text(input.title, "To-do title", 200);
       if (input.documentation !== undefined) row.documentation = text(input.documentation, "Documentation", 24000, true);
+      if (input.assigneeId !== undefined && input.assigneeId !== row.assigneeId) row.acceptanceManagerId = null;
       Object.assign(row, this.references(input, row));
       if (input.phases !== undefined) {
         const next = this.plan(input.phases, row.phases);
@@ -140,11 +165,12 @@ class OfficeTodos {
       else if (row.status === "done") row.status = "queued";
       message = "Plan, assignment or documentation updated";
     } else if (action === "delegate") {
-      if (actor.id !== row.assigneeId || !row.assigneeId) throw new Error("Only the current responsible agent can delegate this task");
+      if (actor.id !== handlingAgentId(row) || !actor.id) throw new Error("Only the current responsible agent can delegate this task");
       if (delegation?.state === "review") throw new Error("Review the submitted result before delegating again");
       if (!input.assigneeId || input.assigneeId === actor.id || (row.delegations || []).some(entry => !["accepted", "recalled"].includes(entry.state) && entry.managerId === input.assigneeId)) throw new Error("Choose a direct report outside the active handoff chain");
       const instructions = text(input.instructions, "Delegation scope", 6000), acceptanceCriteria = text(input.acceptanceCriteria, "Acceptance criteria", 3000);
       this.stopClock(row);
+      if (!delegation) row.acceptanceManagerId = actor.id;
       row.delegations ||= [];
       row.delegations.push({ id: uuid(), managerId: actor.id, workerId: input.assigneeId, instructions, acceptanceCriteria, state: "working", createdAt: this.now(),
         delivery: { recipientId: input.assigneeId, requestId: `delegation-${uuid()}`, state: "pending" } });
@@ -157,26 +183,26 @@ class OfficeTodos {
       this.stopClock(row); Object.assign(row, this.references({ assigneeId: delegation.managerId }, row)); row.status = "paused";
       message = `Manager recalled delegation: ${reason}`;
     } else if (action === "submit") {
-      if (!delegation || delegation.state !== "working" || actor.id !== delegation.workerId || actor.id !== row.assigneeId) throw new Error("Only the assigned worker can submit the active delegation");
+      if (!delegation || delegation.state !== "working" || actor.id !== delegation.workerId) throw new Error("Only the assigned worker can submit the active delegation");
       delegation.report = text(input.report, "Delivery report and evidence", 6000); delegation.submittedAt = this.now(); delegation.state = "review";
       delegation.delivery = { recipientId: delegation.managerId, requestId: `delegation-${uuid()}`, state: "pending" };
-      this.stopClock(row); Object.assign(row, this.references({ assigneeId: delegation.managerId }, row)); row.status = "paused";
+      this.stopClock(row); row.status = "paused";
       message = `Submitted for manager acceptance: ${delegation.report}`;
     } else if (action === "review") {
-      if (!delegation || delegation.state !== "review" || actor.id !== delegation.managerId || actor.id !== row.assigneeId) throw new Error("Only the delegating manager can review this submission");
+      if (!delegation || delegation.state !== "review" || actor.id !== delegation.managerId) throw new Error("Only the delegating manager can review this submission");
       if (typeof input.accept !== "boolean") throw new Error("Choose whether to accept the submitted result");
       const notes = text(input.notes, "Acceptance evidence or return feedback", 6000);
       this.stopClock(row); delegation.review = { accepted: input.accept, notes, at: this.now(), managerId: actor.id };
       delegation.state = input.accept ? "accepted" : "working";
       delete delegation.delivery;
       if (!input.accept) {
-        Object.assign(row, this.references({ assigneeId: delegation.workerId }, row));
         delegation.delivery = { recipientId: delegation.workerId, requestId: `delegation-${uuid()}`, state: "pending" };
       }
       row.status = input.accept ? "paused" : "queued";
       message = `${input.accept ? "Manager accepted" : "Manager returned for changes"}: ${notes}`;
     } else if (action === "start") {
       if (row.phases.every(p => p.completedAt != null)) throw new Error("Reopen a completed phase before starting");
+      if ((input.execute === true || actor.id) && delegation?.state === "working") Object.assign(row, this.references({ assigneeId: handlingAgentId(row) }, row));
       this.run(row); message = "Work started";
     } else if (action === "pause") {
       this.stopClock(row); if (row.status !== "done") row.status = "paused";
@@ -190,7 +216,8 @@ class OfficeTodos {
       message = action === "archive" ? "To-do archived" : "To-do restored";
     } else throw new Error("Unsupported to-do action");
     if (row.status === "done" && activeDelegation(row)) throw new Error("Submit the result and obtain manager acceptance before completing the final phase");
-    if (row.status === "done" && row.delegations?.length && actor.id && actor.id !== row.assigneeId) throw new Error("Only the responsible manager can close this delegated goal");
+    if (row.status === "done" && row.acceptanceManagerId && actor.id && actor.id !== row.acceptanceManagerId) throw new Error("Only the responsible manager can close this delegated goal");
+    if (actor.id && !["delegate", "recall", "submit", "review"].includes(action) && (activeDelegation(previous) || previous.acceptanceManagerId) && actor.id !== handlingAgentId(previous)) throw new Error("Only the current responsible manager or worker can update this delegated task");
     if (row.status === "done") {
       row.completedAt = previous.status === "done" ? completionTime(previous) : this.now();
       row.archived = true;
@@ -199,12 +226,13 @@ class OfficeTodos {
       row.completedAt = null;
       if (previous.status === "done") row.archived = false;
     }
-    if (row.status === "running" && row.assigneeId) {
-      for (const other of this.rows.values()) if (other.id !== row.id && other.assigneeId === row.assigneeId && other.status === "running") this.change({ id: other.id, revision: other.revision, source: "system", reason: "Agent switched to another to-do" }, "pause");
+    const handler = handlingAgentId(row);
+    if (row.status === "running" && handler) {
+      for (const other of this.rows.values()) if (other.id !== row.id && handlingAgentId(other) === handler && other.status === "running") this.change({ id: other.id, revision: other.revision, source: "system", reason: "Agent switched to another to-do" }, "pause");
     }
     row.revision++; row.updatedAt = this.now(); this.event(row, message, actor); this.save(row);
-    for (const [agentId, id] of this.bindings) if (id === row.id && (row.archived || row.status === "done" || row.assigneeId !== agentId)) this.bindings.delete(agentId);
-    if (row.status === "running" && row.assigneeId) this.bindings.set(row.assigneeId, row.id);
+    for (const [agentId, id] of this.bindings) if (id === row.id && (row.archived || row.status === "done" || handler !== agentId)) this.bindings.delete(agentId);
+    if (row.status === "running" && handler) this.bindings.set(handler, row.id);
     this.changed(row.id); return { todo: this.view(row, true), serverTime: this.now() };
   }
   delivery(id, requestId, state, error) {
@@ -217,21 +245,21 @@ class OfficeTodos {
   delegated(agentId) {
     return [...this.rows.values()].filter(row => !row.archived && row.status !== "done" && (row.delegations || []).some(entry => !["accepted", "recalled"].includes(entry.state) && [entry.managerId, entry.workerId].includes(agentId)))
       .sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 20)
-      .map(row => { const entry = activeDelegation(row); return { id: row.id, assigneeId: row.assigneeId, managerId: entry.managerId, workerId: entry.workerId, state: entry.state, delivery: entry.delivery?.state }; });
+      .map(row => { const entry = activeDelegation(row); return { id: row.id, assigneeId: row.assigneeId, handlingAgentId: handlingAgentId(row), reviewerId: entry.state === "review" ? entry.managerId : null, managerId: entry.managerId, workerId: entry.workerId, state: entry.state, delivery: entry.delivery?.state }; });
   }
   assertCanArchiveAgent(agentId) {
     if (this.delegated(agentId).length) throw new Error("Review or recall this agent's open delegations before archiving the conversation");
   }
   bound(agentId) {
     const preferred = this.rows.get(this.bindings.get(agentId));
-    if (preferred && !preferred.archived && preferred.status !== "done" && preferred.assigneeId === agentId) return preferred;
-    return [...this.rows.values()].filter(r => !r.archived && r.assigneeId === agentId && r.status !== "done").sort((a, b) => (b.lastStartedAt || 0) - (a.lastStartedAt || 0) || b.updatedAt - a.updatedAt)[0] || null;
+    if (preferred && !preferred.archived && preferred.status !== "done" && handlingAgentId(preferred) === agentId) return preferred;
+    return [...this.rows.values()].filter(r => !r.archived && handlingAgentId(r) === agentId && r.status !== "done").sort((a, b) => (b.lastStartedAt || 0) - (a.lastStartedAt || 0) || b.updatedAt - a.updatedAt)[0] || null;
   }
   startForAgent(agentId, id) {
     const row = this.raw(id);
-    if (row.assigneeId !== agentId || row.archived || row.status === "done") throw new Error("Choose an unfinished to-do assigned to this agent");
-    for (const other of this.rows.values()) if (other.id !== id && other.assigneeId === agentId && other.status === "running") this.change({ id: other.id, revision: other.revision, source: "system", reason: "Agent switched to another to-do" }, "pause");
-    if (row.status !== "running") this.change({ id, revision: row.revision, source: "system" }, "start");
+    if (handlingAgentId(row) !== agentId || row.archived || row.status === "done") throw new Error("Choose an unfinished to-do assigned to this agent's execution or acceptance workflow");
+    for (const other of this.rows.values()) if (other.id !== id && handlingAgentId(other) === agentId && other.status === "running") this.change({ id: other.id, revision: other.revision, source: "system", reason: "Agent switched to another to-do" }, "pause");
+    if (row.status !== "running" || activeDelegation(row)?.state === "working" && row.assigneeId !== agentId) this.change({ id, revision: row.revision, source: "system", execute: true }, "start");
     this.bindings.set(agentId, id); return this.raw(id);
   }
   finishTurn(agentId, status) {
@@ -241,4 +269,4 @@ class OfficeTodos {
   checkpoint() { for (const row of this.rows.values()) if (row.status === "running") { const next = structuredClone(row); this.stopClock(next); const phase = next.phases.find(p => p.completedAt == null); if (phase) phase.startedAt = this.now(); this.save(next); } }
   close() { for (const row of [...this.rows.values()]) if (row.status === "running") this.change({ id: row.id, revision: row.revision, source: "system", reason: "Office stopped; timer paused" }, "pause"); }
 }
-module.exports = { OfficeTodos, phaseDuration: duration, activeDelegation };
+module.exports = { OfficeTodos, phaseDuration: duration, activeDelegation, handlingAgentId };

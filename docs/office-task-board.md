@@ -15,3 +15,23 @@ Agents receive the current Office agent ID and bound task ID in their developer 
 The bundled task tools are trusted to update Office task records without a separate approval for each check or edit. This policy is scoped to the Office task service. The MCP configuration is supplied only to Office's child process. Its Gateway credential is forwarded through the child environment and is never included in model context or command arguments. Native Codex App configuration and conversations remain separate. As with existing Office controls, connected operators share access to instance data. The Gateway and frontend must both support this feature; installing a new frontend alone does not add task storage or tools.
 
 Validation: `NODE_ENV=test npx vitest run tests/unit/officeTodos.test.ts tests/unit/taskBoard.test.ts`; existing Node-side Office tests use `--environment node`. `scripts/check-macos-browser.mjs` also checks the board against an isolated real bundled runtime and browser, with synthetic local model replies exercising actual MCP tools. It never reads or changes production tasks.
+
+
+Execution attribution is separate from workflow handling. `assigneeId` names the
+employee who actually took the execution work; task filters and member task lists
+use it. Submitting, reviewing, accepting or forwarding evidence does not transfer
+that attribution to the reviewer. `handlingAgentId` is derived from the active
+handoff (worker while working, manager while reviewing), and `reviewerId` is set
+only during review. Notifications, task binding, timer ownership and Start with
+agent use the handler. A Head explicitly starting execution after a child's
+acceptance takes the assignment; a review notification does not. Recall explicitly
+returns execution to its delegating manager.
+
+`acceptanceManagerId` retains the outer manager's final acceptance duty after all
+handoffs have resolved. Explicit reassignment after resolution clears that duty;
+a later delegation records its own manager. This keeps final completion rights
+independent of the execution assignee without inventing another approval flow.
+On load, unfinished legacy handoffs recover that manager from the open chain.
+Only a pending-review legacy record assigned to its exact reviewer is reassigned
+to that handoff's recorded worker; completed history is not rewritten and earlier
+execution is not guessed. The conversion is persisted once with a revision/event.

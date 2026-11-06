@@ -150,3 +150,12 @@ it("preserves an expanded group across refreshes and resets it when the board is
   f.rerender(createElement(TaskBoard, { ...f.props, open: true }));
   await waitFor(() => expect(document.querySelector(".todo-detail .todo-completed-phases")).not.toHaveAttribute("open"));
 });
+
+it("shows the execution employee separately from the manager who receives review", async () => {
+  const f = fixture(undefined, { assigneeId: "bob", assigneeName: "Bob", assigneeAvailable: false, handlingAgentId: "alice", handlingAgentName: "Alice", handlingAgentAvailable: true, reviewerId: "alice", delegations: [{ id: "handoff", managerId: "alice", workerId: "bob", state: "review", instructions: "Implement", acceptanceCriteria: "Verified" }] }, "todo");
+  expect(await screen.findByText("Alpha · Bob · Review by Alice")).toBeInTheDocument();
+  const button = await screen.findByRole("button", { name: "Open review with manager" }); expect(button).toBeEnabled();
+  fireEvent.click(button);
+  await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.run", expect.objectContaining({ id: "todo" })));
+  expect(screen.getByRole("button", { name: "Open conversation" })).toBeDisabled();
+});
