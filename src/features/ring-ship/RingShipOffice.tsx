@@ -40,7 +40,7 @@ import { SITE_ACTIVITIES } from "./fieldwork";
 import { advanceCrew, syncCrew, worldPoint, type MovingAgent } from "./crewMotion";
 import { BREAK_CHATTER, BREAK_ROOM, breakAction } from "./breakRoomLayout";
 import { useUiText } from "@/lib/i18n/ui-language";
-import { MonitorRoomScreen, ServerRoomScreen, TaskRoomScreen } from "./MonitorRoom";
+import { DepartmentOverviewButton, MonitorRoomScreen, ServerRoomScreen, TaskRoomScreen } from "./MonitorRoom";
 import { TaskBoard } from "./TaskBoard";
 import { TaskWhiteboard } from "./TaskWhiteboard";
 import { ScheduledTasks } from "./ScheduledTasks";
@@ -594,6 +594,7 @@ export function RingShipOffice(props: Props) {
         {visibleDeck === 0 ? currentLayout.cabins.filter(c => c.kind === "bar").map(cabin => <ListeningBar key={cabin.id} layout={currentLayout} cabin={cabin} interactive={objectEnabled} onSelect={inspectObject} onOpen={() => { closeObject(); setMusicOpen(true); }} />) : null}
         {currentLayout.cabins.filter(c => c.kind === "monitor").map(cabin => <group key={cabin.id}>
           {!navigationOpen ? <MonitorRoomScreen layout={currentLayout} cabin={cabin} onOpen={openMonitor} /> : null}
+          {!navigationOpen && props.organization?.openDepartment ? <DepartmentOverviewButton layout={currentLayout} cabin={cabin} onOpen={() => props.organization?.openDepartment?.()} /> : null}
           {!navigationOpen ? <TaskWhiteboard layout={currentLayout} cabin={cabin} onOpen={openTaskBoard} /> : null}
           {!navigationOpen ? <TaskRoomScreen layout={currentLayout} cabin={cabin} onOpen={openTasks} /> : null}
           {navigationPreview ? <NavigationConsole layout={currentLayout} cabin={cabin} state={navigation} onAction={action => { closeObject(); navigate(action); }} disabled={busy || !!returnFlight || !!props.activeChatAgentId || navigation.phase === "warp"} /> : null}

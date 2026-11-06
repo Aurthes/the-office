@@ -4,11 +4,22 @@ import type { PoolHost } from "@/lib/monitoring/types";
 import { Html } from "@react-three/drei";
 import { useUiText } from "@/lib/i18n/ui-language";
 import type { ShipCabin, ShipLayout } from "./layout";
-import { monitorScreenPose } from "./monitor-room-geometry";
+import { monitorDepartmentBoardPose, monitorScreenPose } from "./monitor-room-geometry";
 import { MonitorIllustration } from "./MonitorIllustration";
-import { CalendarClock, Server } from "lucide-react";
+import { Building2, CalendarClock, Server } from "lucide-react";
 import { cabinAngle, shipPoint } from "./layout";
 import { serverConsoleScreenPose, machineRoomPlan, machineRoomPoint } from "./machineRoomLayout";
+
+export function DepartmentOverviewButton({ layout, cabin, onOpen }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void }) {
+  const t = useUiText(), pose = monitorDepartmentBoardPose(layout, cabin);
+  return <Html transform position={[pose.point.x, 1.7, pose.point.z]} rotation={[0, pose.angle, 0]} distanceFactor={4} zIndexRange={[12, 11]}>
+    <button type="button" data-department-overview aria-label={t("Open departments")}
+      onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onOpen(); }}
+      className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded border-2 border-[#e1bd81]/70 bg-[#193542] p-2 text-[#f0d5a7] shadow-md hover:bg-[#294959] focus-visible:outline-4 focus-visible:outline-amber-200" style={{ width: 110, height: 80 }}>
+      <Building2 size={23} strokeWidth={1.4} /><strong className="text-[10px]">{t("Departments")}</strong><span className="text-[9px]">{t("Company overview")}</span>
+    </button>
+  </Html>;
+}
 
 export function TaskRoomScreen({ layout, cabin, onOpen }: { layout: ShipLayout; cabin: ShipCabin; onOpen: () => void }) {
   const t = useUiText(), ring = layout.rings[cabin.ring];

@@ -32,6 +32,8 @@ import { OfficeOnboarding } from "@/features/onboarding/components/OfficeOnboard
 import { useCompletionReadState } from "@/features/office/hooks/useCompletionReadState";
 import { useCompanyRosterSync } from "@/features/office/hooks/useCompanyRosterSync";
 import { useOfficeOrganization } from "@/features/office/hooks/useOfficeOrganization";
+import { OPEN_DEPARTMENT_ID } from "@/lib/office/organization";
+import { DepartmentPanel, openDepartmentTab, type DepartmentPanelState } from "@/features/ring-ship/DepartmentPanel";
 import { useFieldworkTasks } from "@/features/office/hooks/useFieldworkTasks";
 import { loadCompanySnapshot } from "@/features/office/operations/loadCompanySnapshot";
 import { organizeChatRoster, type ChatRosterEntry } from "@/features/office/operations/chatRoster";
@@ -842,7 +844,12 @@ export function OfficeScreen({
   const organizationNames = useMemo(() => new Map(state.agents.map(agent => [agent.agentId, agent.name || agent.agentId])), [state.agents]);
   const organizationState = useOfficeOrganization({ roster: companyRoster, names: organizationNames, coordinator: settingsCoordinator, gatewayUrl, enabled: sessionView && status === "connected" });
   const [organizationFocus, setOrganizationFocus] = useState<{ id: string; request: number } | null>(null);
-  const organization = { ...organizationState, focusRequest: organizationFocus, focusPerson: (id: string) => {
+  const [departmentPanel, setDepartmentPanel] = useState<DepartmentPanelState>({ open: false, selectedId: null, tabs: [] });
+  const openDepartment = (id?: string) => {
+    const target = id === undefined ? undefined : organizationState.departments?.some(department => department.id === id) ? id : OPEN_DEPARTMENT_ID;
+    setDepartmentPanel(previous => openDepartmentTab(previous, target));
+  };
+  const organization = { ...organizationState, openDepartment, focusRequest: organizationFocus, focusPerson: (id: string) => {
     setDirectoryView("organization"); setChatRosterCollapsed(false); setSessionSearch(""); setChatOpen(true);
     setOrganizationFocus(previous => ({ id, request: (previous?.request || 0) + 1 }));
   } };
@@ -3729,6 +3736,7 @@ export function OfficeScreen({
         </section>
       ) : null}
 
+      {sessionView ? <DepartmentPanel key={gatewayUrl} organization={organization} state={departmentPanel} onSelect={openDepartment} onClose={() => setDepartmentPanel(previous => ({ ...previous, open: false }))} /> : null}
       {sessionView ? <TaskBoard open={!!taskBoardRequest} taskId={taskBoardRequest?.id} onClose={() => setTaskBoardRequest(null)} onOpenSession={handleOpenAgentChat} client={client} connected={status === "connected"} /> : null}
       {sessionView && chatOpen ? <button type="button" aria-label={t("Click the office to close chat")} className="fixed inset-0 z-40 cursor-default bg-transparent" onClick={() => setChatOpen(false)} /> : null}
       <div

@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, Link2, Users } from "lucide-react";
 import { CharacterPortrait } from "./CharacterPortrait";
 import { getAgentActivity } from "@/features/retro-office/core/agentActivity";
 import { OrganizationPanel } from "@/features/ring-ship/OrganizationPanel";
-import { CEO_ID, type OrganizationView } from "@/lib/office/organization";
+import { CEO_ID, OPEN_DEPARTMENT_ID, type OrganizationView } from "@/lib/office/organization";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { AgentActivityIndicator } from "./AgentActivityIndicator";
 import { ScheduledTaskIndicator } from "./ScheduledTaskIndicator";
@@ -72,14 +72,16 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
     });
     return () => cancelAnimationFrame(frame);
   }, [collapsed, focusRequest, view]);
-  const card = (agent: DirectoryAgent, subtitle: string) => {
+  const card = (agent: DirectoryAgent, subtitle: string, departmentLink = false) => {
     const tasks = agent.tasks || [];
+    const title = organization.people.find(person => person.id === agent.id)?.title || "Worker";
     return <div className="directory-agent" data-selected={agent.id === selectedId} data-person-id={agent.id} style={{ borderLeftColor: agent.color }}>
     <button type="button" className="directory-agent-open" aria-label={t("Open session: {0}", { "0": agent.name })} onClick={() => { setInspected(agent.id); onOpenChat(agent.id); }}>
       <CharacterPortrait name={agent.name} profile={agent.avatarProfile} />
-      <span className="directory-agent-copy"><strong title={agent.name}>{agent.name}</strong><small title={subtitle}>{subtitle}</small></span>
+      <span className="directory-agent-copy"><strong title={agent.name}>{agent.name}</strong><small title={subtitle}>{departmentLink && organization.openDepartment ? ["Worker", "Head", "CEO"].includes(title) ? t(title) : title : subtitle}</small></span>
       <span className="directory-agent-status"><AgentActivityIndicator activity={agent.activity} /><ScheduledTaskIndicator active={agent.hasPendingSchedule} /></span>
     </button>
+    {departmentLink && organization.openDepartment ? <button type="button" className="directory-department" onClick={() => organization.openDepartment?.(agent.id === CEO_ID ? undefined : agent.projectId || OPEN_DEPARTMENT_ID)}>{agent.id === CEO_ID ? t("Company") : agent.projectName || t("Open Workspace")}</button> : null}
     {tasks.length === 1 ? <button type="button" className="directory-task" title={tasks[0].title} aria-label={t("Open task: {name}", { name: tasks[0].title })} onClick={() => onOpenTask(tasks[0].id)}>{tasks[0].code}</button> : tasks.length > 1 ? <AssignedTaskMenu name={agent.name} tasks={tasks} onOpenTask={onOpenTask} /> : null}
   </div>;
   };
@@ -91,7 +93,7 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
     return <li key={person.id} data-ceo={person.id === CEO_ID || undefined}>
       <div className="directory-branch-row">
         {children.length ? <button type="button" className="directory-branch-toggle" aria-label={t("Toggle reports for {name}", { name: person.name })} aria-expanded={expanded} onClick={() => setCollapsed(previous => { const next = new Set(previous); if (next.has(person.id)) next.delete(person.id); else next.add(person.id); return next; })}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button> : <span className="directory-branch-spacer">{reference ? <Link2 size={13} aria-label={t("Also reports here")} /> : null}</span>}
-        {card(agent, `${["Worker", "Head", "CEO"].includes(person.title) ? t(person.title) : person.title} · ${person.departmentId ? person.department : person.id === CEO_ID ? t("Company") : t("Open Workspace")}`)}
+        {card(agent, `${["Worker", "Head", "CEO"].includes(person.title) ? t(person.title) : person.title} · ${person.departmentId ? person.department : person.id === CEO_ID ? t("Company") : t("Open Workspace")}`, true)}
       </div>
       {children.length && expanded ? <ul>{children.map(branch)}</ul> : null}
     </li>;
@@ -115,8 +117,8 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
         <details className="directory-position" key={inspected}><summary>{t("Organization details")} · {organization.people.find(person => person.id === inspected)?.name}</summary><OrganizationPanel key={inspected} organization={organization} personId={inspected} /></details>
       </div>
     </> : <div className="directory-scroll">
-      {groups.map(group => <section key={group.id || "ungrouped"}>{view === "project" ? <h3 className="directory-project">{group.id ? group.name : t("Open Workspace")}<span>{group.agents.length}</span></h3> : null}
-        {group.agents.map(entry => { const agent = byId.get(entry.id)!; return <div key={agent.id}>{card(agent, view === "activity" ? (agent.projectId ? agent.projectName : t("Open Workspace")) : t(agent.activity.label))}</div>; })}
+      {groups.map(group => <section key={group.id || "ungrouped"}>{view === "project" ? <h3 className="directory-project">{organization.openDepartment ? <button type="button" onClick={() => organization.openDepartment?.(group.id || OPEN_DEPARTMENT_ID)}>{group.id ? group.name : t("Open Workspace")}</button> : group.id ? group.name : t("Open Workspace")}<span>{group.agents.length}</span></h3> : null}
+        {group.agents.map(entry => { const agent = byId.get(entry.id)!; return <div key={agent.id}>{card(agent, view === "activity" ? (agent.projectId ? agent.projectName : t("Open Workspace")) : t(agent.activity.label), view === "activity")}</div>; })}
       </section>)}
       {!groups.some(group => group.agents.length) ? <p className="directory-empty">{t("No matching agents.")}</p> : null}
     </div>}

@@ -2,6 +2,7 @@ import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
 import type { AgentAvatarProfile } from "@/lib/avatars/profile";
 import { isDepartmentManager, reconcileOrganization, assertReportingStructure } from "./organization-structure";
 import identities from "./identities.json";
+import type { OrganizationDepartment } from "./departments";
 
 export const CEO_ID = identities.ceo;
 export const LEGACY_CEO_ID = identities.legacyCeo;
@@ -10,7 +11,7 @@ export type DelegationMode = "self" | "auto" | "prefer";
 export type OfficePosition = { title: string; reportsTo: string[]; delegationMode?: DelegationMode | null };
 export type OfficeOrganization = Record<string, OfficePosition>;
 export type OrganizationPerson = OfficePosition & { id: string; name: string; department: string; departmentId: string | null };
-export type OrganizationView = { focusPerson?: (id: string) => void; focusRequest?: { id: string; request: number } | null; people: OrganizationPerson[]; ceoAvatar: AgentAvatarProfile | null; savePosition: (id: string, position: OfficePosition) => Promise<void> };
+export type OrganizationView = { departments?: OrganizationDepartment[]; openDepartment?: (id?: string) => void; saveDepartmentDescription?: (id: string, description: string) => Promise<void>; focusPerson?: (id: string) => void; focusRequest?: { id: string; request: number } | null; people: OrganizationPerson[]; ceoAvatar: AgentAvatarProfile | null; savePosition: (id: string, position: OfficePosition) => Promise<void> };
 
 export { isDepartmentManager, normalizeOrganization, assertReportingStructure, mergeOrganization, reconcileOrganization, delegationMode } from "./organization-structure";
 

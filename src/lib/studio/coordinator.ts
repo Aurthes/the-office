@@ -139,6 +139,7 @@ const mergeOfficePatch = (
         ...existing,
         ...value,
         ...(value.organization && existing.organization ? { organization: { ...existing.organization, ...value.organization } } : {}),
+        ...(value.departmentDescriptions && existing.departmentDescriptions ? { departmentDescriptions: { ...existing.departmentDescriptions, ...value.departmentDescriptions } } : {}),
       };
       continue;
     }
@@ -343,6 +344,12 @@ export class StudioSettingsCoordinator {
 
   schedulePatch(patch: StudioSettingsPatch, debounceMs: number = this.defaultDebounceMs): void {
     if (this.disposed) return;
+    // A whole-map reset must reach storage before a later per-department patch;
+    // coalescing those two operations would otherwise retain stale descriptions.
+    if (Object.values(patch.office || {}).some(value => value?.departmentDescriptions === null)) {
+      void this.applyPatchNow(patch).catch(err => console.error("Failed to reset department descriptions.", err));
+      return;
+    }
     this.pendingPatch = mergeStudioPatch(this.pendingPatch, patch);
     if (this.timer) {
       clearTimeout(this.timer);

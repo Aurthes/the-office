@@ -22,6 +22,12 @@ export function monitorTaskBoardPose(layout: ShipLayout, cabin: ShipCabin) {
   return { tangent, radial, angle: angle + Math.PI, point: shipPoint(ring.radius + radial - .09, angle) };
 }
 
+export function monitorDepartmentBoardPose(layout: ShipLayout, cabin: ShipCabin) {
+  const board = monitorTaskBoardPose(layout, cabin), ring = layout.rings[cabin.ring];
+  const angle = cabinAngle(layout, cabin.slot) + (board.tangent + 1.7) / ring.radius;
+  return { point: shipPoint(ring.radius + board.radial - .09, angle), angle: angle + Math.PI };
+}
+
 export function addMonitorRoom(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
   const ring = layout.rings[cabin.ring], width = ring.radius * Math.PI * 2 / layout.allocation.sectors;
   const edge = -ring.depth / 2 + .65, main = monitorScreenPose(layout, cabin);

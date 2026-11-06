@@ -1,4 +1,5 @@
 import { CEO_ID, LEGACY_CEO_ID, normalizeOrganization, mergeOrganization, type OfficeOrganization, type OfficePosition } from "@/lib/office/organization";
+import { normalizeDepartmentDescriptions, mergeDepartmentDescriptions, type DepartmentDescriptions } from "@/lib/office/departments";
 
 import {
   DEFAULT_ACTIVE_FLOOR_ID,
@@ -103,6 +104,7 @@ export type StudioAnalyticsPreferencePatch = {
 };
 
 export type StudioOfficePreference = {
+  departmentDescriptions?: DepartmentDescriptions;
   organization?: OfficeOrganization;
   title: string;
 
@@ -116,6 +118,7 @@ export type StudioOfficePreference = {
 };
 
 export type StudioOfficePreferencePublic = {
+  departmentDescriptions?: DepartmentDescriptions;
   organization?: OfficeOrganization;
   title: string;
 
@@ -129,6 +132,7 @@ export type StudioOfficePreferencePublic = {
 };
 
 export type StudioOfficePreferencePatch = {
+  departmentDescriptions?: Record<string, string | null> | null;
   organization?: Record<string, OfficePosition | null> | null;
   title?: string | null;
 
@@ -399,6 +403,7 @@ export const sanitizeStudioOfficePreference = (
 ): StudioOfficePreferencePublic => ({
   title: value.title,
   ...(value.organization ? { organization: value.organization } : {}),
+  ...(value.departmentDescriptions ? { departmentDescriptions: normalizeDepartmentDescriptions(value.departmentDescriptions) } : {}),
 
   companyName: value.companyName,
   companyPrompt: value.companyPrompt,
@@ -749,6 +754,7 @@ const normalizeOfficePreference = (
   return {
     title: normalizeOfficeTitle(value.title, fallback.title),
     ...(value.organization !== undefined ? { organization: normalizeOrganization(value.organization) } : fallback.organization ? { organization: fallback.organization } : {}),
+    ...(value.departmentDescriptions !== undefined ? { departmentDescriptions: normalizeDepartmentDescriptions(value.departmentDescriptions) } : fallback.departmentDescriptions ? { departmentDescriptions: fallback.departmentDescriptions } : {}),
 
     companyName: normalizeCompanyField(value.companyName ?? fallback.companyName),
     companyPrompt: normalizeCompanyField(value.companyPrompt ?? fallback.companyPrompt),
@@ -1043,6 +1049,7 @@ export const mergeStudioSettings = (
           ...fallback,
           ...officePatch,
           ...(officePatch.organization !== undefined ? { organization: mergeOrganization(fallback.organization, officePatch.organization) } : {}),
+          ...(officePatch.departmentDescriptions !== undefined ? { departmentDescriptions: mergeDepartmentDescriptions(fallback.departmentDescriptions, officePatch.departmentDescriptions) } : {}),
         },
         fallback
       );
