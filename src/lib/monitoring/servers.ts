@@ -33,7 +33,7 @@ export async function probeServer(host: PoolHost): Promise<ServerMetrics> {
   const options = [...await sshTransportOptions(host.alias), "-o", "ConnectTimeout=4", "-o", "ServerAliveInterval=2", "-o", "ServerAliveCountMax=1"];
   const script = await fs.readFile(path.join(process.cwd(), "server", "monitoring-probe.py"), "utf8");
   const stdout = await new Promise<string>((resolve, reject) => {
-    const child = spawn("ssh", [...options, host.alias, "timeout", "6s", "python3", "-"], { stdio: ["pipe", "pipe", "pipe"], timeout: 8500, killSignal: "SIGKILL" });
+    const child = spawn("ssh", [...options, host.alias, "timeout", "6s", "python3", "-"], { cwd: os.homedir(), stdio: ["pipe", "pipe", "pipe"], timeout: 8500, killSignal: "SIGKILL" });
     let output = "", error = "";
     child.stdout.on("data", chunk => { output += String(chunk); if (output.length > 128_000) child.kill("SIGKILL"); });
     child.stderr.on("data", chunk => { error = (error + String(chunk)).slice(-4000); });

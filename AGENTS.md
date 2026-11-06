@@ -53,6 +53,10 @@ referenced by a service, process, workspace, or shared dependency. A failed
 deployment must not prune releases; cleanup failure must not undo a healthy
 deployment. Report exceptions and cleanup errors in the deployment result.
 
+Start persistent SSH helpers from a stable directory outside worktrees and
+releases. An inherited release working directory can pin an obsolete package
+after deployment; preserve existing connections during cleanup.
+
 After each generation, build, or validation batch, inspect the files and temporary
 processes created by that batch. Immediately remove your own intermediate files,
 superseded outputs, and temporary processes once their last use is complete. Do

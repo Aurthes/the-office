@@ -60,7 +60,7 @@ function createServerTerminals({ verifyClient, registry = loadServerRegistry, tr
           : ["ssh", ...await transportOptions(host.alias), "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-tt", host.alias];
         if (closed) throw new Error("Terminal disconnected.");
         if (running >= 8) throw new Error("Too many open server terminals. Close one first.");
-        const child = spawnPty("python3", [path.join(__dirname, "server-terminal-pty.py"), ...command], { stdio: ["pipe", "pipe", "pipe"], env: { ...Object.fromEntries(["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE", "SSH_AUTH_SOCK"].filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]])), TERM: "xterm-256color" } });
+        const child = spawnPty("python3", [path.join(__dirname, "server-terminal-pty.py"), ...command], { ...(host.group !== "local" ? { cwd: os.homedir() } : {}), stdio: ["pipe", "pipe", "pipe"], env: { ...Object.fromEntries(["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE", "SSH_AUTH_SOCK"].filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]])), TERM: "xterm-256color" } });
         const entry = terminal = { child, handle: crypto.randomUUID(), running: true, exitCode: null, offset: 0, output: Buffer.alloc(0), pending: Buffer.alloc(0), reset: false, timer: null };
         running++;
         let pending = "";

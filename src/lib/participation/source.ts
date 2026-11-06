@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolveStateDir } from "@/lib/clawdbot/paths";
@@ -37,7 +38,7 @@ async function readSnapshots(config: Source, files: string[]): Promise<unknown[]
     const options = await sshTransportOptions(config.host);
     const request = JSON.stringify(files.map(file => [file, previous.get(file)?.version || ""]));
     const command = `python3 -c ${quote(batchRead)} ${quote(config.directory)} ${quote(request)}`;
-    const result = await exec("ssh", [...options, "-o", "ConnectTimeout=5", config.host, command], { timeout: 20_000, maxBuffer: 64 * 1024 * 1024 });
+    const result = await exec("ssh", [...options, "-o", "ConnectTimeout=5", config.host, command], { cwd: os.homedir(), timeout: 20_000, maxBuffer: 64 * 1024 * 1024 });
     replies = JSON.parse(result.stdout);
   } else {
     replies = await Promise.all(files.map(async file => {
