@@ -1,5 +1,6 @@
 // @vitest-environment node
 import http from "node:http";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { afterEach, beforeEach, expect, it } from "vitest";
 const { createAccountMonitorProxy } = await import("../../server/account-monitor-proxy.js");
 
@@ -10,6 +11,25 @@ async function listen(server: http.Server) {
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("No listener");
   return `http://127.0.0.1:${address.port}`;
+}
+async function rawRequest(encoding: string) {
+  return new Promise<{ headers: http.IncomingHttpHeaders; body: Buffer }>((resolve, reject) => {
+    http.get(base + "/account-history/api/aggregate?hours=168", { headers: { "Accept-Encoding": encoding } }, response => {
+      const chunks: Buffer[] = [];
+      response.on("data", chunk => chunks.push(chunk));
+      response.on("end", () => resolve({ headers: response.headers, body: Buffer.concat(chunks) }));
+      response.on("error", reject);
+    }).on("error", reject);
+  });
+}
+function largeResponse() {
+  const data = Buffer.from(JSON.stringify({ pnl: "1.2500", points: Array(2000).fill({ t: 3600, pnl: "0.125", covered: 47 }) }));
+  backend.removeAllListeners("request");
+  backend.on("request", (_req, res) => {
+    res.writeHead(200, { "Content-Type": "application/json", "Content-Length": data.length });
+    res.end(data);
+  });
+  return data;
 }
 beforeEach(async () => {
   seen.length = 0;
@@ -58,6 +78,39 @@ it("rejects writes, unknown paths and attempts to select a different upstream", 
 it("returns a bounded failure when the local viewer is unavailable", async () => {
   await new Promise<void>(resolve => backend.close(() => resolve()));
   expect((await fetch(base + "/account-history/api/latest")).status).toBe(502);
+});
+
+it("compresses large JSON before it enters the tunnel without changing its bytes", async () => {
+  const data = largeResponse();
+  const result = await rawRequest("br, gzip;q=0.8");
+  expect(result.headers["content-encoding"]).toBe("gzip");
+  expect(result.headers["content-length"]).toBeUndefined();
+  expect(result.headers.vary).toBe("Accept-Encoding");
+  expect(result.headers["cache-control"]).toBe("no-store");
+  expect(gunzipSync(result.body)).toEqual(data);
+  expect(result.body.length).toBeLessThan(data.length / 5);
+});
+
+it("sends identity JSON when the client declines gzip", async () => {
+  const data = largeResponse();
+  for (const encoding of ["identity", "gzip;q=0, br", "gzip;q=0.000"]) {
+    const result = await rawRequest(encoding);
+    expect(result.headers["content-encoding"]).toBeUndefined();
+    expect(result.headers["content-length"]).toBe(String(data.length));
+    expect(result.body).toEqual(data);
+  }
+});
+
+it("preserves an already compressed upstream body without double compression", async () => {
+  const data = gzipSync(largeResponse());
+  backend.removeAllListeners("request");
+  backend.on("request", (_req, res) => {
+    res.writeHead(200, { "Content-Type": "application/json", "Content-Encoding": "gzip", "Content-Length": data.length });
+    res.end(data);
+  });
+  const result = await rawRequest("gzip");
+  expect(result.headers["content-encoding"]).toBe("gzip");
+  expect(result.body).toEqual(data);
 });
 
 it("allows a seven-day aggregate to finish beyond the ordinary eight-second timeout", async () => {
