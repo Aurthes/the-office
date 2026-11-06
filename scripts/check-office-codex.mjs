@@ -11,6 +11,7 @@ import { once } from "node:events";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
+import { checkOfficeDelegation } from "./check-office-delegation.mjs";
 const appDirectory = process.argv.includes("--app-dir") ? path.resolve(process.argv[process.argv.indexOf("--app-dir") + 1]) : fileURLToPath(new URL("..", import.meta.url));
 const runtimeRequire = createRequire(path.join(appDirectory, "package.json"));
 const { saveUpload } = runtimeRequire("./server/codex-session-uploads.js");
@@ -33,10 +34,12 @@ function sourceSnapshot(directory = foreign) {
 }
 let sourceBefore = JSON.stringify(sourceSnapshot());
 const payloads = [], checks = []; let gateway, socket, referenceTargetId;
+let modelFixture;
 let diagnosticClient, gatewayErrors = "", budgetRequests = 0;
 const provider = http.createServer((request, response) => {
   let body = ""; request.on("data", data => { body += data; }); request.on("end", () => {
     const payload = JSON.parse(body); payloads.push(payload);
+    if (modelFixture) return void modelFixture(payload, response);
     const last = [...(payload.input || [])].reverse().find(item => item.role === "user");
     if ((payload.input || []).some(item => item.role === "user" && JSON.stringify(item).includes("OFFICE_RETRY_BUDGET"))) {
       budgetRequests++;
@@ -85,7 +88,7 @@ class BrowserClient {
 }
 const token = crypto.randomBytes(32).toString("hex"); let port;
 async function start(useBundled = false) {
-  const env = { ...process.env, CODEX_HOME: foreign, CLAW3D_CODEX_CONFIG_HOME: foreign, CODEX_SQLITE_HOME: foreign, CODEX_APP_SERVER_WS_URL: "ws://127.0.0.1:1", CLAW3D_GATEWAY_TOKEN: token, CLAW3D_CODEX_BIN: binary, CLAW3D_OFFICE_DATA_DIR: data, CLAW3D_OFFICE_CODEX_HOME: home, CLAW3D_UPLOAD_DIR: uploads, CODEX_ADAPTER_PORT: String(port) };
+  const env = { ...process.env, OPENCLAW_STATE_DIR: path.join(root, "studio"), CLAW3D_DATA_DIR: root, CODEX_HOME: foreign, CLAW3D_CODEX_CONFIG_HOME: foreign, CODEX_SQLITE_HOME: foreign, CODEX_APP_SERVER_WS_URL: "ws://127.0.0.1:1", CLAW3D_GATEWAY_TOKEN: token, CLAW3D_CODEX_BIN: binary, CLAW3D_OFFICE_DATA_DIR: data, CLAW3D_OFFICE_CODEX_HOME: home, CLAW3D_UPLOAD_DIR: uploads, CODEX_ADAPTER_PORT: String(port) };
   delete env.OPENAI_API_KEY;
   if (useBundled) delete env.CLAW3D_CODEX_BIN;
   gateway = spawn(process.execPath, [path.join(appDirectory, "server/codex-office-gateway.js")], { env, stdio: ["ignore", "pipe", "pipe"] });
@@ -122,7 +125,10 @@ try {
   fs.writeFileSync(path.join(home, "config.toml"), `model = "gpt-6.1-sol"\nmodel_provider = "office_check"\n[model_providers.office_check]\nname = "Local test fixture"\nbase_url = "http://127.0.0.1:${provider.address().port}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\nrequest_max_retries = 0\nstream_max_retries = 0\n`);
   const portProbe = net.createServer(); portProbe.listen(0, "127.0.0.1"); await once(portProbe, "listening"); port = portProbe.address().port; await new Promise(r => portProbe.close(r));
   let client = await start(true);
-  if (process.argv.includes("--retry-budget-only")) {
+  if (process.argv.includes("--delegation-only")) {
+    client = await checkOfficeDelegation({ client, restart: async () => { await stop(); return start(); }, workspace, stateDirectory: path.join(root, "studio"), data, fs, path, setModelFixture: value => { modelFixture = value; }, payloads, check });
+    check("foreign state untouched", JSON.stringify(sourceSnapshot()) === sourceBefore);
+  } else if (process.argv.includes("--retry-budget-only")) {
     const { project } = await client.call("project.create", { name: "Budget only", rootPaths: [workspace], requestId: "budget-only-project" });
     client = await checkRetryBudget(client, project.id);
     check("foreign state untouched", JSON.stringify(sourceSnapshot()) === sourceBefore);
@@ -323,7 +329,7 @@ try {
   }
   console.log(JSON.stringify({ passed: checks.length, syntheticModelOnly: true, userAppHomeUsed: false }));
 } catch (error) {
-  console.log(JSON.stringify({ diagnostic: { error: error.message, socketState: socket?.readyState, requests: payloads.length, events: diagnosticClient?.events.slice(-8).map(e => ({ event: e.event, turnStatus: e.payload?.turnStatus, error: e.payload?.error, itemCount: e.payload?.items?.length })), gatewayErrors, budgetRequests, officeStates: fs.existsSync(path.join(data, "office.json")) ? JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions.map(row => ({ name: row.name, status: row.status, recovery: row.recovery })) : [] } }));
+  console.log(JSON.stringify({ diagnostic: { error: error.message, socketState: socket?.readyState, requests: payloads.length, events: diagnosticClient?.events.slice(-8).map(e => ({ event: e.event, turnStatus: e.payload?.turnStatus, error: e.payload?.error, itemCount: e.payload?.items?.length })), gatewayErrors, budgetRequests, delegationTasks: process.argv.includes("--delegation-only") && fs.existsSync(path.join(data, "todos")) ? fs.readdirSync(path.join(data, "todos")).filter(file => file.endsWith(".json")).map(file => JSON.parse(fs.readFileSync(path.join(data, "todos", file), "utf8"))) : undefined, toolOutputs: process.argv.includes("--delegation-only") ? payloads.slice(-3).flatMap(payload => payload.input || []).filter(item => /output/.test(item.type)).slice(-5) : undefined, officeStates: fs.existsSync(path.join(data, "office.json")) ? JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions.map(row => ({ name: row.name, status: row.status, recovery: row.recovery })) : [] } }));
   throw error;
 } finally {
   await stop(); provider.closeAllConnections(); await new Promise(r => provider.close(r));

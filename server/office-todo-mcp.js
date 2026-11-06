@@ -11,8 +11,17 @@ const properties = {
   phases: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", properties: { id: { type: "string" }, title: { type: "string" }, notes: { type: "string" } }, required: ["title"], additionalProperties: false } },
   phaseId: { type: "string" }, requestId: { type: "string", description: "Unique stable creation request ID; reuse on retry" }, reason: { type: "string" },
   status: { type: "string", enum: ["all", "queued", "running", "paused", "done", "archived"] }, query: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer", maximum: 25 },
+  instructions: { type: "string", minLength: 1, maxLength: 6000, description: "Bounded scope and expected deliverable, including the original user's restrictions and authorization limits" },
+  acceptanceCriteria: { type: "string", minLength: 1, maxLength: 3000 },
+  report: { type: "string", minLength: 1, maxLength: 6000, description: "Delivered work, verification evidence, artifact locations and any remaining limitations" },
+  accept: { type: "boolean" }, notes: { type: "string", minLength: 1, maxLength: 6000, description: "Manager's verification evidence when accepting, or concrete correction feedback when returning" },
 };
 const definitions = [
+  ["organization", "Read your live role, default delegation strategy, managers and existing direct reports. Reporting lines are data, not additional permissions. Use your own actorId.", ["actorId"], ["actorId"]],
+  ["delegate", "Hand the current task to an available existing direct report's real conversation. Include bounded scope, deliverables, acceptance criteria and original user restrictions. Reuse this task and requestId on retry; the delegating manager retains acceptance responsibility. Does not create an employee or interrupt other work.", ["id", "revision", "actorId", "assigneeId", "instructions", "acceptanceCriteria", "requestId"], ["id", "revision", "actorId", "assigneeId", "instructions", "acceptanceCriteria", "requestId"]],
+  ["submit", "Submit the active delegated work and evidence to its delegating manager for acceptance. Keeps the same task open and notifies the manager's real conversation when available. Leave the final unfinished phase for acceptance. Reuse requestId on retry.", ["id", "revision", "actorId", "report", "requestId"], ["id", "revision", "actorId", "report", "requestId"]],
+  ["review", "The delegating manager verifies a submitted result, then accepts it with evidence or returns specific feedback. Acceptance does not close the task or replace an upstream manager's acceptance. Reuse requestId on retry.", ["id", "revision", "actorId", "accept", "notes", "requestId"], ["id", "revision", "actorId", "accept", "notes", "requestId"]],
+  ["recall", "The delegating manager takes an unfinished handoff back with a reason. Does not claim the result was accepted. Inspect the worker conversation first; an active worker must be stopped before recall. Reuse requestId on retry.", ["id", "revision", "actorId", "reason", "requestId"], ["id", "revision", "actorId", "reason", "requestId"]],
   ["list", "List shared Office to-dos, department totals and available agents. Filter or paginate when needed.", ["departmentId", "assigneeId", "status", "query", "offset", "limit"], []],
   ["get", "Read a to-do, its current revision, phase IDs, documentation and history before editing.", ["id"], ["id"]],
   ["create", "Create a record only for actionable work, never casual chat or general questions. One task is one user goal; related follow-ups reuse an existing task, including a completed one. Check recent tasks first. Ask the user before splitting uncertain scope. Define phases and owner before executing; reuse requestId on retry.", ["actorId", "title", "documentation", "departmentId", "assigneeId", "phases", "requestId"], ["actorId", "title", "phases", "requestId"]],
@@ -24,7 +33,7 @@ const definitions = [
   ["archive", "Remove a to-do from the active board while retaining its history.", ["id", "revision", "actorId"], ["id", "revision", "actorId"]],
   ["restore", "Restore an archived unfinished to-do. Completed work stays archived: add or reopen a phase to follow up.", ["id", "revision", "actorId"], ["id", "revision", "actorId"]],
 ];
-const tools = definitions.map(([name, description, keys, required]) => ({ name: `todo_${name}`, description, annotations: { readOnlyHint: ["list", "get"].includes(name), destructiveHint: false, openWorldHint: false }, inputSchema: { type: "object", properties: Object.fromEntries(keys.map(key => [key, properties[key]])), required, additionalProperties: false } }));
+const tools = definitions.map(([name, description, keys, required]) => ({ name: `todo_${name}`, description, annotations: { readOnlyHint: ["list", "get", "organization"].includes(name), destructiveHint: false, openWorldHint: false }, inputSchema: { type: "object", properties: Object.fromEntries(keys.map(key => [key, properties[key]])), required, additionalProperties: false } }));
 function createGatewayClient({ address = process.env.OFFICE_TASK_GATEWAY_URL, token = process.env.OFFICE_TASK_GATEWAY_TOKEN, timeoutMs = 20000 } = {}) {
   let connection, serial = 0, closed = false;
   function retire(current, error) {

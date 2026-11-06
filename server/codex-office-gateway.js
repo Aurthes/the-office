@@ -17,15 +17,17 @@ const { CodexSessionPredictions } = require("./codex-session-predictions");
 const { readAiCenter } = require("./ai-center");
 const { consumeOpenAiResetCredit } = require("./ai-center-openai");
 const { questionReplyMessage } = require("./codex-session-questions");
-const { OfficeTodos } = require("./office-todos");
+const { OfficeTodos, activeDelegation } = require("./office-todos");
 const { OfficeSchedules } = require("./office-schedules");
 const { CodexSessionComposer } = require("./codex-session-composer");
 const { CodexMessageSearch } = require("./codex-message-search");
+const { OfficeCompany } = require("./office-company");
+const { OfficeDelegation } = require("./office-delegation");
 
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
 const directory = officeEnvironment(path.resolve(process.env.CLAW3D_OFFICE_DATA_DIR || path.join(process.env.CLAW3D_DATA_DIR || path.join(os.homedir(), ".local/share/claw3d"), "office-runtime"))).home;
-const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer, todos, dictate;
+const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer, todos, dictate, delegation;
 let restoredSessionStates = Promise.resolve();
 const features = { dictation: false, dictationHTTP: true, voice: true, prediction: true, terminal: true, schedules: true, todos: true, composer: true, accountVersion: 0 };
 const broadcast = (event, payload) => { const frame = JSON.stringify({ type: "event", event, seq: seq++, payload }); for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame); };
@@ -49,7 +51,10 @@ const native = new CodexOfficeClient({
   voice?.handle(mapped);
   controls?.handle(mapped); if (mapped.params?.threadId) stream?.changed(mapped.params.threadId);
   schedules?.handle(mapped);
-  if (mapped.method === "turn/completed") todos?.finishTurn(mapped.params.threadId, mapped.params.turn?.status || "completed");
+  if (mapped.method === "turn/completed") {
+    todos?.finishTurn(mapped.params.threadId, mapped.params.turn?.status || "completed");
+    if (mapped.params.turn?.status === "completed") setImmediate(() => void delegation?.flush());
+  }
   if (mapped.id !== undefined || ["serverRequest/resolved", "turn/completed"].includes(mapped.method)) changed();
 } });
 const accountContext = new CodexOfficeAccount(native);
@@ -91,8 +96,29 @@ schedules = new OfficeSchedules(directory, {
   send: (id, message, requestId) => controls.send(id, message, requestId, [], { onlyIfIdle: true }),
 });
 todos = new OfficeTodos(directory, { projects: () => store.projects(), agents, changed: id => broadcast("todos.updated", { id }) });
-store.todoContext = id => { const row = todos.bound(id); return { protocol: 3, agentId: id, todoId: row?.id || null, departmentId: store.get(id).projectId ?? null }; };
+const company = new OfficeCompany(store);
+store.companyContext = id => company.forTurn(id);
+store.todoContext = id => { const row = todos.bound(id); return { protocol: 4, agentId: id, todoId: row?.id || null, departmentId: store.get(id).projectId ?? null, delegatedTasks: todos.delegated(id) }; };
+delegation = new OfficeDelegation({ store, todos, company, stopping: () => stopping,
+  canRecall: async id => {
+    if (store.data.sessions.find(row => row.id === id)?.archived) return true;
+    await controls.attach(id); await controls.refreshTurn(id);
+    return !store.isBusy(id) && !store.starting.has(id) && !controls.state(id).retry;
+  },
+  canSend: async id => {
+    if (stopping || !native.ready || store.isBusy(id) || store.starting.has(id)) return false;
+    await controls.attach(id); await controls.refreshTurn(id);
+    return !store.isBusy(id) && !store.starting.has(id) && !controls.state(id).retry && !controls.state(id).recovery.stopped
+      && !store.pendingQuestions(id).length && !controls.approvalCount(id) && !controls.questions(id).some(q => !q.submitted) && (await account()).loggedIn;
+  },
+  send: (id, message, requestId) => controls.send(id, message, requestId, [], { onlyIfIdle: true }),
+});
 const methods = {
+  "todo.organization": p => company.context(p.actorId),
+  "todo.delegate": p => delegation.delegate(p),
+  "todo.submit": p => delegation.submit(p),
+  "todo.review": p => delegation.review(p),
+  "todo.recall": p => delegation.recall(p),
   "todo.list": p => todos.list(p),
   "todo.get": p => todos.get(p),
   "todo.create": p => todos.create(p),
@@ -106,12 +132,15 @@ const methods = {
     await controls.attach(row.assigneeId); await controls.refreshTurn(row.assigneeId);
     if (store.isBusy(row.assigneeId) || store.starting.has(row.assigneeId) || store.pendingQuestions(row.assigneeId).length || controls.approvalCount(row.assigneeId) || controls.questions(row.assigneeId).some(q => !q.submitted)) throw new Error("This agent is busy or waiting for input. Open its conversation first");
     if (todos.raw(p.id).revision !== p.revision) throw new Error("This to-do changed. Refresh it before starting");
+    const delivery = activeDelegation(row)?.delivery;
+    if (delivery?.recipientId === row.assigneeId) todos.delivery(row.id, delivery.requestId, "sending");
     todos.startForAgent(row.assigneeId, row.id);
     try {
       const result = await controls.send(row.assigneeId, `Work on Office to-do ${row.id}: ${row.title}\nRead its full plan and documentation using office_tasks.todo_get. Keep phase progress and documentation current; finish only verified work.`, p.requestId, [], { onlyIfIdle: true });
       if (result.status === "busy") throw new Error("Agent became busy; the task was not sent");
+      if (delivery?.recipientId === row.assigneeId) todos.delivery(row.id, delivery.requestId, "sent");
       return { id: row.id, threadId: row.assigneeId };
-    } catch (error) { todos.finishTurn(row.assigneeId, "failed to start"); throw error; }
+    } catch (error) { if (delivery?.recipientId === row.assigneeId) todos.delivery(row.id, delivery.requestId, "uncertain", error.message); todos.finishTurn(row.assigneeId, "failed to start"); throw error; }
   }),
   "office.account": account,
   "office.usage": () => readAiCenter(native),
@@ -257,6 +286,7 @@ async function restoreSessionStates() {
     }
   }));
   changed();
+  if (!stopping) await delegation.flush();
 }
 native.initialize().then(() => {
   void account().catch(() => {});

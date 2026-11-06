@@ -10,6 +10,14 @@ const fixture = (): OrganizationView => ({ ceoAvatar: null, focusPerson: vi.fn()
   { id: "head", name: "Ranger", title: "Head", department: "Open Workspace", departmentId: null, reportsTo: [CEO_ID] },
   { id: "worker", name: "Firefighter", title: "Worker", department: "Open Workspace", departmentId: null, reportsTo: ["head"] },
 ] });
+it("shows role defaults and saves an explicit strategy without changing the reporting line", async () => {
+  const organization = fixture(); render(createElement(OrganizationPanel, { organization, personId: CEO_ID }));
+  expect(screen.getByText(/Prefer delegation/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Edit organization" }));
+  fireEvent.change(screen.getByLabelText("Work strategy"), { target: { value: "self" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save organization" }));
+  await waitFor(() => expect(organization.savePosition).toHaveBeenCalledWith(CEO_ID, { title: "CEO", reportsTo: [], delegationMode: "self" }));
+});
 it("shows the CEO's heads and lets the owner browse a department's reporting relationships", () => {
   render(createElement(OrganizationPanel, { organization: fixture(), personId: CEO_ID, browse: true }));
   expect(screen.getByText("Ranger (Head · Open Workspace)")).toBeInTheDocument();

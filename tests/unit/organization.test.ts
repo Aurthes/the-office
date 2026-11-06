@@ -10,6 +10,13 @@ const roster = { projects: [{ id: "office", name: "Office" }, { id: "research", 
 const initial = () => reconcileOrganization({}, roster, { office: "worker6", [OPEN_DEPARTMENT_ID]: "ranger" });
 
 describe("Office organization", () => {
+  it("persists work strategy, preserves it across old-client edits and explicitly resets it", () => {
+    let settings = mergeStudioSettings(defaultStudioSettings(), { office: { "ws://localhost:18790": { organization: { [CEO_ID]: { title: "CEO", reportsTo: [], delegationMode: "self" } } } } });
+    settings = mergeStudioSettings(settings, { office: { "ws://localhost:18790": { organization: { [CEO_ID]: { title: "Owner", reportsTo: [] } } } } });
+    expect(resolveOfficePreferencePublic(sanitizeStudioSettings(settings), "ws://localhost:18790").organization?.[CEO_ID].delegationMode).toBe("self");
+    settings = mergeStudioSettings(settings, { office: { "ws://localhost:18790": { organization: { [CEO_ID]: { title: "Owner", reportsTo: [], delegationMode: null } } } } });
+    expect(resolveOfficePreferencePublic(sanitizeStudioSettings(settings), "ws://localhost:18790").organization?.[CEO_ID].delegationMode).toBeNull();
+  });
   it("gives every department a head, including Ranger in Open Workspace, without adding a session", () => {
     const org = initial();
     for (const id of ["worker6", "researcher", "ranger"]) expect(org[id]).toEqual({ title: "Head", reportsTo: [CEO_ID] });

@@ -45,7 +45,7 @@ export async function checkOfficeTasks({ page, call, expect, setModelFixture, sc
   // Feed actual MCP function calls through the bundled Codex app-server. The
   // tools are discovered from the real request, never hard-coded model names.
   const mcp = await call("session.mcp", { threadId: agent.id });
-  if (!mcp.servers.some(server => server.name === "office_tasks" && server.tools === 10)) throw Error("Office task tools were not registered");
+  if (!mcp.servers.some(server => server.name === "office_tasks" && server.tools === 15)) throw Error("Office task tools were not registered");
   const toolCalls = []; let stage = 0;
   setModelFixture(async (payload, res, number) => {
     try {

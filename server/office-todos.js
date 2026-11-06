@@ -14,6 +14,7 @@ const completionTime = row => {
   const times = row.phases.map(phase => phase.completedAt);
   return times.length && times.every(time => Number.isFinite(time)) ? Math.max(...times) : null;
 };
+const activeDelegation = row => (row.delegations || []).findLast(entry => !["accepted", "recalled"].includes(entry.state));
 class OfficeTodos {
   constructor(directory, { projects, agents, changed = () => {}, now = Date.now }) {
     this.directory = path.join(directory, "todos"); this.projects = projects; this.agents = agents; this.changed = changed; this.now = now;
@@ -78,6 +79,7 @@ class OfficeTodos {
     const department = projects.find(p => p.id === row.departmentId), agent = agents.find(a => a.id === row.assigneeId);
     const { events, documentation, ...rest } = row;
     delete rest.requestId; delete rest.requestHash;
+    if (!full && rest.delegations) rest.delegations = rest.delegations.map(({ id, managerId, workerId, state }) => ({ id, managerId, workerId, state }));
     return { ...rest, completedAt: completionTime(row), departmentName: department?.name || row.departmentName, assigneeName: agent?.name || row.assigneeName,
       assigneeAvailable: !!agent, ...(full ? { documentation, events } : {}),
       phases: row.phases.map(phase => full ? { ...phase } : { ...phase, notes: undefined }),
@@ -119,7 +121,8 @@ class OfficeTodos {
     const previous = this.raw(input.id);
     if (action === "complete" && previous.phases.find(p => p.id === input.phaseId)?.completedAt != null) return this.get(input);
     if (input.revision !== previous.revision) throw new Error("This to-do changed. Refresh it before saving");
-    const row = structuredClone(previous), actor = this.actor(input); let message;
+    const row = structuredClone(previous), actor = this.actor(input), delegation = activeDelegation(row); let message;
+    if (delegation && ["edit", "archive"].includes(action) && (action === "archive" || input.assigneeId !== undefined && input.assigneeId !== row.assigneeId)) throw new Error("Finish or review the active delegation before reassigning or archiving this task");
     if (row.archived && action !== "restore" && !(row.status === "done" && ["edit", "reopen"].includes(action))) throw new Error("Restore this archived to-do first");
     if (action === "restore" && row.status === "done") throw new Error("Completed tasks stay archived. Add a phase or reopen a completed phase to follow up");
     if (action === "edit") {
@@ -136,6 +139,42 @@ class OfficeTodos {
       else if (row.status === "running") this.run(row);
       else if (row.status === "done") row.status = "queued";
       message = "Plan, assignment or documentation updated";
+    } else if (action === "delegate") {
+      if (actor.id !== row.assigneeId || !row.assigneeId) throw new Error("Only the current responsible agent can delegate this task");
+      if (delegation?.state === "review") throw new Error("Review the submitted result before delegating again");
+      if (!input.assigneeId || input.assigneeId === actor.id || (row.delegations || []).some(entry => !["accepted", "recalled"].includes(entry.state) && entry.managerId === input.assigneeId)) throw new Error("Choose a direct report outside the active handoff chain");
+      const instructions = text(input.instructions, "Delegation scope", 6000), acceptanceCriteria = text(input.acceptanceCriteria, "Acceptance criteria", 3000);
+      this.stopClock(row);
+      row.delegations ||= [];
+      row.delegations.push({ id: uuid(), managerId: actor.id, workerId: input.assigneeId, instructions, acceptanceCriteria, state: "working", createdAt: this.now(),
+        delivery: { recipientId: input.assigneeId, requestId: `delegation-${uuid()}`, state: "pending" } });
+      Object.assign(row, this.references({ assigneeId: input.assigneeId }, row)); row.status = "queued";
+      message = `Delegated to ${row.assigneeName}; manager retains acceptance responsibility`;
+    } else if (action === "recall") {
+      if (!delegation || actor.id !== delegation.managerId) throw new Error("Only the delegating manager can recall this handoff");
+      const reason = text(input.reason, "Recall reason", 500);
+      delegation.state = "recalled"; delegation.recalledAt = this.now(); delete delegation.delivery;
+      this.stopClock(row); Object.assign(row, this.references({ assigneeId: delegation.managerId }, row)); row.status = "paused";
+      message = `Manager recalled delegation: ${reason}`;
+    } else if (action === "submit") {
+      if (!delegation || delegation.state !== "working" || actor.id !== delegation.workerId || actor.id !== row.assigneeId) throw new Error("Only the assigned worker can submit the active delegation");
+      delegation.report = text(input.report, "Delivery report and evidence", 6000); delegation.submittedAt = this.now(); delegation.state = "review";
+      delegation.delivery = { recipientId: delegation.managerId, requestId: `delegation-${uuid()}`, state: "pending" };
+      this.stopClock(row); Object.assign(row, this.references({ assigneeId: delegation.managerId }, row)); row.status = "paused";
+      message = `Submitted for manager acceptance: ${delegation.report}`;
+    } else if (action === "review") {
+      if (!delegation || delegation.state !== "review" || actor.id !== delegation.managerId || actor.id !== row.assigneeId) throw new Error("Only the delegating manager can review this submission");
+      if (typeof input.accept !== "boolean") throw new Error("Choose whether to accept the submitted result");
+      const notes = text(input.notes, "Acceptance evidence or return feedback", 6000);
+      this.stopClock(row); delegation.review = { accepted: input.accept, notes, at: this.now(), managerId: actor.id };
+      delegation.state = input.accept ? "accepted" : "working";
+      delete delegation.delivery;
+      if (!input.accept) {
+        Object.assign(row, this.references({ assigneeId: delegation.workerId }, row));
+        delegation.delivery = { recipientId: delegation.workerId, requestId: `delegation-${uuid()}`, state: "pending" };
+      }
+      row.status = input.accept ? "paused" : "queued";
+      message = `${input.accept ? "Manager accepted" : "Manager returned for changes"}: ${notes}`;
     } else if (action === "start") {
       if (row.phases.every(p => p.completedAt != null)) throw new Error("Reopen a completed phase before starting");
       this.run(row); message = "Work started";
@@ -150,6 +189,8 @@ class OfficeTodos {
       this.stopClock(row); row.archived = action === "archive"; if (row.status === "running") row.status = "paused";
       message = action === "archive" ? "To-do archived" : "To-do restored";
     } else throw new Error("Unsupported to-do action");
+    if (row.status === "done" && activeDelegation(row)) throw new Error("Submit the result and obtain manager acceptance before completing the final phase");
+    if (row.status === "done" && row.delegations?.length && actor.id && actor.id !== row.assigneeId) throw new Error("Only the responsible manager can close this delegated goal");
     if (row.status === "done") {
       row.completedAt = previous.status === "done" ? completionTime(previous) : this.now();
       row.archived = true;
@@ -165,6 +206,18 @@ class OfficeTodos {
     for (const [agentId, id] of this.bindings) if (id === row.id && (row.archived || row.status === "done" || row.assigneeId !== agentId)) this.bindings.delete(agentId);
     if (row.status === "running" && row.assigneeId) this.bindings.set(row.assigneeId, row.id);
     this.changed(row.id); return { todo: this.view(row, true), serverTime: this.now() };
+  }
+  delivery(id, requestId, state, error) {
+    const previous = this.raw(id), row = structuredClone(previous), entry = activeDelegation(row);
+    if (!entry?.delivery || entry.delivery.requestId !== requestId) return;
+    entry.delivery.state = state;
+    if (error) entry.delivery.error = String(error).slice(0, 500);
+    row.revision++; row.updatedAt = this.now(); this.save(row); this.changed(row.id);
+  }
+  delegated(agentId) {
+    return [...this.rows.values()].filter(row => !row.archived && row.status !== "done" && (row.delegations || []).some(entry => !["accepted", "recalled"].includes(entry.state) && [entry.managerId, entry.workerId].includes(agentId)))
+      .sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 20)
+      .map(row => { const entry = activeDelegation(row); return { id: row.id, assigneeId: row.assigneeId, managerId: entry.managerId, workerId: entry.workerId, state: entry.state, delivery: entry.delivery?.state }; });
   }
   bound(agentId) {
     const preferred = this.rows.get(this.bindings.get(agentId));
@@ -185,4 +238,4 @@ class OfficeTodos {
   checkpoint() { for (const row of this.rows.values()) if (row.status === "running") { const next = structuredClone(row); this.stopClock(next); const phase = next.phases.find(p => p.completedAt == null); if (phase) phase.startedAt = this.now(); this.save(next); } }
   close() { for (const row of [...this.rows.values()]) if (row.status === "running") this.change({ id: row.id, revision: row.revision, source: "system", reason: "Office stopped; timer paused" }, "pause"); }
 }
-module.exports = { OfficeTodos, phaseDuration: duration };
+module.exports = { OfficeTodos, phaseDuration: duration, activeDelegation };

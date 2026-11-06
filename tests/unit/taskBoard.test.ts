@@ -19,6 +19,15 @@ function fixture(scope?: string | null, overrides: Partial<OfficeTodo> = {}, tas
   const view = render(createElement(TaskBoard, props));
   return { todo, call, props, ...view };
 }
+it("shows a submitted handoff as awaiting review and keeps final completion unavailable", async () => {
+  const f = fixture(undefined, { progress: 1, delegations: [{ id: "handoff", managerId: "alice", workerId: "bob", state: "review", instructions: "Implement without deployment", acceptanceCriteria: "Tests pass", report: "Evidence and artifact location" }] }, "todo");
+  f.todo.phases[0].completedAt = Date.now();
+  expect(await screen.findByText("Awaiting manager review")).toBeInTheDocument();
+  expect(await screen.findByRole("region", { name: "Delegation and acceptance" })).toHaveTextContent("Evidence and artifact location");
+  expect(screen.getByRole("checkbox", { name: /Validate release/ })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Archive" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Open conversation" })); expect(f.props.onOpenSession).toHaveBeenCalledWith("alice");
+});
 it("opens the linked task directly and can return to its conversation", async () => {
   const f = fixture(undefined, { title: "Agent View Compression (AVC)" }, "todo");
   expect(await screen.findByRole("heading", { name: "Agent View Compression (AVC)" })).toBeTruthy();
