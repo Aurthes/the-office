@@ -262,3 +262,17 @@ it("does not count offline time when migrating a legacy running review", async (
   const restored = new OfficeTodos(path.join(f.root, "office"), { ...f.deps, now: () => 999000 });
   expect(restored.get({ id: task.id }).todo).toMatchObject({ status: "paused", elapsedMs: 1500, assigneeId: f.worker });
 });
+
+it("persists legacy attribution and timer recovery atomically across process loss", async () => {
+  const f = await fixture(), task = f.create(); await f.delegate(task.id);
+  f.available.set(f.manager, false); await f.runtime.submit(f.input(task.id, f.worker, { report: "Evidence" })); await f.settle();
+  const file = path.join(f.root, "office/todos", task.id + ".json"), old = JSON.parse(readFileSync(file, "utf8"));
+  delete old.acceptanceManagerId; old.assigneeId = f.manager; old.status = "running"; old.savedAt = 2000;
+  old.phases[0].startedAt = 1000; old.phases[0].elapsedMs = 500; writeFileSync(file, JSON.stringify(old));
+  const save = OfficeTodos.prototype.save;
+  const crash = vi.spyOn(OfficeTodos.prototype, "save").mockImplementationOnce(function (this: object, row: unknown) { save.call(this, row); throw new Error("Process lost after durable save"); });
+  expect(() => new OfficeTodos(path.join(f.root, "office"), { ...f.deps, now: () => 999000 })).toThrow(/Process lost/);
+  crash.mockRestore();
+  const restored = new OfficeTodos(path.join(f.root, "office"), { ...f.deps, now: () => 1999000 });
+  expect(restored.get({ id: task.id }).todo).toMatchObject({ status: "paused", elapsedMs: 1500, assigneeId: f.worker });
+});

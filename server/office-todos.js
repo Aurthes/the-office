@@ -28,6 +28,7 @@ class OfficeTodos {
     for (const file of fs.readdirSync(this.directory).filter(file => /^[a-f0-9-]{36}\.json$/.test(file))) {
       const row = JSON.parse(fs.readFileSync(path.join(this.directory, file), "utf8"));
       const checkpointAt = row.savedAt;
+      let separated = false;
       if (row.version !== 1 || `${row.id}.json` !== file || !Array.isArray(row.phases) || !Number.isInteger(row.revision)) throw new Error("Invalid to-do state; refusing to overwrite it");
       this.rows.set(row.id, row); if (row.requestId) this.requests.set(row.requestId, row.id);
       if (row.status !== "done" && row.delegations?.length && !Object.hasOwn(row, "acceptanceManagerId")) {
@@ -43,12 +44,12 @@ class OfficeTodos {
         if (entry?.state === "review" && row.assigneeId === entry.managerId) {
           row.assigneeId = entry.workerId; row.assigneeName = this.agents().find(agent => agent.id === entry.workerId)?.name || entry.workerId;
         }
-        row.revision++; this.event(row, "Separated execution assignment from manager acceptance", { source: "system", name: "Office" }); this.save(row);
+        row.revision++; this.event(row, "Separated execution assignment from manager acceptance", { source: "system", name: "Office" }); separated = true;
       }
       if (row.status === "running") {
         this.stopClock(row, checkpointAt); row.status = "paused"; row.revision++;
         this.event(row, "Office restarted; timer paused at the last checkpoint", { source: "system" }); this.save(row);
-      }
+      } else if (separated) this.save(row);
       if (row.status === "done" && (!row.archived || row.completedAt !== completionTime(row))) {
         const needsArchive = !row.archived;
         row.completedAt = completionTime(row); row.archived = true; row.revision++;
