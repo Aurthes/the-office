@@ -393,13 +393,13 @@ describe("dictation capability recovery", () => {
     let version = 0;
     const push = (available: boolean) => act(() => { for (const listener of listeners) listener({ event: "session.stream", payload: {
       threadId: id, subscriptionId, version: ++version, connected: true, activeTurnId: null, items: [], approvals: [],
-      features: { dictation: available, dictationHTTP: true, dictationReason: available ? null : "Dictation is temporarily unavailable. Please try again shortly.", voice: false, prediction: false },
+      features: { dictation: available, dictationHTTP: true, dictationReason: available ? null : "Sign in with ChatGPT to use dictation.", voice: false, prediction: false },
     } }); });
     push(true); await waitFor(() => expect(screen.getByRole("button", { name: "Dictation" })).toBeEnabled());
     return { call, push };
   }
-  it("greys the microphone and retained retry on failure, then retries the same recording after streamed recovery", async () => {
-    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ error: "Dictation is temporarily unavailable. Please try again shortly. Recording kept.", dictation: { dictation: false } }, { status: 503 })).mockResolvedValueOnce(Response.json({ text: "recovered transcript" }));
+  it("greys the microphone and retained retry for missing auth, then recovers after streamed sign-in", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ error: "Sign in with ChatGPT to use dictation. Recording kept.", dictation: { dictation: false } }, { status: 503 })).mockResolvedValueOnce(Response.json({ text: "recovered transcript" }));
     vi.stubGlobal("fetch", fetcher); const h = await liveComposer("capability-retry");
     fireEvent.click(screen.getByRole("button", { name: "Dictation" }));
     await screen.findByRole("button", { name: "Stop recording and transcribe" });
@@ -416,8 +416,34 @@ describe("dictation capability recovery", () => {
     expect(h.call.mock.calls.some(([method]) => method === "session.send" || method === "session.voice.start")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Clear recording" }));
   });
+  it.each([
+    ["connection failure", () => Promise.reject(new TypeError("network private detail"))],
+    ["timeout", () => Promise.reject(new DOMException("timeout private detail", "TimeoutError"))],
+    ["proxy failure", async () => Response.json({ error: "Could not connect to Office transcription. Recording kept; please retry." }, { status: 502 })],
+    ["server failure", async () => Response.json({ error: "Dictation is temporarily unavailable. Recording kept.", dictation: { dictation: true } }, { status: 503 })],
+    ["rate limit", async () => Response.json({ error: "Dictation is rate limited. Please try again shortly.", dictation: { dictation: true } }, { status: 503 })],
+    ["HTML response", async () => new Response("<!doctype html>proxy unavailable", { status: 502, headers: { "content-type": "text/html" } })],
+    ["changed schema", async () => Response.json({ unexpected: true })],
+  ])("leaves mic and retained retry enabled after %s, without needing a timer, stream event or reload", async (label, response) => {
+    const fetcher = vi.fn().mockImplementationOnce(response).mockResolvedValueOnce(Response.json({ text: "recovered transcript" }));
+    vi.stubGlobal("fetch", fetcher); const h = await liveComposer("retry-" + label);
+    fireEvent.click(screen.getByRole("button", { name: "Dictation" }));
+    await screen.findByRole("button", { name: "Stop recording and transcribe" });
+    act(() => port.onmessage?.({ data: { pcm: new Int16Array(3200) } }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording and transcribe" }));
+    const retry = await screen.findByRole("button", { name: "Retry transcription" });
+    expect(retry).toBeEnabled(); expect(screen.getByRole("button", { name: "Dictation" })).toBeEnabled();
+    expect(screen.getByRole("textbox", { name: "Send to session" })).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Download recording" })).toBeEnabled();
+    expect(fetcher).toHaveBeenCalledOnce();
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Send to session" })).toHaveValue("recovered transcript"));
+    expect(fetcher.mock.calls[1][1].body).toBe(fetcher.mock.calls[0][1].body);
+    expect(h.call.mock.calls.some(([method]) => method === "session.send")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Clear recording" }));
+  });
   it("still allows stopping an active recording when another request disables dictation", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "temporarily unavailable" }, { status: 503 })));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Sign in with ChatGPT to use dictation." }, { status: 503 })));
     const h = await liveComposer("capability-while-recording"); fireEvent.click(screen.getByRole("button", { name: "Dictation" }));
     await screen.findByRole("button", { name: "Stop recording and transcribe" });
     act(() => port.onmessage?.({ data: { pcm: new Int16Array(3200) } })); h.push(false);
@@ -430,7 +456,7 @@ describe("dictation capability recovery", () => {
 });
 
 
-it("recovers a broken local HTTP path without a gateway event and preserves its audio for manual retry", async () => {
+it("keeps audio after a broken HTTP path, never uploads it in the background, and lets the user record again", async () => {
   vi.useFakeTimers();
   try {
     microphone(); const inserted = vi.fn();
@@ -438,11 +464,13 @@ it("recovers a broken local HTTP path without a gateway event and preserves its 
     const { result } = renderHook(() => useNativeDictation("local-http-recovery", "", inserted));
     await act(async () => result.current.start()); act(() => port.onmessage?.({ data: { pcm: new Int16Array(3200) } }));
     await act(async () => result.current.stop());
-    expect(result.current.httpUnavailable).toBe(true); expect(result.current.clip).not.toBeNull(); expect(result.current.error).not.toContain("private detail");
+    expect(result.current.phase).toBe("error"); expect(result.current.clip).not.toBeNull(); expect(result.current.error).not.toContain("private detail");
     const blob = result.current.clip!.blob;
     await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
-    expect(result.current.httpUnavailable).toBe(false); expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledOnce();
     await act(async () => result.current.retry()); expect(fetcher.mock.calls[1][1].body).toBe(blob);
-    expect(inserted).toHaveBeenCalledExactlyOnceWith("recovered locally"); act(() => result.current.clear());
+    expect(inserted).toHaveBeenCalledExactlyOnceWith("recovered locally");
+    await act(async () => result.current.start()); expect(result.current.phase).toBe("recording");
+    act(() => result.current.discard());
   } finally { vi.useRealTimers(); }
 });

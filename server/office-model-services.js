@@ -13,8 +13,10 @@ const COOLDOWN_MS = 60000;
 // credentials. The subscription endpoint is undocumented and may stop working.
 function createOfficeDictation({ token, findThread, home, refreshAuth, onStatus = () => {} }) {
   const requests = new Set();
-  let status, blockedUntil = 0, blockedReason, timer, closed = false, refreshing, dispatcher;
-  const failure = (message, httpStatus = 503, disable = true, retryMs = COOLDOWN_MS) => Object.assign(new Error(message), { httpStatus, disable, retryMs });
+  let status, blockedUntil = 0, blockedError, timer, closed = false, refreshing, dispatcher;
+  // Only confirmed auth/configuration failures disable the capability. A failed
+  // request does not mean dictation is unsupported or needs a new login.
+  const failure = (message, httpStatus = 503, disable = false, retryMs = disable ? COOLDOWN_MS : 0) => Object.assign(new Error(message), { httpStatus, disable, retryMs });
   function provider() {
     // An explicitly configured API key retains the public API path. There is no
     // automatic fallback between accounts or separately billed providers.
@@ -33,30 +35,30 @@ function createOfficeDictation({ token, findThread, home, refreshAuth, onStatus 
     if (closed) return;
     if (reset) { blockedUntil = 0; clearTimeout(timer); }
     if (!provider()) return publish(false, SIGN_IN);
-    if (blockedUntil > Date.now()) return publish(false, blockedReason, blockedUntil);
+    if (blockedUntil > Date.now()) return publish(!blockedError.disable, blockedError.message, blockedUntil);
     blockedUntil = 0;
     publish(true);
   }
   function block(error) {
-    if (closed) return;
-    blockedUntil = Date.now() + error.retryMs; blockedReason = error.message;
-    publish(false, blockedReason, blockedUntil);
+    if (closed || (blockedUntil > Date.now() && blockedError.disable && !error.disable)) return;
+    blockedUntil = Date.now() + error.retryMs; blockedError = error;
+    refresh();
     clearTimeout(timer);
     // No background audio uploads: after the cooldown, the user can try again.
     timer = setTimeout(() => refresh(), error.retryMs); timer.unref?.();
   }
   async function credentials(force = false) {
     let auth = provider();
-    if (!auth) throw failure(SIGN_IN);
+    if (!auth) throw failure(SIGN_IN, 503, true);
     let expired = false;
     if (!auth.apiKey) {
       try { const expiry = JSON.parse(Buffer.from(auth.accessToken.split(".")[1], "base64url")).exp; expired = expiry && expiry * 1000 < Date.now() + 30000; } catch { /* An opaque token is checked by the service. */ }
       if ((force || expired) && refreshAuth) {
         // Coalesce only token renewal, never serialize unrelated recordings.
         refreshing ||= Promise.resolve().then(refreshAuth).finally(() => { refreshing = null; });
-        try { await refreshing; } catch { throw failure(SIGN_IN); }
+        try { await refreshing; } catch { throw failure(TEMPORARY); }
         auth = provider();
-        if (!auth || auth.apiKey) throw failure(SIGN_IN);
+        if (!auth || auth.apiKey) throw failure(SIGN_IN, 503, true);
       }
     }
     return auth;
@@ -89,8 +91,8 @@ function createOfficeDictation({ token, findThread, home, refreshAuth, onStatus 
         await response.body?.cancel(); auth = await credentials(true); continue;
       }
       if (!response.ok) await response.body?.cancel();
-      if (response.status === 401) throw failure(auth.apiKey ? "Check the dictation API key on the Office server." : SIGN_IN);
-      if (response.status === 429) throw failure("Dictation is rate limited. Please try again shortly.", 503, true, retryDelay(response));
+      if (response.status === 401) throw failure(auth.apiKey ? "Check the dictation API key on the Office server." : SIGN_IN, 503, true);
+      if (response.status === 429) throw failure("Dictation is rate limited. Please try again shortly.", 503, false, retryDelay(response));
       if ([400, 413, 422].includes(response.status)) throw failure("The dictation service could not read this recording. Please record again.", 422, false);
       if (!response.ok) throw failure(TEMPORARY);
       if (!/application\/json/i.test(response.headers.get("content-type") || "")) { await response.body?.cancel(); throw failure(INVALID_RESPONSE); }
@@ -113,7 +115,7 @@ function createOfficeDictation({ token, findThread, home, refreshAuth, onStatus 
       catch { throw failure("Session not found or archived.", 404, false); }
       if (closed) throw failure(TEMPORARY, 503, false);
       refresh();
-      if (!status.dictation) throw failure(status.dictationReason, 503, false);
+      if (!status.dictation || blockedUntil > Date.now()) throw failure(status.dictationReason);
       if (requests.size >= 2) throw failure("Transcription is busy; please try again shortly.", 429, false);
       requests.add(controller);
       const chunks = []; let size = 0;
@@ -127,7 +129,7 @@ function createOfficeDictation({ token, findThread, home, refreshAuth, onStatus 
       // Never send raw upstream errors, response bodies, auth paths or tokens to
       // the browser/logs. Capability failure is separate from a bad recording.
       const error = cause?.httpStatus ? cause : failure(TEMPORARY);
-      if (error.disable) block(error);
+      if (error.disable || error.retryMs) block(error);
       if (!res.destroyed) {
         res.writeHead(error.httpStatus, { "Content-Type": "application/json", "Cache-Control": "no-store" });
         res.end(JSON.stringify({ error: error.message + " Recording kept.", dictation: status }));

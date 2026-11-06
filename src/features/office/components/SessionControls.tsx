@@ -161,7 +161,7 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
   const voice = sharedVoice || localVoice;
   const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false);
   const recording = dictation.phase === "starting" || dictation.phase === "recording";
-  const dictationUnavailable = state?.features?.dictation === false || dictation.httpUnavailable;
+  const dictationUnavailable = state?.features?.dictation === false;
   const dictationReason = state?.features?.dictationReason || "Dictation is unavailable.";
   const dictatedSend = useRef<((message: string) => void) | null>(null);
   const stopDictation = async (send = false) => {
