@@ -40,7 +40,7 @@ Office at the native App's executable or data directory. Configure both Office s
 | `CLAW3D_CODEX_CONFIG_HOME` | Optional public configuration source override | Unneeded |
 | `CLAW3D_GATEWAY_URL` | Unneeded | `ws://127.0.0.1:18790` |
 | `CLAW3D_CODEX_GATEWAY` | Unneeded | `1` |
-| `NEXT_PUBLIC_CLAW3D_SESSION_VIEW` | Unneeded | `1` at build time |
+| `NEXT_PUBLIC_CLAW3D_SESSION_VIEW` | Unneeded | Optional; defaults to `1` (spaceship). Set `0` at build time for legacy Office. |
 | `CLAW3D_UPLOAD_DIR` | Optional upload directory | Same directory |
 
 Start `npm run codex-gateway`, then Studio with `npm run dev` (or build with

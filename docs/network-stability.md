@@ -33,8 +33,8 @@ roster events. Chat messages and approvals are never retried automatically.
 ## Reproduce browser fault tests
 
 Run a local Studio instance against a native Codex gateway with existing sessions.
-Build it with the deployment's public flags: `NEXT_PUBLIC_CLAW3D_SESSION_VIEW=1`
-and, for authenticated web access, `NEXT_PUBLIC_CLAW3D_WEB_ACCESS=1`. These flags
+The spaceship view is the default. For authenticated web access, build with
+`NEXT_PUBLIC_CLAW3D_WEB_ACCESS=1`. These public flags
 are compiled into the browser bundle; setting them only when starting the server
 does not change an existing build. Then run:
 

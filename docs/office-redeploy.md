@@ -4,6 +4,10 @@ Build and validate the candidate in a separate directory **before** redeploying.
 Never build over a running or rollback release. Keep its dependencies and build
 available until the replacement has passed acceptance.
 
+The spaceship is the default UI for `npm run dev` and `npm run build`.
+To use the legacy Office interface, explicitly set
+`NEXT_PUBLIC_CLAW3D_SESSION_VIEW=0` during the build.
+
 For the Codex spaceship UI behind authenticated web access, build with
 `npm run build:office`. This sets both `NEXT_PUBLIC_CLAW3D_SESSION_VIEW=1` and
 `NEXT_PUBLIC_CLAW3D_WEB_ACCESS=1` **during compilation**. Setting them only when

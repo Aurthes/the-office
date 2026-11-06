@@ -65,7 +65,7 @@ if (process.env.NODE_ENV === "production") {
 const nextConfig: NextConfig = {
   // Persist the compiled modes in required-server-files.json for deploy checks.
   env: {
-    NEXT_PUBLIC_CLAW3D_SESSION_VIEW: process.env.NEXT_PUBLIC_CLAW3D_SESSION_VIEW || "0",
+    NEXT_PUBLIC_CLAW3D_SESSION_VIEW: process.env.NEXT_PUBLIC_CLAW3D_SESSION_VIEW || "1",
     NEXT_PUBLIC_CLAW3D_WEB_ACCESS: process.env.NEXT_PUBLIC_CLAW3D_WEB_ACCESS || "0",
   },
   turbopack: {

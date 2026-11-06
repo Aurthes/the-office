@@ -173,6 +173,29 @@ test("public Studio rejects absent or mismatched build modes before stopping the
   assert.equal(await version(f.services[0].health), "new");
 });
 
+test("public Studio defaults an omitted view flag to spaceship and accepts explicit legacy mode", mac, async t => {
+  const f = await fixture(t, ["studio"]);
+  await productionAssets(f);
+  const candidate = f.services[0].candidate;
+  const value = JSON.parse(execFileSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", candidate], { encoding: "utf8" }));
+  value.EnvironmentVariables.NEXT_PUBLIC_CLAW3D_WEB_ACCESS = "1";
+  writePlist(candidate, value);
+  const manifest = path.join(f.root, "new/.next/required-server-files.json");
+  const compiled = mode => fs.writeFileSync(manifest, JSON.stringify({ config: { env: {
+    NEXT_PUBLIC_CLAW3D_SESSION_VIEW: mode, NEXT_PUBLIC_CLAW3D_WEB_ACCESS: "1",
+  } } }));
+  compiled("0");
+  assert.throws(() => prepare(f.planFile, path.join(f.root, "jobs")), /Candidate browser modes/);
+  compiled("1");
+  assert.doesNotThrow(() => prepare(f.planFile, path.join(f.root, "jobs")));
+  value.EnvironmentVariables.NEXT_PUBLIC_CLAW3D_SESSION_VIEW = "0";
+  writePlist(candidate, value);
+  assert.throws(() => prepare(f.planFile, path.join(f.root, "jobs")), /Candidate browser modes/);
+  compiled("0");
+  assert.doesNotThrow(() => prepare(f.planFile, path.join(f.root, "jobs")));
+  assert.equal(await version(f.services[0].health), "old");
+});
+
 test("production Studio preserves old deferred assets before starting the replacement", mac, async t => {
   const f = await fixture(t, ["studio"]); await productionAssets(f);
   const entry = path.join(f.root, "new/server/index.js");

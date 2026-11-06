@@ -68,11 +68,11 @@ function describe(bytes, file, validateBuild = false) {
   const files = [args[1]];
   if (value.EnvironmentVariables?.NODE_ENV === "production" && kind === "studio") {
     files.push(path.join(cwd, ".next/BUILD_ID"), path.join(cwd, "node_modules/next/package.json"));
-    const flags = ["NEXT_PUBLIC_CLAW3D_SESSION_VIEW", "NEXT_PUBLIC_CLAW3D_WEB_ACCESS"];
-    if (validateBuild && flags.some(flag => value.EnvironmentVariables[flag] === "1")) {
+    const flags = { NEXT_PUBLIC_CLAW3D_SESSION_VIEW: "1", NEXT_PUBLIC_CLAW3D_WEB_ACCESS: "0" };
+    if (validateBuild && Object.keys(flags).some(flag => value.EnvironmentVariables[flag] === "1")) {
       const manifest = path.join(cwd, ".next/required-server-files.json");
       const built = fs.existsSync(manifest) ? JSON.parse(fs.readFileSync(manifest, "utf8")).config?.env : null;
-      if (flags.some(flag => built?.[flag] !== (value.EnvironmentVariables[flag] || "0"))) {
+      if (Object.entries(flags).some(([flag, fallback]) => built?.[flag] !== (value.EnvironmentVariables[flag] || fallback))) {
         throw new Error("Candidate browser modes differ from service configuration; rebuild with npm run build:office (or explicit public flags)");
       }
       files.push(manifest);
