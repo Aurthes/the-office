@@ -16,7 +16,8 @@ export function normalizeOrganization(value: unknown): OfficeOrganization {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return Object.fromEntries(Object.entries(value).flatMap(([id, raw]) => {
     if (!id.trim() || id.length > 160 || ["__proto__", "constructor", "prototype"].includes(id) || !raw || typeof raw !== "object") return [];
-    if (id === LEGACY_CEO_ID && Object.hasOwn(value, CEO_ID)) return [];
+    const canonicalRoot = (value as Record<string, unknown>)[CEO_ID];
+    if (id === LEGACY_CEO_ID && canonicalRoot && typeof canonicalRoot === "object" && !Array.isArray(canonicalRoot)) return [];
     const position = raw as Record<string, unknown>;
     return [[id === LEGACY_CEO_ID ? CEO_ID : id, { title: typeof position.title === "string" ? position.title.trim().slice(0, 80) || "Worker" : "Worker",
       reportsTo: Array.isArray(position.reportsTo) ? [...new Set(position.reportsTo.filter((parent): parent is string => typeof parent === "string" && !!parent.trim() && parent.length <= 160).map(parent => parent === LEGACY_CEO_ID ? CEO_ID : parent))] : [] }]];
@@ -38,8 +39,14 @@ export function assertReportingStructure(organization: OfficeOrganization) {
 }
 
 export function mergeOrganization(current: OfficeOrganization = {}, patch: Record<string, OfficePosition | null> | null): OfficeOrganization {
-  const next = patch === null ? {} : { ...normalizeOrganization(current), ...normalizeOrganization(patch) };
-  for (const [id, value] of Object.entries(patch || {})) if (value === null) delete next[id === LEGACY_CEO_ID ? CEO_ID : id];
+  const normalizedPatch = normalizeOrganization(patch);
+  const next = patch === null ? {} : { ...normalizeOrganization(current), ...normalizedPatch };
+  for (const [id, value] of Object.entries(patch || {})) if (value === null) {
+    // Old tabs can remove an unfamiliar UUID while providing the same root
+    // under its old NPC key. That is an alias update, not a root deletion.
+    if (id === LEGACY_CEO_ID || id === CEO_ID && normalizedPatch[CEO_ID]) continue;
+    delete next[id];
+  }
   assertReportingStructure(next);
   return next;
 }

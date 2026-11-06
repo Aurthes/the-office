@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { CEO_ID, LEGACY_CEO_ID, normalizeOrganization, reconcileOrganization, organizationPeople } from "@/lib/office/organization";
+import { CEO_ID, LEGACY_CEO_ID, mergeOrganization, normalizeOrganization, reconcileOrganization, organizationPeople } from "@/lib/office/organization";
 import { createDefaultAgentAvatarProfile } from "@/lib/avatars/profile";
 import { defaultStudioSettings, mergeStudioSettings, normalizeStudioSettings, resolveAgentAvatarProfile, resolveOfficePreferencePublic, sanitizeStudioSettings } from "@/lib/studio/settings";
 import { buildShipLayout, shipDeck } from "@/features/ring-ship/layout";
@@ -76,6 +76,24 @@ it("prefers an already saved real CEO over legacy copies regardless of key order
     expect(resolveAgentAvatarProfile(settings, gateway, CEO_ID)).toEqual(original);
     expect(normalizeOrganization(Object.fromEntries(reversed ? [[LEGACY_CEO_ID, { title: "Old", reportsTo: [] }], [CEO_ID, { title: "Current", reportsTo: [] }]] : [[CEO_ID, { title: "Current", reportsTo: [] }], [LEGACY_CEO_ID, { title: "Old", reportsTo: [] }]]))[CEO_ID].title).toBe("Current");
   }
+});
+
+it("ignores stale NPC avatar writes after migration while allowing normal CEO avatar edits", () => {
+  const gateway = "ws://localhost:18790", original = createDefaultAgentAvatarProfile(LEGACY_CEO_ID), stale = createDefaultAgentAvatarProfile("old-tab-regeneration");
+  const settings = normalizeStudioSettings({ ...defaultStudioSettings(), avatars: { [gateway]: { [LEGACY_CEO_ID]: original } } });
+  const ignored = mergeStudioSettings(settings, { avatars: { [gateway]: { [LEGACY_CEO_ID]: stale } } });
+  expect(resolveAgentAvatarProfile(ignored, gateway, CEO_ID)).toEqual(original);
+  const deleted = mergeStudioSettings(ignored, { avatars: { [gateway]: { [LEGACY_CEO_ID]: null } } });
+  expect(resolveAgentAvatarProfile(deleted, gateway, CEO_ID)).toEqual(original);
+  const edited = mergeStudioSettings(ignored, { avatars: { [gateway]: { [CEO_ID]: stale } } });
+  expect(resolveAgentAvatarProfile(edited, gateway, CEO_ID)).toEqual(stale);
+});
+
+it("preserves the CEO root when old tabs clean up either spelling of its identity", () => {
+  const current = { [CEO_ID]: { title: "CEO", reportsTo: [] }, head: { title: "Head", reportsTo: [CEO_ID] } };
+  expect(mergeOrganization(current, { [LEGACY_CEO_ID]: null })).toEqual(current);
+  expect(mergeOrganization(current, { [CEO_ID]: null, [LEGACY_CEO_ID]: { title: "CEO", reportsTo: [] } })).toEqual(current);
+  expect(mergeOrganization(current, { [CEO_ID]: { title: "Captain", reportsTo: [] }, [LEGACY_CEO_ID]: null })[CEO_ID].title).toBe("Captain");
 });
 
 it("shows a single CEO at the root without making the CEO an Open Workspace department head", () => {

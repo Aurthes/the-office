@@ -963,6 +963,9 @@ export const mergeStudioSettings = (
       if (!isRecord(gatewayPatch)) continue;
       const existing = nextAvatars[gatewayKey] ? { ...nextAvatars[gatewayKey] } : {};
       for (const [agentIdRaw, avatarPatchRaw] of Object.entries(gatewayPatch)) {
+        // An already-open pre-migration tab may invent another NPC avatar when
+        // it cannot find the old key. It must not replace the real CEO avatar.
+        if (agentIdRaw === LEGACY_CEO_ID && existing[CEO_ID]) continue;
         if (agentIdRaw === LEGACY_CEO_ID && Object.hasOwn(gatewayPatch, CEO_ID)) continue;
         const agentId = agentIdRaw === LEGACY_CEO_ID ? CEO_ID : coerceString(agentIdRaw);
         if (!agentId) continue;
