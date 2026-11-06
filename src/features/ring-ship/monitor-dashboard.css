@@ -19,3 +19,38 @@
 @media(prefers-reduced-motion:reduce){.monitor-dialog{animation:none}.monitor-tile{transition:none}.monitor-tile:hover{transform:none}}
 
 .monitor-meter-alert{display:inline-flex;align-items:center;gap:5px}.monitor-firefight{display:inline-flex;align-items:center;justify-content:center;gap:3px;min-height:24px;padding:2px 5px;border:1px solid #dc97865e;border-radius:5px;background:#9f3e302e;color:#efb69f;font:9px system-ui;cursor:pointer}.monitor-firefight:hover{background:#ae493b55;border-color:#e4ad91}.monitor-firefight:disabled{opacity:.45;cursor:wait}.monitor-dispatching{margin:0 0 12px;font-size:12px;color:#efb69f}@media(max-width:680px){.monitor-firefight{min-height:32px}.monitor-meter-alert{flex-wrap:wrap}}
+.monitor-server-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 24px 0; border-bottom: 1px solid #c6d5de20; }
+.monitor-server-tabs button { min-height: 42px; padding: 8px 14px; border-radius: 8px 8px 0 0; font-size: 12px; color: #a8bfcc; cursor: pointer; }
+.monitor-server-tabs button[aria-pressed="true"] { background: #5dc5d51a; color: #c3eff5; box-shadow: inset 0 -2px #7ad2df; }
+.background-host-link { display: block; min-height: 36px; color: #a8e6ed; cursor: pointer; text-align: left; font-size: 11px; }
+.monitor-host-name > div:has(.background-host-link) { flex-wrap: wrap; }
+.background-dashboard { min-width: 0; }
+.background-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; margin: 16px 0; padding: 12px 16px; border-radius: 10px; background: #97b9cc0c; font-size: 12px; }
+.background-summary span { display: inline-flex; align-items: center; gap: 8px; color: #c0d3df; }
+.background-summary [data-alert="true"] { color: #f0b1ad; }
+.background-summary small { margin-left: auto; color: #8da6b6; }
+.background-jobs { display: grid; gap: 14px; }
+.background-job { min-width: 0; padding: 18px; border: 1px solid #99bbcf2b; border-radius: 12px; background: #111e2b80; }
+.background-job > header { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 10px; }
+.background-job > header > div { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.background-job h3 { margin: 0; color: #e0e9ee; font-size: 15px; overflow-wrap: anywhere; }
+.background-job > header > b { font-size: 11px; padding: 4px 9px; border-radius: 5px; background: #a4b9c517; color: #b6c5cf; }
+.background-status-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #9cabb6; }
+.background-job[data-status="running"] .background-status-dot { background: #8acbb6; box-shadow: 0 0 10px #8acbb633; }
+.background-job[data-status="failed"] { border-color: #e79d9d60; }
+.background-job[data-status="failed"] .background-status-dot { background: #e79d9d; }
+.background-job[data-status="failed"] > header > b { color: #f3b9b9; background: #df74741c; }
+.background-job-details { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; margin-top: 12px; color: #99b0c0; font-size: 11px; }
+.background-job-details span { display: inline-flex; gap: 6px; align-items: center; }
+.background-progress { margin: 16px 0; padding: 12px 14px; border-left: 2px solid #91bac849; background: #abc1d008; }
+.background-progress small,.background-progress time { color: #8da6b5; font-size: 10px; }
+.background-progress p { margin: 6px 0; color: #d4e1e9; font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
+.background-log-button { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 6px 12px; border: 1px solid #9bb9ce38; border-radius: 7px; color: #c1dbe5; font-size: 11px; cursor: pointer; }
+.background-no-log { color: #8da6b5; font-size: 10px; }
+.background-log-view { margin-top: 14px; min-width: 0; }
+.background-log-view [role="group"] { display: flex; flex-wrap: wrap; gap: 8px; }
+.background-log-view button { min-height: 36px; padding: 6px 10px; border-radius: 5px; color: #a6bbc9; font-size: 11px; cursor: pointer; }
+.background-log-view button[aria-pressed="true"] { background: #88c5d321; color: #d1edf2; }
+.background-log-view pre { max-height: 300px; margin: 10px 0; padding: 14px; border: 1px solid #91afc32b; border-radius: 8px; background: #08131f; color: #cbdde8; overflow: auto; white-space: pre; font: 11px/1.7 ui-monospace,monospace; }
+.background-log-view small,.background-log-view > p { font-size: 10px; color: #8da6b5; }
+@media (max-width: 640px) { .monitor-server-tabs { padding: 8px 12px 0; gap: 4px; } .monitor-server-tabs button { padding: 7px 10px; } .background-job { padding: 14px; } .background-summary small { margin-left: 0; width: 100%; } }

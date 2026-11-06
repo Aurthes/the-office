@@ -390,6 +390,7 @@ export function RingShipOffice(props: Props) {
   const [trip, setTrip] = useState<LiftTrip | null>(null);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [serversOpen, setServersOpen] = useState(false);
+  const [serversView, setServersView] = useState<"servers" | "local">("servers");
   const [terminalHost, setTerminalHost] = useState<string | null>(null);
   const serverFleet = useServerSnapshot(true);
   const serverHostKey = JSON.stringify(serverFleet.snapshot?.servers.map(({ alias, group, active, family }) => ({ alias, group, active, family })) ?? []);
@@ -406,7 +407,8 @@ export function RingShipOffice(props: Props) {
   const [inspectedObject, setInspectedObject] = useState<ShipObject | null>(null);
   const closeObject = useCallback(() => setInspectedObject(null), []);
   const openMonitor = () => { closeObject(); setMonitorOpen(true); };
-  const openServers = () => { closeObject(); setServersOpen(true); };
+  const openServers = () => { closeObject(); setServersView("servers"); setServersOpen(true); };
+  const openBackgroundProcesses = () => { closeObject(); setServersView("local"); setServersOpen(true); };
   const openTasks = () => { closeObject(); setTasksOpen(true); };
   const openAiCenter = () => { closeObject(); setAiOpen(true); };
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -648,7 +650,7 @@ export function RingShipOffice(props: Props) {
     </div>
     </fieldset>
     <div className="ship-bottom-right">
-    {objectFocus ? <ShipObjectCard object={objectFocus} customRoom={currentLayout.cabins.some(c => c.id === objectFocus.cabinId && !!c.projectId && c.projectId !== SHARED_PROJECT_ID)} onClose={closeObject}>{objectFocus.serverAlias ? <ServerRackInfo row={serverFleet.snapshot?.servers.find(row => row.alias === objectFocus.serverAlias)} onTerminal={setTerminalHost} /> : null}</ShipObjectCard> : null}
+    {objectFocus ? <ShipObjectCard object={objectFocus} customRoom={currentLayout.cabins.some(c => c.id === objectFocus.cabinId && !!c.projectId && c.projectId !== SHARED_PROJECT_ID)} onClose={closeObject}>{objectFocus.serverAlias ? <ServerRackInfo row={serverFleet.snapshot?.servers.find(row => row.alias === objectFocus.serverAlias)} onTerminal={setTerminalHost} onBackgroundProcesses={openBackgroundProcesses} /> : null}</ShipObjectCard> : null}
     {navigationPreview && !navigationOpen ? <div className="star-location"><span style={{ color: system.color }}>{t(system.name)}</span><small>{t(system.description)}</small>{activityEnabled ? <small ref={spaceCaption} className="star-cruise-status">{t("Cruising")}</small> : null}</div> : null}
     </div>
     </div>
@@ -656,7 +658,7 @@ export function RingShipOffice(props: Props) {
     {navigationOpen && navigation.phase !== "warp" ? <NavigationOverlay state={navigation} onAction={navigate} /> : null}
     {navigationPreview && navigation.phase === "warp" && navigation.destination ? <WarpJourney destination={starSystem(navigation.destination)} onArrive={arriveSystem} onComplete={completeWarp} /> : null}
     <MonitorDashboard open={monitorOpen} onClose={() => setMonitorOpen(false)} />
-    <ServerRoomDashboard fleet={serverFleet} open={serversOpen} onClose={() => setServersOpen(false)} onFirefight={props.onFirefight} />
+    {serversOpen ? <ServerRoomDashboard fleet={serverFleet} open initialView={serversView} onClose={() => setServersOpen(false)} onFirefight={props.onFirefight} /> : null}
     {terminalHost ? <ServerTerminal alias={terminalHost} onClose={() => setTerminalHost(null)} /> : null}
     {!props.onOpenTaskBoard ? <TaskBoard open={localTodoOpen} onClose={() => setLocalTodoOpen(false)} onOpenSession={open} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} /> : null}
     <ScheduledTasks open={tasksOpen} onClose={() => setTasksOpen(false)} onOpenSession={open} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} />

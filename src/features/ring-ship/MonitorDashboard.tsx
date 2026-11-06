@@ -10,6 +10,7 @@ import { openStrategyMonitor, strategyMonitorUrl } from "./strategyMonitor";
 import { MonitorIllustration } from "./MonitorIllustration";
 import type { ServerFleetState } from "./useServerSnapshot";
 import { ServerDashboard } from "./ServerDashboard";
+import { BackgroundProcessDashboard } from "./BackgroundProcessDashboard";
 import { ParticipationDashboard } from "@/features/participation/ParticipationDashboard";
 import "./monitor-dashboard.css";
 
@@ -111,8 +112,9 @@ export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: ()
 }
 
 
-export function ServerRoomDashboard({ open, onClose, onFirefight, fleet }: { open: boolean; onClose: () => void; onFirefight?: FirefightHandler; fleet?: ServerFleetState }) {
+export function ServerRoomDashboard({ open, onClose, onFirefight, fleet, initialView = "servers" }: { open: boolean; onClose: () => void; onFirefight?: FirefightHandler; fleet?: ServerFleetState; initialView?: "servers" | "local" }) {
   const t = useUiText(), dialog = useRef<HTMLDialogElement>(null);
+  const [view, setView] = useState(initialView);
   useEffect(() => {
     const node = dialog.current;
     if (open && !node?.open) node?.showModal();
@@ -123,12 +125,13 @@ export function ServerRoomDashboard({ open, onClose, onFirefight, fleet }: { ope
     <div className="monitor-frame" data-view="servers">
       <header className="monitor-header">
         <button className="monitor-icon-button" type="button" aria-label={t("Back to ship")} onClick={onClose}><ArrowLeft size={18} /></button>
-        <div className="monitor-title"><span><Monitor size={14} />{t("Server room")}</span><h1>{t("Fleet status")}</h1></div>
+        <div className="monitor-title"><span><Monitor size={14} />{t("Server room")}</span><h1>{t(view === "local" ? "Local background tasks" : "Fleet status")}</h1></div>
         <span className="monitor-header-detail">{t("SHIP SYSTEMS")}</span>
         <button className="monitor-icon-button" type="button" onClick={onClose} aria-label={t("Close monitoring dashboard")}><X size={19} /></button>
       </header>
-      <div className="monitor-content"><ServerDashboard active={open} fleet={fleet} onFirefight={onFirefight ? async (alert, id) => { await onFirefight(alert, id); onClose(); } : undefined} /></div>
-      <footer className="monitor-frame-footer"><span>{t("Server room")}</span><span>{t("HOST RESOURCE OVERVIEW")}</span><span>{t("ESC TO RETURN")}</span></footer>
+      <nav className="monitor-server-tabs" aria-label={t("Server room views")}><button type="button" aria-pressed={view === "servers"} onClick={() => setView("servers")}>{t("Machine status")}</button><button type="button" aria-pressed={view === "local"} onClick={() => setView("local")}>{t("Local machine")} · {t("Background tasks")}</button></nav>
+      <div className="monitor-content">{view === "local" ? <BackgroundProcessDashboard active={open} /> : <ServerDashboard active={open} fleet={fleet} onBackgroundProcesses={() => setView("local")} onFirefight={onFirefight ? async (alert, id) => { await onFirefight(alert, id); onClose(); } : undefined} />}</div>
+      <footer className="monitor-frame-footer"><span>{t("Server room")}</span><span>{t(view === "local" ? "Local background tasks" : "HOST RESOURCE OVERVIEW")}</span><span>{t("ESC TO RETURN")}</span></footer>
     </div>
   </dialog>, document.body);
 }

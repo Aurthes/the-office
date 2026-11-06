@@ -12,3 +12,13 @@ export type ServerRow = PoolHost & {
   metrics: ServerMetrics | null; sampledAt: number | null; checkedAt: number | null; error: string | null;
 };
 export type ServerSnapshot = { configured: boolean; refreshing: boolean; updatedAt: number | null; servers: ServerRow[] };
+
+export type BackgroundProcess = {
+  id: string; name: string; kind: "launchd" | "pid";
+  status: "running" | "stopped" | "failed" | "unknown";
+  pid: number | null; elapsedSeconds: number | null; lastExitCode: number | null;
+  progress: { text: string; at: number | null } | null;
+  logStreams: Array<"events" | "stdout" | "stderr">; error: string | null;
+};
+export type BackgroundSnapshot = { updatedAt: number; jobs: BackgroundProcess[] };
+export type BackgroundLog = { id: string; stream: string; content: string; updatedAt: number | null; truncated: boolean; available: boolean };

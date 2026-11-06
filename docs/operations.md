@@ -103,6 +103,46 @@ physical `en*` link-layer counters, excluding duplicate IP, loopback, bridge, an
 VPN rows. Missing measurements stay unknown. The local entry does not change
 the machine's eligibility for remote build or deployment scheduling.
 
+### Local background tasks
+
+The machine-room console has **Machine status** and **Local machine · Background
+tasks** views. The local machine's rack card and resource row also link to its
+background tasks. This is a read-only monitor for existing jobs, separate from
+agent schedules: it never starts, stops, or retries a process.
+
+Register a macOS user LaunchAgent, or a running process on the Office host:
+
+```sh
+node scripts/register-background-process.mjs --id data-sync --name "Data sync" \
+  --service com.example.data-sync --events /absolute/path/to/progress.jsonl
+node scripts/register-background-process.mjs --id report --name "Report builder" --pid 1234
+```
+
+Use the same `CLAW3D_DATA_DIR` as Studio. Registrations are private per-job JSON
+files under its `background-processes` directory (default
+`~/.local/share/claw3d/background-processes`). `CLAW3D_BACKGROUND_PROCESSES_DIR`
+can override that directory. Repeat a registration with the same ID to update it;
+remove that job's JSON file to stop tracking it. Separate job files are written
+atomically, so concurrent registrations for different jobs do not replace one
+another. Process registrations capture the original start identity to avoid
+mistaking a reused PID for the old job.
+
+The optional progress source can contain plain text or JSON lines with fields
+such as `date`, `period`, `step`, `stage`, `phase`, `event`, `message`, and a
+Unix-seconds, Unix-milliseconds or ISO `time` / `timestamp` / `updatedAt` value.
+Existing jobs do not need a new progress protocol. LaunchAgent output/error logs
+come from the matching `~/Library/LaunchAgents/<label>.plist`; its credentials
+and command arguments are never returned to the browser. A PID-only task can
+use `--events` for its existing output log.
+
+The view requests a shared sample every five seconds while open and visible.
+Logs are fetched only when selected, capped at 32 KiB and 100 trailing lines,
+with common credential formats redacted. The API accepts a registered task ID
+and stream, never an arbitrary file path. A stopped process is not reported as
+successful without a confirmed result; the panel shows available service exit
+codes and the last progress time without guessing percentages or heartbeat
+deadlines. Unsupported or unreadable samples remain unknown.
+
 ## Remote access
 
 Keep Studio and the Codex gateway on loopback. Put the authenticated web-access
