@@ -12,15 +12,17 @@ import type { ServerFleetState } from "./useServerSnapshot";
 import { ServerDashboard } from "./ServerDashboard";
 import { BackgroundProcessDashboard } from "./BackgroundProcessDashboard";
 import { ParticipationDashboard } from "@/features/participation/ParticipationDashboard";
+import { CapacityDashboard } from "@/features/rate-limit-capacity/CapacityDashboard";
 import "./monitor-dashboard.css";
 
 const embedsParticipation = (link: MonitorLink) => link.url === "/market-participation/";
-const embedsMonitor = (link: MonitorLink) => embedsAccountHistory(link) || embedsParticipation(link);
+const embedsCapacity = (link: MonitorLink) => link.url === "/rate-limit-capacity/";
+const embedsMonitor = (link: MonitorLink) => embedsAccountHistory(link) || embedsParticipation(link) || embedsCapacity(link);
 const embedsAccountHistory = (link: MonitorLink) => link.url === "/account-history/";
 
 export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useUiText(), dialog = useRef<HTMLDialogElement>(null);
-  const [view, setView] = useState<"hub" | "configure" | "account-history" | "participation">("hub");
+  const [view, setView] = useState<"hub" | "configure" | "account-history" | "participation" | "capacity">("hub");
   const [embedded, setEmbedded] = useState<MonitorLink | null>(null);
   const [links, setLinks] = useState<MonitorLink[]>(() => {
     const url = strategyMonitorUrl();
@@ -47,6 +49,7 @@ export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: ()
   }, [open]);
   const configure = () => { setDraft(links.map(link => ({ ...link }))); setError(""); setView("configure"); };
   const launch = (link: MonitorLink) => {
+    if (embedsCapacity(link)) { setEmbedded(link); setView("capacity"); setError(""); return; }
     if (embedsParticipation(link)) { setEmbedded(link); setView("participation"); setError(""); return; }
     if (embedsAccountHistory(link)) { setEmbedded(link); setView("account-history"); setError(""); return; }
     setError(openStrategyMonitor(link.url, Date.now(), link.id) ? "" : "Allow pop-ups for this site, then try again.");
@@ -69,7 +72,7 @@ export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: ()
     <div className="monitor-frame" data-view={view}>
       <header className="monitor-header">
         <button className="monitor-icon-button" type="button" aria-label={view === "hub" ? t("Back to ship") : t("Back to monitors")} onClick={() => { if (view === "hub") close(); else back(); }}><ArrowLeft size={18} /></button>
-        <div className="monitor-title"><span><Monitor size={14} />{t("MONITOR ROOM")}</span><h1>{view === "account-history" || view === "participation" ? embedded?.label : view === "configure" ? t("Configure monitors") : t("Operations console")}</h1></div>
+        <div className="monitor-title"><span><Monitor size={14} />{t("MONITOR ROOM")}</span><h1>{view === "account-history" || view === "participation" || view === "capacity" ? embedded?.label : view === "configure" ? t("Configure monitors") : t("Operations console")}</h1></div>
         <span className="monitor-header-detail">{t("SHIP SYSTEMS")}</span>
         {view === "hub" ? <button className="monitor-action" type="button" onClick={configure} disabled={loading}><Settings2 size={15} /><span>{t("Configure")}</span></button> : null}
         <button className="monitor-icon-button" type="button" onClick={close} aria-label={t("Close monitoring dashboard")}><X size={19} /></button>
@@ -79,7 +82,7 @@ export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: ()
         {view === "hub" ? <>
           <div className="monitor-intro"><div><h2>{t("Choose a monitor")}</h2><p>{t("Open a dashboard from the ship’s control screen.")}</p></div><small>{t("Illustrated shortcuts")}</small></div>
           <div className="monitor-tiles">
-            {links.map(link => <button key={link.id} type="button" className="monitor-tile" onClick={() => launch(link)} aria-label={t("Open monitor: {name}", { name: link.label })}>
+            {(links.some(embedsCapacity) ? links : [...links, { id: "builtin:capacity", label: t("Order capacity"), url: "/rate-limit-capacity/", visual: "chart" as const }]).map(link => <button key={link.id} type="button" className="monitor-tile" onClick={() => launch(link)} aria-label={t("Open monitor: {name}", { name: link.label })}>
               <div className="monitor-tile-graphic" data-visual={link.visual}><div className="monitor-window-bar"><i /><i /><i /><span>{link.id === "grafana" ? t("Strategy performance") : t("Dashboard")}</span><small>{t("Illustration")}</small></div><MonitorIllustration visual={link.visual} /></div>
               <div className="monitor-tile-caption"><div><h3>{link.label}</h3><p>{t(embedsMonitor(link) ? "Opens inside this console" : "Opens in a reusable browser tab")}</p></div>{embedsMonitor(link) ? <Monitor size={21} /> : <ArrowUpRight size={21} />}</div>
             </button>)}
@@ -95,6 +98,7 @@ export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: ()
           } catch { /* A browser-blocked frame must leave the console's back/close controls usable. */ }
         }} /> : null}
         {open && view === "participation" ? <ParticipationDashboard /> : null}
+        {open && view === "capacity" ? <CapacityDashboard /> : null}
         {view === "configure" ? <form className="monitor-config" onSubmit={event => { event.preventDefault(); void save(); }}>
           <div className="monitor-intro"><div><h2>{t("Your dashboard shortcuts")}</h2><p>{t("Names, links, and illustrations are shared across your devices.")}</p></div></div>
           {draft.map((link, index) => <fieldset className="monitor-config-link" key={link.id} disabled={saving}>
@@ -106,7 +110,7 @@ export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: ()
           <div className="monitor-config-footer"><button className="monitor-action" type="button" disabled={draft.length >= 8 || saving} onClick={() => setDraft(current => [...current, { id: crypto.randomUUID(), label: "", url: "", visual: "chart" }])}><Plus size={15} />{t("Add a monitor")}</button><button type="submit" className="monitor-primary" disabled={saving}><Check size={16} />{saving ? t("Saving…") : t("Save monitors")}</button></div>
         </form> : null}
       </div>
-      <footer className="monitor-frame-footer"><span>{t("MONITOR ROOM")}</span><span>{view === "account-history" ? t("Dashboard") : t("DASHBOARD LAUNCHER")}</span><span>{t("ESC TO RETURN")}</span></footer>
+      <footer className="monitor-frame-footer"><span>{t("MONITOR ROOM")}</span><span>{view === "account-history" || view === "capacity" ? t("Dashboard") : t("DASHBOARD LAUNCHER")}</span><span>{t("ESC TO RETURN")}</span></footer>
     </div>
   </dialog>, document.body);
 }
