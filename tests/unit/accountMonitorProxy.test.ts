@@ -59,3 +59,14 @@ it("returns a bounded failure when the local viewer is unavailable", async () =>
   await new Promise<void>(resolve => backend.close(() => resolve()));
   expect((await fetch(base + "/account-history/api/latest")).status).toBe(502);
 });
+
+it("allows a seven-day aggregate to finish beyond the ordinary eight-second timeout", async () => {
+  backend.removeAllListeners("request");
+  backend.on("request", (_req, res) => {
+    const timer = setTimeout(() => res.end(JSON.stringify({ hours: 168, pnl: "1.25" })), 8200);
+    res.once("close", () => clearTimeout(timer));
+  });
+  const response = await fetch(base + "/account-history/api/aggregate?hours=168");
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ hours: 168, pnl: "1.25" });
+}, 15000);

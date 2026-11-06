@@ -25,8 +25,10 @@ function createAccountMonitorProxy(origin) {
     res.setHeader("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; frame-ancestors 'self'; base-uri 'none'");
     // Construct the request from the fixed origin; never forward cookies,
     // authorization or a client-supplied host to the dashboard service.
+    // A week of local JSONL can need more than eight seconds on a cold disk.
+    const timeout = pathname === "/api/aggregate" ? 30000 : 8000;
     const upstream = http.get({ hostname: target.hostname, port: target.port || 80,
-      path: pathname + url.search, timeout: 8000 }, response => {
+      path: pathname + url.search, timeout }, response => {
       res.statusCode = response.statusCode || 502;
       for (const name of ["content-type", "content-length"]) {
         if (response.headers[name]) res.setHeader(name, response.headers[name]);
