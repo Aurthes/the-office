@@ -33,3 +33,17 @@ it("persists only one responsibility and refreshes current members and roles wit
   expect(result.current.departments?.[1].members).toEqual([]);
   coordinator.dispose();
 });
+
+it("persists a recruit's actual hiring Head through the existing organization writer", async () => {
+  const gatewayUrl = "ws://office", roster = { projects: [{ id: "a", name: "Department" }], members: [{ id: "first", projectId: "a" }, { id: "second", projectId: "a" }, { id: "recruit", projectId: "a", recruitedBy: "second" }] };
+  let settings = mergeStudioSettings(defaultStudioSettings(), { office: { [gatewayUrl]: { organization: { [CEO_ID]: { title: "CEO", reportsTo: [] }, first: { title: "Head", reportsTo: [CEO_ID] }, second: { title: "Head", reportsTo: [CEO_ID] } } } }, avatars: { [gatewayUrl]: { [CEO_ID]: createDefaultAgentAvatarProfile(CEO_ID) } } });
+  const update = vi.fn(async (patch: StudioSettingsPatch) => { settings = mergeStudioSettings(settings, patch); return { settings: sanitizeStudioSettings(settings) }; });
+  const coordinator = new StudioSettingsCoordinator({ fetchSettings: async () => ({ settings: sanitizeStudioSettings(settings) }), updateSettings: update });
+  const view = renderHook(() => useOfficeOrganization({ roster, names: new Map(), coordinator, gatewayUrl, enabled: true }));
+  await waitFor(() => expect(view.result.current.people.find(person => person.id === "recruit")?.reportsTo).toEqual(["second"]));
+  expect(settings.office[gatewayUrl].organization?.recruit).toEqual({ title: "Worker", reportsTo: ["second"] });
+  expect(update).toHaveBeenCalledWith({ office: { [gatewayUrl]: { organization: { recruit: { title: "Worker", reportsTo: ["second"] } } } } });
+  await act(() => view.result.current.savePosition("recruit", { title: "Engineer", reportsTo: ["first"] }));
+  expect(view.result.current.people.find(person => person.id === "recruit")?.reportsTo).toEqual(["first"]);
+  coordinator.dispose();
+});

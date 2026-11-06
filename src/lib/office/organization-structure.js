@@ -72,6 +72,7 @@ function reconcileOrganization(current, roster, preferredHeads = {}) {
     [id, { ...position, reportsTo: [...new Set(position.reportsTo.flatMap(parent => survivingManagers(parent)))] }]));
   next[CEO_ID] ||= { title: "CEO", reportsTo: [] };
   const departments = new Map();
+  const recruits = new Map(roster.members.filter(member => member.recruitedBy).map(member => [member.id, member.recruitedBy]));
   for (const member of roster.members) {
     if (member.id === CEO_ID) continue;
     const department = member.projectId || OPEN_DEPARTMENT_ID;
@@ -86,7 +87,8 @@ function reconcileOrganization(current, roster, preferredHeads = {}) {
     const head = members.includes(preferred) ? preferred : existingHead || (members.some(id => !!current[id]) ? undefined : members[0]);
     if (head && (!next[head] || head === preferred)) next[head] = { title: "Head", reportsTo: [CEO_ID] };
     for (const id of members) {
-      next[id] ||= { title: "Worker", reportsTo: [head || CEO_ID] };
+      const recruiter = recruits.get(id);
+      next[id] ||= { title: "Worker", reportsTo: [recruiter !== id && peers.has(recruiter) ? recruiter : head || CEO_ID] };
       if (head && preferred && id !== head && next[id].reportsTo.includes(CEO_ID)) next[id] = { title: "Worker", reportsTo: [head] };
       if (id !== CEO_ID && !next[id].reportsTo.length) next[id] = { ...next[id], reportsTo: [CEO_ID] };
     }

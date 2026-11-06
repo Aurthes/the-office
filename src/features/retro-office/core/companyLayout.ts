@@ -2,7 +2,7 @@ import { materializeDefaults } from "./furnitureDefaults";
 import { ROAM_POINTS } from "./navigation";
 import type { CanvasPoint, FurnitureItem } from "./types";
 
-export type CompanyMembership = { id: string; projectId: string | null };
+export type CompanyMembership = { id: string; projectId: string | null; recruitedBy?: string };
 export type CompanyProject = { id: string; name: string };
 export type WorkArea = {
   id: string; name: string; color: string;

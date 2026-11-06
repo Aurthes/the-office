@@ -115,6 +115,7 @@ delegation = new OfficeDelegation({ store, todos, company, stopping: () => stopp
 });
 const methods = {
   "todo.organization": p => company.context(p.actorId, p),
+  "todo.recruit": p => company.recruit(p),
   "todo.delegate": p => delegation.delegate(p),
   "todo.submit": p => delegation.submit(p),
   "todo.review": p => delegation.review(p),

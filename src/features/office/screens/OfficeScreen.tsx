@@ -1466,7 +1466,7 @@ export function OfficeScreen({
           }
           setCompanyCreationAvailable(Boolean(snapshot.creationAvailable));
           const roster: CompanyRoster = { projects: snapshot.projects || [], members: snapshot.agents
-            .map(({ id, projectId }) => ({ id, projectId })).sort((a, b) => a.id.localeCompare(b.id)) };
+            .map(({ id, projectId, recruitment }) => ({ id, projectId, ...(recruitment?.managerId ? { recruitedBy: recruitment.managerId } : {}) })).sort((a, b) => a.id.localeCompare(b.id)) };
           setCompanyRoster(previous => JSON.stringify(previous) === JSON.stringify(roster) ? previous : roster);
           lastGatewayActivityAtRef.current = Date.now(); setAgentsLoaded(true);
           return;

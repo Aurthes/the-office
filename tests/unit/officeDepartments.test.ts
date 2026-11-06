@@ -96,8 +96,71 @@ describe("department responsibilities in the actual company context", () => {
     expect(tool.inputSchema.required).toEqual(["actorId"]);
     expect(tool.inputSchema.properties.allDepartments.type).toBe("boolean");
     expect(tool.inputSchema.properties.departmentId.type).toEqual(["string", "null"]);
-    expect(tool.annotations.readOnlyHint).toBe(true); expect(tools).toHaveLength(15);
+    expect(tool.annotations.readOnlyHint).toBe(true); expect(tools).toHaveLength(16);
     expect(WORKFLOW).toContain("Open Workspace Head"); expect(WORKFLOW).toContain("explicit instruction");
     expect(WORKFLOW).toContain("never bypass reporting");
+  });
+});
+
+describe("Head recruitment using persistent Office sessions", () => {
+  it("grants department Heads including Open Workspace, but not ordinary workers, the recruitment capability", async () => {
+    const f = await fixture(), before = f.store.list().length;
+    expect(f.company.context(f.head).canRecruit).toBe(true); expect(f.company.context(f.sharedHead).canRecruit).toBe(true);
+    expect(f.company.context(f.worker).canRecruit).toBe(false);
+    for (const actorId of [f.worker, CEO]) expect(() => f.company.recruit({ actorId, name: "New employee", reason: "All suitable reports are busy", requestId: crypto.randomUUID() })).toThrow(/Head/);
+    expect(f.store.list()).toHaveLength(before);
+  });
+  it("creates one persistent normal-permission direct report and replays retries without starting work", async () => {
+    const f = await fixture(), before = f.store.list().length, settingsBefore = readFileSync(f.file, "utf8");
+    const request = { actorId: f.head, name: "New builder", reason: "Existing suitable employees are occupied", requestId: crypto.randomUUID() };
+    const result = await f.company.recruit(request); expect(await f.company.recruit(request)).toEqual(result);
+    expect(f.store.list()).toHaveLength(before + 1);
+    expect(f.store.get(result.threadId)).toMatchObject({ name: "New builder", projectId: f.product.id, workspace: f.store.get(f.head).workspace, status: "idle", settings: { accessMode: ":workspace", model: null, effort: null }, recruitment: { managerId: f.head, reason: request.reason } });
+    expect(f.company.context(result.threadId)).toMatchObject({ title: "Worker", canRecruit: false, managers: [{ id: f.head }] });
+    expect(f.company.context(f.head).directReports.map((p: { id: string }) => p.id)).toContain(result.threadId);
+    expect(() => f.company.assertDelegate(f.head, result.threadId)).not.toThrow(); expect(f.call).not.toHaveBeenCalled();
+    expect(readFileSync(f.file, "utf8")).toBe(settingsBefore);
+    const restoredStore = new CodexOfficeStore(path.join(f.root, "office"), { ready: true, call: f.call });
+    const restoredCompany = new OfficeCompany(restoredStore, { settingsFile: f.file, gatewayUrl: f.gateway });
+    expect(await restoredCompany.recruit(request)).toEqual(result);
+    expect(restoredCompany.context(result.threadId).managers[0].id).toBe(f.head);
+  });
+  it("keeps Open Workspace recruits unassigned to projects and under its existing Head", async () => {
+    const f = await fixture(), { threadId } = await f.company.recruit({ actorId: f.sharedHead, name: "Shared helper", reason: "No suitable report is available", requestId: crypto.randomUUID() });
+    expect(f.store.get(threadId)).toMatchObject({ projectId: null, workspace: f.store.get(f.sharedHead).workspace });
+    expect(f.company.context(threadId)).toMatchObject({ title: "Worker", managers: [{ id: f.sharedHead }], departments: [{ id: "open-workspace", heads: [{ id: f.sharedHead }] }] });
+  });
+  it("reports to the recruiting Head in a multi-Head department and lets saved organization edits override bootstrap", async () => {
+    const f = await fixture();
+    const second = (await f.store.createSession({ name: "Second Head", projectId: f.product.id, requestId: crypto.randomUUID() })).threadId;
+    f.patch({ office: { [f.gateway]: { organization: { [second]: { title: "Head", reportsTo: [CEO] } } } } });
+    const { threadId } = await f.company.recruit({ actorId: second, name: "Second helper", reason: "No suitable available reports", requestId: crypto.randomUUID() });
+    expect(f.company.context(threadId).managers.map((p: { id: string }) => p.id)).toEqual([second]);
+    f.patch({ office: { [f.gateway]: { organization: { [threadId]: { title: "Specialist", reportsTo: [f.head] } } } } });
+    expect(f.company.context(threadId)).toMatchObject({ title: "Specialist", managers: [{ id: f.head }] });
+  });
+  it("uses the same bootstrap for the UI and gateway without overriding a later department move", async () => {
+    const f = await fixture(), { threadId } = await f.company.recruit({ actorId: f.head, name: "Helper", reason: "No suitable available report", requestId: crypto.randomUUID() });
+    const { reconcileOrganization } = require("../../src/lib/office/organization-structure");
+    const saved = JSON.parse(readFileSync(f.file, "utf8")).office[f.gateway].organization;
+    const members = f.store.list().map((p: { id: string; projectId: string | null; recruitment?: { managerId: string } }) => ({ id: p.id, projectId: p.projectId, recruitedBy: p.recruitment?.managerId }));
+    expect(reconcileOrganization(saved, { projects: f.store.projects(), members })[threadId]).toMatchObject({ title: "Worker", reportsTo: [f.head] });
+    f.store.get(threadId).projectId = f.research.id;
+    expect(f.company.context(threadId).managers.map((p: { id: string }) => p.id)).toEqual([f.researcher]);
+  });
+  it("fails closed before creation on missing or invalid reporting data and rejects invalid recruitment input", async () => {
+    const f = await fixture(), before = f.store.list().length, request = { actorId: f.head, name: "Helper", reason: "No available suitable report", requestId: crypto.randomUUID() };
+    for (const extra of [{ reason: "" }, { reason: "x".repeat(501) }, { name: "" }, { requestId: "" }]) expect(() => f.company.recruit({ ...request, ...extra })).toThrow();
+    f.company.context(f.head); writeFileSync(f.file, "invalid");
+    expect(() => f.company.recruit(request)).toThrow(); expect(f.company.forTurn(f.head).canRecruit).toBe(false);
+    expect(f.store.list()).toHaveLength(before);
+  });
+  it("does not let the ordinary session-create input forge recruitment metadata", async () => {
+    const f = await fixture(), { threadId } = await f.store.createSession({ name: "Manual", projectId: f.product.id, recruitment: { managerId: f.worker }, requestId: crypto.randomUUID() });
+    expect(f.store.get(threadId).recruitment).toBeUndefined();
+    const tool = tools.find((t: { name: string }) => t.name === "todo_recruit");
+    expect(tool.inputSchema.required).toEqual(["actorId", "name", "reason", "requestId"]); expect(tool.inputSchema.properties).not.toHaveProperty("departmentId");
+    expect(tool.annotations.readOnlyHint).toBe(false);
+    expect(WORKFLOW).toContain("First check"); expect(WORKFLOW).toContain("If none is available");
   });
 });

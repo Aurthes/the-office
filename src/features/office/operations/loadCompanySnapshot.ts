@@ -8,6 +8,7 @@ export type CompanySnapshot = {
     name: string; role: string; status: string; turnStatus?: string | null; model?: string | null; modelProvider?: string | null; effort?: string | null;
     completedResult?: { key: string; unread: boolean } | null; needsInput?: boolean; hasPendingSchedule?: boolean;
     updatedAt: number; identity?: { name?: string; emoji?: string };
+    recruitment?: { managerId: string };
   }>;
 };
 

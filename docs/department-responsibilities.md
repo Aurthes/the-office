@@ -67,3 +67,28 @@ are explained through the actual task chain or to the user, not bypassed by
 inventing managers or departments. New departments require an explicit user
 instruction. Matching uses the existing model context, not another classifier or
 a new routing service. Descriptions remain data, not additional permissions.
+
+Department Heads have a recruitment capability, including the Open Workspace
+Head. Use existing suitable and available reports first. If none is available
+(for example every suitable report is busy), `todo_recruit` creates one persistent
+employee with a stable name and a reason for recruiting. This is a staffing
+guideline evaluated by the Head with the current organization and task list, not
+an employee quota or a task-count trigger. A Head can also do small work directly.
+
+The server checks the current department Head and fixes the new employee's
+membership to that Head's own department and its existing working folders. The
+caller cannot choose another department, a title, reporting parents or elevated
+permissions. New sessions use the existing normal defaults. Creation reuses the
+Office request guard, so retrying the same request does not duplicate an employee.
+Recruitment neither sends work nor interrupts an existing employee. The Head must
+then use the existing task's `todo_delegate`; submission and acceptance follow the
+same real handoff chain.
+
+The existing employee record retains recruitment provenance (manager and reason).
+Shared organization reconciliation uses it only to bootstrap an unconfigured
+employee's direct reporting line. The existing Studio organization remains the
+editable authority and overrides that initial default; its normal roster refresh
+persists missing positions. Backend and UI use that same reconciliation rule,
+including multiple Heads and Open Workspace. A later department move does not
+reuse a recruiter outside the new department. There is no second saved reporting
+graph, background settings writer or automatic task-specific employee lifecycle.

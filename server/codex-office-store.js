@@ -78,10 +78,10 @@ class CodexOfficeStore {
     if (!roots.includes(row.workspace)) throw new Error("This chat's working folder is no longer attached to its project");
     return roots.map(root => this.directory(root));
   }
-  createSession(input) {
+  createSession(input, { recruitment } = {}) {
     const name = this.name(input.name), project = input.projectId ? this.project(input.projectId) : null;
     const workspace = this.directory(project ? project.rootPaths[0] : input.workspace);
-    return this.once(input, () => { const session = { id: crypto.randomUUID(), name, workspace, projectId: project?.id ?? null, updatedAt: Date.now(), status: "idle", settings: { model: null, effort: null, accessMode: ":workspace" } }; this.data.sessions.push(session); return { threadId: session.id }; });
+    return this.once(input, () => { const session = { id: crypto.randomUUID(), name, workspace, projectId: project?.id ?? null, ...(recruitment ? { recruitment } : {}), updatedAt: Date.now(), status: "idle", settings: { model: null, effort: null, accessMode: ":workspace" } }; this.data.sessions.push(session); return { threadId: session.id }; });
   }
   ensureCeo() {
     // The organization root is a normal Office session. Never resurrect an
