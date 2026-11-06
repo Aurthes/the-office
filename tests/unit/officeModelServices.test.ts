@@ -59,23 +59,40 @@ describe("Office standalone dictation", () => {
     ["forbidden", () => new Response("upstream private detail", { status: 403 })],
     ["removed route", () => new Response("upstream private detail", { status: 404 })],
     ["server error", () => new Response("upstream private detail", { status: 500 })],
-  ])("greys the capability on %s and lets the user retry after cooldown, with no automatic upload", async (_label, response) => {
+    ["service unavailable", () => new Response("upstream private detail", { status: 503 })],
+  ])("keeps dictation available after %s and accepts an immediate manual retry, with no automatic upload", async (_label, response) => {
     vi.useFakeTimers();
     const fetcher = vi.fn().mockImplementationOnce(async () => response()).mockImplementation(async () => json("recovered")); vi.stubGlobal("fetch", fetcher);
     const f = fixture(), r = f.request(); await r.run();
     expect(r.res.status).toBe(503); expect(r.res.body).toContain("Recording kept"); expect(r.res.body).not.toContain("upstream private detail");
-    expect(f.onStatus).toHaveBeenLastCalledWith(expect.objectContaining({ dictation: false, dictationRetryAt: Date.now() + 60000 }));
-    const blocked = f.request(); await blocked.run(); expect(fetcher).toHaveBeenCalledOnce(); expect(blocked.res.status).toBe(503);
-    await vi.advanceTimersByTimeAsync(60000); expect(fetcher).toHaveBeenCalledOnce();
     expect(f.onStatus).toHaveBeenLastCalledWith({ dictation: true, dictationReason: null, dictationRetryAt: null });
     const next = f.request(); await next.run(); expect(next.res.status).toBe(200); expect(fetcher).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(60000); expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(f.onStatus).toHaveBeenCalledOnce();
   });
-  it("respects a bounded rate-limit Retry-After", async () => {
-    vi.useFakeTimers(); vi.stubGlobal("fetch", vi.fn(async () => new Response("rate limited", { status: 429, headers: { "retry-after": "120" } })));
+  it("respects rate-limit Retry-After without disabling recording or automatically uploading", async () => {
+    vi.useFakeTimers(); const fetcher = vi.fn().mockResolvedValueOnce(new Response("rate limited", { status: 429, headers: { "retry-after": "120" } })).mockImplementation(async () => json()); vi.stubGlobal("fetch", fetcher);
     const f = fixture(), r = f.request(); await r.run();
-    expect(f.onStatus).toHaveBeenLastCalledWith(expect.objectContaining({ dictation: false, dictationRetryAt: Date.now() + 120000 }));
-    await vi.advanceTimersByTimeAsync(60000); expect(f.onStatus.mock.calls.at(-1)![0].dictation).toBe(false);
+    expect(f.onStatus).toHaveBeenLastCalledWith(expect.objectContaining({ dictation: true, dictationRetryAt: Date.now() + 120000 }));
+    const early = f.request(); await early.run(); expect(early.res.status).toBe(503); expect(fetcher).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(60000); expect(f.onStatus.mock.calls.at(-1)![0].dictation).toBe(true);
+    await vi.advanceTimersByTimeAsync(60000); expect(fetcher).toHaveBeenCalledOnce();
+    const next = f.request(); await next.run(); expect(next.res.status).toBe(200); expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it("keeps a failed login refresh retryable when authentication has not been rejected", async () => {
+    const expired = "header." + Buffer.from(JSON.stringify({ exp: 1 })).toString("base64url") + ".signature";
+    const refreshAuth = vi.fn().mockRejectedValueOnce(new Error("temporary account connection failure")).mockImplementation(async () => { f.writeAuth("renewed-token"); });
+    const fetcher = vi.fn(async () => json()); vi.stubGlobal("fetch", fetcher);
+    const f = fixture({ refreshAuth }); f.writeAuth(expired);
+    const r = f.request(); await r.run(); expect(r.res.status).toBe(503); expect(fetcher).not.toHaveBeenCalled();
+    expect(r.res.body).not.toContain("Sign in"); expect(f.onStatus.mock.calls.at(-1)![0].dictation).toBe(true);
+    const next = f.request(); await next.run(); expect(next.res.status).toBe(200); expect(refreshAuth).toHaveBeenCalledTimes(2); expect(fetcher).toHaveBeenCalledOnce();
+  });
+  it("disables an explicitly rejected API key without switching providers", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "rejected-key"); const fetcher = vi.fn(async () => new Response("private auth detail", { status: 401 })); vi.stubGlobal("fetch", fetcher);
+    const f = fixture(), r = f.request(); await r.run();
+    expect(fetcher).toHaveBeenCalledOnce(); expect(r.res.status).toBe(503); expect(r.res.body).not.toContain("private auth detail");
+    expect(f.onStatus).toHaveBeenLastCalledWith(expect.objectContaining({ dictation: false, dictationReason: "Check the dictation API key on the Office server." }));
   });
   it("refreshes an unauthorized login once through the Office client and reads the updated token", async () => {
     const refreshAuth = vi.fn(async () => { f.writeAuth("renewed-office-token"); });
@@ -110,12 +127,13 @@ describe("Office standalone dictation", () => {
     const large = f.request(Buffer.alloc(20 * 1024 * 1024 + 1)); await large.run(); expect(large.res.status).toBe(413);
     expect(fetcher).not.toHaveBeenCalled(); expect(f.onStatus).toHaveBeenCalledOnce();
   });
-  it("bounds concurrency and does not re-enable an outage on an older request's success", async () => {
+  it.each([200, 429])("bounds concurrency and keeps an auth failure disabled when an older request returns HTTP %s", async status => {
     const resolve: ((r: Response) => void)[] = []; vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(r => { resolve.push(r); })));
     const f = fixture(), a = f.request(), b = f.request(); const first = a.run(), second = b.run();
     await vi.waitFor(() => expect(resolve).toHaveLength(2)); const busy = f.request(); await busy.run(); expect(busy.res.status).toBe(429);
-    resolve[1](new Response("outage", { status: 503 })); await second; resolve[0](json()); await first;
-    expect(a.res.status).toBe(200); expect(f.onStatus.mock.calls.at(-1)![0].dictation).toBe(false);
+    resolve[1](new Response("unauthorized", { status: 401 })); await second;
+    resolve[0](status === 200 ? json() : new Response("rate limited", { status: 429 })); await first;
+    expect(a.res.status).toBe(status === 200 ? 200 : 503); expect(f.onStatus.mock.calls.at(-1)![0].dictation).toBe(false);
   });
   it("cancels an abandoned upload without disabling dictation or inserting a response", async () => {
     vi.stubGlobal("fetch", vi.fn((_url, init) => new Promise((_resolve, reject) => init.signal.addEventListener("abort", () => reject(init.signal.reason)))));
@@ -127,7 +145,7 @@ describe("Office standalone dictation", () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("office-test-token accidental network detail"); }));
     const f = fixture(), r = f.request(); await r.run();
     expect(r.res.status).toBe(503); expect(r.res.body).not.toMatch(/office-test-token|accidental/);
-    expect(f.onStatus.mock.calls.at(-1)![0].dictation).toBe(false);
+    expect(f.onStatus.mock.calls.at(-1)![0].dictation).toBe(true);
   });
   it("bounds an unresponsive upstream and makes the timeout recoverable", async () => {
     const deadline = new AbortController(); const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal);
@@ -135,6 +153,6 @@ describe("Office standalone dictation", () => {
     const f = fixture(), r = f.request(); const pending = r.run(); await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
     deadline.abort(new DOMException("timeout private detail", "TimeoutError")); await pending;
     expect(timeout).toHaveBeenCalledWith(60000); expect(r.res.status).toBe(503); expect(r.res.body).not.toContain("private detail");
-    expect(f.onStatus.mock.calls.at(-1)![0].dictation).toBe(false);
+    expect(f.onStatus.mock.calls.at(-1)![0].dictation).toBe(true);
   });
 });
