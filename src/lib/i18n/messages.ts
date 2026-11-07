@@ -1,5 +1,13 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Resize chat from top edge": "拖动聊天窗口上边缘",
+  "Resize chat from bottom edge": "拖动聊天窗口下边缘",
+  "Resize chat from left edge": "拖动聊天窗口左边缘",
+  "Resize chat from right edge": "拖动聊天窗口右边缘",
+  "Resize chat from top left corner": "拖动聊天窗口左上角",
+  "Resize chat from top right corner": "拖动聊天窗口右上角",
+  "Resize chat from bottom left corner": "拖动聊天窗口左下角",
+  "Resize chat from bottom right corner": "拖动聊天窗口右下角",
   "Members": "成员",
   "No members yet.": "暂无成员。",
   "Department unavailable.": "部门已不可用。",

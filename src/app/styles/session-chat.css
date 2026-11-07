@@ -1,6 +1,16 @@
 /* Keep chat typography and spacing independent of the global 112% rem scale,
    matching the office's pixel-sized controls without changing other screens. */
 .office-session-chat {
+  --chat-gap: 0px;
+  --chat-default-width: 100vw;
+  --chat-max-width: calc(100vw - var(--chat-gap) * 2);
+  --chat-max-height: calc(var(--chat-viewport-height, 100dvh) - var(--chat-gap) * 2);
+  --chat-frame-width: clamp(min(360px, var(--chat-max-width)), var(--chat-width, var(--chat-default-width)), var(--chat-max-width));
+  --chat-frame-height: clamp(min(280px, var(--chat-max-height)), var(--chat-height, var(--chat-max-height)), var(--chat-max-height));
+  width: var(--chat-frame-width); height: var(--chat-frame-height);
+  top: calc(var(--chat-viewport-top, 0px) + clamp(var(--chat-gap), var(--chat-top, var(--chat-gap)), calc(var(--chat-viewport-height, 100dvh) - var(--chat-frame-height) - var(--chat-gap))));
+  right: clamp(var(--chat-gap), var(--chat-right, var(--chat-gap)), calc(100vw - var(--chat-frame-width) - var(--chat-gap)));
+  left: auto; bottom: auto;
   --spacing: 4px;
   --text-xs: 12px;
   --text-sm: 13px;
@@ -12,6 +22,27 @@
   --text-base--line-height: 1.55;
   font-size: 13px;
   line-height: 1.5;
+}
+
+@media (min-width: 768px) {
+  .office-session-chat { --chat-gap: 12px; --chat-default-width: 960px; }
+}
+.office-session-chat[data-chat-expanded="true"] {
+  --chat-frame-width: var(--chat-max-width); --chat-frame-height: var(--chat-max-height);
+  top: calc(var(--chat-viewport-top, 0px) + var(--chat-gap)); right: var(--chat-gap);
+}
+.session-chat-resize { position:absolute; z-index:60; padding:0; border:0; background:transparent; touch-action:none; user-select:none; }
+.session-chat-resize:hover,.session-chat-resize:focus-visible { background:#92dce433; outline:none; }
+.session-chat-resize-n,.session-chat-resize-s { left:20px; right:20px; height:6px; cursor:ns-resize; }
+.session-chat-resize-n { top:0; }.session-chat-resize-s { bottom:0; }
+.session-chat-resize-w,.session-chat-resize-e { top:20px; bottom:20px; width:6px; cursor:ew-resize; }
+.session-chat-resize-w { left:0; }.session-chat-resize-e { right:0; }
+.session-chat-resize-nw,.session-chat-resize-ne,.session-chat-resize-sw,.session-chat-resize-se { width:20px; height:20px; }
+.session-chat-resize-nw { left:0; top:0; cursor:nwse-resize; }.session-chat-resize-ne { right:0; top:0; cursor:nesw-resize; }
+.session-chat-resize-sw { left:0; bottom:0; cursor:nesw-resize; }.session-chat-resize-se { right:0; bottom:0; cursor:nwse-resize; }
+@media (pointer:coarse) {
+  .session-chat-resize-n,.session-chat-resize-s { height:12px; }
+  .session-chat-resize-w,.session-chat-resize-e { width:12px; }
 }
 
 /* The hypothetical split uses this same divider width even while it is hidden. */

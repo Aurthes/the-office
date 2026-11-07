@@ -2,6 +2,7 @@
 
 import {
   type ReactNode,
+  type CSSProperties,
   useCallback,
   useEffect,
   useMemo,
@@ -26,6 +27,7 @@ import type { MessageSearchTarget } from "@/features/office/components/MessageSe
 import { useSessionVoice } from "@/features/office/components/useSessionVoice";
 import { SessionVoiceCall, SessionVoiceSettings } from "@/features/office/components/SessionVoice";
 import { SessionListDivider } from "@/features/office/components/SessionListDivider";
+import { SessionChatResizer } from "@/features/office/components/SessionChatResizer";
 import { useSessionListLayout } from "@/features/office/hooks/useSessionListLayout";
 import { CompanyActions } from "@/features/office/components/CompanyActions";
 import { SHARED_PROJECT_ID } from "@/features/ring-ship/layout";
@@ -3753,10 +3755,12 @@ export function OfficeScreen({
       {sessionView && chatOpen ? <button type="button" aria-label={t("Click the office to close chat")} className="fixed inset-0 z-40 cursor-default bg-transparent" onClick={() => setChatOpen(false)} /> : null}
       <div
         className={sessionView && chatOpen
-          ? `office-session-chat fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[#11161e] text-white shadow-2xl md:inset-y-3 md:right-3 md:left-auto md:rounded-xl md:border md:border-white/15 ${chatExpanded ? "md:w-[calc(100vw-1.5rem)]" : "md:w-[min(960px,calc(100vw-1.5rem))]"}`
+          ? "office-session-chat fixed z-50 flex min-h-0 flex-col overflow-hidden bg-[#11161e] text-white shadow-2xl md:rounded-xl md:border md:border-white/15"
           : `office-chat-dock fixed bottom-3 ${sessionView ? "z-50" : "z-30"} flex flex-col items-end gap-2 right-3 ${debugEnabled ? "hidden" : ""}`}
-        style={sessionView && chatOpen && chatViewport ? { height: chatViewport.height, top: chatViewport.top, bottom: "auto" } : undefined}
+        data-chat-expanded={sessionView && chatExpanded ? "true" : undefined}
+        style={sessionView && chatOpen && chatViewport ? { "--chat-viewport-height": `${chatViewport.height}px`, "--chat-viewport-top": `${chatViewport.top}px` } as CSSProperties : undefined}
       >
+        {sessionView && chatOpen ? <SessionChatResizer onResizeStart={() => setChatExpanded(false)} /> : null}
         {(chatOpen || sessionView) && (
           <div
             ref={attachSessionList}
