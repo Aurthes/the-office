@@ -3164,7 +3164,7 @@ export function OfficeScreen({
     }));
   }, [allVisibleAgents, state.agents, companyRoster]);
   const chatRosterGroups = useMemo(() => organizeChatRoster(chatRosterEntries, "activity"), [chatRosterEntries]);
-  const currentTasks = useCurrentAgentTasks(client, sessionView && chatOpen && status === "connected", gatewayUrl);
+  const currentTasks = useCurrentAgentTasks(client, sessionView && (chatOpen || departmentPanel.open) && status === "connected", gatewayUrl);
   const directoryAgents = useMemo<DirectoryAgent[]>(() => {
     const agents = new Map(allVisibleAgents.map(agent => [agent.id, agent]));
     return chatRosterEntries.map(entry => ({ ...entry, color: agents.get(entry.id)!.color, avatarProfile: agents.get(entry.id)?.avatarProfile, tasks: currentTasks.tasks.get(entry.id) }));
@@ -3750,7 +3750,7 @@ export function OfficeScreen({
         </section>
       ) : null}
 
-      {sessionView ? <DepartmentPanel key={gatewayUrl} organization={organization} state={departmentPanel} onSelect={openDepartment} onClose={() => setDepartmentPanel(previous => ({ ...previous, open: false }))} /> : null}
+      {sessionView ? <DepartmentPanel key={gatewayUrl} organization={organization} state={departmentPanel} onSelect={openDepartment} onClose={() => setDepartmentPanel(previous => ({ ...previous, open: false }))} tasks={{ ...currentTasks, error: status === "connected" ? currentTasks.error : "Current tasks are unavailable." }} onOpenTask={id => setTaskBoardRequest({ id })} /> : null}
       {sessionView ? <TaskBoard open={!!taskBoardRequest} taskId={taskBoardRequest?.id} onClose={() => setTaskBoardRequest(null)} onOpenSession={handleOpenAgentChat} client={client} connected={status === "connected"} /> : null}
       {sessionView && chatOpen ? <button type="button" aria-label={t("Click the office to close chat")} className="fixed inset-0 z-40 cursor-default bg-transparent" onClick={() => setChatOpen(false)} /> : null}
       <div

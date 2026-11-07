@@ -22,3 +22,5 @@
 @media(max-width:767px){.directory-task-count{max-width:74px;min-height:28px}.directory-task-link{gap:5px;padding:5px}.directory-task-code{max-width:42px}}
 
 .directory-department{display:inline-flex;align-items:center;gap:3px;flex-shrink:0;max-width:110px;min-height:28px;margin:3px 4px 3px 0;padding:4px 6px;border:1px solid #82b5c552;border-radius:5px;background:#263b47;color:#bce5ef;font-size:10px;line-height:16px;text-align:left;cursor:pointer}.directory-department>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit}.directory-department>svg{flex-shrink:0}.directory-department:hover{background:#355362;border-color:#a0d8e18c;color:#e4f9ff}.directory-department:active{background:#1c303b}.directory-project>.directory-department{max-width:calc(100% - 24px);font-size:11px;font-weight:600}.directory-department:focus-visible{outline:2px solid #e1bd81;outline-offset:2px}
+
+.directory-task-role{display:block;flex-shrink:0;white-space:normal;overflow-wrap:anywhere;font-size:9px;line-height:13px;color:#c4d7df}.directory-task-list .directory-task-role{max-width:90px;white-space:normal}

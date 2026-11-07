@@ -19,6 +19,46 @@ function fixture(scope?: string | null, overrides: Partial<OfficeTodo> = {}, tas
   const view = render(createElement(TaskBoard, props));
   return { todo, call, props, ...view };
 }
+it("separates the Owner and Assignee filters and displays both on cards and details", async () => {
+  const f = fixture(undefined, { ownerId: "alice", ownerName: "Follow-up Alice", assigneeName: "Executor Alice" });
+  await screen.findByRole("combobox", { name: "Task owner" });
+  const card = await screen.findByTestId("todo-card");
+  expect(card).toHaveTextContent("Owner: Follow-up Alice"); expect(card).toHaveTextContent("Assignee: Executor Alice");
+  fireEvent.change(screen.getByRole("combobox", { name: "Task owner" }), { target: { value: "alice" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Task assignee" }), { target: { value: "__unassigned__" } });
+  await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.list", expect.objectContaining({ ownerId: "alice", assigneeId: null })));
+  fireEvent.click(within(card).getByRole("button"));
+  const detail = await screen.findByRole("heading", { name: "Release app" });
+  expect(detail.closest("article")).toHaveTextContent("Owner: Follow-up Alice");
+});
+it("edits the Owner explicitly while keeping an unrelated edit from clearing legacy ownership", async () => {
+  const f = fixture(undefined, {}, "todo");
+  fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+  fireEvent.change(screen.getByLabelText("Documentation"), { target: { value: "Unrelated edit" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save to-do" }));
+  await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.edit", expect.objectContaining({ documentation: "Unrelated edit" })));
+  expect(f.call.mock.calls.find(([method]) => method === "todo.edit")?.[1]).not.toHaveProperty("ownerId");
+  fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+  fireEvent.change(screen.getByLabelText("Owner"), { target: { value: "alice" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save to-do" }));
+  await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.edit", expect.objectContaining({ ownerId: "alice", assigneeId: "alice" })));
+});
+it("creates work with a selected follow-up owner and no executor", async () => {
+  const f = fixture("alpha");
+  fireEvent.click(await screen.findByRole("button", { name: "New to-do" }));
+  fireEvent.change(screen.getByLabelText("Task title"), { target: { value: "Owned work" } });
+  fireEvent.change(screen.getByLabelText("Owner"), { target: { value: "alice" } });
+  expect(screen.getByLabelText("Assignee")).toHaveValue("");
+  fireEvent.click(screen.getByRole("button", { name: "Save to-do" }));
+  await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.create", expect.objectContaining({ ownerId: "alice", assigneeId: null })));
+});
+it("clears an explicit follow-up owner without changing the executor", async () => {
+  const f = fixture(undefined, { ownerId: "alice", ownerName: "Alice" }, "todo");
+  fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+  fireEvent.change(screen.getByLabelText("Owner"), { target: { value: "" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save to-do" }));
+  await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.edit", expect.objectContaining({ ownerId: null, assigneeId: "alice" })));
+});
 it("shows a submitted handoff as awaiting review and keeps final completion unavailable", async () => {
   const f = fixture(undefined, { progress: 1, delegations: [{ id: "handoff", managerId: "alice", workerId: "bob", state: "review", instructions: "Implement without deployment", acceptanceCriteria: "Tests pass", report: "Evidence and artifact location" }] }, "todo");
   f.todo.phases[0].completedAt = Date.now();
@@ -73,7 +113,7 @@ it("creates unassigned work in the selected department with ordered phases", asy
 });
 it("filters unassigned work and supports a list view", async () => {
   const f = fixture(); await screen.findByRole("dialog", { name: "Task board" }); await screen.findByText("Release app");
-  fireEvent.change(screen.getByRole("combobox", { name: "Task owner" }), { target: { value: "__unassigned__" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Task assignee" }), { target: { value: "__unassigned__" } });
   await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.list", expect.objectContaining({ assigneeId: null })));
   fireEvent.click(screen.getByRole("button", { name: "Show task list" }));
   expect(within(screen.getByTestId("todo-card")).queryByText("Plan release")).toBeTruthy();
@@ -153,7 +193,7 @@ it("preserves an expanded group across refreshes and resets it when the board is
 
 it("shows the execution employee separately from the manager who receives review", async () => {
   const f = fixture(undefined, { assigneeId: "bob", assigneeName: "Bob", assigneeAvailable: false, handlingAgentId: "alice", handlingAgentName: "Alice", handlingAgentAvailable: true, reviewerId: "alice", delegations: [{ id: "handoff", managerId: "alice", workerId: "bob", state: "review", instructions: "Implement", acceptanceCriteria: "Verified" }] }, "todo");
-  expect(await screen.findByText("Alpha · Bob · Review by Alice")).toBeInTheDocument();
+  expect(await screen.findByText("Alpha · Owner: Not recorded · Assignee: Bob · Review by Alice")).toBeInTheDocument();
   const button = await screen.findByRole("button", { name: "Open review with manager" }); expect(button).toBeEnabled();
   fireEvent.click(button);
   await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.run", expect.objectContaining({ id: "todo" })));

@@ -14,6 +14,11 @@ import { MessageSearchResults, type MessageSearchTarget } from "./MessageSearchR
 import type { SessionClient } from "./SessionControls";
 import "./agent-directory.css";
 
+function TaskRoles({ task }: { task: CurrentAgentTask }) {
+  const t = useUiText();
+  return <span className="directory-task-role">{(task.roles || ["Assignee"]).map(role => t(role)).join(" + ")}</span>;
+}
+
 function AssignedTaskMenu({ name, tasks, onOpenTask }: { name: string; tasks: CurrentAgentTask[]; onOpenTask: (id: string) => void }) {
   const t = useUiText(), id = useId(), trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -22,11 +27,11 @@ function AssignedTaskMenu({ name, tasks, onOpenTask }: { name: string; tasks: Cu
   };
   return <>
     <button ref={trigger} type="button" className="directory-task directory-task-count" title={tasks.map(task => task.title).join("\n")}
-      aria-label={t("Tasks assigned to {name}: {count}", { name, count: tasks.length })} aria-expanded={open} aria-controls={id}
+      aria-label={t("Tasks for {name}: {count}", { name, count: tasks.length })} aria-expanded={open} aria-controls={id}
       onKeyDown={escape} onClick={() => setOpen(value => !value)}>{t("{count} tasks", { count: tasks.length })}<ChevronDown size={11} aria-hidden="true" /></button>
-    {open ? <div id={id} className="directory-task-list" role="group" aria-label={t("Tasks assigned to {name}", { name })} onKeyDown={escape}>
+    {open ? <div id={id} className="directory-task-list" role="group" aria-label={t("Tasks for {name}", { name })} onKeyDown={escape}>
       {tasks.map(task => <button type="button" key={task.id} className="directory-task-link" aria-label={t("Open task: {name}", { name: task.title })}
-        onClick={() => { setOpen(false); onOpenTask(task.id); }}><span className="directory-task-code">{task.code}</span><span className="directory-task-title">{task.title}</span></button>)}
+        onClick={() => { setOpen(false); onOpenTask(task.id); }}><span className="directory-task-code">{task.code}</span><span className="directory-task-title">{task.title}</span><TaskRoles task={task} /></button>)}
     </div> : null}
   </>;
 }
@@ -83,7 +88,7 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
       <span className="directory-agent-status"><AgentActivityIndicator activity={agent.activity} /><ScheduledTaskIndicator active={agent.hasPendingSchedule} /></span>
     </button>
     {departmentLink && organization.openDepartment ? <button type="button" className="directory-department" title={agent.id === CEO_ID ? t("Company") : agent.projectName || t("Open Workspace")} onClick={() => organization.openDepartment?.(agent.id === CEO_ID ? undefined : agent.projectId || OPEN_DEPARTMENT_ID)}><span>{agent.id === CEO_ID ? t("Company") : agent.projectName || t("Open Workspace")}</span><ChevronRight size={12} aria-hidden="true" /></button> : null}
-    {tasks.length === 1 ? <button type="button" className="directory-task" title={tasks[0].title} aria-label={t("Open task: {name}", { name: tasks[0].title })} onClick={() => onOpenTask(tasks[0].id)}>{tasks[0].code}</button> : tasks.length > 1 ? <AssignedTaskMenu name={agent.name} tasks={tasks} onOpenTask={onOpenTask} /> : null}
+    {tasks.length === 1 ? <button type="button" className="directory-task" title={tasks[0].title} aria-label={t("Open task: {name}", { name: tasks[0].title })} onClick={() => onOpenTask(tasks[0].id)}>{tasks[0].code}<TaskRoles task={tasks[0]} /></button> : tasks.length > 1 ? <AssignedTaskMenu name={agent.name} tasks={tasks} onOpenTask={onOpenTask} /> : null}
   </div>;
   };
   const branch = (node: ReportingNode): ReactNode => {

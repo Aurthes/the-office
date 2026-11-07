@@ -4,7 +4,7 @@ import type { GatewayClient } from "@/lib/gateway/GatewayClient";
 import { currentTasksByAgent, type DirectoryTaskSummary } from "../operations/agentDirectory";
 
 export function useCurrentAgentTasks(client: Pick<GatewayClient, "call" | "onEvent">, enabled: boolean, gateway: string) {
-  const [snapshot, setSnapshot] = useState<{ gateway: string; tasks: DirectoryTaskSummary[]; error: string }>({ gateway, tasks: [], error: "" });
+  const [snapshot, setSnapshot] = useState<{ gateway: string; tasks: DirectoryTaskSummary[]; error: string; loaded: boolean }>({ gateway, tasks: [], error: "", loaded: false });
   useEffect(() => {
     if (!enabled) return;
     let stopped = false, loading = false, again = false;
@@ -22,9 +22,9 @@ export function useCurrentAgentTasks(client: Pick<GatewayClient, "call" | "onEve
           tasks.push(...page.todos); total = page.total;
           if (!page.todos.length) break;
         } while (tasks.length < total);
-        if (!stopped) setSnapshot({ gateway, tasks, error: "" });
+        if (!stopped) setSnapshot({ gateway, tasks, error: "", loaded: true });
       } catch {
-        if (!stopped) setSnapshot(previous => ({ gateway, tasks: previous.gateway === gateway ? previous.tasks : [], error: "Current tasks are unavailable." }));
+        if (!stopped) setSnapshot(previous => ({ gateway, tasks: previous.gateway === gateway ? previous.tasks : [], error: "Current tasks are unavailable.", loaded: true }));
       } finally {
         loading = false;
         if (again && !stopped) { again = false; void load(); }
@@ -36,5 +36,6 @@ export function useCurrentAgentTasks(client: Pick<GatewayClient, "call" | "onEve
     void load();
     return () => { stopped = true; off(); clearTimeout(timer); window.removeEventListener("focus", refresh); };
   }, [client, enabled, gateway]);
-  return { tasks: currentTasksByAgent(snapshot.gateway === gateway ? snapshot.tasks : []), error: enabled && snapshot.gateway === gateway ? snapshot.error : "" };
+  const summaries = snapshot.gateway === gateway ? snapshot.tasks : [];
+  return { tasks: currentTasksByAgent(summaries), summaries, loading: enabled && (snapshot.gateway !== gateway || !snapshot.loaded), error: enabled && snapshot.gateway === gateway ? snapshot.error : "" };
 }

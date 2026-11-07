@@ -5,6 +5,7 @@ import { Building2, X } from "lucide-react";
 import { OPEN_DEPARTMENT_ID, type OrganizationView } from "@/lib/office/organization";
 import { MAX_DEPARTMENT_DESCRIPTION, type OrganizationDepartment } from "@/lib/office/departments";
 import { useUiText } from "@/lib/i18n/ui-language";
+import { needsFollowUp, type DirectoryTaskSummary } from "@/features/office/operations/agentDirectory";
 import "./scheduled-tasks.css";
 import "./department-panel.css";
 
@@ -13,8 +14,10 @@ export function openDepartmentTab(current: DepartmentPanelState, id?: string): D
   return { open: true, selectedId: id ?? null, tabs: id && !current.tabs.includes(id) ? [...current.tabs, id] : current.tabs };
 }
 
-export function DepartmentPanel({ organization, state, onSelect, onClose }: {
+export type DepartmentTaskState = { summaries: DirectoryTaskSummary[]; loading: boolean; error: string };
+export function DepartmentPanel({ organization, state, onSelect, onClose, tasks, onOpenTask }: {
   organization: OrganizationView; state: DepartmentPanelState; onSelect: (id?: string) => void; onClose: () => void;
+  tasks?: DepartmentTaskState; onOpenTask?: (id: string) => void;
 }) {
   const t = useUiText(), dialog = useRef<HTMLDialogElement>(null);
   const [portal, setPortal] = useState<HTMLElement | null>(null);
@@ -46,11 +49,26 @@ export function DepartmentPanel({ organization, state, onSelect, onClose }: {
           </article>)}</div>
         </section>
         {state.tabs.map(id => <section key={id} role="tabpanel" hidden={state.selectedId !== id} aria-label={departmentName(id)}>
-          {departments.find(d => d.id === id) ? <DepartmentDetail department={departments.find(d => d.id === id)!} organization={organization} onClose={onClose} /> : <p>{t("Department unavailable")}</p>}
+          {departments.find(d => d.id === id) ? <><DepartmentDetail department={departments.find(d => d.id === id)!} organization={organization} onClose={onClose} />{tasks ? <DepartmentTasks departmentId={id} tasks={tasks} onOpenTask={onOpenTask ? taskId => { onClose(); onOpenTask(taskId); } : undefined} /> : null}</> : <p>{t("Department unavailable")}</p>}
         </section>)}
       </div>
     </div>
   </dialog>, portal);
+}
+
+function DepartmentTasks({ departmentId, tasks, onOpenTask }: { departmentId: string; tasks: DepartmentTaskState; onOpenTask?: (id: string) => void }) {
+  const t = useUiText(), id = departmentId === OPEN_DEPARTMENT_ID ? null : departmentId;
+  const rows = tasks.summaries.filter(task => needsFollowUp(task) && task.departmentId === id);
+  return <section className="department-tasks" aria-label={t("Needs follow-up")}>
+    <h2>{t("Needs follow-up")} · {rows.length}</h2>
+    {tasks.loading ? <p role="status">{t("Loading tasks…")}</p> : null}
+    {tasks.error ? <p role="alert">{t(tasks.error)}</p> : null}
+    {!tasks.loading && !tasks.error && !rows.length ? <p>{t("No tasks need follow-up.")}</p> : null}
+    <ul>{rows.map(task => <li key={task.id}><button type="button" disabled={!onOpenTask} onClick={() => onOpenTask?.(task.id)}>{task.title}</button>
+      <small>{t(task.reviewerId ? "Awaiting manager review" : task.status === "running" ? "Running" : task.status === "paused" ? "Paused" : "Queued")}</small>
+      <p>{t("Owner")}: {task.ownerName || task.ownerId || t(task.ownerId === undefined ? "Not recorded" : "Unassigned")} · {t("Assignee")}: {task.assigneeName || task.assigneeId || t("Unassigned")}</p>
+    </li>)}</ul>
+  </section>;
 }
 
 function MemberList({ department, organization, onClose }: { department: OrganizationDepartment; organization: OrganizationView; onClose: () => void }) {

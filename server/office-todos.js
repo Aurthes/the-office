@@ -16,6 +16,21 @@ const completionTime = row => {
   return times.length && times.every(time => Number.isFinite(time)) ? Math.max(...times) : null;
 };
 const activeDelegation = row => (row.delegations || []).findLast(entry => !["accepted", "recalled"].includes(entry.state));
+// Legacy owners need recorded acceptance or one connected original handoff.
+// Missing evidence stays missing; an explicitly cleared owner stays cleared.
+const taskOwnerId = row => {
+  if (!row) return undefined;
+  if (Object.hasOwn(row, "ownerId")) return row.ownerId;
+  const handoffs = row.delegations || [], root = handoffs[0]?.managerId;
+  if (!root) return row.acceptanceManagerId || undefined;
+  const connected = new Set([root]);
+  for (const entry of handoffs) {
+    if (!connected.has(entry.managerId)) return undefined;
+    connected.add(entry.workerId);
+  }
+  if (row.acceptanceManagerId && !connected.has(row.acceptanceManagerId)) return undefined;
+  return root;
+};
 // Execution attribution and the person handling the workflow are separate.
 const handlingAgentId = row => {
   const entry = activeDelegation(row);
@@ -32,6 +47,7 @@ class OfficeTodos {
       const checkpointAt = row.savedAt;
       let separated = false;
       if (row.version !== 1 || `${row.id}.json` !== file || !Array.isArray(row.phases) || !Number.isInteger(row.revision)) throw new Error("Invalid to-do state; refusing to overwrite it");
+      this.materializeOwner(row);
       this.rows.set(row.id, row); if (row.requestId) this.requests.set(row.requestId, row.id);
       if (row.status !== "done" && row.delegations?.length && !Object.hasOwn(row, "acceptanceManagerId")) {
         const entry = activeDelegation(row);
@@ -65,7 +81,15 @@ class OfficeTodos {
     return { source: input.source === "system" ? "system" : "user", name: input.source === "system" ? "Office" : "User" };
   }
   event(row, message, actor) { row.events.push({ at: this.now(), message, actor }); row.events = row.events.slice(-100); }
+  materializeOwner(row, writing = false) {
+    if (Object.hasOwn(row, "ownerId")) return;
+    const ownerId = taskOwnerId(row);
+    // An existing write freezes unknown legacy ownership as unassigned, so a
+    // later handoff cannot manufacture a different historical owner.
+    if (ownerId !== undefined || writing) Object.assign(row, { ownerId: ownerId ?? null, ownerName: ownerId ? this.agents().find(agent => agent.id === ownerId)?.name || ownerId : null });
+  }
   save(row) {
+    this.materializeOwner(row, true);
     row.savedAt = this.now();
     const file = path.join(this.directory, `${row.id}.json`), temporary = `${file}.${uuid()}.tmp`;
     try { fs.writeFileSync(temporary, JSON.stringify(row) + "\n", { mode: 0o600, flag: "wx" }); fs.renameSync(temporary, file); }
@@ -81,11 +105,15 @@ class OfficeTodos {
   references(input, previous) {
     const departmentId = input.departmentId === undefined ? previous?.departmentId ?? null : input.departmentId;
     const assigneeId = input.assigneeId === undefined ? previous?.assigneeId ?? null : input.assigneeId;
+    const ownerId = input.ownerId === undefined ? taskOwnerId(previous) : input.ownerId;
     const department = departmentId == null ? { name: "Open Workspace" } : this.projects().find(p => p.id === departmentId);
     if (!department && departmentId !== previous?.departmentId) throw new Error("Choose an existing department");
     const agent = assigneeId == null ? null : this.agents().find(a => a.id === assigneeId);
     if (assigneeId != null && !agent && assigneeId !== previous?.assigneeId) throw new Error("Choose an existing agent or Unassigned");
-    return { departmentId, departmentName: department?.name || previous.departmentName, assigneeId, assigneeName: agent?.name || (assigneeId ? previous?.assigneeName : null) };
+    const owner = ownerId == null ? null : this.agents().find(a => a.id === ownerId);
+    if (ownerId != null && !owner && ownerId !== taskOwnerId(previous)) throw new Error("Choose an existing owner or Unassigned");
+    return { departmentId, departmentName: department?.name || previous.departmentName, assigneeId, assigneeName: agent?.name || (assigneeId ? previous?.assigneeName : null),
+      ...(ownerId !== undefined ? { ownerId, ownerName: owner?.name || (ownerId ? previous?.ownerName || ownerId : null) } : {}) };
   }
   plan(input, previous = []) {
     if (!Array.isArray(input) || !input.length || input.length > 20) throw new Error("Define 1–20 phases");
@@ -101,11 +129,13 @@ class OfficeTodos {
   }
   view(row, full = false, { projects = this.projects(), agents = this.agents() } = {}) {
     const department = projects.find(p => p.id === row.departmentId), agent = agents.find(a => a.id === row.assigneeId);
+    const ownerId = taskOwnerId(row), owner = agents.find(a => a.id === ownerId);
     const handlerId = handlingAgentId(row), handler = agents.find(a => a.id === handlerId), entry = activeDelegation(row);
     const { events, documentation, ...rest } = row;
     delete rest.requestId; delete rest.requestHash;
     if (!full && rest.delegations) rest.delegations = rest.delegations.map(({ id, managerId, workerId, state }) => ({ id, managerId, workerId, state }));
     return { ...rest, completedAt: completionTime(row), departmentName: department?.name || row.departmentName, assigneeName: agent?.name || row.assigneeName,
+      ...(ownerId !== undefined ? { ownerId } : {}), ownerName: owner?.name || row.ownerName || (ownerId ?? null), ownerAvailable: !!owner,
       handlingAgentId: handlerId, handlingAgentName: handler?.name || handlerId, handlingAgentAvailable: !!handler,
       reviewerId: entry?.state === "review" ? entry.managerId : null,
       assigneeAvailable: !!agent, ...(full ? { documentation, events } : {}),
@@ -125,6 +155,7 @@ class OfficeTodos {
     let rows = input.status === "done" ? all.filter(row => row.status === "done") : input.status === "archived" ? all.filter(row => row.archived || row.status === "done") : live;
     if (input.departmentId !== undefined) rows = rows.filter(row => row.departmentId === input.departmentId);
     if (input.assigneeId !== undefined) rows = rows.filter(row => row.assigneeId === input.assigneeId);
+    if (input.ownerId !== undefined) rows = rows.filter(row => (taskOwnerId(row) ?? null) === input.ownerId);
     if (input.status && !["all", "archived"].includes(input.status)) rows = rows.filter(row => row.status === input.status);
     if (input.query) { const query = text(input.query, "Search", 200).toLowerCase(); rows = rows.filter(r => `${r.title}\n${r.documentation}\n${r.assigneeName || ""}`.toLowerCase().includes(query)); }
     rows.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
@@ -139,7 +170,7 @@ class OfficeTodos {
     }
     if (this.rows.size >= 10000) throw new Error("The to-do registry has reached its limit");
     const actor = this.actor(input), row = { version: 1, id: uuid(), revision: 1, title: text(input.title, "To-do title", 200),
-      documentation: text(input.documentation || "", "Documentation", 24000, true), ...this.references(input), phases: this.plan(input.phases),
+      documentation: text(input.documentation || "", "Documentation", 24000, true), ...this.references({ ...input, ownerId: input.ownerId === undefined ? actor.id || null : input.ownerId }), phases: this.plan(input.phases),
       status: "queued", archived: false, completedAt: null, acceptanceManagerId: null, createdAt: this.now(), updatedAt: this.now(), events: [], requestId, requestHash: hash, sourceThreadId: input.sourceThreadId || null };
     const origin = actor.id && this.replyContext(actor.id);
     if (origin) row.replyContext = origin;
@@ -151,6 +182,7 @@ class OfficeTodos {
     if (action === "complete" && previous.phases.find(p => p.id === input.phaseId)?.completedAt != null) return this.get(input);
     if (input.revision !== previous.revision) throw new Error("This to-do changed. Refresh it before saving");
     const row = structuredClone(previous), actor = this.actor(input), delegation = activeDelegation(row); let message;
+    this.materializeOwner(row, true);
     if (delegation && ["edit", "archive"].includes(action) && (action === "archive" || input.assigneeId !== undefined && input.assigneeId !== row.assigneeId)) throw new Error("Finish or review the active delegation before reassigning or archiving this task");
     if (row.archived && action !== "restore" && !(row.status === "done" && ["edit", "reopen"].includes(action))) throw new Error("Restore this archived to-do first");
     if (action === "restore" && row.status === "done") throw new Error("Completed tasks stay archived. Add a phase or reopen a completed phase to follow up");

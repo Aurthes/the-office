@@ -3,9 +3,10 @@ import { CEO_ID, type OrganizationPerson } from "@/lib/office/organization";
 import type { ChatRosterEntry } from "./chatRoster";
 
 export type AgentDirectoryView = "project" | "activity" | "organization";
-export type CurrentAgentTask = { id: string; title: string; code: string };
+export type CurrentAgentTask = { id: string; title: string; code: string; roles?: ("Owner" | "Assignee")[] };
 export type DirectoryAgent = ChatRosterEntry & { color: string; avatarProfile?: AgentAvatarProfile | null; tasks?: CurrentAgentTask[] };
-export type DirectoryTaskSummary = { id: string; title: string; assigneeId: string | null; status: string; archived: boolean };
+export type DirectoryTaskSummary = { id: string; title: string; assigneeId: string | null; assigneeName?: string | null; ownerId?: string | null; ownerName?: string | null; departmentId?: string | null; reviewerId?: string | null; status: string; archived: boolean };
+export const needsFollowUp = (task: DirectoryTaskSummary) => !task.archived && task.status !== "done";
 
 // A title such as "Agent View Compression (AVC)" explicitly supplies its code.
 // Other titles use initials, or a short readable title for languages without spaces.
@@ -22,11 +23,17 @@ export function taskCode(title: string): string {
 export function currentTasksByAgent(tasks: DirectoryTaskSummary[]): Map<string, CurrentAgentTask[]> {
   const result = new Map<string, CurrentAgentTask[]>();
   for (const task of tasks) {
-    if (task.status === "done" || task.archived || !task.assigneeId) continue;
-    const assigned = result.get(task.assigneeId) || [];
-    if (assigned.some(existing => existing.id === task.id)) continue;
-    assigned.push({ id: task.id, title: task.title, code: taskCode(task.title) });
-    result.set(task.assigneeId, assigned);
+    if (!needsFollowUp(task)) continue;
+    for (const id of new Set([task.ownerId, task.assigneeId])) {
+      if (!id) continue;
+      const assigned = result.get(id) || [];
+      if (assigned.some(existing => existing.id === task.id)) continue;
+      const roles: ("Owner" | "Assignee")[] = [];
+      if (id === task.ownerId) roles.push("Owner");
+      if (id === task.assigneeId) roles.push("Assignee");
+      assigned.push({ id: task.id, title: task.title, code: taskCode(task.title), roles });
+      result.set(id, assigned);
+    }
   }
   return result;
 }
