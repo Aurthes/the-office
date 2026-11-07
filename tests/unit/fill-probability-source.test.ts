@@ -1,7 +1,11 @@
 // @vitest-environment node
 import { expect, it, vi } from "vitest";
-import { createFillReader, parseFillSources, parseFillReply, type FillSource } from "@/lib/fill-probability/source";
-import { FILL_NOW, fillRow } from "../fixtures/fill-probability";
+import { createFillReader, parseFillSources, parseFillReply, parseFillQuote, type FillSource } from "@/lib/fill-probability/source";
+import { FILL_NOW, fillRow, fillQuote } from "../fixtures/fill-probability";
+
+// Offline cold-exporter output from xex_mm_cpp@0b5e0136 ARM/QEMU test.
+// Probabilities/actions are generic test data, never a live producer record.
+import producerQuote from "../fixtures/fill-probability-producer.json";
 
 const source: FillSource = { id: "primary", host: "prod-a", strategies: [{ name: "maker", setting: "/srv/maker/setting.json", sourceSha: "a".repeat(40), feedbackVersion: 8 }] };
 it("pins the source and schema and rejects unsafe or ambiguous private configuration", () => {
@@ -18,6 +22,13 @@ it("projects only scalar facts and rejects cross-source or duplicate rows", () =
   expect(result).toEqual([row]); expect(JSON.stringify(result)).not.toContain("secret");
   for (const rows of [[{ ...row, producer: "other:maker" }], [row, row], [{ ...row, target: NaN }], [{ ...row, sourceSha: "b".repeat(40) }], [{ ...row, schema: 9 }]])
     expect(() => parseFillReply({ version: 1, rows }, source)).toThrow();
+});
+it("projects original readiness and quote facts without private nested fields", () => {
+  const q = fillQuote(); const row = fillRow({ready:true,observedAt:FILL_NOW,skipReason:"",quote:q});
+  const projected = parseFillReply({version:1,rows:[{...row,quote:{...q,privateConfig:"secret"}}]},source);
+  expect(projected).toEqual([row]); expect(JSON.stringify(projected)).not.toContain("secret");
+  for (const bad of [{...q,quoted:false,finalProbability:.001},{...q,p1State:"success means changed"},{...q,finalProbability:NaN}])
+    expect(()=>parseFillReply({version:1,rows:[{...row,quote:bad}]},source)).toThrow();
 });
 it("coalesces reads for ten seconds without changing evidence timestamps", async () => {
   let now = FILL_NOW; const load = vi.fn(async () => [fillRow()]); const read = createFillReader(load, () => now);
@@ -41,4 +52,13 @@ it("changing source configuration during an in-flight read cannot return the pre
   const old = read([source]); expect(await read([])).toMatchObject({ configured: false, rows: [] });
   finish([fillRow()]); await old;
   expect(await read([])).toMatchObject({ configured: false, rows: [] });
+});
+
+it("accepts compiled C++ cold-exporter scalars exactly for both sides", () => {
+  for (const side of ["bid", "ask"] as const) {
+    const q = producerQuote[side];
+    expect(parseFillQuote(q)).toEqual(q);
+    const row = fillRow({ side, quote: parseFillQuote(q) });
+    expect(parseFillReply({ version: 1, rows: [row] }, source)).toEqual([row]);
+  }
 });
