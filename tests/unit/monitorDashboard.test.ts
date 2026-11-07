@@ -21,7 +21,9 @@ it("keeps strategy monitors in the control room and removes the moved server ent
   await screen.findByRole("button", { name: "Open monitor: Grafana" });
   expect(open).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "Open server fleet status" })).not.toBeInTheDocument();
-  expect(document.querySelectorAll(".monitor-tile svg.monitor-illustration")).toHaveLength(2);
+  expect(document.querySelectorAll(".monitor-tile svg.monitor-illustration")).toHaveLength(4);
+  for (const name of ["Order capacity", "Fill probability", "Maker markout"])
+    expect(screen.getByRole("button", { name: `Open monitor: ${name}` })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Open monitor: Grafana" }));
   expect(tab.location.href).toBe(links[0].url);
   fireEvent.click(screen.getByRole("button", { name: "Close monitoring dashboard" }));

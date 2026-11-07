@@ -1,5 +1,19 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Maker markout": "Maker 成交 Markout",
+  "P50 line · P25–P75 / P5–P95 sample distribution bands": "P50 中位线 · P25–P75 / P5–P95 样本分布带",
+  "Horizon": "观察期限",
+  "Overall": "整体",
+  "Export time; closed buckets": "按结算导出时间 · 已结束的时间桶",
+  "Reading markout data…": "正在读取 Markout…",
+  "No markout source configured": "尚未配置 Markout 来源",
+  "Source incomplete; distribution is N/A": "来源不完整，分布为 N/A",
+  "No complete distribution yet. Legacy averages cannot recover quantiles.": "暂无完整分布；旧版均值无法还原分位数。",
+  "Markout bucket distributions": "Markout 分桶分布",
+  "No mature samples": "暂无成熟样本",
+  "Valid settled samples": "有效已结算样本",
+  "Equal-weight opening-maker fill segments, not unique orders. Bands show the sample distribution, not a confidence interval. Young/pending fills are excluded; missing data is not zero.": "按开仓 maker 成交片段等权统计，不是唯一订单；分布带不是置信区间。年轻、在途成交尚未计入，缺失不填零。",
+
   "Model disabled this side": "模型未启用该侧报价",
   "Fee unavailable": "费率尚不可用",
   "Risk blocked": "风险控制禁侧",
