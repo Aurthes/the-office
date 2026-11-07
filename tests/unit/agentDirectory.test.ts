@@ -117,3 +117,14 @@ it("retains every reporting edge and unconfigured session, with bounded referenc
   expect(nodes.filter(node => node.person.id === "newbie")).toHaveLength(1);
   expect(nodes.some(node => node.person.id === "new-session")).toBe(true);
 });
+
+it("only offers overlay dismissal when requested and leaves chat selection to its own control", () => {
+  const { props, rerender } = fixture("organization");
+  expect(screen.queryByRole("button", { name: "Dismiss session list" })).toBeNull();
+  const onDismiss = vi.fn();
+  rerender(createElement(AgentDirectory, { ...props, onDismiss }));
+  expect(screen.getByRole("combobox", { name: "Organize agents" })).toHaveValue("organization");
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss session list" }));
+  expect(onDismiss).toHaveBeenCalledOnce();
+  expect(props.onOpenChat).not.toHaveBeenCalled();
+});

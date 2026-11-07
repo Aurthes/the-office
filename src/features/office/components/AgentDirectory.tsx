@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, Link2, Users } from "lucide-react";
+import { ChevronDown, ChevronRight, Link2, Users, X } from "lucide-react";
 import { CharacterPortrait } from "./CharacterPortrait";
 import { getAgentActivity } from "@/features/retro-office/core/agentActivity";
 import { OrganizationPanel } from "@/features/ring-ship/OrganizationPanel";
@@ -31,11 +31,12 @@ function AssignedTaskMenu({ name, tasks, onOpenTask }: { name: string; tasks: Cu
   </>;
 }
 
-export function AgentDirectory({ agents, organization, view, onViewChange, search, onSearchChange, selectedId, onOpenChat, onOpenTask, taskError, focusRequest, client, onOpenMessage }: {
+export function AgentDirectory({ agents, organization, view, onViewChange, search, onSearchChange, selectedId, onOpenChat, onOpenTask, taskError, focusRequest, client, onOpenMessage, onDismiss }: {
   agents: DirectoryAgent[]; organization: OrganizationView; view: AgentDirectoryView; onViewChange: (view: AgentDirectoryView) => void;
   search: string; onSearchChange: (search: string) => void; selectedId: string | null;
   onOpenChat: (id: string) => void; onOpenTask: (id: string) => void; taskError?: string;
   focusRequest?: { id: string; request: number } | null;
+  onDismiss?: () => void;
   client?: SessionClient; onOpenMessage?: (target: MessageSearchTarget) => void;
 }) {
   const t = useUiText(), container = useRef<HTMLElement>(null);
@@ -99,7 +100,7 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
     </li>;
   };
   return <aside id="session-chat-list" ref={container} aria-label={t("Agents")} className="agent-directory session-chat-list">
-    <header className="directory-heading"><Users size={16} /><strong>{t(searchMessages ? "Message search" : "Agents")}</strong>{!searchMessages ? <span>{agents.length}</span> : null}</header>
+    <header className="directory-heading"><Users size={16} /><strong>{t(searchMessages ? "Message search" : "Agents")}</strong>{!searchMessages ? <span>{agents.length}</span> : null}{onDismiss ? <button type="button" className="directory-dismiss" aria-label={t("Dismiss session list")} onClick={onDismiss}><X size={16} /></button> : null}</header>
     {client && onOpenMessage ? <div className="directory-search-tabs" role="tablist" aria-label={t("Search type")}>
       <button type="button" role="tab" aria-selected={!searchMessages} onClick={() => setSearchMessages(false)}>{t("Sessions")}</button>
       <button type="button" role="tab" aria-selected={searchMessages} onClick={() => setSearchMessages(true)}>{t("Messages")}</button>

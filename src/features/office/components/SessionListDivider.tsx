@@ -2,8 +2,9 @@
 
 import { useLayoutEffect, useRef } from "react";
 import { useUiText } from "@/lib/i18n/ui-language";
+import { sessionListWidth } from "../operations/sessionListLayout";
 
-export function SessionListDivider() {
+export function SessionListDivider({ onResize }: { onResize?: () => void }) {
   const t = useUiText();
   const handleRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: number; x: number; width: number } | null>(null);
@@ -15,7 +16,7 @@ export function SessionListDivider() {
       if (!total) return;
       handle.setAttribute("aria-valuenow", String(Math.round(list.getBoundingClientRect().width / total * 100)));
       handle.setAttribute("aria-valuemin", String(Math.round(96 / total * 100)));
-      handle.setAttribute("aria-valuemax", String(Math.round(Math.max(96, Math.min(360, total / 2, total - 212)) / total * 100)));
+      handle.setAttribute("aria-valuemax", String(Math.round(sessionListWidth(total, 360) / total * 100)));
     };
     update();
     const observer = new ResizeObserver(update);
@@ -26,8 +27,9 @@ export function SessionListDivider() {
     const container = handle.parentElement;
     if (!container) return;
     const total = container.getBoundingClientRect().width;
-    const next = Math.max(96, Math.min(width, 360, total / 2, total - 212));
+    const next = sessionListWidth(total, width);
     container.style.setProperty("--session-list-width", `${next}px`);
+    onResize?.();
   };
 
   return <div ref={handleRef} role="separator" aria-label={t("Resize session list")} aria-orientation="vertical"

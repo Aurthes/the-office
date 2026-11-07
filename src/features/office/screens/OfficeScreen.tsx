@@ -26,6 +26,7 @@ import type { MessageSearchTarget } from "@/features/office/components/MessageSe
 import { useSessionVoice } from "@/features/office/components/useSessionVoice";
 import { SessionVoiceCall, SessionVoiceSettings } from "@/features/office/components/SessionVoice";
 import { SessionListDivider } from "@/features/office/components/SessionListDivider";
+import { useSessionListLayout } from "@/features/office/hooks/useSessionListLayout";
 import { CompanyActions } from "@/features/office/components/CompanyActions";
 import { SHARED_PROJECT_ID } from "@/features/ring-ship/layout";
 import { OfficeOnboarding } from "@/features/onboarding/components/OfficeOnboarding";
@@ -822,6 +823,14 @@ export function OfficeScreen({
   const returnFinished = useCallback(() => setReturnRequest(null), []);
   const sessionView = process.env.NEXT_PUBLIC_CLAW3D_SESSION_VIEW === "1";
   const [chatRosterCollapsed, setChatRosterCollapsed] = useState(false);
+  const { container: sessionListContainer, overlay: sessionListOverlay, update: resizeSessionList } = useSessionListLayout(sessionView);
+  const dismissSessionList = () => {
+    setChatRosterCollapsed(true);
+    requestAnimationFrame(() => {
+      const toggles = sessionListContainer.current?.querySelectorAll<HTMLButtonElement>('button[aria-controls="session-chat-list"]');
+      [...(toggles || [])].find(button => button.getClientRects().length)?.focus({ preventScroll: true });
+    });
+  };
   const [directoryView, setDirectoryView] = useState<AgentDirectoryView>("organization");
   const [taskBoardRequest, setTaskBoardRequest] = useState<{ id?: string } | null>(null);
   const [messageSelection, setMessageSelection] = useState<{ gateway: string; target: MessageSearchTarget } | null>(null);
@@ -3296,7 +3305,10 @@ export function OfficeScreen({
   const emptyFleetMessage =
     state.error?.trim() ||
     "Connected to the gateway, but no agents were loaded into the office.";
-  const sessionListToggle = <button type="button" onClick={() => setChatRosterCollapsed(value => !value)}
+  const sessionListToggle = <button type="button" onClick={() => {
+    setChatRosterCollapsed(value => !value);
+    if (chatRosterCollapsed && sessionListOverlay) requestAnimationFrame(() => sessionListContainer.current?.querySelector<HTMLInputElement>("#session-chat-list input")?.focus({ preventScroll: true }));
+  }}
     aria-label={t(chatRosterCollapsed ? "Open session list" : "Close session list")} aria-expanded={!chatRosterCollapsed} aria-controls="session-chat-list"
     title={`${t("Sessions ·")} ${chatRosterEntries.length}`} className="session-header-button"><PanelLeft size={18} /></button>;
   const sessionWindowActions = <>
@@ -3747,7 +3759,14 @@ export function OfficeScreen({
       >
         {(chatOpen || sessionView) && (
           <div
-            className={sessionView ? "relative flex min-h-0 w-full flex-1 overflow-hidden" : "flex overflow-hidden rounded border border-white/10 bg-[#0e0a04] shadow-2xl"}
+            ref={sessionListContainer}
+            data-session-list-mode={sessionView ? sessionListOverlay ? "overlay" : "split" : undefined}
+            onKeyDown={event => {
+              if (sessionView && sessionListOverlay && !chatRosterCollapsed && event.key === "Escape" && !event.defaultPrevented) {
+                event.preventDefault(); event.stopPropagation(); dismissSessionList();
+              }
+            }}
+            className={sessionView ? "session-chat-layout relative flex min-h-0 w-full flex-1 overflow-hidden" : "flex overflow-hidden rounded border border-white/10 bg-[#0e0a04] shadow-2xl"}
             style={sessionView ? { display: chatOpen ? undefined : "none" } : {
               width: chatRosterCollapsed
                 ? "min(680px, calc(100vw - 1.5rem))"
@@ -3755,13 +3774,17 @@ export function OfficeScreen({
               height: "min(560px, calc(100vh - 5.5rem))",
             }}
           >
+            {sessionView && sessionListOverlay && !chatRosterCollapsed ? <button type="button" aria-label={t("Dismiss session list")} className="session-list-backdrop" onClick={dismissSessionList} /> : null}
             {sessionView ? !chatRosterCollapsed ? <AgentDirectory key={gatewayUrl} agents={directoryAgents} organization={organization} view={directoryView}
               onViewChange={changeDirectoryView} search={sessionSearch} onSearchChange={setSessionSearch} selectedId={selectedChatAgentId}
-              onOpenChat={handleOpenAgentChat} onOpenTask={id => setTaskBoardRequest({ id })} taskError={currentTasks.error}
+              onOpenChat={id => { handleOpenAgentChat(id); if (sessionListOverlay) setChatRosterCollapsed(true); }}
+              onDismiss={sessionListOverlay ? dismissSessionList : undefined}
+              onOpenTask={id => setTaskBoardRequest({ id })} taskError={currentTasks.error}
               client={client} onOpenMessage={target => {
                 const archived = target.archived || !state.agents.some(agent => agent.agentId === target.threadId);
                 if (!archived) handleOpenAgentChat(target.threadId);
                 setMessageSelection({ gateway: gatewayUrl, target: { ...target, archived } });
+                if (sessionListOverlay) setChatRosterCollapsed(true);
               }}
               focusRequest={organizationFocus} /> : null : <div
               className={`flex shrink-0 flex-col border-r border-white/10 transition-[width] ${chatRosterCollapsed ? "w-12" : "w-52"}`}
@@ -3850,7 +3873,7 @@ export function OfficeScreen({
                 )}
               </div>
             </div>}
-            {sessionView && !chatRosterCollapsed ? <SessionListDivider /> : null}
+            {sessionView && !chatRosterCollapsed && !sessionListOverlay ? <SessionListDivider onResize={resizeSessionList} /> : null}
 
             <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
               {messageTarget?.archived ? <SessionMessageLocation client={client} target={messageTarget} onClose={() => setMessageSelection(null)} headerStart={sessionListToggle} /> : null}
