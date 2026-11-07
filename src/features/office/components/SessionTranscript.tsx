@@ -39,7 +39,6 @@ const MessageBody = memo(function MessageBody({ message, truncatedLabel }: { mes
       {t(({ sending: "Waiting for receipt…", accepted: "Accepted · Waiting for message history", failed: "Message rejected · Draft and attachments kept", unknown: "Delivery not confirmed · Check the conversation before sending again" })[message.delivery])}{message.deliveryError ? ` · ${message.deliveryError}` : ""}
     </p> : null}
     {message.truncated ? <p className="mt-2 text-[10px] text-amber-200/70">{truncatedLabel}</p> : null}
-    <MessageTime timestamp={message.timestamp} />
   </>;
 });
 
@@ -83,6 +82,7 @@ function WorkProcess({ items, defaultOpen, highlightedMessageId, onOpenQuestion 
     {open ? <div className="mt-2 space-y-2 border-l border-white/15 pl-3">{blocks.map(block => "tools" in block ? <ToolCalls key={block.tools[0].id} items={block.tools} /> : <div key={block.message.id} data-message-id={block.message.id} data-search-match={block.message.id === highlightedMessageId || undefined} tabIndex={block.message.id === highlightedMessageId ? -1 : undefined}>
       <ReplyHeading context={block.message.replyContext} onOpenSource={onOpenQuestion} />
       <MessageBody message={block.message} truncatedLabel={t("This message is long. View the rest in the desktop app.")} />
+      <MessageTime timestamp={block.message.timestamp} />
     </div>)}</div> : null}
   </details>;
 }
@@ -116,7 +116,10 @@ export const SessionTranscript = memo(function SessionTranscript({ messages, act
     {block.message.role !== "user" || block.message.source === "voice" ? <div className="mb-1 text-[10px] font-semibold text-slate-300">{block.message.role === "user" ? t("You") : "Codex"}{block.message.source === "voice" ? ` · ${t("Voice")}` : ""}</div> : null}
     {block.message.role === "assistant" ? <ReplyHeading context={block.message.replyContext} onOpenSource={onOpenQuestion} /> : null}
     <MessageBody message={block.message} truncatedLabel={t("This message is long. View the rest in the desktop app.")} />
-    {onForkFrom && block.message.turnId && forkPoints.get(block.message.turnId) === block.message.id ? <button type="button" disabled={forkDisabled} onClick={() => onForkFrom(block.message.turnId!)} className="mt-2 inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-[11px] text-slate-400 hover:bg-white/5 hover:text-teal-200 disabled:opacity-40" title={t("Keep this turn and earlier context; later messages are excluded.")}><GitFork size={13} aria-hidden="true" />{t("Fork from here")}</button> : null}
+    <div className="session-message-footer">
+      {onForkFrom && block.message.turnId && forkPoints.get(block.message.turnId) === block.message.id ? <button type="button" disabled={forkDisabled} onClick={() => onForkFrom(block.message.turnId!)} className="inline-flex min-h-8 min-w-0 items-center gap-1.5 rounded-md px-2 text-[11px] whitespace-nowrap text-slate-400 hover:bg-white/5 hover:text-teal-200 disabled:opacity-40" title={t("Keep this turn and earlier context; later messages are excluded.")}><GitFork size={13} className="shrink-0" aria-hidden="true" /><span className="truncate">{t("Fork from here")}</span></button> : null}
+      <MessageTime timestamp={block.message.timestamp} />
+    </div>
   </article>;
   });
 });
