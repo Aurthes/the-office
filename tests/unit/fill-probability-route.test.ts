@@ -1,8 +1,9 @@
 // @vitest-environment node
 import { gunzipSync } from "node:zlib";
 import { expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ read: vi.fn() }));
+const mocks = vi.hoisted(() => ({ read: vi.fn(), benchmark: vi.fn() }));
 vi.mock("@/lib/fill-probability/source", () => ({ getFillSnapshot: mocks.read }));
+vi.mock("@/lib/fill-probability/read-benchmark", () => ({ readTaskPathBenchmark: mocks.benchmark }));
 import { GET } from "@/app/api/monitoring/fill-probability/route";
 it("serves same-origin read-only facts with no-store", async () => {
   mocks.read.mockResolvedValueOnce({ configured: false, serverTime: 123, rows: [] });
@@ -33,4 +34,19 @@ it("honors gzip refusal and retains the same uncompressed JSON", async () => {
   const response = await GET(new Request("https://office.test/api/monitoring/fill-probability", { headers: { "Accept-Encoding": "gzip;q=0, br" } }));
   expect(response.headers.get("content-encoding")).toBeNull();
   expect(await response.json()).toEqual(snapshot);
+});
+
+it("keeps task dispatch separate from the ordinary cached source", async () => {
+  const data = { contract: "t85-html-read-v1", source: "disk", rows: [{ fields: [] }] };
+  mocks.benchmark.mockResolvedValueOnce(data);
+  const r = await GET(new Request("https://office.test/api/monitoring/fill-probability?benchmarkSource=disk&benchmarkRun=approved01", { headers: { "Accept-Encoding": "gzip" } }));
+  expect(mocks.benchmark).toHaveBeenLastCalledWith("disk", "approved01");
+  expect(r.headers.get("content-encoding")).toBe("gzip");
+  expect(JSON.parse(gunzipSync(new Uint8Array(await r.arrayBuffer())).toString())).toEqual(data);
+});
+it("task failures are failed responses, never empty success or ordinary fallback", async () => {
+  mocks.benchmark.mockRejectedValueOnce(Error("private password"));
+  const r = await GET(new Request("https://office.test/api/monitoring/fill-probability?benchmarkSource=redis&benchmarkRun=approved01"));
+  expect(r.status).toBe(503); const text = await r.text(); expect(text).not.toContain("password");
+  expect(JSON.parse(text)).toMatchObject({ contract: "t85-html-read-v1", error: "Task benchmark unavailable" });
 });
