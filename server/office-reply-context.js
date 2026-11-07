@@ -172,17 +172,17 @@ class OfficeReplyContext {
   }
   forModel(id) {
     const state = this.state(id);
-    const source = ({ threadId, turnId, itemId, excerpt }) => ({ threadId, turnId, itemId, ...(excerpt ? { excerpt: clipText(excerpt, 160).content } : {}) });
-    const question = ({ id, summary, parentQuestionId, sources, parents }) => ({ id, summary,
-      ...(parentQuestionId ? { parentQuestionId } : {}),
-      ...(sources ? { sources: sources.map(source) } : {}),
-      ...(parents?.length ? { parents } : {}),
-    });
+    const question = ({ id, summary }) => ({ id, summary });
+    const selected = new Set(state.answering);
+    // Exact provenance and ancestry stay in stored/UI records. Keep the short
+    // selection index so choosing a known Q never needs a discovery query.
     return { answering: state.answering,
-      context: state.context ? { ...state.context, ...(state.context.questions ? { questions: state.context.questions.map(question) } : {}),
-        ...(state.context.sources ? { sources: state.context.sources.map(source) } : {}) } : null,
-      knownQuestions: state.knownQuestions.map(({ id, summary, parentQuestionId }) => ({ id, summary, ...(parentQuestionId ? { parentQuestionId } : {}) })),
-      recentSources: state.recentSources.map(source),
+      context: state.context ? { ...Object.fromEntries(["taskId", "taskTitle", "phaseId", "phaseTitle"].filter(key => state.context[key] !== undefined).map(key => [key, state.context[key]])),
+        questions: (state.context.questions || []).map(question) } : null,
+      knownQuestions: state.knownQuestions.filter(({ id }) => !selected.has(id)).map(question),
+      // Unique sources resolve directly in context(). Multiple candidates still
+      // need exact IDs and excerpts so the agent can disambiguate in one call.
+      ...(!selected.size && state.recentSources.length > 1 ? { recentSources: state.recentSources.map(({ threadId, turnId, itemId, excerpt }) => ({ threadId, turnId, itemId, excerpt: clipText(excerpt, 160).content })) } : {}),
     };
   }
   prepare(id, requestId, context, kind = "handoff") {
