@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { FillProbabilityDashboard } from "@/features/fill-probability/FillProbabilityDashboard";
 import { MonitorDashboard } from "@/features/ring-ship/MonitorDashboard";
-import { fillRow, fillSnapshot } from "../fixtures/fill-probability";
+import { FILL_NOW, fillQuote, fillRow, fillSnapshot } from "../fixtures/fill-probability";
 
 beforeEach(() => { localStorage.setItem("claw3d:ui-language", "en"); vi.spyOn(document, "hidden", "get").mockReturnValue(false); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
@@ -78,4 +78,101 @@ it("opens the built-in probability view inside the control room on demand", asyn
   await screen.findByRole("table", { name: "Fill probability stages" }); expect(open).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Back to monitors" }));
   expect(screen.queryByRole("region", { name: "Fill probability" })).toBeNull();
+});
+
+it("shows offline candidate observation fields and colors original-ready EMA and current quote distances", async () => {
+  const row = fillRow({ ready: true, observedAt: FILL_NOW, quote: fillQuote() });
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(fillSnapshot([row]))));
+  render(createElement(FillProbabilityDashboard));
+  const table = await screen.findByRole("table", { name: "Fill probability stages" });
+  const stage = (key: string) => table.querySelector(`[data-stage="${key}"]`)! as HTMLElement;
+  for (const key of ["base", "model", "actual", "ca-probability", "before-normalize", "after-normalize", "p1", "post-only", "p2", "final"]) {
+    expect(stage(key)).toHaveAttribute("data-state", "current");
+    expect(stage(key).querySelector(".fill-gap")).not.toHaveStyle({ color: "#a8b5bd" });
+  }
+  expect(within(stage("before-normalize")).getByText("0.0015")).toBeInTheDocument();
+  expect(within(stage("after-normalize")).getByText("0.0012")).toBeInTheDocument();
+  expect(within(stage("after-normalize")).getByText("Normalization: Enabled · scale 0.8")).toBeInTheDocument();
+  expect(within(stage("ca-probability")).getByText("Reference price: 99.8")).toBeInTheDocument();
+  expect(within(stage("p1")).getByText("Changed price")).toBeInTheDocument();
+  expect(within(stage("final")).getByText("0.0009")).toBeInTheDocument();
+  expect(screen.queryByText(/Quote observation has not been exported/)).toBeNull();
+  expect(screen.getByText(/Quote and EMA clocks are separate/)).toBeInTheDocument();
+});
+
+it("distinguishes unchanged and not-run guards, disabled normalization and absent Pmax", async () => {
+  const quote = fillQuote({ normalizationEnabled: false, normalizationScale: 1, pmax: null, beforeNormalize: .0015, afterNormalize: .0015, p1State: "unchanged", postOnlyState: "unchanged", p2State: "not-run", p2AfterProbability: null });
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(fillSnapshot([fillRow({ quote })]))));
+  render(createElement(FillProbabilityDashboard));
+  const table = await screen.findByRole("table", { name: "Fill probability stages" });
+  expect(table.querySelector('[data-stage="pmax"] .fill-value')).toHaveTextContent("N/A");
+  expect(table.querySelector('[data-stage="after-normalize"]')).toHaveTextContent("Normalization: Disabled · scale 1");
+  expect(table.querySelector('[data-stage="post-only"]')).toHaveTextContent("Passed without price change");
+  expect(table.querySelector('[data-stage="p2"]')).toHaveTextContent("Not run");
+});
+
+it("shows a rejected or disabled side as no quote, never zero final probability", async () => {
+  const quote = fillQuote({ quoted: false, finalProbability: .0009, finalPrice: 99.5, p2State: "rejected", guardReason: "p2_ratio_unreachable", disabledMask: 4 });
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(fillSnapshot([fillRow({ quote })]))));
+  render(createElement(FillProbabilityDashboard));
+  const table = await screen.findByRole("table", { name: "Fill probability stages" });
+  const final = table.querySelector('[data-stage="final"]')! as HTMLElement;
+  expect(final.querySelector(".fill-value")).toHaveTextContent("N/A");
+  expect(final).toHaveTextContent("No near quote");
+  expect(final).toHaveTextContent("p2_ratio_unreachable · Risk blocked · Disable mask: 4");
+  expect(table.querySelector('[data-stage="p2"]')).toHaveTextContent("Rejected");
+});
+
+it("keeps underflow targets distinct from an explicit disabled side", async () => {
+  const quote = fillQuote({ underflow: true, afterNormalize: 0, logAfterNormalize: -800, quoted: true });
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(fillSnapshot([fillRow({ quote })]))));
+  render(createElement(FillProbabilityDashboard));
+  const table = await screen.findByRole("table", { name: "Fill probability stages" });
+  expect(table.querySelector('[data-stage="after-normalize"]')).toHaveTextContent("Positive target below floating-point range");
+  expect(table.querySelector('[data-stage="after-normalize"]')).toHaveTextContent("ln(p) -800");
+  expect(screen.queryByText("No near quote")).toBeNull();
+});
+
+it("does not mix an expired quote with a current ready EMA", async () => {
+  const row = fillRow({ ready: true, observedAt: FILL_NOW, quote: fillQuote({ at: FILL_NOW - 30_000 }) });
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(fillSnapshot([row]))));
+  render(createElement(FillProbabilityDashboard));
+  const table = await screen.findByRole("table", { name: "Fill probability stages" });
+  expect(table.querySelector('[data-stage="actual"]')).toHaveAttribute("data-state", "current");
+  expect(table.querySelector('[data-stage="final"] .fill-value')).toHaveTextContent("N/A");
+  expect(screen.getByText("Quote observation expired or read failed")).toBeInTheDocument();
+});
+
+it("distinguishes an observed but not-ready quote from telemetry that was never exported", async () => {
+  const quote = fillQuote({ available: false, guardReason: "spread_not_ready", baseTarget: null, quoted: false });
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(fillSnapshot([fillRow({ quote })]))));
+  render(createElement(FillProbabilityDashboard));
+  await screen.findByRole("table", { name: "Fill probability stages" });
+  expect(screen.getByText(/Quote was observed, but quote stages are unavailable/)).toHaveTextContent("spread_not_ready");
+  expect(screen.queryByText(/Quote observation has not been exported by this producer/)).toBeNull();
+  const sourceReason = screen.getByText("Quote source reason").parentElement!;
+  expect(sourceReason).toHaveTextContent("spread_not_ready");
+  expect(screen.getByText("Quote calculation time").parentElement).not.toHaveTextContent("N/A");
+  expect(document.querySelector('[data-stage="final"] .fill-value')).toHaveTextContent("N/A");
+});
+
+it("does not describe an explicit zero target with no log target as positive underflow", async () => {
+  const quote = fillQuote({ underflow: true, beforeNormalize: 0, afterNormalize: 0, logAfterNormalize: null, quoted: false, disabledMask: 1, guardReason: "side_disabled" });
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(fillSnapshot([fillRow({ quote })]))));
+  render(createElement(FillProbabilityDashboard));
+  const table = await screen.findByRole("table", { name: "Fill probability stages" });
+  expect(table.querySelector('[data-stage="after-normalize"]')).not.toHaveTextContent("Positive target below floating-point range");
+  expect(table.querySelector('[data-stage="after-normalize"]')).not.toHaveTextContent("ln(p)");
+  expect(table.querySelector('[data-stage="final"]')).toHaveTextContent("Model disabled this side");
+  expect(table.querySelector('[data-stage="final"]')).toHaveTextContent("No near quote");
+});
+
+it("maps all reported disable bits to their original meanings without inferring a blocker", async () => {
+  const quote = fillQuote({ quoted: false, disabledMask: 31, guardReason: "side_disabled" });
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(fillSnapshot([fillRow({ quote })]))));
+  render(createElement(FillProbabilityDashboard));
+  const table = await screen.findByRole("table", { name: "Fill probability stages" });
+  const final = table.querySelector('[data-stage="final"]')!;
+  for (const reason of ["Model disabled this side", "Fee unavailable", "Risk blocked", "EV blocked", "Anti-arbitrage blocked", "Disable mask: 31"])
+    expect(final).toHaveTextContent(reason);
 });

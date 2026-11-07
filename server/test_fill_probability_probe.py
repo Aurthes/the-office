@@ -68,6 +68,13 @@ class FillProbeTests(unittest.TestCase):
         self.assertAlmostEqual(result["ca"], math.exp(10))
         self.assertAlmostEqual(result["theoreticalEma"], -math.expm1(-.005))
 
+    def test_valid_log_space_state_survives_multiplier_overflow(self):
+        value=state();value["a_multiplier_min"]=-1000;value["a_multiplier_max"]=1000
+        value["side_states"]["bid"]["ema"].update(log_a_multiplier=740,hit_ema=1,exposure_ema_seconds=1,base_model_hazard_ema=1e-323)
+        result=decode(value)["bid"]
+        self.assertIsNone(result["ca"]);self.assertEqual(result["logCa"],740)
+        self.assertAlmostEqual(result["actualEma"],-math.expm1(-1))
+
     def test_exact_filekv_key_checksum_size_and_expiry(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); key = "cache:mm:target_fill_feedback:maker:5:symbol:venue.perp.coin_usdt"
@@ -95,15 +102,43 @@ class FillProbeTests(unittest.TestCase):
                 def mget(self, keys):
                     self.keys = keys
                     return [json.dumps(dict(ts=2100, strategy="maker", strategy_idx="5", pid=123, type="hb", success=True, reporter_started_at_ms=1500)),
-                            json.dumps(dict(portfolio_params=dict(unit_params={"acct": {"venue.perp.coin_usdt": dict(mode="maker")}})))]
+                            json.dumps(dict(portfolio_params=dict(unit_params={"acct": {"venue.perp.coin_usdt": dict(mode="maker")}}))), None]
                 def close(self): pass
             client = Client(); config = dict(id="primary", strategies=[dict(name="maker", setting=str(setting), sourceSha="a"*40, feedbackVersion=8)])
             with patch.object(probe, "identity", return_value=(123,"a"*40,1000)), patch.object(probe, "filekv", side_effect=FileNotFoundError) as read:
                 result = probe.collect(config, lambda *args, **kwargs: client)
-            self.assertEqual(client.keys,["heartbeat:strategy:maker","cache:strategy:maker"])
+            self.assertEqual(client.keys,["heartbeat:strategy:maker","cache:strategy:maker","cache:mm:fill_probability_observation:maker:5"])
             self.assertEqual(read.call_count,1)
             self.assertEqual(read.call_args.args[1],"cache:mm:target_fill_feedback:maker:5:symbol:venue.perp.coin_usdt")
             self.assertTrue(all(row["reason"]=="cache-not-exported" and row["actualEma"] is None for row in result["rows"]))
+
+    def test_original_readiness_and_observation_time_are_not_save_time(self):
+        value=state()
+        for side in ("bid","ask"):
+            value["side_states"][side].update(observation_schema=1,observation=dict(
+                at_ms=1500,ready=True,enabled=True,skip_reason="",
+                actual_probability_1s=-math.expm1(-.01),theoretical_probability_1s=-math.expm1(-.005),applied_log_ca=0))
+        row=decode(value)["bid"]
+        self.assertEqual(row["observedAt"],1500);self.assertEqual(row["savedAt"],2000);self.assertTrue(row["ready"])
+        value["side_states"]["bid"]["observation"]["at_ms"]=0
+        self.assertIsNone(decode(value)["bid"]["observedAt"])
+        value["side_states"]["bid"]["observation"]["at_ms"]=99999
+        self.assertNotIn("ready",decode(value)["bid"])
+
+    def test_quote_envelope_is_exact_account_pid_and_export_scoped(self):
+        q={key:None for key in (*probe.QUOTE_NUMBERS,*probe.QUOTE_BOOLS)}
+        q.update({key:"unchanged" for key in probe.QUOTE_STATES})
+        q.update(available=True,at=2000,exportedAt=2100,baseTarget=.001,quoted=True,finalProbability=.001,guardReason=None)
+        envelope=dict(observation_schema=1,strategy="maker",instance_id="5",exported_at_ms=2100,pid=123,
+                      rows=[dict(account="acct",symbol="venue.perp.coin_usdt",bid=q,ask=q)])
+        result=probe.decode_quotes(envelope,"maker","5",123,2200,1000)
+        self.assertEqual(result[("acct","venue.perp.coin_usdt")]["bid"]["finalProbability"],.001)
+        self.assertNotIn(("other","venue.perp.coin_usdt"),result)
+        for field,bad in (("pid",999),("strategy","other"),("observation_schema",9)):
+            changed=copy.deepcopy(envelope);changed[field]=bad
+            with self.assertRaises(ValueError):probe.decode_quotes(changed,"maker","5",123,2200,1000)
+        changed=copy.deepcopy(envelope);changed["rows"][0]["bid"]["quoted"]=False
+        with self.assertRaises(ValueError):probe.decode_quotes(changed,"maker","5",123,2200,1000)
 
 
 if __name__ == "__main__": unittest.main()

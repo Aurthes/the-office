@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
-import { fillState, gapColor, probabilityGap } from "@/lib/fill-probability/model";
-import { FILL_NOW, fillRow } from "../fixtures/fill-probability";
+import { fillState, quoteState, gapColor, probabilityGap } from "@/lib/fill-probability/model";
+import { FILL_NOW, fillQuote, fillRow } from "../fixtures/fill-probability";
 
 it("compares one-second probabilities with signed absolute and relative gaps", () => {
   expect(probabilityGap(0.0012, 0.001, false)).toMatchObject({ absolute: expect.closeTo(0.0002), relative: expect.closeTo(0.2) });
@@ -36,4 +36,22 @@ it("expires cached evidence without relying on another API response", () => {
   expect(fillState(fillRow({ savedAt: FILL_NOW + 6_000 }), FILL_NOW)).toBe("stale");
   expect(fillState(fillRow(), FILL_NOW, true)).toBe("stale");
   expect(fillState(fillRow({ error: true }), FILL_NOW)).toBe("stale");
+});
+it("uses the original ready flag and actual observation time without inventing a confidence threshold", () => {
+  expect(fillState(fillRow({ ready: true, observedAt: FILL_NOW }), FILL_NOW)).toBe("ready");
+  expect(fillState(fillRow({ ready: false, observedAt: FILL_NOW }), FILL_NOW)).toBe("not-ready");
+  expect(fillState(fillRow({ ready: true, observedAt: null }), FILL_NOW)).toBe("snapshot");
+  expect(fillState(fillRow({ ready: true, observedAt: FILL_NOW - 30_000 }), FILL_NOW)).toBe("stale");
+  expect(fillState(fillRow({ ready: true, observedAt: FILL_NOW + 6_000 }), FILL_NOW)).toBe("stale");
+});
+it("ages current quote and historical EMA independently", () => {
+  const current = fillRow({ quote: fillQuote(), ready: true, observedAt: FILL_NOW - 30_000 });
+  expect(fillState(current, FILL_NOW)).toBe("stale");
+  expect(quoteState(current, FILL_NOW)).toBe("ready");
+  expect(quoteState(fillRow({ savedAt: null, schema: null, quote: fillQuote() }), FILL_NOW)).toBe("ready");
+  for (const quote of [fillQuote({ at: FILL_NOW - 30_000 }), fillQuote({ exportedAt: FILL_NOW - 30_000 })])
+    expect(quoteState(fillRow({ quote }), FILL_NOW)).toBe("stale");
+  expect(quoteState(fillRow({ quote: fillQuote({ available: false }) }), FILL_NOW)).toBe("unknown");
+  expect(quoteState(fillRow({ quote: fillQuote(), sourceSha: null }), FILL_NOW)).toBe("unknown");
+  expect(quoteState(current, FILL_NOW, true)).toBe("stale");
 });

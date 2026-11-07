@@ -17,6 +17,50 @@ def number(value):
     return value if type(value) in (int, float) and math.isfinite(value) else None
 
 
+QUOTE_NUMBERS = ("at", "exportedAt", "baseTarget", "beforeNormalize", "afterNormalize", "pmax", "normalizationScale",
+                 "logAfterNormalize", "ca", "logCa", "referencePrice", "currentCaProbability", "baseAtReferenceProbability",
+                 "p1BeforePrice", "p1AfterPrice", "postOnlyAfterPrice", "p2AfterPrice", "finalPrice",
+                 "p1BeforeProbability", "p1AfterProbability", "postOnlyAfterProbability", "p2AfterProbability", "finalProbability", "disabledMask")
+QUOTE_BOOLS = ("normalizationEnabled", "underflow", "quoted")
+QUOTE_STATES = ("p1State", "postOnlyState", "p2State")
+
+
+def decode_quotes(value, name, instance, pid, now, started):
+    if not value:
+        return {}
+    exported = number(value.get("exported_at_ms"))
+    if (value.get("observation_schema") != 1 or value.get("strategy") != name or value.get("instance_id") != instance or
+            value.get("pid") != pid or exported is None or not started <= exported <= now+5000 or
+            not isinstance(value.get("rows"), list) or len(value["rows"]) > 2048):
+        raise ValueError("quote identity")
+    result = {}
+    for unit in value["rows"]:
+        account, symbol = unit.get("account"), unit.get("symbol")
+        if not isinstance(account, str) or len(account) > 256 or not isinstance(symbol, str) or len(symbol) > 256 or (account, symbol) in result:
+            raise ValueError("quote identity")
+        sides = {}
+        for side in ("bid", "ask"):
+            row = unit.get(side)
+            if (not isinstance(row, dict) or type(row.get("available")) is not bool or
+                    any(key not in row or row[key] is not None and number(row[key]) is None for key in QUOTE_NUMBERS) or
+                    any(key not in row or row[key] is not None and type(row[key]) is not bool for key in QUOTE_BOOLS) or
+                    any(row.get(key) not in ("changed", "unchanged", "not-run", "rejected", "unknown") for key in QUOTE_STATES) or
+                    row.get("exportedAt") != exported or
+                    row.get("guardReason") is not None and (not isinstance(row["guardReason"], str) or len(row["guardReason"]) > 128)):
+                raise ValueError("quote shape")
+            if row["available"] and (row["at"] is None or not started <= row["at"] <= exported+5000):
+                raise ValueError("quote time")
+            for key in ("baseTarget", "beforeNormalize", "afterNormalize", "pmax", "currentCaProbability", "baseAtReferenceProbability",
+                        "p1BeforeProbability", "p1AfterProbability", "postOnlyAfterProbability", "p2AfterProbability", "finalProbability"):
+                if row[key] is not None and not 0 <= row[key] <= 1:
+                    raise ValueError("quote probability")
+            if row["quoted"] is False and row["finalProbability"] is not None:
+                raise ValueError("no quote probability")
+            sides[side] = {key: row[key] for key in (*QUOTE_NUMBERS, *QUOTE_BOOLS, *QUOTE_STATES, "available", "guardReason")}
+        result[(account, symbol)] = sides
+    return result
+
+
 def read_json(path):
     with path.open("rb") as stream:
         raw = stream.read(4 * 1024 * 1024 + 1)
@@ -120,9 +164,12 @@ def decode_state(value, name, instance, symbol, version, now, started):
         if exposure == 0 and (hit != 0 or base != 0 or model != 0 or progress != 0):
             raise ValueError("invalid-cache")
         applied_log = min(high, max(low, log_ca))
-        ca = math.exp(applied_log)
-        if not math.isfinite(ca):
-            raise ValueError("invalid-cache")
+        try:
+            ca = math.exp(applied_log)
+            if not math.isfinite(ca):
+                ca = None
+        except OverflowError:
+            ca = None  # The finite native log remains valid beyond exp range.
         result[side] = dict(savedAt=saved, schema=version, clock=clock, halfLife=half,
                             adjustmentInterval=interval, adjustmentProgress=progress,
                             enabled=value["enabled"], weightedHits=hit, weightedExposureSeconds=exposure,
@@ -131,13 +178,27 @@ def decode_state(value, name, instance, symbol, version, now, started):
                             actualEma=-math.expm1(-hit/exposure) if exposure > 0 else None,
                             ca=ca, logCa=applied_log, target=target,
                             reason="no-exposure" if exposure == 0 else None)
+        # Additive observation metadata is copied by the original controller
+        # under its existing export lock. A save time never stands in for it.
+        observation = sides.get(side, {}).get("observation", {})
+        if sides.get(side, {}).get("observation_schema") == 1 and isinstance(observation, dict):
+            at = number(observation.get("at_ms"))
+            actual = number(observation.get("actual_probability_1s"))
+            model = number(observation.get("theoretical_probability_1s"))
+            if (type(observation.get("ready")) is bool and observation.get("enabled") is value["enabled"] and
+                    observation.get("skip_reason") in ("disabled", "insufficient_exposure", "invalid_config", "invalid_episode", "") and
+                    at is not None and (at == 0 or started <= at <= saved+5000) and
+                    actual is not None and 0 <= actual <= 1 and model is not None and 0 <= model <= 1):
+                result[side].update(observedAt=at if at > 0 else None, ready=observation["ready"], skipReason=observation["skip_reason"])
+                if observation["ready"]:
+                    result[side].update(actualEma=actual, theoreticalEma=model)
     return result
 
 
 def blank(source_id, name, instance, unit, side):
     row = {key: None for key in ("sourceSha", "pid", "heartbeatAt", "savedAt", "observedAt", "schema",
                                "halfLife", "adjustmentInterval", "adjustmentProgress", "enabled", "weightedHits",
-                               "weightedExposureSeconds", "baseTheoreticalEma", "theoreticalEma", "actualEma", "ca", "logCa", "target", "reason")}
+                               "weightedExposureSeconds", "baseTheoreticalEma", "theoreticalEma", "actualEma", "ca", "logCa", "target", "reason", "ready", "skipReason", "quote")}
     return dict(row, **unit, id=json.dumps([source_id, name, instance, unit["account"], unit["symbol"], side], separators=(",", ":")),
                 producer=source_id + ":" + name, strategy=name, instance=instance, side=side, clock="unknown", error=False)
 
@@ -161,10 +222,15 @@ def collect(config, client_factory=None):
         client = None
         try:
             client = client_factory(url, socket_connect_timeout=2, socket_timeout=2)
-            blobs = client.mget([key for name in names for key in ("heartbeat:strategy:" + name, "cache:strategy:" + name)])
+            blobs = client.mget([key for name in names for key in (
+                "heartbeat:strategy:" + name, "cache:strategy:" + name,
+                "cache:mm:fill_probability_observation:" + name + ":" + strategies[name][2])])
             for index, name in enumerate(names):
                 spec, root, instance = strategies[name]
-                hb, dynamic = [json.loads(blob) if blob else {} for blob in blobs[2*index:2*index+2]]
+                chunk = blobs[3*index:3*index+3]
+                if any(blob and len(blob) > 4*1024*1024 for blob in chunk):
+                    raise ValueError("Redis size")
+                hb, dynamic, quote_payload = [json.loads(blob) if blob else {} for blob in chunk]
                 units = expected(dynamic)
                 metadata, process_error = {}, None
                 try:
@@ -177,6 +243,12 @@ def collect(config, client_factory=None):
                 except Exception:
                     process_error = "live-identity-unverified"
                 states = {}
+                quotes = {}
+                if not process_error:
+                    try:
+                        quotes = decode_quotes(quote_payload, name, instance, pid, now, started)
+                    except (ValueError, TypeError, AttributeError):
+                        pass  # Unknown quote metadata cannot invalidate older EMA evidence.
                 for symbol in sorted({unit["symbol"] for unit in units}):
                     try:
                         if process_error:
@@ -199,6 +271,7 @@ def collect(config, client_factory=None):
                             row.update(state[side])
                         else:
                             row.update(reason=state)
+                        row["quote"] = quotes.get((unit["account"], unit["symbol"]), {}).get(side)
                         output.append(row)
         finally:
             if client is not None:

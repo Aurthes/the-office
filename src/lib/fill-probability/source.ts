@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolveStateDir } from "@/lib/clawdbot/paths";
 import { loadServerRegistry, sshTransportOptions } from "../../../server/server-registry";
-import { FILL_REFRESH_MS, type FillRow, type FillSnapshot } from "./model";
+import { FILL_REFRESH_MS, type FillRow, type FillSnapshot, type FillQuote } from "./model";
 
 const exec = promisify(execFile);
 export type FillSource = { id: string; host?: string; python?: string; strategies: {
@@ -35,6 +35,23 @@ export function parseFillSources(raw: unknown): FillSource[] {
 }
 
 // Explicit scalar projection: remote configuration/credentials never reach the API.
+export function parseFillQuote(raw: unknown): FillQuote | null {
+  if (raw === null) return null;
+  const q = raw as Record<string, unknown>;
+  const numbers = ["at", "exportedAt", "baseTarget", "beforeNormalize", "afterNormalize", "pmax", "normalizationScale", "logAfterNormalize", "ca", "logCa", "referencePrice", "currentCaProbability", "baseAtReferenceProbability", "p1BeforePrice", "p1AfterPrice", "postOnlyAfterPrice", "p2AfterPrice", "finalPrice", "p1BeforeProbability", "p1AfterProbability", "postOnlyAfterProbability", "p2AfterProbability", "finalProbability", "disabledMask"];
+  const bools = ["normalizationEnabled", "underflow", "quoted"];
+  const states = ["p1State", "postOnlyState", "p2State"];
+  if (!q || typeof q !== "object" || typeof q.available !== "boolean" ||
+      numbers.some(k => q[k] !== null && (typeof q[k] !== "number" || !Number.isFinite(q[k]))) ||
+      bools.some(k => q[k] !== null && typeof q[k] !== "boolean") ||
+      states.some(k => !["changed", "unchanged", "not-run", "rejected", "unknown"].includes(String(q[k]))) ||
+      q.guardReason !== null && (typeof q.guardReason !== "string" || q.guardReason.length > 128) ||
+      q.quoted === false && q.finalProbability !== null) throw new Error("Invalid quote observation");
+  for (const key of ["baseTarget", "beforeNormalize", "afterNormalize", "pmax", "currentCaProbability", "baseAtReferenceProbability", "p1BeforeProbability", "p1AfterProbability", "postOnlyAfterProbability", "p2AfterProbability", "finalProbability"])
+    if (q[key] !== null && ((q[key] as number) < 0 || (q[key] as number) > 1)) throw new Error("Invalid quote probability");
+  return Object.fromEntries([...numbers, ...bools, ...states, "available", "guardReason"].map(k => [k, q[k]])) as FillQuote;
+}
+
 export function parseFillReply(raw: unknown, source: FillSource): FillRow[] {
   const data = raw as { version?: number; rows?: Record<string, unknown>[] };
   if (data?.version !== 1 || !Array.isArray(data.rows) || data.rows.length > 8192) throw new Error("Invalid fill reply");
@@ -50,9 +67,11 @@ export function parseFillReply(raw: unknown, source: FillSource): FillRow[] {
         numbers.some(k => r[k] !== null && (typeof r[k] !== "number" || !Number.isFinite(r[k]))) ||
         r.sourceSha !== null && (typeof r.sourceSha !== "string" || !/^[0-9a-f]{40}$/.test(r.sourceSha)) ||
         r.enabled !== null && typeof r.enabled !== "boolean" || typeof r.error !== "boolean" ||
+        r.ready !== null && typeof r.ready !== "boolean" ||
+        r.skipReason !== null && !["", "disabled", "insufficient_exposure", "invalid_config", "invalid_episode"].includes(String(r.skipReason)) ||
         r.reason !== null && !["no-exposure", "cache-not-exported", "invalid-cache", "live-identity-unverified"].includes(String(r.reason)) || ids.has(String(r.id))) throw new Error("Invalid fill row");
     ids.add(String(r.id));
-    return Object.fromEntries([...strings, ...numbers, "sourceSha", "side", "clock", "enabled", "error", "reason"].map(k => [k, r[k]])) as FillRow;
+    return { ...Object.fromEntries([...strings, ...numbers, "sourceSha", "side", "clock", "enabled", "error", "reason", "ready", "skipReason"].map(k => [k, r[k]])), quote: parseFillQuote(r.quote) } as FillRow;
   });
 }
 
