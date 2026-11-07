@@ -107,7 +107,8 @@ export function FillProbabilityDashboard() {
       if (stopped || busy || document.hidden) return;
       busy = true; setLoading(true); controller = new AbortController();
       const request = controller;
-      const timeout = setTimeout(() => request.abort(), 10_000);
+      // The producer read allows 12s; leave time for that read and public-network transfer.
+      const timeout = setTimeout(() => request.abort(), 20_000);
       try {
         const response = await fetch("/api/monitoring/fill-probability", { cache: "no-store", signal: request.signal });
         if (!response.ok) throw new Error();
