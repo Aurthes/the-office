@@ -2,11 +2,20 @@ import React from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { SessionMarkdown, visibleUserText } from "../../src/features/office/components/SessionMarkdown";
+import { SessionTaskContext } from "../../src/features/office/components/SessionTaskContext";
 beforeEach(() => {
   Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });
   Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute("open"); } });
 });
 afterEach(() => { cleanup(); Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal"); Reflect.deleteProperty(HTMLDialogElement.prototype, "close"); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+it("opens UUID task links in the existing task-detail owner and keeps unsafe links blocked", () => {
+  const id = "12345678-1234-4234-8234-123456789abc", open = vi.fn();
+  render(React.createElement(SessionTaskContext.Provider, { value: open }, React.createElement(SessionMarkdown, { content: `[@T37 Same title](task://${id}) [unsafe](javascript:alert) [invalid](task://T37)` })));
+  fireEvent.click(screen.getByRole("button", { name: "@T37 Same title" }));
+  expect(open).toHaveBeenCalledExactlyOnceWith(id);
+  expect(screen.getByText("unsafe").closest("a")?.getAttribute("href")).toBe("");
+  expect(screen.queryByRole("button", { name: "invalid" })).toBeNull();
+});
 it("renders referenced images through the protected route and opens HTML in an isolated preview", () => {
   const image = { source: "/local/chart.png", name: "chart.png", kind: "image" as const, url: "/api/session-assets?ref=image" };
   const html = { source: "/local/report.html", name: "report.html", kind: "html" as const, url: "/api/session-assets?ref=html" };

@@ -43,6 +43,12 @@ function fixture() {
   return { ...view, call, off, release, emit: () => act(() => event?.({ event: "todos.updated" })), fail: (value: boolean) => { fail = value; }, rows: (value: DirectoryTaskSummary[]) => { rows = value; } };
 }
 
+it("shows a canonical task code while opening details with the real UUID", async () => {
+  const f = fixture(); f.rows([{ id: "real-task-uuid", code: "T37", title: "Same title", status: "queued", archived: false, departmentId: "a", assigneeId: "worker" }]); f.release();
+  fireEvent.click(screen.getByRole("button", { name: "Open department while chat is closed" }));
+  fireEvent.click(await screen.findByRole("button", { name: "T37 · Same title" }));
+  await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.get", { id: "real-task-uuid" }));
+});
 it("loads every page when a department opens with chat closed and scopes the existing follow-up filter to stored department IDs", async () => {
   const f = fixture(); expect(f.call).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Open department while chat is closed" }));

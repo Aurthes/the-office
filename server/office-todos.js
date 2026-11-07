@@ -75,6 +75,20 @@ class OfficeTodos {
         this.save(row);
       }
     }
+    // Completed codes are retained: an old reference must never name another task.
+    const codes = new Set();
+    for (const row of this.rows.values()) if (row.code !== undefined) {
+      if (typeof row.code !== "string" || !/^T[1-9]\d*$/.test(row.code) || !Number.isSafeInteger(Number(row.code.slice(1))) || codes.has(row.code)) throw new Error("Invalid or duplicate task code; refusing to overwrite it");
+      codes.add(row.code);
+    }
+    for (const row of [...this.rows.values()].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))) if (row.code === undefined) {
+      row.code = this.nextCode(); this.save(row, false);
+    }
+  }
+  nextCode() {
+    const next = Math.max(0, ...[...this.rows.values()].map(row => row.code ? Number(row.code.slice(1)) : 0)) + 1;
+    if (!Number.isSafeInteger(next)) throw new Error("Task codes have reached their limit");
+    return `T${next}`;
   }
   actor(input = {}) {
     if (input.actorId) { const agent = this.agents().find(a => a.id === input.actorId); if (!agent) throw new Error("Choose an existing Office agent"); return { source: "agent", id: agent.id, name: agent.name }; }
@@ -88,15 +102,18 @@ class OfficeTodos {
     // later handoff cannot manufacture a different historical owner.
     if (ownerId !== undefined || writing) Object.assign(row, { ownerId: ownerId ?? null, ownerName: ownerId ? this.agents().find(agent => agent.id === ownerId)?.name || ownerId : null });
   }
-  save(row) {
-    this.materializeOwner(row, true);
-    row.savedAt = this.now();
+  save(row, checkpoint = true) {
+    if (checkpoint) { this.materializeOwner(row, true); row.savedAt = this.now(); }
     const file = path.join(this.directory, `${row.id}.json`), temporary = `${file}.${uuid()}.tmp`;
     try { fs.writeFileSync(temporary, JSON.stringify(row) + "\n", { mode: 0o600, flag: "wx" }); fs.renameSync(temporary, file); }
     finally { fs.rmSync(temporary, { force: true }); }
     this.rows.set(row.id, row);
   }
-  raw(id) { const row = this.rows.get(id); if (!row) throw new Error("To-do is missing"); return row; }
+  raw(id) {
+    const code = typeof id === "string" ? id.trim().toUpperCase() : "";
+    const row = this.rows.get(id) || (/^T[1-9]\d*$/.test(code) && [...this.rows.values()].find(row => row.code === code));
+    if (!row) throw new Error("To-do is missing"); return row;
+  }
   stopClock(row, now = this.now()) { for (const phase of row.phases) if (phase.startedAt != null) { phase.elapsedMs = duration(phase, now); phase.startedAt = null; } }
   run(row) {
     this.stopClock(row); const phase = row.phases.find(p => p.completedAt == null);
@@ -157,7 +174,7 @@ class OfficeTodos {
     if (input.assigneeId !== undefined) rows = rows.filter(row => row.assigneeId === input.assigneeId);
     if (input.ownerId !== undefined) rows = rows.filter(row => (taskOwnerId(row) ?? null) === input.ownerId);
     if (input.status && !["all", "archived"].includes(input.status)) rows = rows.filter(row => row.status === input.status);
-    if (input.query) { const query = text(input.query, "Search", 200).toLowerCase(); rows = rows.filter(r => `${r.title}\n${r.documentation}\n${r.assigneeName || ""}`.toLowerCase().includes(query)); }
+    if (input.query) { const query = text(input.query, "Search", 200).toLowerCase(); rows = rows.filter(r => `${r.code}\n${r.title}\n${r.documentation}\n${r.assigneeName || ""}`.toLowerCase().includes(query)); }
     rows.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
     const offset = Math.max(0, Number.isInteger(input.offset) ? input.offset : 0), limit = Math.min(25, Math.max(1, Number.isInteger(input.limit) ? input.limit : 25));
     return { todos: rows.slice(offset, offset + limit).map(row => this.view(row, false, sources)), total: rows.length, offset, limit, ...catalog, departments, serverTime: this.now() };
@@ -169,7 +186,7 @@ class OfficeTodos {
       return { todo: this.view(previous, true), serverTime: this.now() };
     }
     if (this.rows.size >= 10000) throw new Error("The to-do registry has reached its limit");
-    const actor = this.actor(input), row = { version: 1, id: uuid(), revision: 1, title: text(input.title, "To-do title", 200),
+    const actor = this.actor(input), row = { version: 1, id: uuid(), code: this.nextCode(), revision: 1, title: text(input.title, "To-do title", 200),
       documentation: text(input.documentation || "", "Documentation", 24000, true), ...this.references({ ...input, ownerId: input.ownerId === undefined ? actor.id || null : input.ownerId }), phases: this.plan(input.phases),
       status: "queued", archived: false, completedAt: null, acceptanceManagerId: null, createdAt: this.now(), updatedAt: this.now(), events: [], requestId, requestHash: hash, sourceThreadId: input.sourceThreadId || null };
     const origin = actor.id && this.replyContext(actor.id);
@@ -297,6 +314,7 @@ class OfficeTodos {
   }
   startForAgent(agentId, id) {
     const row = this.raw(id);
+    id = row.id;
     if (handlingAgentId(row) !== agentId || row.archived || row.status === "done") throw new Error("Choose an unfinished to-do assigned to this agent's execution or acceptance workflow");
     for (const other of this.rows.values()) if (other.id !== id && handlingAgentId(other) === agentId && other.status === "running") this.change({ id: other.id, revision: other.revision, source: "system", reason: "Agent switched to another to-do" }, "pause");
     if (row.status !== "running" || activeDelegation(row)?.state === "working" && row.assigneeId !== agentId) this.change({ id, revision: row.revision, source: "system", execute: true }, "start");

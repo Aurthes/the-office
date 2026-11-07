@@ -98,6 +98,7 @@ schedules = new OfficeSchedules(directory, {
   send: (id, message, requestId) => controls.send(id, message, requestId, [], { onlyIfIdle: true }),
 });
 todos = new OfficeTodos(directory, { projects: () => store.projects(), agents, replyContext: id => controls.state(id).activeTurnId ? replyContext.forTask(id, controls.state(id).activeTurnId) : null, changed: id => broadcast("todos.updated", { id }) });
+composer.todos = todos;
 replyContext.options.task = id => todos.raw(id);
 replyContext.options.recent = async id => (await history(id)).messages;
 replyContext.options.source = async source => {

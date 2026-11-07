@@ -8,6 +8,7 @@ import type { SessionAsset } from "./SessionControls";
 import { visibleUserText } from "@/lib/text/codex-visible-text";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { SessionPreviewContext } from "./SessionPreviewContext";
+import { SessionTaskContext } from "./SessionTaskContext";
 import { markdownCodeComponents } from "@/components/markdown-code-block";
 export { visibleUserText };
 
@@ -109,6 +110,7 @@ export function SessionAssetPreview({ asset, onClose, embedded = false }: { asse
 }
 
 const NO_ASSETS: SessionAsset[] = [];
+const taskLink = /^task:\/\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i;
 export const SessionMarkdown = memo(function SessionMarkdown({ content, assets = NO_ASSETS, user = false }: { content: string; assets?: SessionAsset[]; user?: boolean }) {
   const t = useUiText();
   const [preview, setPreview] = useState<SessionAsset | null>(null);
@@ -116,14 +118,17 @@ export const SessionMarkdown = memo(function SessionMarkdown({ content, assets =
   const textRef = useRef<HTMLDivElement>(null);
   const textId = useId();
   const sidePreview = useContext(SessionPreviewContext);
+  const openTask = useContext(SessionTaskContext);
   const openPreview = useCallback((asset: SessionAsset) => {
     if (sidePreview) sidePreview(asset); else setPreview(asset);
   }, [sidePreview]);
   const find = useCallback((source: string) => assets.find(asset => asset.source === source || asset.url === source), [assets]);
-  const transform = useCallback((url: string) => find(url)?.url || defaultUrlTransform(url), [find]);
+  const transform = useCallback((url: string) => taskLink.test(url) ? url : find(url)?.url || defaultUrlTransform(url), [find]);
   const components = useMemo<Components>(() => ({
         ...markdownCodeComponents,
         a: ({ href, children }) => {
+          const taskId = href?.match(taskLink)?.[1];
+          if (taskId) return <button type="button" disabled={!openTask} onClick={() => openTask?.(taskId)} className="text-sky-200 underline disabled:text-white/50" title={t("Open task details")}>{children}</button>;
           const asset = href ? find(href) : undefined;
           if (asset?.kind === "file") return <a href={asset.url} download={asset.name}>{children} ↓</a>;
           return asset ? <a href={asset.url} onClick={event => { event.preventDefault(); openPreview(asset); }} title={t("Preview {0}", { "0": asset.name })}>{children} <span className="text-[10px] opacity-60">{t("↗ Preview")}</span></a>
@@ -134,7 +139,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({ content, assets =
           return asset ? <AssetImage key={asset.url} src={asset.url} name={alt || asset.name} onOpen={() => openPreview(asset)} />
             : source && /^https?:\/\//.test(source) ? <AssetImage src={source} name={alt || t("Image")} onOpen={() => openPreview({ source, url: source, name: alt || "Image", kind: "image" })} /> : <span className="text-xs text-white/50">{alt || t("Image")}{t(" (preview unavailable; reload the session)")}</span>;
         },
-  }), [find, t, openPreview]);
+  }), [find, t, openPreview, openTask]);
   const text = user ? visibleUserText(content) : content;
   const collapsible = user && (text.length > 400 || text.split("\n", 9).length > 8);
   const excerpt = collapsible && !expanded ? text.trimStart().slice(0, 180).split(/\r?\n/, 4).join("\n").trimEnd() + "…" : text;

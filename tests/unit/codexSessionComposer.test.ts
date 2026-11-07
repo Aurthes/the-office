@@ -8,6 +8,7 @@ const { CodexOfficeStore } = require("../../server/codex-office-store");
 const { CodexSessionComposer } = require("../../server/codex-session-composer");
 const { CodexSessionControls } = require("../../server/codex-session-controls");
 const { CodexSessionWorkspace } = require("../../server/codex-session-workspace");
+const { OfficeTodos } = require("../../server/office-todos");
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 async function fixture() {
@@ -26,9 +27,41 @@ async function fixture() {
   const target = await store.createSession({ name: "Target", workspace: root, requestId: "target" });
   store.get(target.threadId).codexThreadId = "native-target";
   const workspace = new CodexSessionWorkspace(client, { roots: (row: { id: string }) => store.sessionFolders(row) });
-  return { root, client, store, composer: new CodexSessionComposer(store, workspace), reader: reader.threadId, target: target.threadId };
+  const todos = new OfficeTodos(path.join(root, "tasks"), { projects: () => [], agents: () => [] });
+  const composer = new CodexSessionComposer(store, workspace); composer.todos = todos;
+  return { root, client, store, composer, todos, reader: reader.threadId, target: target.threadId };
 }
 describe("official Office composer integration", () => {
+  it("searches task codes and titles across the whole registry, including completed tasks and exact codes", async () => {
+    const f = await fixture();
+    const tasks = Array.from({ length: 80 }, (_, i) => f.todos.create({ requestId: `task-${i}`, title: i === 79 ? "Needle task" : "Same title", phases: [{ title: "Verify" }] }).todo);
+    f.todos.change({ id: tasks[0].id, revision: tasks[0].revision, phaseId: tasks[0].phases[0].id }, "complete");
+    expect(f.todos.list().todos).toHaveLength(25);
+    expect((await f.composer.options(f.reader, "task", "Needle")).options).toEqual([expect.objectContaining({ id: tasks[79].id, name: "T80 Needle task" })]);
+    expect((await f.composer.options(f.reader, "task", "t1")).options[0]).toMatchObject({ id: tasks[0].id, name: "T1 Same title" });
+    const before = JSON.stringify([...f.todos.rows]);
+    expect((await f.composer.prepare(f.reader, "Discuss @task T80")).text).toBe("Discuss @task T80");
+    await f.composer.prepare(f.reader, "Compare", [{ kind: "task", id: tasks[79].id }]);
+    expect(JSON.stringify([...f.todos.rows])).toBe(before);
+    expect(f.client.call).not.toHaveBeenCalled();
+  });
+  it("sends the selected task UUID and concise retrieval guidance in the actual native turn without embedding the plan", async () => {
+    const f = await fixture();
+    const a = f.todos.create({ requestId: "a", title: "Same title", documentation: "PRIVATE TASK PLAN", phases: [{ title: "Verify" }] }).todo;
+    const b = f.todos.create({ requestId: "b", title: "Same title", phases: [{ title: "Verify" }] }).todo;
+    f.todos.change({ id: a.id, revision: a.revision, title: "Renamed task" }, "edit");
+    f.client.call.mockImplementation(async (method: string) => method === "thread/turns/list" ? { data: [] } : method === "turn/start" ? { turn: { id: "started" } } : {});
+    const controls = new CodexSessionControls(f.client, () => [], { composer: f.composer });
+    try {
+      await controls.send(f.reader, "Review @T1 Same title", "task-send", [], { references: [{ kind: "task", id: a.id, name: "T1 Same title", start: 7, end: 21 }] });
+      const expected = `Review [@T1 Renamed task](task://${a.id})\nTask references: read office_tasks.todo_get using the UUID in each task:// link.`;
+      expect(f.client.call).toHaveBeenCalledWith("turn/start", expect.objectContaining({ input: [{ type: "text", text: expected }] }));
+      expect(expected).not.toContain(b.id); expect(expected).not.toContain("PRIVATE TASK PLAN");
+      expect(f.todos.get({ id: a.id }).todo.title).toBe("Renamed task");
+      await expect(f.composer.prepare(f.reader, "Task", [{ kind: "task", id: "T1" }])).rejects.toThrow(/no longer available/);
+      await expect(f.composer.prepare(f.reader, "Task", [{ kind: "task", id: crypto.randomUUID() }])).rejects.toThrow(/no longer available/);
+    } finally { controls.close(); }
+  });
   it("resolves inline links in source order and preserves repeated references", async () => {
     const f = await fixture();
     const text = "Compare @Target with @Reader, then ask @Target.";

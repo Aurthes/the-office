@@ -53,6 +53,24 @@ describe("independent Office runtime", () => {
     expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
   });
 
+  it("refreshes legacy cached context with current workflow once, then reuses it on subsequent turns", async () => {
+    const f = fixture(), id = await session(f);
+    f.store.companyContext = () => ({ agentId: id, title: "Head" });
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+    const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
+    // Previous releases cached only this JSON, excluding workflow instructions.
+    const legacy = payload.split("\n").find(line => line.startsWith('{"project":'));
+    expect(legacy).toBeTruthy(); f.store.get(id).projectContext = legacy; f.store.save();
+    const restored = new CodexOfficeStore(f.directory, f.client);
+    restored.companyContext = f.store.companyContext;
+    await restored.call("turn/start", { threadId: id, input: [] });
+    expect(injections()).toHaveLength(2);
+    expect(JSON.stringify(injections()[1])).toContain("do not repeat the call before every response");
+    await restored.call("turn/start", { threadId: id, input: [] });
+    expect(injections()).toHaveLength(2);
+  });
+
   it("forwards an explicit historical fork boundary to Codex once and keeps the source configuration",async()=>{
     const f=fixture(),id=await session(f),source=f.store.get(id);
     Object.assign(source,{codexThreadId:"native-own-thread",hasTurns:true});source.settings.model="custom-model";

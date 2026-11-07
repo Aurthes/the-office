@@ -5,19 +5,8 @@ import type { ChatRosterEntry } from "./chatRoster";
 export type AgentDirectoryView = "project" | "activity" | "organization";
 export type CurrentAgentTask = { id: string; title: string; code: string; roles?: ("Owner" | "Assignee")[] };
 export type DirectoryAgent = ChatRosterEntry & { color: string; avatarProfile?: AgentAvatarProfile | null; tasks?: CurrentAgentTask[] };
-export type DirectoryTaskSummary = { id: string; title: string; assigneeId: string | null; assigneeName?: string | null; ownerId?: string | null; ownerName?: string | null; departmentId?: string | null; reviewerId?: string | null; status: string; archived: boolean };
+export type DirectoryTaskSummary = { id: string; code?: string; title: string; assigneeId: string | null; assigneeName?: string | null; ownerId?: string | null; ownerName?: string | null; departmentId?: string | null; reviewerId?: string | null; status: string; archived: boolean };
 export const needsFollowUp = (task: DirectoryTaskSummary) => !task.archived && task.status !== "done";
-
-// A title such as "Agent View Compression (AVC)" explicitly supplies its code.
-// Other titles use initials, or a short readable title for languages without spaces.
-export function taskCode(title: string): string {
-  const explicit = title.match(/[（(]([A-Za-z][A-Za-z0-9-]{1,11})[)）]/);
-  if (explicit) return explicit[1];
-  const words = title.trim().split(/\s+/);
-  if (words.length > 1 && words.every(word => /^[A-Za-z]/.test(word))) return words.slice(0, 6).map(word => word[0]).join("").toUpperCase();
-  const chars = Array.from(title.trim());
-  return chars.slice(0, 8).join("") + (chars.length > 8 ? "…" : "");
-}
 
 // Assignment lasts until completion, archive or reassignment, including pauses.
 export function currentTasksByAgent(tasks: DirectoryTaskSummary[]): Map<string, CurrentAgentTask[]> {
@@ -31,7 +20,7 @@ export function currentTasksByAgent(tasks: DirectoryTaskSummary[]): Map<string, 
       const roles: ("Owner" | "Assignee")[] = [];
       if (id === task.ownerId) roles.push("Owner");
       if (id === task.assigneeId) roles.push("Assignee");
-      assigned.push({ id: task.id, title: task.title, code: taskCode(task.title), roles });
+      assigned.push({ id: task.id, title: task.title, code: task.code || task.id, roles });
       result.set(id, assigned);
     }
   }

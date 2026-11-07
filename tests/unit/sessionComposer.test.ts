@@ -11,13 +11,45 @@ function edit(input: HTMLElement, value: string, start = (input as HTMLTextAreaE
 function fixture(id: string, extra = {}, props: Partial<React.ComponentProps<typeof SessionControls>> = {}) {
   const call = vi.fn(async (method: string, params: unknown) => {
     const p = params as { kind?: string; query?: string };
-    if (method === "session.composer.options") return { options: (p.kind === "command" ? [{ kind: "command", id: "compact", name: "/compact", description: "Compact context" }] : [{ kind: "chat", id: "target", name: "Target worker", description: "Project" }]).filter(item => item.name.includes(p.query || "")) };
+    if (method === "session.composer.options") return { options: (p.kind === "command" ? [{ kind: "command", id: "compact", name: "/compact", description: "Compact context" }] : p.kind === "task" ? [37, 38].map(i => ({ kind: "task", id: `12345678-1234-4234-8234-${String(i).padStart(12, "0")}`, name: `T${i} Same title`, description: "Project" })) : [{ kind: "chat", id: "target", name: "Target worker", description: "Project" }]).filter(item => item.name.includes(p.query || "")) };
     return { ...snapshot, ...extra };
   });
   render(React.createElement(SessionControls, { client: { call }, threadId: id, onItems: vi.fn(), ...props }));
   return call;
 }
 describe("native composer menu", () => {
+  it("opens literal @task search and sends the selected UUID without creating or starting any task", async () => {
+    const call = fixture("composer-task-selection");
+    const input = screen.getByLabelText("Send to session"); await waitFor(() => expect(input).toBeEnabled());
+    fireEvent.change(input, { target: { value: "@task T37" } });
+    fireEvent.click(await screen.findByRole("option", { name: /T37 Same title/ }));
+    expect(call).toHaveBeenCalledWith("session.composer.options", { threadId: "composer-task-selection", kind: "task", query: "T37" });
+    expect(input).toHaveValue("@T37 Same title ");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ references: [{ kind: "task", id: "12345678-1234-4234-8234-000000000037", name: "T37 Same title", start: 0, end: 15 }] })));
+    expect(call.mock.calls.some(([method]) => method.startsWith("todo."))).toBe(false);
+  });
+  it("switches task and chat categories and preserves task identities through rich copy/paste", async () => {
+    const call = fixture("composer-task-clipboard");
+    const input = screen.getByLabelText("Send to session") as HTMLTextAreaElement; await waitFor(() => expect(input).toBeEnabled());
+    fireEvent.change(input, { target: { value: "@task" } }); await screen.findAllByRole("option");
+    fireEvent.click(screen.getByRole("button", { name: "Workers / chats" }));
+    expect(await screen.findByRole("option", { name: /Target worker/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Tasks" }));
+    fireEvent.click(await screen.findByRole("option", { name: /T38 Same title/ }));
+    input.focus(); input.setSelectionRange(0, 15); fireEvent.select(input);
+    const values = new Map<string, string>();
+    const clipboardData = { files: [], setData: (type: string, value: string) => values.set(type, value), getData: (type: string) => values.get(type) || "" };
+    fireEvent.copy(input, { clipboardData });
+    expect(values.get("text/plain")).toBe("@T38 Same title"); expect(values.get("text/react-mentions")).toContain("office-ref:");
+    input.setSelectionRange(16, 16); fireEvent.select(input); fireEvent.paste(input, { clipboardData });
+    expect(input).toHaveValue("@T38 Same title @T38 Same title");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ references: [
+      expect.objectContaining({ kind: "task", id: "12345678-1234-4234-8234-000000000038", start: 0, end: 15 }),
+      expect.objectContaining({ kind: "task", id: "12345678-1234-4234-8234-000000000038", start: 16, end: 31 }),
+    ] })));
+  });
   it("opens an empty menu immediately and still debounces changing search text", async () => {
     const call = fixture("composer-menu-latency");
     const input = screen.getByLabelText("Send to session"); await waitFor(() => expect(input).toBeEnabled());
