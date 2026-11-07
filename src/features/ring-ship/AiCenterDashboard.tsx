@@ -147,8 +147,8 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
             <p className="ai-card-caption">{t("Across the selected provider account")}</p>
             <div className="ai-token-peak"><span>{t("Peak daily tokens")}</span><strong>{formatNumber(data?.usage?.peakDailyTokens)}</strong></div>
             {daily?.length ? <>
-              <div className="ai-token-chart" aria-label={t("Recent daily token usage")}>{daily.map(day => <div key={day.date} title={`${day.date}: ${formatNumber(day.tokens)}`}>
-                <span className="sr-only">{day.date}: {formatNumber(day.tokens)}</span><i style={{ height: `${day.tokens / peak * 100}%` }} />
+              <div className="ai-token-chart" aria-label={t("Recent daily token usage")}>{daily.map(day => <div key={day.date} tabIndex={0} aria-label={`${day.date}: ${formatNumber(day.tokens)} tokens`}>
+                <span className="ai-token-tooltip" role="tooltip"><span>{day.date}</span><strong>{formatNumber(day.tokens)} tokens</strong></span><i style={{ height: `${day.tokens / peak * 100}%` }} />
               </div>)}</div>
               <div className="ai-chart-dates"><span>{daily[0].date}</span><span>{daily[daily.length - 1].date}</span></div>
             </> : <p className="ai-unavailable">{loading ? t("Loading usage…") : t("Daily token history is not available.")}</p>}
