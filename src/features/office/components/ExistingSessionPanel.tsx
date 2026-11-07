@@ -7,7 +7,7 @@ import type { CharacterMode } from "@/features/ring-ship/DuckCharacterPanel";
 import type { AgentAvatarProfile } from "@/lib/avatars/profile";
 import type { CompanyProject } from "@/features/retro-office/core/companyLayout";
 import type { SessionVoiceController } from "./useSessionVoice";
-import { SessionControls, type LiveSessionItem, type SessionClient } from "./SessionControls";
+import { SessionControls, type LiveSessionItem, type SessionClient, type ReplySource } from "./SessionControls";
 import { SessionPreviewContext } from "./SessionPreviewContext";
 import { SessionWorkspace } from "./SessionWorkspace";
 import type { SessionAsset } from "./SessionControls";
@@ -58,6 +58,9 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   onCloseMessage?: () => void;
 }) {
   const t = useUiText();
+  const [questionTarget, setQuestionTarget] = useState<{ ownerId: string; target: MessageSearchTarget } | null>(null);
+  const shownMessageTarget = messageTarget || (questionTarget?.ownerId === threadId ? questionTarget.target : null);
+  const openQuestion = useCallback((source: ReplySource) => setQuestionTarget({ ownerId: threadId, target: { ...source, messageId: `${source.turnId}:${source.itemId}`, name: t("Original question"), project: "", archived: false, snippet: source.excerpt, snippetMatchRange: { start: 0, end: 0 }, requestId: crypto.randomUUID() } }), [t, threadId]);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [previewAsset, setPreviewAsset] = useState<SessionAsset | null>(null);
   const openPreview = useCallback((asset: SessionAsset) => { setPreviewAsset(asset); setWorkspaceOpen(true); onOpenWorkspace?.(); }, [onOpenWorkspace]);
@@ -223,8 +226,8 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     setCharacterMode(mode);
   };
   return <SessionPreviewContext.Provider value={openPreview}><section className="session-panel relative flex min-h-0 min-w-0 flex-1 flex-col text-white" aria-label={t("Codex session")}>
-    {messageTarget && onCloseMessage ? <SessionMessageLocation client={client} target={messageTarget} onClose={onCloseMessage} headerStart={headerStart} /> : null}
-    <div inert={Boolean(messageTarget)} aria-hidden={Boolean(messageTarget)} className="flex min-h-0 flex-1 flex-col">
+    {shownMessageTarget ? <SessionMessageLocation client={client} target={shownMessageTarget} onClose={messageTarget && onCloseMessage ? onCloseMessage : () => setQuestionTarget(null)} headerStart={headerStart} /> : null}
+    <div inert={Boolean(shownMessageTarget)} aria-hidden={Boolean(shownMessageTarget)} className="flex min-h-0 flex-1 flex-col">
     <header className="session-panel-header flex shrink-0 items-center gap-2 border-b border-white/10 px-3 py-2">
       {headerStart}
       <div className="min-w-0 flex-1">
@@ -288,7 +291,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
         {loading ? <span role="status">{t("Loading messages…")}</span> : olderCursor ? <button onClick={() => void load.current?.("older")} className="px-3 py-1 text-cyan-200">{t("↑ Load older messages")}</button> : loaded ? t("Start of history") : null}
       </div>
       {loaded && messages.length === 0 ? <p className="text-center text-xs text-white/50">{t("No chat text on this page (tool activity omitted).")}{olderCursor ? t("Scroll up or use the button above to load older messages.") : ""}</p> : null}
-      <SessionTranscript messages={messages} activeTurnId={activeTurnId} onForkFrom={onFork ? lastTurnId => onFork(undefined, lastTurnId) : undefined} forkDisabled={forkDisabled || !data?.controlsAvailable} />
+      <SessionTranscript messages={messages} activeTurnId={activeTurnId} onForkFrom={onFork ? lastTurnId => onFork(undefined, lastTurnId) : undefined} forkDisabled={forkDisabled || !data?.controlsAvailable} onOpenQuestion={openQuestion} />
       </div>
     </div>
     {showLatest ? <button aria-label={t("Go to latest message")} onClick={() => {
@@ -299,9 +302,9 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     }} className="absolute bottom-3 left-1/2 z-10 min-h-10 -translate-x-1/2 rounded-full border border-white/20 bg-[#243346] px-4 text-xs text-white shadow-xl hover:bg-[#30445c]">{t("↓ Latest messages")}</button> : null}
     </div>
     {data?.runtime === "office" ? <OfficeCodexAccount client={client} quiet /> : null}
-    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active && !messageTarget} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onActiveTurnChange={setActiveTurnId} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
+    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onActiveTurnChange={setActiveTurnId} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
     </div>
-    {workspaceOpen ? <SessionWorkspace key={threadId} active={active && !messageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
+    {workspaceOpen ? <SessionWorkspace key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
       assets={[...new Map(messages.flatMap(message => message.assets || []).map(asset => [asset.url, asset])).values()].slice(-40)}
       onSelectAsset={setPreviewAsset} onClose={() => setWorkspaceOpen(false)} /> : null}
     </div>

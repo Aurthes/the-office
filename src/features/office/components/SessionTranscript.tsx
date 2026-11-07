@@ -1,7 +1,7 @@
 "use client";
 import { memo, useState } from "react";
 import { GitFork } from "lucide-react";
-import type { LiveSessionItem } from "./SessionControls";
+import type { LiveSessionItem, ReplySource } from "./SessionControls";
 import { SessionMarkdown } from "./SessionMarkdown";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { visibleUserText } from "@/lib/text/codex-visible-text";
@@ -66,7 +66,7 @@ function WorkProcess({ items, defaultOpen, highlightedMessageId }: { items: Live
   </details>;
 }
 
-export const SessionTranscript = memo(function SessionTranscript({ messages, activeTurnId = null, onForkFrom, forkDisabled = false, highlightedMessageId }: { messages: LiveSessionItem[]; activeTurnId?: string | null; onForkFrom?: (lastTurnId: string) => void; forkDisabled?: boolean; highlightedMessageId?: string }) {
+export const SessionTranscript = memo(function SessionTranscript({ messages, activeTurnId = null, onForkFrom, forkDisabled = false, highlightedMessageId, onOpenQuestion }: { messages: LiveSessionItem[]; activeTurnId?: string | null; onForkFrom?: (lastTurnId: string) => void; forkDisabled?: boolean; highlightedMessageId?: string; onOpenQuestion?: (source: ReplySource) => void }) {
   const t = useUiText();
   const answeredTurns = new Set(messages.filter(message => message.role === "assistant" && message.phase === "final_answer").map(message => message.turnId));
   const forkPoints = new Map<string, string>();
@@ -93,6 +93,11 @@ export const SessionTranscript = memo(function SessionTranscript({ messages, act
     }
     return <article key={block.message.id} data-message-id={block.message.id} data-search-match={block.message.id === highlightedMessageId || undefined} tabIndex={block.message.id === highlightedMessageId ? -1 : undefined} aria-label={block.message.role === "user" ? t("You") : "Codex"} className={block.message.role === "user" ? "session-user-message" : "mr-2 rounded-lg border border-slate-500/40 bg-[#242932] px-3 py-2.5 text-slate-100"}>
     {block.message.role !== "user" || block.message.source === "voice" ? <div className="mb-1 text-[10px] font-semibold text-slate-300">{block.message.role === "user" ? t("You") : "Codex"}{block.message.source === "voice" ? ` · ${t("Voice")}` : ""}</div> : null}
+    {block.message.role === "assistant" && block.message.replyContext ? <div className="mb-2 space-y-1 border-l-2 border-teal-400/40 pl-2 text-xs text-slate-400" aria-label={t("Answering")}>
+      {block.message.replyContext.taskTitle ? <p className="truncate" title={block.message.replyContext.taskTitle}>{t("Task")}: {block.message.replyContext.taskTitle}</p> : null}
+      {block.message.replyContext.sources.map((source, index, sources) => <button type="button" key={`${source.threadId}:${source.turnId}:${source.itemId}`} disabled={!onOpenQuestion} onClick={() => onOpenQuestion?.(source)} className="block w-full truncate text-left text-teal-200/80 hover:text-teal-100 disabled:text-slate-400" title={`${t("View original question")}: ${source.excerpt}`}>{t(index === sources.length - 1 ? "Answering" : index === 0 ? "Original request" : "Related question")}: {source.excerpt}</button>)}
+      {!block.message.replyContext.sources.length ? <p>{t("Original question not recorded")}</p> : null}
+    </div> : null}
     <MessageBody message={block.message} truncatedLabel={t("This message is long. View the rest in the desktop app.")} />
     {onForkFrom && block.message.turnId && forkPoints.get(block.message.turnId) === block.message.id ? <button type="button" disabled={forkDisabled} onClick={() => onForkFrom(block.message.turnId!)} className="mt-2 inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-[11px] text-slate-400 hover:bg-white/5 hover:text-teal-200 disabled:opacity-40" title={t("Keep this turn and earlier context; later messages are excluded.")}><GitFork size={13} aria-hidden="true" />{t("Fork from here")}</button> : null}
   </article>;

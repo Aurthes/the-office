@@ -2,6 +2,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { taskReplyContext } = require("./office-reply-context");
 const uuid = () => crypto.randomUUID();
 const text = (value, name, max, empty = false) => {
   if (typeof value !== "string" || (!empty && !value.trim()) || value.length > max) throw new Error(`${name} must contain ${empty ? "0" : "1"}–${max} characters`);
@@ -21,8 +22,9 @@ const handlingAgentId = row => {
   return entry ? entry.state === "review" ? entry.managerId : entry.workerId : row.acceptanceManagerId || row.assigneeId;
 };
 class OfficeTodos {
-  constructor(directory, { projects, agents, changed = () => {}, now = Date.now }) {
+  constructor(directory, { projects, agents, changed = () => {}, now = Date.now, replyContext = () => null }) {
     this.directory = path.join(directory, "todos"); this.projects = projects; this.agents = agents; this.changed = changed; this.now = now;
+    this.replyContext = replyContext;
     this.rows = new Map(); this.requests = new Map(); this.bindings = new Map();
     fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
     for (const file of fs.readdirSync(this.directory).filter(file => /^[a-f0-9-]{36}\.json$/.test(file))) {
@@ -139,6 +141,8 @@ class OfficeTodos {
     const actor = this.actor(input), row = { version: 1, id: uuid(), revision: 1, title: text(input.title, "To-do title", 200),
       documentation: text(input.documentation || "", "Documentation", 24000, true), ...this.references(input), phases: this.plan(input.phases),
       status: "queued", archived: false, completedAt: null, acceptanceManagerId: null, createdAt: this.now(), updatedAt: this.now(), events: [], requestId, requestHash: hash, sourceThreadId: input.sourceThreadId || null };
+    const origin = actor.id && this.replyContext(actor.id);
+    if (origin) row.replyContext = origin;
     this.event(row, "To-do created", actor); this.save(row); this.requests.set(requestId, row.id); this.changed(row.id);
     return { todo: this.view(row, true), serverTime: this.now() };
   }
@@ -172,8 +176,11 @@ class OfficeTodos {
       const instructions = text(input.instructions, "Delegation scope", 6000), acceptanceCriteria = text(input.acceptanceCriteria, "Acceptance criteria", 3000);
       this.stopClock(row);
       if (!delegation) row.acceptanceManagerId = actor.id;
+      const candidate = this.replyContext(actor.id);
+      if (!row.replyContext && candidate && (!candidate.taskId || candidate.taskId === row.id)) row.replyContext = candidate;
       row.delegations ||= [];
       row.delegations.push({ id: uuid(), managerId: actor.id, workerId: input.assigneeId, instructions, acceptanceCriteria, state: "working", createdAt: this.now(),
+        replyContext: taskReplyContext(row, candidate),
         delivery: { recipientId: input.assigneeId, requestId: `delegation-${uuid()}`, state: "pending" } });
       Object.assign(row, this.references({ assigneeId: input.assigneeId }, row)); row.status = "queued";
       message = `Delegated to ${row.assigneeName}; manager retains acceptance responsibility`;

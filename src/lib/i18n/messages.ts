@@ -1,5 +1,12 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Task": "任务",
+  "Original request": "原始请求",
+  "Related question": "相关问题",
+  "Answering": "回答的问题",
+  "View original question": "查看原话",
+  "Original question": "原始问题",
+  "Original question not recorded": "未记录原始问题",
   "Members": "成员",
   "No members yet.": "暂无成员。",
   "Department unavailable.": "部门已不可用。",

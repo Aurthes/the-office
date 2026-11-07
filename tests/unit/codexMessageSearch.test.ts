@@ -87,3 +87,13 @@ it("rejects invalid inputs, foreign or missing sessions and stale positions befo
   call.mockResolvedValue({ data: [{ id: "wrong-turn", items: [] }] });
   await expect(search.context({ threadId: "current", ...hit() })).rejects.toThrow("no longer available");
 });
+
+it("opens an exact original question in an archived chat without searching or loading a whole turn", async () => {
+  const { search, call } = fixture();
+  call.mockResolvedValue({ data: [{ turnId: "original-turn", item: { id: "question", type: "userMessage", content: [{ type: "text", text: "Full original question" }] }, startedAtMs: 1000 }] });
+  const result = await search.context({ threadId: "archived", turnId: "original-turn", itemId: "question" });
+  expect(call).toHaveBeenCalledExactlyOnceWith("thread/items/read", { threadId: "native-old", turnId: "original-turn", itemIds: ["question"] });
+  expect(result).toMatchObject({ archived: true, messageId: "original-turn:question", messages: [{ role: "user", content: "Full original question", timestamp: 1000 }], olderOffset: null, newerOffset: null });
+  call.mockResolvedValue({ data: [{ turnId: "wrong-turn", item: { id: "question", type: "userMessage", content: [{ type: "text", text: "Wrong question" }] } }] });
+  await expect(search.context({ threadId: "archived", turnId: "original-turn", itemId: "question" })).rejects.toThrow("no longer available");
+});

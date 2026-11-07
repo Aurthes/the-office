@@ -4,6 +4,27 @@ import { afterEach, expect, it, vi } from "vitest";
 import { SessionTranscript } from "../../src/features/office/components/SessionTranscript";
 afterEach(cleanup);
 
+it("shows the task and concrete original/follow-up questions with stable clickable identities", () => {
+  const sources = [
+    { threadId: "ceo", turnId: "original", itemId: "q", excerpt: "Show maker markout" },
+    { threadId: "head", turnId: "followup", itemId: "q2", excerpt: "Is capacity shared?" },
+  ];
+  const onOpenQuestion = vi.fn();
+  render(React.createElement(SessionTranscript, { messages: [{ id: "reply", role: "assistant", phase: "final_answer", content: "Capacity is shared.", replyContext: { taskId: "task", taskTitle: "Maker markout", sources } }], onOpenQuestion }));
+  expect(screen.getByText("Task: Maker markout")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Answering: Is capacity shared?" }));
+  expect(onOpenQuestion).toHaveBeenCalledExactlyOnceWith(sources[1]);
+  expect(screen.getByText("Capacity is shared.")).toBeVisible();
+});
+
+it("keeps legacy replies unlabelled and shows a known task without inventing its original question", () => {
+  const view = render(React.createElement(SessionTranscript, { messages: [{ id: "old", role: "assistant", content: "Legacy answer" }] }));
+  expect(screen.queryByLabelText("Answering")).toBeNull();
+  view.rerender(React.createElement(SessionTranscript, { messages: [{ id: "task", role: "assistant", content: "Task answer", replyContext: { taskTitle: "Known task", sources: [] } }] }));
+  expect(screen.getByText("Original question not recorded")).toBeVisible();
+  expect(screen.queryByRole("button")).toBeNull();
+});
+
 it("continues below each steer in a new work box while updates stay with their original calls", async () => {
   const initial = [
     { id: "question", turnId: "t", role: "user", content: "Check the code" },

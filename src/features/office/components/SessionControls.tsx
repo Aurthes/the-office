@@ -17,7 +17,9 @@ import { ComposerTextarea } from "./ComposerTextarea";
 import { prepareComposerMessage, referenceSerializer } from "./inlineReferences";
 
 export type SessionAsset = { source: string; name: string; kind: "image" | "markdown" | "html" | "file"; url: string; inline?: boolean; attached?: boolean };
-export type LiveSessionItem = { id: string; turnId?: string; source?: "voice"; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number };
+export type ReplySource = { threadId: string; turnId: string; itemId: string; excerpt: string };
+export type ReplyContext = { taskId?: string; taskTitle?: string; sources: ReplySource[] };
+export type LiveSessionItem = { id: string; turnId?: string; source?: "voice"; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number; replyContext?: ReplyContext };
 export type SessionClient = {
   call: (method: string, params: unknown) => Promise<unknown>;
   onEvent?: (handler: (event: { event: string; payload?: unknown }) => void) => () => void;
