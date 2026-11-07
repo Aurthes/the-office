@@ -664,7 +664,7 @@ export function RingShipOffice(props: Props) {
     {navigationOpen && navigation.phase !== "warp" ? <NavigationOverlay state={navigation} onAction={navigate} /> : null}
     {navigationPreview && navigation.phase === "warp" && navigation.destination ? <WarpJourney destination={starSystem(navigation.destination)} onArrive={arriveSystem} onComplete={completeWarp} /> : null}
     <MonitorDashboard open={monitorOpen} onClose={() => setMonitorOpen(false)} />
-    {teasersOpen ? <TeaserDashboard onClose={() => setTeasersOpen(false)} /> : null}
+    {teasersOpen ? <TeaserDashboard onClose={() => setTeasersOpen(false)} agents={agents.filter(agent => roster.members.some(member => member.id === agent.id))} onOpenSession={!busy && onAgentChatSelect ? open : undefined} /> : null}
     {serversOpen ? <ServerRoomDashboard fleet={serverFleet} open initialView={serversView} onClose={() => setServersOpen(false)} onFirefight={props.onFirefight} /> : null}
     {terminalHost ? <ServerTerminal alias={terminalHost} onClose={() => setTerminalHost(null)} /> : null}
     {!props.onOpenTaskBoard ? <TaskBoard open={localTodoOpen} onClose={() => setLocalTodoOpen(false)} onOpenSession={open} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} /> : null}

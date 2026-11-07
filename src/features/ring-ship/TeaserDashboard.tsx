@@ -5,10 +5,13 @@ import { CheckCircle2, Lightbulb, RefreshCw, X } from "lucide-react";
 import { ChatMarkdown } from "@/components/chat-markdown";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { TEASER_STATUS_LABELS, type Teaser, type TeaserStatus } from "@/lib/office/teasers";
+import type { OfficeAgent } from "@/features/retro-office/core/types";
 import "./scheduled-tasks.css";
 import "./teaser-board.css";
 
-export function TeaserDashboard({ onClose }: { onClose: () => void }) {
+export function TeaserDashboard({ onClose, agents = [], onOpenSession }: {
+  onClose: () => void; agents?: readonly Pick<OfficeAgent, "id" | "name">[]; onOpenSession?: (id: string) => void;
+}) {
   const t = useUiText(), dialog = useRef<HTMLDialogElement>(null);
   const [portal, setPortal] = useState<HTMLElement | null>(null);
   const [teasers, setTeasers] = useState<Teaser[]>([]);
@@ -51,6 +54,9 @@ export function TeaserDashboard({ onClose }: { onClose: () => void }) {
   if (!portal) return null;
   const finished = teasers.filter(row => row.status === "finished").length;
   const rows = filter === "all" ? teasers : teasers.filter(row => row.status === filter);
+  const matches = agents.filter(agent => agent.name.trim().toLowerCase() === "teaser");
+  const target = matches.length === 1 ? matches[0] : undefined;
+  const chatAvailable = !!target && !!onOpenSession;
   return createPortal(<dialog ref={dialog} className="schedules-dialog teaser-dialog" aria-labelledby="teaser-title"
     onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="schedules-frame">
@@ -67,12 +73,16 @@ export function TeaserDashboard({ onClose }: { onClose: () => void }) {
             {t(status === "all" ? "All" : TEASER_STATUS_LABELS[status])}{" "}<span>{status === "all" ? teasers.length : teasers.filter(row => row.status === status).length}</span>
           </button>)}
         </div>
+        {!chatAvailable ? <p id="teaser-chat-unavailable" className="schedules-help">{t("Teaser chat is unavailable.")}</p> : null}
         {error ? <p role="alert" className="schedules-error">{t(error)} {t("Use Refresh to try again.")}</p> : null}
         {loading && !teasers.length ? <p role="status" className="schedules-empty">{t("Loading teasers…")}</p> : null}
         {!loading && !error && !rows.length ? <div className="schedules-empty"><Lightbulb size={32} /><h3>{t(teasers.length ? "No teasers with this status." : "The next good question belongs here.")}</h3><p>{t("Ask teaser to drop a challenge on the board.")}</p></div> : null}
         <div className="teaser-list">{rows.map(row => <article key={row.id} className="teaser-card" data-teaser-id={row.id} data-status={row.status}>
           <header><span className="schedule-status" data-status={row.status}>{t(TEASER_STATUS_LABELS[row.status])}</span><small>{row.author} · {new Date(row.updatedAt).toLocaleDateString()}</small></header>
-          <h2>{row.title}</h2><div className="teaser-markdown"><ChatMarkdown>{row.prompt}</ChatMarkdown></div>
+          <h2><button type="button" className="teaser-question" disabled={!chatAvailable}
+            title={t(chatAvailable ? "Discuss with teaser" : "Teaser chat is unavailable.")}
+            aria-describedby={chatAvailable ? undefined : "teaser-chat-unavailable"}
+            onClick={() => { if (!target || !onOpenSession) return; onClose(); onOpenSession(target.id); }}>{row.title}</button></h2><div className="teaser-markdown"><ChatMarkdown>{row.prompt}</ChatMarkdown></div>
           {row.status === "finished" ? <details className="teaser-solution"><summary>{t("View answer & key idea")}</summary>
             <h3>{t("Key idea")}</h3><div className="teaser-markdown"><ChatMarkdown>{row.summary}</ChatMarkdown></div>
             <h3>{t("Answer")}</h3><div className="teaser-markdown"><ChatMarkdown>{row.answer}</ChatMarkdown></div>
