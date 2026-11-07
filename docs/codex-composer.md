@@ -19,12 +19,24 @@ are never submitted as slash-command text to the model.
 | `/mcp` | Inspect configured MCP server status and tool counts |
 | `/help` | Open the supported command menu |
 
-Type `@` to select a reference. The picker has Workers / chats, Files, Skills,
+Type `@` to select a reference. The picker has Workers / chats, Tasks, Files, Skills,
 and Apps categories. `$` opens skills directly. Selected references appear as
 removable chips and remain with an unsent draft. File searches use attached
 project folders and reject symlinks escaping those folders. Skill and app choices
 come from Codex discovery; disabled skills and non-callable apps cannot be used.
 Office does not import desktop App plugins or connection credentials.
+
+Type `@task` to open Tasks directly, then search by stable code (such as `T37`)
+or title. Search covers the full task registry, including completed tasks, before
+limiting the displayed results. Each choice shows its code and title. Selected
+references keep the real task UUID through draft edits and rich copy/paste;
+plain text such as `@T37` is not silently bound to a task.
+
+Office resolves selected tasks to `task://<UUID>` links with a short
+`office_tasks.todo_get` instruction. It does not embed the task plan or start,
+assign, or modify a task. The agent can read the referenced task using the
+existing tool and permissions. Clicking the link opens the existing task details.
+Missing references fail clearly instead of being guessed from a title or code.
 
 ## Official integration and limits
 
@@ -40,7 +52,7 @@ uses `fuzzyFileSearch`; skills use `skills/list` plus structured `skill` input;
 apps use `app/list`, `app/installed`, and structured `mention` input. Office
 retains its ordinary textarea and native text/paste behavior.
 
-An isolated test of the unmodified CLI confirms that task references use
+An isolated test of the unmodified CLI confirms that chat references use
 `thread://` links and client-provided dynamic tools. Office registers its own
 `office.list_threads` and `office.read_thread` using public `dynamicTools` and
 answers `item/tool/call` through public history RPC. It does not impersonate

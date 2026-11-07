@@ -4,7 +4,7 @@
 const readline = require("node:readline");
 const { WebSocket } = require("ws");
 const properties = {
-  id: { type: "string", description: "To-do ID" }, revision: { type: "integer", description: "Current revision from list/get or the preceding successful change; required for changes" },
+  id: { type: "string", description: "To-do UUID or stable task code, for example T37" }, revision: { type: "integer", description: "Current revision from list/get or the preceding successful change; required for changes" },
   includeHistory: { type: "boolean", description: "Include task event history when explicitly needed; omitted by default" },
   actorId: { type: "string", description: "Your Office agent ID from the current Office context" },
   name: { type: "string", minLength: 1, maxLength: 120, description: "Stable employee name, not a task label" },
@@ -117,7 +117,7 @@ function modelResult(name, args, result) {
     const details = { ...todo }; delete details.events;
     return { ...result, todo: details };
   }
-  const fields = ["id", "revision", "status", "archived", "assigneeId", "ownerId", "handlingAgentId", "reviewerId", "progress"];
+  const fields = ["id", "code", "revision", "status", "archived", "assigneeId", "ownerId", "handlingAgentId", "reviewerId", "progress"];
   return { ...result, todo: {
     ...Object.fromEntries(fields.filter(key => Object.hasOwn(todo, key)).map(key => [key, todo[key]])),
     phases: todo.phases.map(({ id, title, completedAt }) => ({ id, title, completedAt })),

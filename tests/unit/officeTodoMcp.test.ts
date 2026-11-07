@@ -57,6 +57,26 @@ async function mcp(url: string) {
   };
 }
 describe("compact model-facing Office information", () => {
+  it("uses stable codes through actual MCP get/edit while returning UUIDs and keeping compact receipts", async () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), "office-mcp-codes-"));
+    cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+    const { OfficeTodos } = createRequire(import.meta.url)("../../server/office-todos.js");
+    const todos = new OfficeTodos(directory, { agents: () => ["alice", "bob"].map(id => ({ id, name: id })), projects: () => [] });
+    const f = await fixture((ws, frame) => {
+      try { const action = frame.method.slice(5); reply(ws, frame, ["create", "get", "list"].includes(action) ? todos[action](frame.params) : todos.change(frame.params, action)); }
+      catch (error) { ws.send(JSON.stringify({ type: "res", id: frame.id, ok: false, error: { message: String(error) } })); }
+    });
+    const call = await mcp(f.url);
+    const created = (await call("todo_create", { actorId: "alice", assigneeId: "alice", title: "Same title", requestId: "task-code", phases: [{ title: "Verify" }] })).todo;
+    expect(created.code).toBe("T1"); expect(created.id).not.toBe("T1");
+    const read = (await call("todo_get", { id: "T1" })).todo;
+    expect(read.id).toBe(created.id); expect(read).not.toHaveProperty("events");
+    const edited = (await call("todo_edit", { actorId: "alice", id: "T1", revision: read.revision, title: "Renamed" })).todo;
+    expect(edited).toMatchObject({ id: created.id, code: "T1" }); expect(edited).not.toHaveProperty("documentation");
+    expect((await call("todo_list", { query: "T1" })).todos[0]).toMatchObject({ id: created.id, code: "T1", title: "Renamed" });
+    const delegated = (await call("todo_delegate", { actorId: "alice", id: "T1", revision: edited.revision, assigneeId: "bob", instructions: "Implement", acceptanceCriteria: "Verify", requestId: "delegate-code" })).todo;
+    await expect(call("todo_edit", { actorId: "alice", id: "T1", revision: delegated.revision, title: "Not my turn" })).rejects.toThrow(/current responsible/);
+  });
   it("completes nested handoffs using receipt revisions while keeping full evidence and UI records available", async () => {
     const directory = mkdtempSync(path.join(os.tmpdir(), "office-mcp-compact-"));
     cleanup.push(() => rmSync(directory, { recursive: true, force: true }));

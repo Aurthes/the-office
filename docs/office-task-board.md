@@ -37,3 +37,24 @@ On load, unfinished legacy handoffs recover that manager from the open chain.
 Only a pending-review legacy record assigned to its exact reviewer is reassigned
 to that handoff's recorded worker; completed history is not rewritten and earlier
 execution is not guessed. The conversion is persisted once with a revision/event.
+
+## Stable task codes and chat references
+
+Each task has a company-wide code such as `T1` or `T37`, shown on task cards,
+details, department task links and employee badges. The UUID remains its identity.
+Codes stay the same through renaming, assignment, completion, archiving and
+follow-up; they are never recycled. Existing tasks receive codes in creation-time
+and UUID order above all already saved codes. Startup backfill preserves task
+revisions, phase IDs, ownership and recorded times; normal restart timer recovery
+is unchanged. No separate counter service or lock is needed: the existing
+single-process registry derives the next code from its highest saved number.
+
+Existing `office_tasks` tools accept either a UUID or a code in the `id` argument,
+for example `todo_get({id: "T37"})`. Responses retain both the canonical UUID and
+code. Actor checks, revision checks and delegation/acceptance rules still apply.
+The normal task search also matches codes.
+
+In chat, type `@task` and search by code or title. Choose a result to keep its UUID
+in the reference, even when tasks have identical titles. Sending it adds only a
+short link and retrieval instruction; it neither duplicates the plan nor starts
+a task. See [composer references](codex-composer.md) for editing and link behavior.
