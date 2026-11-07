@@ -34,6 +34,10 @@ export type FillSnapshot = {
   configured: boolean; serverTime: number; sampledAt: number | null;
   sourceErrors: number; rows: FillRow[];
 };
+export type FillRecordIdentity = Pick<FillRow, "id" | "strategy" | "exchange" | "account" | "symbol" | "side">;
+export type FillRecordSnapshot = Omit<FillSnapshot, "rows"> & {
+  view: "record"; records: FillRecordIdentity[]; row: FillRow | null;
+};
 export type FillState = "ready" | "snapshot" | "stale" | "disabled" | "empty" | "not-ready" | "unknown";
 
 const finite = (v: number | null): v is number => typeof v === "number" && Number.isFinite(v);

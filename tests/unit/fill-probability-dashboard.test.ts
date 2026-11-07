@@ -4,6 +4,18 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { FillProbabilityDashboard } from "@/features/fill-probability/FillProbabilityDashboard";
 import { MonitorDashboard } from "@/features/ring-ship/MonitorDashboard";
 import { FILL_NOW, fillQuote, fillRow, fillSnapshot } from "../fixtures/fill-probability";
+import type { FillRow, FillRecordSnapshot } from "@/lib/fill-probability/model";
+
+function recordSnapshot(rows: FillRow[], row: FillRow | null = rows[0] || null): FillRecordSnapshot {
+  const s=fillSnapshot(rows);
+  return { configured:s.configured,serverTime:s.serverTime,sampledAt:s.sampledAt,sourceErrors:s.sourceErrors,view:"record",
+    records:rows.map(({id,strategy,exchange,account,symbol,side})=>({id,strategy,exchange,account,symbol,side})),row };
+}
+function deferredResponse() {
+  let resolve!: (value: Response) => void, reject!: (reason: Error) => void;
+  const promise=new Promise<Response>((yes,no)=>{resolve=yes;reject=no;});
+  return {promise,resolve,reject};
+}
 
 beforeEach(() => { localStorage.setItem("claw3d:ui-language", "en"); vi.spyOn(document, "hidden", "get").mockReturnValue(false); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
@@ -36,7 +48,7 @@ it("filters account, symbol and side without inventing per-account EMA samples",
   render(createElement(FillProbabilityDashboard));
   await screen.findByText(/venue.perp.a_usdt · Buy/);
   fireEvent.change(screen.getByRole("combobox", { name: "Account" }), { target: { value: "account-two" } });
-  expect(screen.getByRole("heading", { name: "venue.perp.b_usdt · Sell / ask" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "venue.perp.b_usdt · Sell / ask" })).toBeInTheDocument();
   expect(screen.getByText("100 / 100 trials")).toBeInTheDocument();
   fireEvent.change(screen.getByRole("textbox", { name: "Symbol" }), { target: { value: "missing" } });
   expect(screen.getByText("No matching probability records.")).toBeInTheDocument();
@@ -194,4 +206,84 @@ it("accepts a cold producer response beyond one refresh interval without a false
   expect(screen.getByRole("table", { name: "Fill probability stages" })).toBeInTheDocument();
   expect(screen.getByText("0.0004")).toBeInTheDocument();
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("renders every probability node from a thin original row, including a real zero and native units", async () => {
+  const q=fillQuote(),row=fillRow({ready:true,observedAt:FILL_NOW,actualEma:0,quote:q});
+  const fetcher=vi.fn<(url:string)=>Promise<Response>>(async()=>Response.json(recordSnapshot([row])));vi.stubGlobal("fetch",fetcher);
+  render(createElement(FillProbabilityDashboard));await screen.findByRole("table");
+  const values={target:row.target,base:row.baseTheoreticalEma,model:row.theoreticalEma,actual:0,'base-reference':q.baseAtReferenceProbability,'ca-probability':q.currentCaProbability,'before-normalize':q.beforeNormalize,pmax:q.pmax,'after-normalize':q.afterNormalize,'before-guard':q.p1BeforeProbability,p1:q.p1AfterProbability,'post-only':q.postOnlyAfterProbability,p2:q.p2AfterProbability,final:q.finalProbability};
+  for(const [stage,value] of Object.entries(values))expect(document.querySelector(`[data-stage="${stage}"] .fill-value strong`)).toHaveTextContent(Number(value!.toPrecision(6)).toString());
+  expect(document.querySelector('[data-stage="actual"] .fill-gap strong')).toHaveTextContent("-0.001");
+  expect(document.querySelector('[data-stage="actual"] .fill-gap small')).toHaveTextContent("-100%");
+  expect(document.querySelector('[data-stage="actual"] .fill-gap')).not.toHaveStyle({color:"#a8b5bd"});
+  expect(document.querySelector('[data-stage="ca"] .fill-gap')).toHaveTextContent("—");
+  expect(new URL(fetcher.mock.calls[0][0] as string,"https://office.test").searchParams.get("view")).toBe("record");
+});
+
+it.each(["resolve","reject"] as const)("keeps only the latest A→B→C request when obsolete B later %ss", async mode => {
+  const a=fillRow({id:"a",symbol:"venue.perp.a_usdt"}),b=fillRow({id:"b",symbol:"venue.perp.b_usdt"}),c=fillRow({id:"c",symbol:"venue.perp.c_usdt"});
+  const pendingB=deferredResponse(),pendingC=deferredResponse();
+  const fetcher=vi.fn<(url:string,options:RequestInit)=>Promise<Response>>(()=>Promise.resolve(Response.json(recordSnapshot([a,b,c],a))))
+    .mockReturnValueOnce(Promise.resolve(Response.json(recordSnapshot([a,b,c],a)))).mockReturnValueOnce(pendingB.promise).mockReturnValueOnce(pendingC.promise);
+  vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));await screen.findByRole("heading",{name:/a_usdt · Buy/});
+  const select=screen.getByRole("combobox",{name:"Record (3)"});fireEvent.change(select,{target:{value:"b"}});fireEvent.change(select,{target:{value:"c"}});
+  expect(fetcher.mock.calls[1][1].signal?.aborted).toBe(true);expect(screen.queryByRole("table")).toBeNull();
+  await act(async()=>{if(mode==="resolve")pendingB.resolve(Response.json(recordSnapshot([a,b,c],b)));else pendingB.reject(new Error("old failed"));});
+  expect(fetcher).toHaveBeenCalledTimes(3);expect(screen.queryByRole("table")).toBeNull();expect(screen.getByRole("status")).toBeInTheDocument();expect(screen.queryByRole("alert")).toBeNull();
+  await act(async()=>pendingC.resolve(Response.json(recordSnapshot([a,b,c],c))));
+  expect(screen.getByRole("heading",{name:/c_usdt · Buy/})).toBeInTheDocument();expect(screen.queryByRole("alert")).toBeNull();
+  await act(async()=>{});expect(fetcher).toHaveBeenCalledTimes(3);
+});
+
+it("uses the latest filters after an in-flight selection and accepts an old full rollback response", async () => {
+  const a=fillRow({id:"a"}),b=fillRow({id:"b",account:"two",symbol:"venue.perp.b_usdt"}),c=fillRow({id:"c",account:"three",symbol:"venue.perp.c_usdt",schema:9,clock:"trials"});
+  const pending=deferredResponse();
+  const fetcher=vi.fn<(url:string,options:RequestInit)=>Promise<Response>>(()=>Promise.resolve(Response.json(fillSnapshot([a,b,c]))))
+   .mockReturnValueOnce(Promise.resolve(Response.json(recordSnapshot([a,b,c],a)))).mockReturnValueOnce(pending.promise);
+  vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));await screen.findByRole("table");
+  fireEvent.change(screen.getByRole("combobox",{name:"Record (3)"}),{target:{value:"b"}});
+  fireEvent.change(screen.getByRole("combobox",{name:"Account"}),{target:{value:"three"}});
+  await act(async()=>pending.resolve(Response.json(recordSnapshot([a,b,c],b))));
+  expect(await screen.findByRole("heading",{name:/c_usdt · Buy/})).toBeInTheDocument();expect(screen.getByText("100 / 100 trials")).toBeInTheDocument();
+  const url=new URL(fetcher.mock.calls[2][0],"https://office.test");expect(url.searchParams.get("account")).toBe("three");expect(fetcher).toHaveBeenCalledTimes(3);
+});
+
+it("updates dynamic membership and uses the first filtered fallback without a fetch loop", async () => {
+  vi.useFakeTimers();const a=fillRow({id:"a"}),b=fillRow({id:"b",symbol:"venue.perp.b_usdt"}),c=fillRow({id:"c",symbol:"venue.perp.c_usdt"});
+  const fetcher=vi.fn().mockResolvedValueOnce(Response.json(recordSnapshot([a,b],a))).mockResolvedValueOnce(Response.json(recordSnapshot([a,b],b))).mockResolvedValueOnce(Response.json(recordSnapshot([c],c)));
+  vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));await act(async()=>{});
+  fireEvent.change(screen.getByRole("combobox",{name:"Record (2)"}),{target:{value:"b"}});await act(async()=>{});
+  await act(()=>vi.advanceTimersByTimeAsync(10_000));
+  expect(screen.getByRole("heading",{name:/c_usdt · Buy/})).toBeInTheDocument();expect(screen.getByRole("combobox",{name:"Record (1)"})).toHaveValue("c");expect(fetcher).toHaveBeenCalledTimes(3);
+});
+
+it("does not refetch an unchanged detail or truncate a long no-match search", async () => {
+  vi.useFakeTimers();const a=fillRow({id:"a"}),b=fillRow({id:"b",account:"two"});
+  const fetcher=vi.fn(async(url:string)=>Response.json(recordSnapshot([a,b],new URL(url,"https://office.test").searchParams.get("symbol")?null:a)));
+  vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));await act(async()=>{});
+  fireEvent.change(screen.getByRole("combobox",{name:"Account"}),{target:{value:a.account}});expect(fetcher).toHaveBeenCalledTimes(1);
+  const symbol="x".repeat(100_000);fireEvent.change(screen.getByRole("textbox",{name:"Symbol"}),{target:{value:symbol}});
+  expect(screen.getByText("No matching probability records.")).toBeInTheDocument();expect(fetcher).toHaveBeenCalledTimes(1);
+  await act(()=>vi.advanceTimersByTimeAsync(10_000));
+  expect(screen.getByRole("textbox",{name:"Symbol"})).toHaveValue(symbol);expect(new URL(fetcher.mock.calls[1][0],"https://office.test").searchParams.get("symbol")).toHaveLength(1025);
+  expect(screen.queryByRole("table")).toBeNull();expect(screen.queryByRole("alert")).toBeNull();expect(within(screen.getByRole("combobox",{name:"Account"})).getByRole("option",{name:"two"})).toBeInTheDocument();
+});
+
+it("keeps the original twenty-second timeout and never labels another row as a failed selected detail", async () => {
+  vi.useFakeTimers();const a=fillRow({id:"a"}),b=fillRow({id:"b",symbol:"venue.perp.b_usdt"});
+  const fetcher=vi.fn((_url:string,options:RequestInit)=>new Promise<Response>((_resolve,reject)=>options.signal?.addEventListener("abort",()=>reject(new DOMException("Aborted","AbortError")),{once:true})))
+   .mockResolvedValueOnce(Response.json(recordSnapshot([a,b],a)));
+  vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));await act(async()=>{});
+  fireEvent.change(screen.getByRole("combobox",{name:"Record (2)"}),{target:{value:"b"}});await act(()=>vi.advanceTimersByTimeAsync(20_001));
+  expect(fetcher).toHaveBeenCalledTimes(2);expect(screen.getByRole("alert")).toHaveTextContent("Probability data could not be read");expect(screen.queryByRole("table")).toBeNull();
+  expect(screen.getByRole("combobox",{name:"Record (2)"})).toHaveValue("b");
+});
+
+it("rejects a mismatched thin detail and marks retained facts unverified", async () => {
+  vi.useFakeTimers();const a=fillRow({id:"a",ready:true,observedAt:FILL_NOW,quote:fillQuote()}),b=fillRow({id:"b",symbol:"venue.perp.b_usdt"});
+  const fetcher=vi.fn().mockResolvedValueOnce(Response.json(recordSnapshot([a,b],a))).mockResolvedValueOnce(Response.json(recordSnapshot([a,b],b)));
+  vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));await act(async()=>{});await act(()=>vi.advanceTimersByTimeAsync(10_000));
+  expect(screen.getByRole("alert")).toBeInTheDocument();expect(screen.getByText("Snapshot expired or read failed")).toBeInTheDocument();expect(document.querySelector('[data-stage="actual"] .fill-value')).toHaveTextContent("N/A");
+  expect(screen.queryByRole("heading",{name:/b_usdt · Buy/})).toBeNull();
 });

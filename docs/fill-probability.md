@@ -100,6 +100,25 @@ and ages evidence independently of stalled requests. Export/heartbeat ages over
 30 seconds cannot remain green. Transport is bounded to twelve seconds and four
 MiB; configuration accepts at most four sources with sixteen strategies each.
 
+The current UI requests the same endpoint with `view=record`. This opt-in view
+returns the original `configured`, `serverTime`, `sampledAt` and `sourceErrors`,
+an ordered `records` index (`id`, `strategy`, `exchange`, `account`, `symbol`,
+`side`), and one complete original `row` or null. Optional `recordId` is the
+opaque original ID (at most 1024 characters). Fixed strategy/exchange/account/
+symbol/side filters select that row, with the original first-matching fallback.
+All options remain in the index even when filtered out. Selectors never change
+the source cache or remote read. Invalid/duplicate selectors in this mode return
+400 before collecting; an overlong symbol substring remains a no-match, never
+a truncated matching prefix. Selection URLs are bounded to 64 KiB.
+
+Switching to a record whose details are not held waits for one read request.
+The selection and filters update immediately; another record's old values are
+never shown under the pending selection. Only the latest selection response is
+accepted. The 20-second request limit, ten-second polling and original evidence
+aging remain in effect. No numbers, precision, state or quote fields are removed
+from the selected row. Without `view=record`, the endpoint keeps its full `rows`
+response for older clients; the UI also accepts that response after rollback.
+
 Validation covers stateless conversion, strict schema separation, missing and
 zero fields, stale/read-failed states, signed gaps/color monotonicity, cache
 coalescing, API privacy, UI filters and control-room embedding. Full-chain live

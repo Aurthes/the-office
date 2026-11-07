@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { useUiText } from "@/lib/i18n/ui-language";
-import { FILL_REFRESH_MS, fillState, quoteState, probabilityGap, type FillGuardState, type FillRow, type FillSnapshot } from "@/lib/fill-probability/model";
+import { FILL_REFRESH_MS, fillState, quoteState, probabilityGap, type FillGuardState, type FillRow, type FillSnapshot, type FillRecordIdentity, type FillRecordSnapshot } from "@/lib/fill-probability/model";
 import "./fill-probability.css";
 
 const number = (v: number | null) => typeof v === "number" && Number.isFinite(v) ? Number(v.toPrecision(6)).toString() : "N/A";
@@ -15,6 +15,38 @@ const sourceNotes: Record<string, string> = {
   "invalid-cache": "The feedback snapshot failed schema, identity or value validation",
   "live-identity-unverified": "The running process, configured source and heartbeat could not be matched",
 };
+type Filters = { strategy: string; exchange: string; account: string; symbol: string; side: string };
+const emptyFilters: Filters = { strategy: "", exchange: "", account: "", symbol: "", side: "" };
+const identity = ({ id, strategy, exchange, account, symbol, side }: FillRow): FillRecordIdentity => ({ id, strategy, exchange, account, symbol, side });
+const matching = (rows: FillRecordIdentity[], filters: Filters) => rows.filter(row =>
+  (!filters.strategy || row.strategy === filters.strategy) && (!filters.exchange || row.exchange === filters.exchange) &&
+  (!filters.account || row.account === filters.account) && (!filters.side || row.side === filters.side) && row.symbol.toLowerCase().includes(filters.symbol.toLowerCase()));
+const chosen = (rows: FillRecordIdentity[], filters: Filters, selected: string) => {
+  const filtered = matching(rows, filters);
+  return filtered.find(row => row.id === selected) || filtered[0];
+};
+
+// Old servers may still return the full snapshot during a rollback.
+function recordReply(data: FillSnapshot | FillRecordSnapshot, filters: Filters, selected: string): FillRecordSnapshot {
+  if (!Number.isFinite(data.serverTime) || typeof data.configured !== "boolean" || !Number.isFinite(data.sourceErrors) ||
+      data.sampledAt !== null && !Number.isFinite(data.sampledAt)) throw new Error();
+  let reply: FillRecordSnapshot;
+  if ("rows" in data && Array.isArray(data.rows)) {
+    const records = data.rows.map(identity), wanted = chosen(records, filters, selected);
+    reply = { configured: data.configured, serverTime: data.serverTime, sampledAt: data.sampledAt,
+      sourceErrors: data.sourceErrors, view: "record", records, row: data.rows.find(row => row.id === wanted?.id) || null };
+  } else if ("view" in data && data.view === "record" && Array.isArray(data.records)) reply = data;
+  else throw new Error();
+  const ids = new Set<string>();
+  for (const row of reply.records) {
+    if (!row || [row.id, row.strategy, row.exchange, row.account, row.symbol].some(value => typeof value !== "string" || value.length > 1024) ||
+        !["bid", "ask"].includes(row.side) || ids.has(row.id)) throw new Error();
+    ids.add(row.id);
+  }
+  const wanted = chosen(reply.records, filters, selected);
+  if (wanted ? !reply.row || Object.keys(wanted).some(key => reply.row![key as keyof FillRecordIdentity] !== wanted[key as keyof FillRecordIdentity]) : reply.row !== null) throw new Error();
+  return reply;
+}
 
 function Stages({ row, now, failed }: { row: FillRow; now: number; failed: boolean }) {
   const t = useUiText();
@@ -96,39 +128,65 @@ function Stages({ row, now, failed }: { row: FillRow; now: number; failed: boole
 
 export function FillProbabilityDashboard() {
   const t = useUiText();
-  const [sample, setSample] = useState<{ data: FillSnapshot; receivedAt: number } | null>(null);
+  const [sample, setSample] = useState<{ data: FillRecordSnapshot; receivedAt: number } | null>(null);
   const [clock, setClock] = useState(0), [failed, setFailed] = useState(false), [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ strategy: "", exchange: "", account: "", symbol: "", side: "" });
+  const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [selected, setSelected] = useState("");
-  const refresh = useRef<() => void>(() => undefined);
+  const selection = useRef({ filters: emptyFilters, selected: "", version: 0 });
+  const refresh = useRef<(selectionChanged?: boolean) => void>(() => undefined);
+  const changeFilter = (key: keyof Filters, value: string) => {
+    const next = { ...selection.current.filters, [key]: value };
+    selection.current = { ...selection.current, filters: next, version: selection.current.version + 1 };
+    setFilters(next); refresh.current(true);
+  };
+  const changeRecord = (value: string) => {
+    selection.current = { ...selection.current, selected: value, version: selection.current.version + 1 };
+    setSelected(value); refresh.current(true);
+  };
   useEffect(() => {
     let stopped = false, busy = false, controller: AbortController | null = null;
-    const load = async () => {
-      if (stopped || busy || document.hidden) return;
+    let queued = false, records: FillRecordIdentity[] = [], detailId: string | undefined;
+    const load = async (replace = false) => {
+      if (stopped || document.hidden) return;
+      if (busy) { if (replace) { queued = true; controller?.abort(); } return; }
+      queued = false;
       busy = true; setLoading(true); controller = new AbortController();
-      const request = controller;
+      const request = controller, spec = selection.current;
       // The producer read allows 12s; leave time for that read and public-network transfer.
       const timeout = setTimeout(() => request.abort(), 20_000);
       try {
-        const response = await fetch("/api/monitoring/fill-probability", { cache: "no-store", signal: request.signal });
+        // A substring longer than any validated symbol cannot match. Bound its URL without turning it into a matching prefix.
+        const symbol = spec.filters.symbol.length > 1024 ? "x".repeat(1025) : spec.filters.symbol;
+        const params = new URLSearchParams({ view: "record", recordId: spec.selected, ...spec.filters, symbol });
+        const response = await fetch(`/api/monitoring/fill-probability?${params}`, { cache: "no-store", signal: request.signal });
         if (!response.ok) throw new Error();
-        const data = await response.json() as FillSnapshot;
-        if (!Number.isFinite(data.serverTime) || typeof data.configured !== "boolean" || !Array.isArray(data.rows)) throw new Error();
-        if (!stopped && !request.signal.aborted) { const receivedAt = performance.now(); setSample({ data, receivedAt }); setClock(receivedAt); setFailed(false); }
-      } catch { if (!stopped) setFailed(true); }
-      finally { clearTimeout(timeout); busy = false; if (!stopped) setLoading(false); }
+        const data = recordReply(await response.json(), spec.filters, spec.selected);
+        if (!stopped && !request.signal.aborted && spec.version === selection.current.version) {
+          records = data.records; detailId = data.row?.id;
+          const receivedAt = performance.now(); setSample({ data, receivedAt }); setClock(receivedAt); setFailed(false);
+        }
+      } catch { if (!stopped && !queued && spec.version === selection.current.version) setFailed(true); }
+      finally {
+        clearTimeout(timeout); busy = false;
+        if (!stopped) { if (queued && !document.hidden) { void load(); } else setLoading(false); }
+      }
     };
-    refresh.current = () => { void load(); };
-    const visible = () => { setClock(performance.now()); if (document.hidden) controller?.abort(); else void load(); };
+    refresh.current = (selectionChanged = false) => {
+      const spec = selection.current, wanted = chosen(records, spec.filters, spec.selected);
+      if (selectionChanged && !busy && records.length && (!wanted || wanted.id === detailId)) return;
+      void load(selectionChanged);
+    };
+    const visible = () => { setClock(performance.now()); if (document.hidden) controller?.abort(); else void load(true); };
     const poll = setInterval(() => { void load(); }, FILL_REFRESH_MS);
     const age = setInterval(() => setClock(performance.now()), 1_000);
     document.addEventListener("visibilitychange", visible);
     void load();
     return () => { stopped = true; controller?.abort(); clearInterval(poll); clearInterval(age); document.removeEventListener("visibilitychange", visible); refresh.current = () => undefined; };
   }, []);
-  const rows = sample?.data.rows || [];
-  const filtered = rows.filter(row => (!filters.strategy || row.strategy === filters.strategy) && (!filters.exchange || row.exchange === filters.exchange) && (!filters.account || row.account === filters.account) && (!filters.side || row.side === filters.side) && row.symbol.toLowerCase().includes(filters.symbol.toLowerCase()));
-  const row = filtered.find(item => item.id === selected) || filtered[0];
+  const rows = sample?.data.records || [];
+  const filtered = matching(rows, filters);
+  const wanted = filtered.find(item => item.id === selected) || filtered[0];
+  const row = sample?.data.row?.id === wanted?.id ? sample?.data.row : null;
   const now = sample ? sample.data.serverTime + Math.max(0, clock - sample.receivedAt) : 0;
   return <section className="fill-dashboard" aria-label={t("Fill probability")}>
     <header><div><p className="fill-eyebrow">{t("MONITOR ROOM")}</p><h2>{t("Fill probability")}</h2><p>{t("One-second probability, target distance and the real quote path.")}</p></div>
@@ -137,12 +195,13 @@ export function FillProbabilityDashboard() {
     {row?.quote && !row.quote.available ? <p className="fill-notice">{t("Quote was observed, but quote stages are unavailable.")} {t("Observed at {time}: {reason}", { time: stamp(row.quote.at), reason: row.quote.guardReason || t("Source reason not exported") })}</p> : null}
     {failed || (sample?.data.sourceErrors ?? 0) > 0 ? <p className="fill-notice" role="alert">{t("Probability data could not be read. Previous values are unverified.")}</p> : null}
     {!sample && loading ? <p role="status">{t("Loading fill probability…")}</p> : null}
+    {sample && wanted && !row && loading ? <p role="status">{t("Loading fill probability…")}</p> : null}
     {sample && !sample.data.configured ? <p>{t("Fill probability source has not been configured.")}</p> : null}
-    <div className="fill-filters">{([ ["strategy", "Strategy"], ["exchange", "Exchange"], ["account", "Account"] ] as const).map(([key, label]) => <label key={key}>{t(label)}<select value={filters[key]} onChange={event => setFilters(current => ({ ...current, [key]: event.target.value }))}><option value="">{t("All")}</option>{[...new Set(rows.map(item => item[key]))].sort().map(value => <option key={value}>{value}</option>)}</select></label>)}
-      <label>{t("Symbol")}<input value={filters.symbol} onChange={event => setFilters(current => ({ ...current, symbol: event.target.value }))} placeholder={t("Filter symbol")} /></label>
-      <label>{t("Side")}<select value={filters.side} onChange={event => setFilters(current => ({ ...current, side: event.target.value }))}><option value="">{t("All")}</option><option value="bid">{t("Buy / bid")}</option><option value="ask">{t("Sell / ask")}</option></select></label>
+    <div className="fill-filters">{([ ["strategy", "Strategy"], ["exchange", "Exchange"], ["account", "Account"] ] as const).map(([key, label]) => <label key={key}>{t(label)}<select value={filters[key]} onChange={event => changeFilter(key, event.target.value)}><option value="">{t("All")}</option>{[...new Set(rows.map(item => item[key]))].sort().map(value => <option key={value}>{value}</option>)}</select></label>)}
+      <label>{t("Symbol")}<input value={filters.symbol} onChange={event => changeFilter("symbol", event.target.value)} placeholder={t("Filter symbol")} /></label>
+      <label>{t("Side")}<select value={filters.side} onChange={event => changeFilter("side", event.target.value)}><option value="">{t("All")}</option><option value="bid">{t("Buy / bid")}</option><option value="ask">{t("Sell / ask")}</option></select></label>
     </div>
-    {filtered.length ? <label className="fill-selection">{t("Record ({count})", { count: filtered.length })}<select value={row?.id || ""} onChange={event => setSelected(event.target.value)}>{filtered.map(item => <option key={item.id} value={item.id}>{item.strategy} / {item.account} / {item.symbol} / {t(item.side === "bid" ? "Buy / bid" : "Sell / ask")}</option>)}</select></label> : sample?.data.configured ? <p>{t("No matching probability records.")}</p> : null}
+    {filtered.length ? <label className="fill-selection">{t("Record ({count})", { count: filtered.length })}<select value={wanted?.id || ""} onChange={event => changeRecord(event.target.value)}>{filtered.map(item => <option key={item.id} value={item.id}>{item.strategy} / {item.account} / {item.symbol} / {t(item.side === "bid" ? "Buy / bid" : "Sell / ask")}</option>)}</select></label> : sample?.data.configured ? <p>{t("No matching probability records.")}</p> : null}
     {row ? <Stages row={row} now={now} failed={failed} /> : null}
     <footer>{t("Read-only · Refreshes every 10 seconds while visible · No EMA or trading control is recalculated in the browser")}</footer>
   </section>;
