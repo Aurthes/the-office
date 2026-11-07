@@ -75,3 +75,5 @@ return/resubmission, restart and exact original-message reading; it does not
 message existing employees or call a paid endpoint. Real model/browser semantic
 acceptance is a separate deployment check; unit or loopback success alone does
 not establish that every production agent chose the right Q.
+
+Select a Q before its first response and when the actual Q/step or task/phase binding changes. The selected binding already applies to subsequent commentary and answers; repeating `question_context` for the same Q is unnecessary. Selection/creation returns only selected IDs and newly opened aliases. An actor-only discovery read still returns current context, known Qs and original message sources. Full provenance remains stored and available to chat rendering and message navigation.
