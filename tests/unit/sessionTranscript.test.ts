@@ -4,6 +4,42 @@ import { afterEach, expect, it, vi } from "vitest";
 import { SessionTranscript } from "../../src/features/office/components/SessionTranscript";
 afterEach(cleanup);
 
+it("shows one origin per continuous work run, including A to B to A, while retaining final citations", () => {
+  const source = { threadId: "ceo", turnId: "original", itemId: "prompt", excerpt: "Q1 memory, Q2 capacity" };
+  const a = { questions: [{ id: "qa", summary: "Memory", sources: [source] }] };
+  const b = { questions: [{ id: "qb", summary: "Capacity", sources: [source] }] };
+  const progress = (id: string, replyContext: typeof a) => ({ id, turnId: "t", role: "assistant", phase: "commentary", content: id, replyContext });
+  const messages = [progress("a1", a), { id: "call", turnId: "t", role: "tool", content: "command" }, progress("a2", a), progress("b1", b), progress("b2", b), progress("a3", a)];
+  const original = JSON.stringify(messages), onOpenQuestion = vi.fn();
+  const view = render(React.createElement(SessionTranscript, { messages, activeTurnId: "t", onOpenQuestion }));
+  const work = screen.getByLabelText("Work process");
+  expect(within(work).getAllByLabelText("Answering")).toHaveLength(3);
+  expect(within(work).getAllByRole("separator")).toHaveLength(2);
+  expect([...work.querySelectorAll('[data-question-id]')].map(node => node.getAttribute('data-question-id'))).toEqual(["qa", "qb", "qa"]);
+  expect(work.querySelector('[data-message-id="a2"] [aria-label="Answering"]')).toBeNull();
+  fireEvent.click(within(work).getAllByRole("button", { name: "Original message" })[1]);
+  expect(onOpenQuestion).toHaveBeenCalledExactlyOnceWith(source); expect(JSON.stringify(messages)).toBe(original);
+  view.rerender(React.createElement(SessionTranscript, { messages: [...messages, { id: "final", turnId: "t", role: "assistant", phase: "final_answer", content: "Done", replyContext: a }], onOpenQuestion }));
+  expect(view.container.querySelector('[data-message-id="final"] [data-question-id="qa"]')).not.toBeNull();
+});
+
+it("starts a new run for changed steps, sources or Q sets and never assumes unknown origins match", () => {
+  const source = { threadId: "ceo", turnId: "t", itemId: "first", excerpt: "Original" };
+  const a = { id: "qa", summary: "A", sources: [source] }, b = { id: "qb", summary: "B", sources: [source] };
+  const contexts = [
+    { taskId: "task", phaseId: "p1", questions: [a] },
+    { taskId: "task", phaseId: "p2", questions: [a] },
+    { taskId: "task", phaseId: "p2", questions: [{ ...a, sources: [{ ...source, itemId: "second" }] }] },
+    { questions: [a, b] }, { questions: [b, a] }, undefined, undefined, { questions: [a, b] },
+  ];
+  const messages = contexts.map((replyContext, i) => ({ id: "m" + i, turnId: "t", role: "assistant", phase: "commentary", content: "Progress " + i, replyContext }));
+  const view = render(React.createElement(SessionTranscript, { messages, activeTurnId: "t" }));
+  expect(screen.getAllByLabelText("Answering")).toHaveLength(7);
+  expect(screen.getAllByRole("separator")).toHaveLength(6);
+  expect(view.container.querySelector('[data-message-id="m4"] [aria-label="Answering"]')).toBeNull();
+  expect(screen.getAllByText("Question not identified")).toHaveLength(2);
+});
+
 it("shows a dense Q summary separately from its original message link and task step", () => {
   const source = { threadId: "ceo", turnId: "original", itemId: "q", excerpt: "Q1 memory; Q2 capacity; also verify and deploy" };
   const onOpenQuestion = vi.fn();

@@ -72,6 +72,31 @@ describe("independent Office runtime", () => {
     expect(injections()).toHaveLength(2);
   });
 
+  it("batches independently cached Q and project context without queries or repeated organization data", async () => {
+    const f = fixture(), id = await session(f);
+    let title = "Head", summary = "First question";
+    f.store.companyContext = () => ({ agentId: id, title });
+    f.store.questionContext = () => ({ context: { questions: [{ id: "q-current", summary }] } });
+    const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    expect((injections()[0][1] as { items: unknown[] }).items).toHaveLength(2);
+    await f.store.call("turn/start", { threadId: id, input: [] }); expect(injections()).toHaveLength(1);
+    summary = "Second question";
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    expect((injections()[1][1] as { items: unknown[] }).items).toHaveLength(1);
+    expect(JSON.stringify(injections()[1])).toContain("Second question");
+    expect(JSON.stringify(injections()[1])).not.toContain('company');
+    expect(JSON.stringify(injections()[1])).not.toContain('workingDirectory');
+    title = "Changed Head";
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    expect(JSON.stringify(injections()[2])).toContain("Changed Head");
+    expect(JSON.stringify(injections()[2])).not.toContain("Second question");
+    const restored = new CodexOfficeStore(f.directory, f.client);
+    restored.companyContext = f.store.companyContext; restored.questionContext = f.store.questionContext;
+    await restored.call("turn/start", { threadId: id, input: [] }); expect(injections()).toHaveLength(3);
+    expect(f.client.call.mock.calls.every(([method]) => ["thread/start", "thread/inject_items", "turn/start"].includes(method))).toBe(true);
+  });
+
   it("forwards an explicit historical fork boundary to Codex once and keeps the source configuration",async()=>{
     const f=fixture(),id=await session(f),source=f.store.get(id);
     Object.assign(source,{codexThreadId:"native-own-thread",hasTurns:true});source.settings.model="custom-model";

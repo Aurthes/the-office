@@ -84,7 +84,16 @@ not establish that every production agent chose the right Q.
 
 Select a Q before its first response and when the actual Q/step or task/phase binding changes. The selected binding already applies to subsequent commentary and answers; repeating `question_context` for the same Q is unnecessary. Selection/creation returns only selected IDs and newly opened aliases. An actor-only discovery read still returns current context, known Qs and original message sources. Full provenance remains stored and available to chat rendering and message navigation.
 
-Automatic turn context includes the selected Q's summary, parent steps and exact
-source identities with short excerpts. Known Qs include only IDs, summaries and
-parent IDs; their sources can be read on demand with actor-only discovery.
-This projection changes neither stored provenance nor original-message links.
+Within each Work progress box, consecutive replies with the same Q set, task,
+phase and exact source identities share one visible heading. A change starts a
+new heading after a divider; A → B → A remains three chronological runs. Tools
+do not reset the run, unknown origins are not merged, and final answers retain
+their own headings. This is presentation only: every reply keeps its frozen
+binding and original-message links, without additional model or lookup calls.
+
+Automatic turn context includes selected Q/step IDs and summaries, plus a short
+ID/summary index for direct selection of other known Qs. Full ancestry and
+provenance remain in stored/UI records. A unique source resolves server-side;
+exact candidates and excerpts are injected only for ambiguous inputs, without
+adding discovery calls to normal registration or switching. Q context is cached
+separately so a Q change does not resend unchanged project/organization data.

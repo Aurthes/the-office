@@ -46,9 +46,9 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
       const current = (await client.call("todo.get", { id: task.id })).todo;
       observations.push({ caller, stage, assignee: current.assigneeId, handler: current.handlingAgentId, reviewer: current.reviewerId });
       const args = { id: task.id, revision: current.revision, actorId: caller, requestId: "fixture-op-" + (++number) };
-      if (caller === manager && [0, 4, 6].includes(stage) || caller === worker && stage === 0 || caller === ceo && stage === 3) {
-        const user = [...(payload.input || [])].reverse().find(item => item.role === "user");
-        const text = (user?.content || []).map(item => item.text || "").join("\n");
+      if (caller === manager && [0, 4, 6].includes(stage) || caller === worker && caller !== existingWorker && stage === 0 || caller === ceo && stage === 3) {
+        const text = [...(payload.input || [])].reverse().filter(item => item.role === "user").map(item => (item.content || []).map(part => part.text || "").join("\n")).find(text => text.includes(task.id) && text.includes("Task update: "));
+        if (!text) throw new Error("Native handoff request is missing the task update");
         const update = JSON.parse(text.split("Task update: ")[1].split("\n")[0]);
         const entry = current.delegations.findLast(entry => !["accepted", "recalled"].includes(entry.state)), expected = entry.state === "review" ? { report: entry.report } : entry.review?.accepted === false ? { feedback: entry.review.notes } : { instructions: entry.instructions, acceptanceCriteria: entry.acceptanceCriteria };
         check(`native handoff carries only current input and usable revision for ${caller === ceo ? "CEO review" : caller === manager ? "Head stage " + stage : "worker start"}`, text.includes(task.id) && JSON.stringify(update) === JSON.stringify({ revision: current.revision, ...expected }) && !text.includes("STORED_TASK_SCOPE") && !text.includes("STORED_PHASE_NOTES"));
@@ -56,7 +56,7 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
         args.revision = update.revision;
       }
       let operation;
-      if (caller === worker && stage === 0 && !workerHasPlan) {
+      if (caller === worker && caller !== existingWorker && stage === 0 && !workerHasPlan) {
         workerHasPlan = true; stages.set(caller, stage);
         operation = ["todo_get", { id: task.id }]; // Fresh recipient loads missing context once.
       } else if (caller === existingWorker) {
@@ -68,6 +68,14 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
         else if (stage === 2) await until(async () => (await client.call("todo.get", { id: task.id })).todo.delegations?.[0]?.state === "review", "Head did not submit to CEO");
         else if (stage === 3) operation = ["todo_review", { ...args, accept: true, notes: "Read the Head report and worker evidence, verified nested result." }];
         else if (stage === 4 || stage === 5) operation = ["todo_complete", { id: task.id, revision: current.revision, actorId: caller, phaseId: task.phases[stage - 4].id }];
+        else if (stage === 7) operation = ["question_context", { actorId: caller, questions: [{ key: "memory", summary: "Fixture memory question" }, { key: "capacity", summary: "Fixture capacity question" }], answering: ["memory"], requestId: "fixture-two-questions" }];
+        else if (stage === 9) {
+          const contexts = (payload.input || []).filter(item => item.role === "developer").flatMap(item => item.content || []).map(item => item.text || "").filter(text => text.startsWith("Current Office question context."));
+          const projected = JSON.parse(contexts.at(-1).split("\n").slice(1).join("\n")).questions;
+          const next = projected.knownQuestions.find(q => q.summary === "Fixture capacity question");
+          check("native model selects Q2 directly from a short index without provenance or discovery", Boolean(next) && Object.keys(next).length === 2 && !JSON.stringify(projected).includes('"sources"') && !JSON.stringify(projected).includes('"parents"') && !projected.recentSources);
+          operation = ["question_context", { actorId: caller, answering: [next.id] }];
+        }
       } else if (caller === manager) {
         if (stage === 0) {
           const snapshot = await client.call("office.snapshot");
@@ -146,6 +154,25 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
   check("reply provenance survives a real gateway restart and bounded history reload", restored.messages.some(message => message.replyContext?.taskId === task.id && message.replyContext.questions.flatMap(q => q.sources).some(source => source.itemId === original.itemId)));
   const originalPage = await client.call("session.messageContext", original);
   check("the pinned native item API opens the full exact original request", originalPage.messageId === `${original.turnId}:${original.itemId}` && originalPage.messages.some(message => message.content === "Implement the bounded fixture goal through your direct report and verify it. Do not deploy."));
+  const qaStart = operations.length;
+  // A send receipt can precede the new turn event; do not accept the previous
+  // turn's completed status as proof that the new Q has already been answered.
+  const waitCeo = stage => until(async () => { const state = await client.call("session.inspect", { threadId: ceo, includeHistory: false }); return stages.get(ceo) >= stage && state.status === "idle" && state.turnStatus === "completed"; }, "Q fixture did not finish");
+  const qaPrompt = "Q1: explain memory. Q2: explain whether capacity is shared.";
+  await client.call("session.send", { threadId: ceo, message: qaPrompt, requestId: "fixture-qa-first" }); await waitCeo(9);
+  const projectItems = () => (JSON.stringify((payloads.at(-1).input || []).filter(item => item.role === "developer")).match(/Current Office project context/g) || []).length;
+  const projectCount = projectItems();
+  await client.call("session.send", { threadId: ceo, message: "Now answer the second question.", requestId: "fixture-qa-second" }); await waitCeo(11);
+  check("native Q changes do not reinject unchanged project and organization context", projectItems() === projectCount);
+  await client.call("session.send", { threadId: ceo, message: "Continue where you left off.", requestId: "fixture-qa-continue" }); await waitCeo(12);
+  const qaHistory = (await client.call("session.history", { threadId: ceo })).messages;
+  const qaReplies = qaHistory.filter(item => item.role === "assistant" && item.replyContext?.questions.some(q => q.summary.startsWith("Fixture ")));
+  const summaries = qaReplies.map(item => item.replyContext.questions[0].summary);
+  check("Q1, Q2 and Continue keep separate summaries and the exact original prompt without a task", summaries.slice(-3).join("|") === "Fixture memory question|Fixture capacity question|Fixture capacity question" && qaReplies.every(item => !item.replyContext.taskId && item.replyContext.questions[0].sources[0].excerpt === qaPrompt));
+  const qaSource = qaReplies.at(-1).replyContext.questions[0].sources[0];
+  const qaOriginal = await client.call("session.messageContext", qaSource);
+  check("Q2 original-message navigation opens the complete two-question prompt", qaOriginal.messages.some(item => item.id === qaOriginal.messageId && item.content === qaPrompt));
+  check("normal multi-Q registration and switching use only two required selections and zero extra model queries", JSON.stringify(operations.slice(qaStart).map(([, name]) => name)) === JSON.stringify(["question_context", "question_context"]));
   setModelFixture(null);
   return client;
 }

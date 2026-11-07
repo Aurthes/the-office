@@ -26,23 +26,51 @@ it("registers a clarified child directly with its exact unique current source an
   expect(result.context.questions[0].parents).toEqual([{ id: parent, summary: "Reduce task context" }]);
 });
 
-it("projects concise model context while preserving exact Q identities, parent steps and full discovery", async () => {
+it("projects Q summaries and a direct selection index while keeping provenance and ancestry in full records", async () => {
   const { context } = fixture();
   context.record("head", user("original", "实现看板并验证。".repeat(50)));
   const parent = (await define(context, "head", "Markout dashboard")).opened.q;
   const child = (await define(context, "head", "Verify dashboard", { parentQuestionId: parent })).opened.q;
   const full = context.state("head"), model = context.forModel("head");
   expect(model.answering).toEqual([child]);
-  expect(model.context.questions[0]).toMatchObject({ id: child, parentQuestionId: parent, parents: [{ id: parent, summary: "Markout dashboard" }], sources: [{ threadId: "head", turnId: "turn", itemId: "original" }] });
-  expect(model.knownQuestions).toEqual([{ id: parent, summary: "Markout dashboard" }, { id: child, summary: "Verify dashboard", parentQuestionId: parent }]);
-  expect(Buffer.byteLength(model.context.questions[0].sources[0].excerpt)).toBeLessThanOrEqual(180);
-  expect(model.context.questions[0].sources[0].excerpt).not.toContain("\uFFFD");
+  expect(model.context.questions).toEqual([{ id: child, summary: "Verify dashboard" }]);
+  expect(model.knownQuestions).toEqual([{ id: parent, summary: "Markout dashboard" }]);
+  expect(model).not.toHaveProperty("recentSources");
+  expect(JSON.stringify(model)).not.toContain("excerpt");
+  expect(JSON.stringify(model)).not.toContain("parents");
   expect(Buffer.byteLength(JSON.stringify(model))).toBeLessThan(Buffer.byteLength(JSON.stringify(full)));
   expect(context.state("head")).toEqual(full);
   context.prepare("head", "resume", context.current("head"), "continue");
   context.record("head", user("continue", "Continue where you left off.", "next"), "resume");
   expect(context.forModel("head").answering).toEqual([child]);
-  expect(context.forModel("head").context.questions[0].sources[0].itemId).toBe("original");
+  expect(context.current("head").questions[0].sources[0].itemId).toBe("original");
+  expect(context.current("head").questions[0].parents).toEqual([{ id: parent, summary: "Markout dashboard" }]);
+});
+
+it("registers and switches Qs directly without discovery or original-message queries", async () => {
+  const { context } = fixture(), recent = vi.fn(), source = vi.fn();
+  Object.assign(context.options, { recent, source });
+  context.record("head", user("original", "Q1 memory; Q2 capacity"));
+  expect(context.forModel("head")).not.toHaveProperty("recentSources");
+  const result = await context.context("head", { questions: [{ key: "q1", summary: "Memory use" }, { key: "q2", summary: "Capacity scope" }], answering: ["q1"], requestId: "direct" });
+  context.record("head", answer("first"));
+  context.record("head", user("followup", "Answer the capacity question", "next"));
+  const candidate = context.forModel("head").knownQuestions.find((q: { summary: string }) => q.summary === "Capacity scope");
+  expect(candidate).toEqual({ id: result.opened.q2, summary: "Capacity scope" });
+  await context.context("head", { answering: [candidate.id] });
+  context.record("head", answer("second", "next"));
+  expect(recent).not.toHaveBeenCalled(); expect(source).not.toHaveBeenCalled();
+  expect(context.decorate("head", [answer("first"), answer("second", "next")]).map((item: { replyContext: { questions: { sources: { itemId: string }[] }[] } }) => item.replyContext.questions[0].sources[0].itemId)).toEqual(["original", "original"]);
+});
+
+it("retains exact source candidates only when needed to disambiguate several inputs in one call", async () => {
+  const { context } = fixture();
+  context.record("head", user("first", "Implement A")); context.record("head", user("second", "Implement B"));
+  const model = context.forModel("head");
+  expect(model.recentSources.map((s: { itemId: string }) => s.itemId)).toEqual(["first", "second"]);
+  const selected = await define(context, "head", "Implement B", { source: model.recentSources[1] });
+  expect(selected.context.questions[0].sources[0].itemId).toBe("second");
+  expect(context.forModel("head")).not.toHaveProperty("recentSources");
 });
 
 it("splits one prompt into independent semantic Qs and freezes each reply before later selection", async () => {

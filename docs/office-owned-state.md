@@ -130,6 +130,14 @@ explicit source override; Office cannot infer private launcher settings.
   that projection. Explicit organization reads still return the full directory.
   Native resume/compaction retains fixed rules. Existing conversations can still
   contain earlier injections until normal context compaction removes them.
+- Model-facing Q context carries selected Q/step IDs and summaries plus a short
+  index for selecting other known Qs directly. Full parent chains, provenance and
+  original-message excerpts remain in stored/UI records. Exact source candidates
+  are injected only when multiple inputs require disambiguation; a unique source
+  still resolves server-side during direct registration. No discovery query is
+  added to normal Q registration or switching. Project/task/organization context
+  and Q context are cached separately and changed items share one injection RPC,
+  so a Q change does not resend the unchanged company directory.
 - Model-facing `todo_get` returns the complete current plan/documentation, all
   open handoffs and the latest full handoff per manager/worker pair. Older closed
   rounds retain identities/status with `detailsOmitted: true`; use

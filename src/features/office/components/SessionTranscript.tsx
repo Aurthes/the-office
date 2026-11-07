@@ -66,13 +66,27 @@ function ToolCalls({ items }: { items: LiveSessionItem[] }) {
   </details>;
 }
 
+// Group by semantic Q/step and exact provenance, never by prompt or title.
+function replyOrigin(context?: ReplyContext) {
+  const questions = context?.questions;
+  if (!questions?.length || questions.some(question => !question.id || !question.sources.length)) return null;
+  return JSON.stringify([context?.taskId, context?.phaseId, questions.map(question => JSON.stringify([question.id,
+    question.sources.map(source => `${source.threadId}:${source.turnId}:${source.itemId}`).sort(),
+  ])).sort()]);
+}
+
 function WorkProcess({ items, defaultOpen, highlightedMessageId, onOpenQuestion }: { items: LiveSessionItem[]; defaultOpen: boolean; highlightedMessageId?: string; onOpenQuestion?: (source: ReplySource) => void }) {
   const t = useUiText();
   const [open, setOpen] = useState(defaultOpen);
-  const blocks: ({ message: LiveSessionItem } | { tools: LiveSessionItem[] })[] = [];
+  const blocks: ({ message: LiveSessionItem; showOrigin: boolean; separator: boolean } | { tools: LiveSessionItem[] })[] = [];
+  let previousOrigin: string | null = null, hasMessage = false;
   for (const message of items) {
     const previous = blocks.at(-1);
-    if (message.role !== "tool") blocks.push({ message });
+    if (message.role !== "tool") {
+      const origin = replyOrigin(message.replyContext), showOrigin = origin === null || origin !== previousOrigin;
+      blocks.push({ message, showOrigin, separator: hasMessage && showOrigin });
+      previousOrigin = origin; hasMessage = true;
+    }
     else if (previous && "tools" in previous) previous.tools.push(message);
     else blocks.push({ tools: [message] });
   }
@@ -80,7 +94,7 @@ function WorkProcess({ items, defaultOpen, highlightedMessageId, onOpenQuestion 
     <summary className="cursor-pointer text-xs text-white/50">{t("Work process · {count} items", { count: items.length })}</summary>
     {/* Hidden work logs can contain hundreds of Markdown blocks and images. */}
     {open ? <div className="mt-2 space-y-2 border-l border-white/15 pl-3">{blocks.map(block => "tools" in block ? <ToolCalls key={block.tools[0].id} items={block.tools} /> : <div key={block.message.id} data-message-id={block.message.id} data-search-match={block.message.id === highlightedMessageId || undefined} tabIndex={block.message.id === highlightedMessageId ? -1 : undefined}>
-      <ReplyHeading context={block.message.replyContext} onOpenSource={onOpenQuestion} />
+      {block.showOrigin ? <>{block.separator ? <hr className="my-3 border-white/15" /> : null}<ReplyHeading context={block.message.replyContext} onOpenSource={onOpenQuestion} /></> : null}
       <MessageBody message={block.message} truncatedLabel={t("This message is long. View the rest in the desktop app.")} />
       <MessageTime timestamp={block.message.timestamp} />
     </div>)}</div> : null}
