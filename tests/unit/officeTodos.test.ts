@@ -17,6 +17,74 @@ function fixture() {
   const change = (id: string, action: string, extra = {}) => todos.change({ id, revision: todos.raw(id).revision, ...extra }, action).todo;
   return { directory, todos, deps, create, change, projects, agents, advance: (ms: number) => { now += ms; } };
 }
+describe("independent follow-up owners", () => {
+  it("defaults agent creations to the actor, preserves explicit null and filters owner separately from execution", () => {
+    const f = fixture();
+    const row = f.create({ actorId: "alice", assigneeId: "bob" });
+    expect(row).toMatchObject({ ownerId: "alice", ownerName: "Alice", assigneeId: "bob" });
+    const cleared = f.create({ actorId: "alice", ownerId: null });
+    expect(cleared.ownerId).toBeNull();
+    expect(f.todos.list({ ownerId: "alice", assigneeId: "bob" }).todos.map((r: { id: string }) => r.id)).toEqual([row.id]);
+    expect(f.todos.list({ ownerId: "bob" }).total).toBe(0);
+    expect(f.todos.list({ ownerId: null }).todos.map((r: { id: string }) => r.id)).toEqual([cleared.id]);
+    expect(() => f.create({ ownerId: "missing" })).toThrow(/owner/);
+    expect(f.change(row.id, "edit", { ownerId: "bob" })).toMatchObject({ ownerId: "bob", assigneeId: "bob" });
+    expect(f.change(row.id, "edit", { ownerId: null }).ownerId).toBeNull();
+  });
+  it("keeps ownership through nested handoffs, recall, reassignment, completion and follow-up without granting workflow authority", () => {
+    const f = fixture(); f.agents.push({ id: "carol", name: "Carol", projectId: "alpha" });
+    const row = f.create({ actorId: "alice" });
+    const scope = { instructions: "Implement only", acceptanceCriteria: "Pass checks" };
+    const check = () => expect(f.todos.get({ id: row.id }).todo.ownerId).toBe("alice");
+    f.change(row.id, "delegate", { actorId: "alice", assigneeId: "bob", ...scope }); check();
+    expect(() => f.change(row.id, "edit", { actorId: "alice", documentation: "Owner is not the active worker" })).toThrow(/current responsible/);
+    f.change(row.id, "delegate", { actorId: "bob", assigneeId: "carol", ...scope }); check();
+    f.change(row.id, "submit", { actorId: "carol", report: "Ready" }); check();
+    expect(() => f.change(row.id, "review", { actorId: "alice", accept: true, notes: "Not the direct reviewer" })).toThrow(/delegating manager/);
+    f.change(row.id, "review", { actorId: "bob", accept: true, notes: "Verified" }); check();
+    f.change(row.id, "submit", { actorId: "bob", report: "Verified nested result" }); check();
+    f.change(row.id, "review", { actorId: "alice", accept: true, notes: "Verified" }); check();
+    f.change(row.id, "edit", { assigneeId: "bob" }); check();
+    f.change(row.id, "delegate", { actorId: "bob", assigneeId: "carol", ...scope }); check();
+    f.change(row.id, "recall", { actorId: "bob", reason: "Take back" }); check();
+    for (const phase of row.phases) f.change(row.id, "complete", { phaseId: phase.id });
+    check();
+    f.change(row.id, "edit", { phases: [...f.todos.raw(row.id).phases, { title: "Follow-up" }] }); check();
+    f.change(row.id, "edit", { ownerId: null });
+    expect(f.change(row.id, "delegate", { actorId: "bob", assigneeId: "carol", ...scope }).ownerId).toBeNull();
+  });
+  it("derives only evidenced legacy owners without read writes and materializes before reassignment loses acceptance evidence", () => {
+    const f = fixture();
+    const known = f.create(), unknown = f.create(), explicit = f.create({ ownerId: null }), nested = f.create(), conflict = f.create();
+    const paths = new Map<string, string>();
+    for (const row of [known, unknown, explicit, nested, conflict]) {
+      const file = path.join(f.directory, "todos", row.id + ".json"), raw = JSON.parse(readFileSync(file, "utf8"));
+      if (row.id !== explicit.id) { delete raw.ownerId; delete raw.ownerName; }
+      if (row.id !== unknown.id) raw.acceptanceManagerId = "alice";
+      if (row.id === nested.id) { raw.acceptanceManagerId = "bob"; raw.delegations = [{ managerId: "alice", workerId: "bob", state: "working" }, { managerId: "bob", workerId: "other", state: "working" }]; }
+      if (row.id === conflict.id) { raw.acceptanceManagerId = "other"; raw.delegations = [{ managerId: "alice", workerId: "bob", state: "accepted" }]; }
+      writeFileSync(file, JSON.stringify(raw)); paths.set(row.id, readFileSync(file, "utf8"));
+    }
+    const restored = new OfficeTodos(f.directory, f.deps);
+    expect(restored.get({ id: known.id }).todo.ownerId).toBe("alice");
+    expect(restored.get({ id: nested.id }).todo.ownerId).toBe("alice");
+    expect(restored.get({ id: unknown.id }).todo).not.toHaveProperty("ownerId");
+    expect(restored.get({ id: conflict.id }).todo).not.toHaveProperty("ownerId");
+    expect(restored.get({ id: explicit.id }).todo.ownerId).toBeNull();
+    for (const [id, content] of paths) expect(readFileSync(path.join(f.directory, "todos", id + ".json"), "utf8")).toBe(content);
+    const updated = restored.change({ id: known.id, revision: known.revision, assigneeId: "bob" }, "edit").todo;
+    expect(updated).toMatchObject({ ownerId: "alice", assigneeId: "bob", acceptanceManagerId: null });
+    expect(updated.phases).toEqual(known.phases); expect(updated.completedAt).toBeNull();
+    const persisted = JSON.parse(readFileSync(path.join(f.directory, "todos", known.id + ".json"), "utf8"));
+    expect(persisted.ownerId).toBe("alice");
+    restored.change({ id: unknown.id, revision: unknown.revision, documentation: "Normal mutation" }, "edit");
+    expect(JSON.parse(readFileSync(path.join(f.directory, "todos", unknown.id + ".json"), "utf8")).ownerId).toBeNull();
+    restored.change({ id: conflict.id, revision: conflict.revision, assigneeId: "bob" }, "edit");
+    const restarted = new OfficeTodos(f.directory, f.deps);
+    expect(restarted.get({ id: conflict.id }).todo.ownerId).toBeNull();
+    expect(restarted.get({ id: unknown.id }).todo.ownerId).toBeNull();
+  });
+});
 describe("central Office task records", () => {
   it("builds the roster once per list while preserving live and historical display names", () => {
     const f = fixture(); for (let i = 0; i < 25; i++) f.create({ title: `Task ${i}` });

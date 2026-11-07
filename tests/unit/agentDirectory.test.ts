@@ -34,6 +34,24 @@ function fixture(view: "project" | "activity" | "organization" = "project", sear
   const result = render(createElement(AgentDirectory, props));
   return { ...result, props };
 }
+it("indexes the same task ID under Owner and Assignee, deduplicates the same person and keeps different tasks", () => {
+  const shared = { id: "same", title: "Shared task", ownerId: "head", assigneeId: "worker", status: "paused", archived: false };
+  const indexed = currentTasksByAgent([shared, shared, { ...shared, id: "both", ownerId: "worker" }, { ...shared, id: "finished", status: "done" }, { ...shared, id: "archived", archived: true }]);
+  expect(indexed.get("head")).toEqual([{ id: "same", title: "Shared task", code: "ST", roles: ["Owner"] }]);
+  expect(indexed.get("worker")).toEqual([{ id: "same", title: "Shared task", code: "ST", roles: ["Assignee"] }, { id: "both", title: "Shared task", code: "ST", roles: ["Owner", "Assignee"] }]);
+});
+it.each(["project", "activity", "organization"] as const)("shows each person's actual task roles in single badges and multi-task menus in %s", view => {
+  const indexed = currentTasksByAgent([{ id: "same", title: "Shared task", ownerId: "head", assigneeId: "worker", status: "queued", archived: false }, { id: "both", title: "Both roles", ownerId: "worker", assigneeId: "worker", status: "paused", archived: false }]);
+  const onOpenTask = vi.fn();
+  render(createElement(AgentDirectory, { agents: agents.map(agent => ({ ...agent, tasks: indexed.get(agent.id) })), organization, view, search: "", onSearchChange: vi.fn(), onViewChange: vi.fn(), selectedId: null, onOpenChat: vi.fn(), onOpenTask }));
+  expect(screen.getByRole("button", { name: "Open task: Shared task" })).toHaveTextContent("Owner");
+  fireEvent.click(screen.getAllByRole("button", { name: "Tasks for Worker 3: 2" })[0]);
+  const menu = screen.getByRole("group", { name: "Tasks for Worker 3" });
+  expect(within(menu).getByRole("button", { name: "Open task: Shared task" })).toHaveTextContent("Assignee");
+  expect(within(menu).getByRole("button", { name: "Open task: Both roles" })).toHaveTextContent("Owner + Assignee");
+  fireEvent.click(within(menu).getByRole("button", { name: "Open task: Shared task" }));
+  expect(onOpenTask).toHaveBeenCalledWith("same");
+});
 it.each(["project", "activity", "organization"] as const)("preserves avatars, attention states, schedule and task links in %s", view => {
   const { props } = fixture(view);
   expect(screen.getAllByRole("img", { name: "Working" }).length).toBeGreaterThan(0);
@@ -73,7 +91,7 @@ it("keeps all open assignments including queued and paused work, excluding compl
   const result = currentTasksByAgent([task, task, { ...task, id: "paused", status: "paused" }, { ...task, id: "queued", status: "queued", assigneeId: "head" }, { ...task, id: "done", status: "done" }, { ...task, id: "archived", archived: true }, { ...task, id: "orphan", assigneeId: null }]);
   expect([...result.keys()]).toEqual(["worker", "head"]);
   expect(result.get("worker")?.map(task => task.id)).toEqual(["avc", "paused"]);
-  expect(result.get("head")).toEqual([{ id: "queued", title: task.title, code: "AVC" }]);
+  expect(result.get("head")).toEqual([{ id: "queued", title: task.title, code: "AVC", roles: ["Assignee"] }]);
   expect(taskCode("Background Music Theme")).toBe("BMT");
   expect(taskCode("整理实验数据")).toBe("整理实验数据");
 });
@@ -82,12 +100,12 @@ it.each(["project", "activity", "organization"] as const)("keeps idle agents' as
   const assigned = [...agents[0].tasks!, { id: "sync", title: "Server Sync (SYNC)", code: "SYNC" }];
   const idle = { ...agents[0], activity: getAgentActivity({ status: "idle" }), tasks: assigned };
   rerender(createElement(AgentDirectory, { ...props, agents: [idle, ...agents.slice(1)] }));
-  const trigger = screen.getAllByRole("button", { name: "Tasks assigned to Worker 3: 2" })[0];
+  const trigger = screen.getAllByRole("button", { name: "Tasks for Worker 3: 2" })[0];
   expect(trigger.getAttribute("aria-expanded")).toBe("false");
-  expect(screen.queryByRole("group", { name: "Tasks assigned to Worker 3" })).toBeNull();
+  expect(screen.queryByRole("group", { name: "Tasks for Worker 3" })).toBeNull();
   fireEvent.click(trigger);
   // Shared reporting references must not open a second copy of the list.
-  const list = screen.getByRole("group", { name: "Tasks assigned to Worker 3" });
+  const list = screen.getByRole("group", { name: "Tasks for Worker 3" });
   expect(within(list).getAllByRole("button")).toHaveLength(2);
   fireEvent.keyDown(list, { key: "Escape" });
   expect(document.activeElement).toBe(trigger);
@@ -98,13 +116,13 @@ it.each(["project", "activity", "organization"] as const)("keeps idle agents' as
   expect(props.onOpenChat).not.toHaveBeenCalled();
   expect(trigger.getAttribute("aria-expanded")).toBe("false");
   rerender(createElement(AgentDirectory, { ...props, agents: [idle, ...agents.slice(1)], search: "SYNC" }));
-  expect(screen.getAllByRole("button", { name: "Tasks assigned to Worker 3: 2" }).length).toBeGreaterThan(0);
+  expect(screen.getAllByRole("button", { name: "Tasks for Worker 3: 2" }).length).toBeGreaterThan(0);
   expect(screen.queryByRole("button", { name: "Open session: Reviewer" })).toBeNull();
   rerender(createElement(AgentDirectory, { ...props, agents: [idle], search: "", view: "activity" }));
-  fireEvent.click(screen.getByRole("button", { name: "Tasks assigned to Worker 3: 2" }));
+  fireEvent.click(screen.getByRole("button", { name: "Tasks for Worker 3: 2" }));
   rerender(createElement(AgentDirectory, { ...props, agents: [{ ...idle, tasks: [assigned[0]] }], search: "", view: "activity" }));
   expect(screen.getByRole("button", { name: "Open task: Agent View Compression (AVC)" })).toBeTruthy();
-  expect(screen.queryByRole("group", { name: "Tasks assigned to Worker 3" })).toBeNull();
+  expect(screen.queryByRole("group", { name: "Tasks for Worker 3" })).toBeNull();
 });
 it("retains every reporting edge and unconfigured session, with bounded references for shared subtrees", () => {
   const people = [...organization.people, { id: "newbie", name: "Newbie", title: "Worker", department: "Office", departmentId: "office", reportsTo: ["worker"] }];

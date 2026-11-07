@@ -1,5 +1,13 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Owner": "跟进人",
+  "Assignee": "执行人",
+  "Task assignee": "任务执行人",
+  "Not recorded": "未记录",
+  "Loading tasks…": "正在读取任务…",
+  "No tasks need follow-up.": "暂无需要跟进的任务。",
+  "Tasks for {name}: {count}": "{name} 的任务：{count} 项",
+  "Tasks for {name}": "{name} 的任务",
   "Task": "任务",
   "Original request": "原始请求",
   "Related question": "相关问题",
@@ -93,7 +101,7 @@ export const ZH_CN: Record<string, string> = {
   "Pause timer": "暂停计时",
   "Start with agent": "交给 agent 执行",
   "Task status": "任务状态",
-  "Task owner": "任务负责人",
+  "Task owner": "任务跟进人",
   "All statuses": "全部状态",
   "Show task list": "显示任务列表",
   "Show task tree": "显示任务树",

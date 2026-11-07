@@ -5,6 +5,15 @@ import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
 const { createGatewayClient } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");
+it("exposes nullable Owner metadata independently on create/edit/list without changing delegation inputs", () => {
+  const { tools } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");
+  for (const name of ["todo_create", "todo_edit", "todo_list"]) {
+    const schema = tools.find((tool: { name: string }) => tool.name === name).inputSchema;
+    expect(schema.properties.ownerId.type).toEqual(["string", "null"]);
+    expect(schema.properties.assigneeId).toBeTruthy(); expect(schema.required).not.toContain("ownerId");
+  }
+  expect(tools.find((tool: { name: string }) => tool.name === "todo_delegate").inputSchema.properties).not.toHaveProperty("ownerId");
+});
 const cleanup: Array<() => Promise<unknown> | void> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 type RequestFrame = { id: string; method: string; params: { value?: number; parallel?: boolean; fail?: boolean } };
