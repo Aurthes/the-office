@@ -157,6 +157,7 @@ class CodexSessionControls {
       const key = `${p.turnId}:${p.itemId}`, previous = state.items.get(key);
       const text = (previous?.content || "") + p.delta;
       state.items.set(key, { ...previous, id: key, turnId: p.turnId, role: "assistant", ...clipText(text, 64 * 1024), truncated: Buffer.byteLength(text) > 64 * 1024 || previous?.truncated, version: ++state.version });
+      this.options.replyContext?.record(id, state.items.get(key));
     } else if (frame.method === "thread/realtime/item/completed") {
       const normalized = realtimeSessionItem(item);
       if (!normalized) return;
@@ -167,6 +168,7 @@ class CodexSessionControls {
         completedAtMs: item.completedAtMs ?? p.completedAtMs }, p.turnId);
       if (!normalized) return;
       const key = normalized.id;
+      this.options.replyContext?.record(id, normalized, item.clientId);
       const details = item.type === "fileChange" ? JSON.stringify(item.changes || []) : null;
       state.items.set(key, { ...normalized, ...clipText(normalized.content, normalized.role === "tool" ? 2000 : 64 * 1024), status: item.status || (frame.method === "item/started" ? "inProgress" : "completed"), details: details?.slice(0, 4000), incompleteDetails: details ? Buffer.byteLength(details) > 16000 || details.length > 4000 : false, version: ++state.version });
     }
@@ -204,7 +206,7 @@ class CodexSessionControls {
     const changed = [...state.items.values()].filter(item => item.version > (since > state.version ? 0 : since)).sort((a, b) => a.version - b.version);
     const items = []; let bytes = 0;
     for (const item of changed) {
-      const visible = { ...item }; delete visible.details; delete visible.incompleteDetails;
+      const visible = { ...(this.options.replyContext?.decorate(id, [item])[0] || item) }; delete visible.details; delete visible.incompleteDetails;
       const size = Buffer.byteLength(JSON.stringify(visible));
       if (items.length && bytes + size > 192 * 1024) break;
       items.push(visible); bytes += size;
@@ -223,7 +225,7 @@ class CodexSessionControls {
           details: item?.details, supported: request.supported && !oversized && (request.method !== "item/fileChange/requestApproval" || Boolean(item?.details && !item.incompleteDetails)) };
       }) };
   }
-  async send(id, text, requestId, attachments = [], { resumeInterrupted = false, onlyIfIdle = false, automaticRetry = null, references = [] } = {}) {
+  async send(id, text, requestId, attachments = [], { resumeInterrupted = false, onlyIfIdle = false, automaticRetry = null, references = [], replyContext = null } = {}) {
     this.requireReady();
     if (!automaticRetry) this.cancelRetry(id);
     const prepared = this.options.composer ? await this.options.composer.prepare(id, text, references) : { text, items: [] };
@@ -259,6 +261,7 @@ class CodexSessionControls {
     // The desktop uses this identity to display external steering as a user
     // message. Reuse the send ID so duplicate requests keep the same identity.
     const submittedAt = Date.now();
+    this.options.replyContext?.prepare(id, requestId, replyContext || ((automaticRetry || resumeInterrupted) ? this.options.replyContext.current(id) : null));
     const current = this.state(id);
     const previousTurnId = current.lastTurnId;
     let result;

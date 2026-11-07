@@ -37,6 +37,10 @@ function readRecord(file, id) {
   content(row);
   return row;
 }
+function readTeaser(id, directory = teaserDirectory()) {
+  if (!validId(id)) throw new Error("Invalid teaser ID");
+  return readRecord(path.join(directory, `${id}.json`), id);
+}
 /** @returns {import("../src/lib/office/teasers").Teaser[]} */
 function readTeasers(directory = teaserDirectory(), includeDraftSolutions = false) {
   let names;
@@ -80,7 +84,7 @@ function updateTeaser(id, input, directory = teaserDirectory()) {
       completedAt: values.status === "finished" ? previous.completedAt || now : null });
   } finally { fs.closeSync(lease); fs.rmSync(lock, { force: true }); }
 }
-module.exports = { teaserDirectory, readTeasers, postTeaser, updateTeaser };
+module.exports = { teaserDirectory, readTeasers, postTeaser, updateTeaser, readTeaser, save };
 
 if (require.main === module) {
   try {

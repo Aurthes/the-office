@@ -1,5 +1,6 @@
 "use strict";
 const { activeDelegation, handlingAgentId } = require("./office-todos");
+const { taskReplyContext } = require("./office-reply-context");
 
 // Handoffs use the same task and normal session sender. The task itself is the
 // durable inbox; only pending, definitely unsent deliveries may be dispatched.
@@ -64,7 +65,7 @@ class OfficeDelegation {
       this.todos.delivery(id, requestId, "sending");
       this.todos.startForAgent(recipient, id);
       try {
-        const result = await this.send(recipient, message, requestId);
+        const result = await this.send(recipient, message, requestId, currentEntry.replyContext || taskReplyContext(current));
         if (result.status === "busy") { this.todos.delivery(id, requestId, "pending"); this.todos.finishTurn(recipient, "waiting for an available session"); }
         else this.todos.delivery(id, requestId, "sent");
       } catch (error) {

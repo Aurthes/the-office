@@ -23,10 +23,12 @@ const { CodexSessionComposer } = require("./codex-session-composer");
 const { CodexMessageSearch } = require("./codex-message-search");
 const { OfficeCompany } = require("./office-company");
 const { OfficeDelegation } = require("./office-delegation");
+const { OfficeReplyContext, taskReplyContext } = require("./office-reply-context");
 
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
 const directory = officeEnvironment(path.resolve(process.env.CLAW3D_OFFICE_DATA_DIR || path.join(process.env.CLAW3D_DATA_DIR || path.join(os.homedir(), ".local/share/claw3d"), "office-runtime"))).home;
+const replyContext = new OfficeReplyContext(directory);
 const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer, todos, dictate, delegation;
 let restoredSessionStates = Promise.resolve();
 const features = { dictation: false, dictationHTTP: true, voice: true, prediction: true, terminal: true, schedules: true, todos: true, composer: true, accountVersion: 0 };
@@ -60,7 +62,7 @@ const native = new CodexOfficeClient({
 const accountContext = new CodexOfficeAccount(native);
 store = new CodexOfficeStore(directory, native, changed, id => Boolean(voice?.active?.threadId === id || controls?.state(id).activeTurnId || workspace?.snapshot(id)?.running || workspace?.starts.has(id)));
 store.ensureCeo();
-controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features,
+controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features, replyContext,
   changed: id => { stream?.changed(id); changed(); },
   recovery: {
     read: id => store.data.sessions.find(row => row.id === id)?.recovery,
@@ -74,7 +76,7 @@ stream = new CodexSessionStream(controls);
 const predictions = new CodexSessionPredictions(store, controls);
 workspace = new CodexSessionWorkspace(native, { commandExec: true, policy: id => store.overrides(id).sandboxPolicy, roots: row => store.sessionFolders(row) });
 composer = new CodexSessionComposer(store, workspace); controls.options.composer = composer;
-const messageSearch = new CodexMessageSearch(store);
+const messageSearch = new CodexMessageSearch(store, replyContext);
 voice = new CodexOfficeVoice(store, controls, (ws, payload) => {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "event", event: "session.voice", payload }));
 });
@@ -83,7 +85,7 @@ const agents = () => {
   return store.list().map(row => ({ ...row, hasPendingSchedule: pending.has(row.id), status: controls.state(row.id).retry ? "running" : row.status, role: row.project, identity: { name: row.name, emoji: "💬" }, needsInput: Boolean(store.pendingQuestions(row.id).length || controls.questions(row.id).some(q => !q.submitted) || controls.approvalCount(row.id)) }));
 };
 const key = id => `agent:${id}:main`;
-const history = (id, cursor) => loadSessionHistoryPage(store.call.bind(store), store.get(id), cursor);
+const history = (id, cursor) => loadSessionHistoryPage(store.call.bind(store), store.get(id), cursor, replyContext);
 async function account(options) { const status = await accountContext.read(options); return { loggedIn: Boolean(status.account) || status.requiresOpenaiAuth === false, email: status.account?.email || null, requiresAuth: status.requiresOpenaiAuth !== false, loginFlow: process.env.CLAW3D_OFFICE_DESKTOP === "1" ? "browser" : "device", login }; }
 schedules = new OfficeSchedules(directory, {
   getSession: id => store.get(id), changed: () => { broadcast("schedules.updated", {}); changed(); },
@@ -95,7 +97,7 @@ schedules = new OfficeSchedules(directory, {
   },
   send: (id, message, requestId) => controls.send(id, message, requestId, [], { onlyIfIdle: true }),
 });
-todos = new OfficeTodos(directory, { projects: () => store.projects(), agents, changed: id => broadcast("todos.updated", { id }) });
+todos = new OfficeTodos(directory, { projects: () => store.projects(), agents, replyContext: id => controls.state(id).activeTurnId ? replyContext.forTask(id, controls.state(id).activeTurnId) : null, changed: id => broadcast("todos.updated", { id }) });
 const company = new OfficeCompany(store);
 store.companyContext = id => company.forTurn(id);
 store.todoContext = id => { const row = todos.bound(id); return { protocol: 5, agentId: id, todoId: row?.id || null, assigneeId: row?.assigneeId || null, handlingAgentId: row ? handlingAgentId(row) : null, reviewerId: activeDelegation(row || {})?.state === "review" ? activeDelegation(row).managerId : null, departmentId: store.get(id).projectId ?? null, delegatedTasks: todos.delegated(id) }; };
@@ -111,7 +113,7 @@ delegation = new OfficeDelegation({ store, todos, company, stopping: () => stopp
     return !store.isBusy(id) && !store.starting.has(id) && !controls.state(id).retry && !controls.state(id).recovery.stopped
       && !store.pendingQuestions(id).length && !controls.approvalCount(id) && !controls.questions(id).some(q => !q.submitted) && (await account()).loggedIn;
   },
-  send: (id, message, requestId) => controls.send(id, message, requestId, [], { onlyIfIdle: true }),
+  send: (id, message, requestId, context) => controls.send(id, message, requestId, [], { onlyIfIdle: true, replyContext: context }),
 });
 const methods = {
   "todo.organization": p => company.context(p.actorId, p),
@@ -122,7 +124,11 @@ const methods = {
   "todo.recall": p => delegation.recall(p),
   "todo.list": p => todos.list(p),
   "todo.get": p => todos.get(p),
-  "todo.create": p => todos.create(p),
+  "todo.create": p => {
+    const result = todos.create(p), turnId = p.actorId && controls.state(p.actorId).activeTurnId;
+    if (turnId) replyContext.bindTask(p.actorId, result.todo, turnId);
+    return result;
+  },
   ...Object.fromEntries(["edit", "start", "pause", "complete", "reopen", "archive", "restore"].map(action => [`todo.${action}`, p => todos.change(p, action)])),
   "todo.run": p => store.once(p, async () => {
     const row = todos.raw(p.id);
@@ -138,7 +144,7 @@ const methods = {
     if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "sending");
     todos.startForAgent(recipient, row.id);
     try {
-      const result = await controls.send(recipient, (entry?.state === "review" ? `Office delegation submitted for your acceptance. Task ${row.id}: ${row.title}\nRead office_tasks.todo_get, verify the report and artifacts, then use todo_review with evidence to accept or return. Submission alone is not acceptance.` : row.acceptanceManagerId && !entry ? `Finish manager acceptance for Office task ${row.id}: ${row.title}\nRead office_tasks.todo_get and the accepted reports. Complete only verified remaining phases; preserve the execution assignee.` : `Work on Office to-do ${row.id}: ${row.title}\nRead its full plan and documentation using office_tasks.todo_get. Keep phase progress and documentation current; finish only verified work.`), p.requestId, [], { onlyIfIdle: true });
+      const result = await controls.send(recipient, (entry?.state === "review" ? `Office delegation submitted for your acceptance. Task ${row.id}: ${row.title}\nRead office_tasks.todo_get, verify the report and artifacts, then use todo_review with evidence to accept or return. Submission alone is not acceptance.` : row.acceptanceManagerId && !entry ? `Finish manager acceptance for Office task ${row.id}: ${row.title}\nRead office_tasks.todo_get and the accepted reports. Complete only verified remaining phases; preserve the execution assignee.` : `Work on Office to-do ${row.id}: ${row.title}\nRead its full plan and documentation using office_tasks.todo_get. Keep phase progress and documentation current; finish only verified work.`), p.requestId, [], { onlyIfIdle: true, replyContext: entry?.replyContext || taskReplyContext(row) });
       if (result.status === "busy") throw new Error("Agent became busy; the task was not sent");
       if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "sent");
       return { id: row.id, threadId: recipient };

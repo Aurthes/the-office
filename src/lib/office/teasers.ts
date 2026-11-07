@@ -1,4 +1,5 @@
 export type TeaserStatus = "open" | "in_progress" | "finished";
+export type TeaserWhiteboard = { id: string; text: string; revision: number; updatedAt: string | null };
 export type Teaser = {
   id: string;
   revision: number;

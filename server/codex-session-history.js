@@ -16,7 +16,7 @@ function fitCaps(sizes, budget) {
 
 // The native timeline contains ordinary chat and committed voice dialogue in
 // one order. Its opaque cursor walks backwards; each page is already ascending.
-async function loadSessionHistoryPage(call, row, cursor) {
+async function loadSessionHistoryPage(call, row, cursor, replyContext) {
   if (cursor !== undefined && (typeof cursor !== "string" || !cursor || cursor.length > 4096))
     throw new Error("Invalid history cursor");
   const result = await call("thread/timeline/list", {
@@ -30,7 +30,7 @@ async function loadSessionHistoryPage(call, row, cursor) {
     // message timestamp, and must not make every historical message look new.
     return item ? [item] : [];
   });
-  return { threadId: row.id, messages: boundHistoryMessages(visible), nextCursor: result.nextCursor || null };
+  return { threadId: row.id, messages: boundHistoryMessages(replyContext ? replyContext.decorate(row.id, visible) : visible), nextCursor: result.nextCursor || null };
 }
 
 function boundHistoryMessages(visible) {

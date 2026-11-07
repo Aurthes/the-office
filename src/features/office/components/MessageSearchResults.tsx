@@ -5,7 +5,7 @@ import { useUiText } from "@/lib/i18n/ui-language";
 
 export type MessageOccurrence = { messageId: string; itemId: string; turnId: string; turnCursor: string; snippet: string; snippetMatchRange: { start: number; end: number } };
 export type MessageSearchGroup = { threadId: string; name: string; project: string; archived: boolean; matches: MessageOccurrence[]; nextCursor: string | null };
-export type MessageSearchTarget = Omit<MessageSearchGroup, "matches" | "nextCursor"> & MessageOccurrence & { requestId: string };
+export type MessageSearchTarget = Omit<MessageSearchGroup, "matches" | "nextCursor"> & Omit<MessageOccurrence, "turnCursor"> & { turnCursor?: string; requestId: string };
 type Results = { groups: MessageSearchGroup[]; nextCursor: string | null };
 
 export function SearchSnippet({ text, range }: { text: string; range: { start: number; end: number } }) {
