@@ -4,8 +4,8 @@ import type { SessionClient } from "./SessionControls";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { OfficeCodexAccount } from "./OfficeCodexAccount";
 import { ProjectFolderPicker } from "./ProjectFolderPicker";
-import { createDefaultAgentAvatarProfile, type AgentAvatarProfile } from "@/lib/avatars/profile";
-import { createDuckAppearanceFromSeed } from "@/lib/avatars/duck";
+import type { AgentAvatarProfile } from "@/lib/avatars/profile";
+import { RecruitmentTemplates } from "./RecruitmentTemplates";
 
 type Project = { id: string; name: string; rootPaths?: string[] };
 type Chat = { id: string; name: string; workspace: string };
@@ -24,6 +24,8 @@ export function CompanyActions({ client, projects, selectedProjectId, showAccoun
   const [picker, setPicker] = useState<number | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [templateId, setTemplateId] = useState<string | null | undefined>();
+  const [templateBusy, setTemplateBusy] = useState(false);
   const submitting = useRef(false);
   const loadProject = async (id: string) => {
     setBusy(true); setError(""); setName(""); setFolders([]); setChats([]); setProjectId(id); setWorkspaces({});
@@ -37,28 +39,25 @@ export function CompanyActions({ client, projects, selectedProjectId, showAccoun
     setMode(next); setName(""); setFolders([]); setPicker(next === "project" ? 0 : null); setError(""); setNotice(""); setChats([]); setWorkspaces({});
     const project = selectedProject || (selectedProjectId === null ? undefined : projects[0]);
     setProjectId(project?.id || "");
+    setTemplateId(undefined);
     if (next === "edit" && project) void loadProject(project.id);
   };
   const affected = mode === "edit" ? chats.filter(chat => !folders.includes(chat.workspace)) : [];
   const needsFolder = mode !== "session" || !projectId;
   const needsWorkingFolder = mode === "session" && !projectId && !folders.length;
   const submit = async () => {
-    if (!mode || disabled || busy || submitting.current || picker !== null) return;
+    if (!mode || disabled || busy || templateBusy || submitting.current || picker !== null) return;
     if (needsFolder && !folders.length) { if (mode === "session") setPicker(0); return; }
     submitting.current = true; setBusy(true); setError(""); setNotice("");
     let saved = false;
     try {
       const result = await client.call(mode === "project" ? "project.create" : mode === "edit" ? "project.update" : "session.create", {
-        name, ...(mode === "session" ? { projectId: projectId || null, ...(!projectId ? { workspace: folders[0] } : {}) } : { rootPaths: folders, ...(mode === "edit" ? { projectId, workspaces } : {}) }), requestId: crypto.randomUUID(),
+        name, ...(mode === "session" ? { projectId: projectId || null, ...(!projectId ? { workspace: folders[0] } : {}), ...(templateId === undefined ? {} : { templateId }) } : { rootPaths: folders, ...(mode === "edit" ? { projectId, workspaces } : {}) }), requestId: crypto.randomUUID(),
       }) as { threadId?: string; warning?: string };
       saved = true; setMode(null);
       setNotice(result.warning || (mode === "project" ? "Office project created." : mode === "edit" ? "Project updated. Folder changes apply to new turns and new terminals." : "Session created. Send a message to start working."));
-      if (result.threadId) {
-        await onCreated(result.threadId, {
-          ...createDefaultAgentAvatarProfile(result.threadId),
-          duck: createDuckAppearanceFromSeed(result.threadId),
-        });
-      } else await onCreated();
+      if (result.threadId) await onCreated(result.threadId);
+      else await onCreated();
     } catch (cause) {
       setError(saved ? "Saved, but the page could not finish updating. Check existing projects and sessions first." :
         (cause instanceof Error ? cause.message : "Creation failed"));
@@ -66,13 +65,13 @@ export function CompanyActions({ client, projects, selectedProjectId, showAccoun
   };
   const field = "mt-1 min-h-10 w-full min-w-0 rounded border border-white/20 bg-[#152b35] px-2 text-sm text-white";
   const label = mode === "edit" ? "Edit project" : mode === "project" ? "Create project" : "Recruit agent";
-  const locked = busy || picker !== null;
+  const locked = busy || templateBusy || picker !== null;
   return <div className={`office-company-actions mt-2 max-w-full text-white ${mode ? "w-80" : ""}`}>
     {showAccount ? <OfficeCodexAccount client={client} /> : null}
     <div className="flex flex-wrap gap-2">
-      <button disabled={disabled || busy} onClick={() => open("project")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("+ Project")}</button>
-      <button disabled={disabled || busy || !projects.length || selectedProjectId === null} onClick={() => open("edit")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("Edit project")}</button>
-      <button disabled={disabled || busy} onClick={() => open("session")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("+ Recruit agent")}</button>
+      <button disabled={disabled || busy || templateBusy} onClick={() => open("project")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("+ Project")}</button>
+      <button disabled={disabled || busy || templateBusy || !projects.length || selectedProjectId === null} onClick={() => open("edit")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("Edit project")}</button>
+      <button disabled={disabled || busy || templateBusy} onClick={() => open("session")} className="min-h-10 rounded border border-white/20 px-2 text-xs disabled:opacity-40">{t("+ Recruit agent")}</button>
     </div>
     {mode ? <form role="dialog" aria-label={t(label)} onSubmit={event => { event.preventDefault(); void submit(); }} className="mt-2 max-h-[65vh] space-y-3 overflow-y-auto rounded border border-white/15 bg-[#0d1b22] p-3">
       {picker !== null ? <ProjectFolderPicker client={client} initialPath={folders[picker] || ""} onPick={folder => {
@@ -80,7 +79,7 @@ export function CompanyActions({ client, projects, selectedProjectId, showAccoun
         if (mode === "project" && !folders.length && !name) setName((folder.split("/").filter(Boolean).pop() || folder).slice(0, 120));
         setPicker(null);
       }} onCancel={() => { setPicker(null); if (mode === "project" && !folders.length) setMode(null); }} /> : <>
-      {mode !== "project" && (selectedProject || selectedProjectId === null) ? <p aria-label={t("Project")} className="break-words text-xs text-white/60">{t("Project")} · <span className="text-white">{selectedProject?.name || t("Open Space (no project)")}</span></p> : mode !== "project" ? <label className="block text-xs">{t("Project")}<select aria-label={t("Project")} required={mode === "edit"} disabled={locked} value={projectId} onChange={event => { setPicker(null); if (mode === "edit") void loadProject(event.target.value); else setProjectId(event.target.value); }} className={field}>
+      {mode !== "project" && (selectedProject || selectedProjectId === null) ? <p aria-label={t("Project")} className="break-words text-xs text-white/60">{t("Project")} · <span className="text-white">{selectedProject?.name || t("Open Space (no project)")}</span></p> : mode !== "project" ? <label className="block text-xs">{t("Project")}<select aria-label={t("Project")} required={mode === "edit"} disabled={locked} value={projectId} onChange={event => { setPicker(null); if (mode === "edit") void loadProject(event.target.value); else { setProjectId(event.target.value); setTemplateId(undefined); } }} className={field}>
         {mode === "session" ? <option value="">{t("Open Space (no project)")}</option> : null}
         {projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
       </select></label> : null}
@@ -108,7 +107,8 @@ export function CompanyActions({ client, projects, selectedProjectId, showAccoun
           </select></label>)}
         </div> : null}
       </> : null}
-      <div className="flex gap-2"><button type={needsWorkingFolder ? "button" : "submit"} onClick={needsWorkingFolder ? () => setPicker(0) : undefined} disabled={disabled || locked || (mode !== "session" && !folders.length)} className="min-h-10 rounded bg-emerald-700 px-3 text-xs disabled:opacity-40">{busy ? t("Saving…") : needsWorkingFolder ? t("Choose a working folder") : t(mode === "project" ? "Create project" : mode === "edit" ? "Save project" : "Recruit and create session")}</button><button type="button" disabled={busy} onClick={() => { setMode(null); setPicker(null); }} className="min-h-10 px-2 text-xs">{t("Cancel")}</button></div>
+      {mode === "session" ? <RecruitmentTemplates key={`${projectId}:${folders[0] || ""}`} client={client} projectId={projectId || null} workspace={projectId ? undefined : folders[0]} selected={templateId} onSelect={setTemplateId} disabled={busy} onBusy={setTemplateBusy} /> : null}
+      <div className="flex gap-2"><button type={needsWorkingFolder ? "button" : "submit"} onClick={needsWorkingFolder ? () => setPicker(0) : undefined} disabled={disabled || locked || (mode !== "session" && !folders.length)} className="min-h-10 rounded bg-emerald-700 px-3 text-xs disabled:opacity-40">{busy ? t("Saving…") : needsWorkingFolder ? t("Choose a working folder") : t(mode === "project" ? "Create project" : mode === "edit" ? "Save project" : "Recruit and create session")}</button><button type="button" disabled={busy || templateBusy} onClick={() => { setMode(null); setPicker(null); }} className="min-h-10 px-2 text-xs">{t("Cancel")}</button></div>
       </>}
     </form> : null}
     {error ? <p role="alert" className="mt-2 break-words text-xs text-amber-100">{t(error)} {t("After a connection loss or timeout, check the result before retrying.")}</p> : null}
