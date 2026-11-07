@@ -75,7 +75,7 @@ describe("compact model-facing Office information", () => {
     expect(edited).toMatchObject({ id: created.id, code: "T1" }); expect(edited).not.toHaveProperty("documentation");
     expect((await call("todo_list", { query: "T1" })).todos[0]).toMatchObject({ id: created.id, code: "T1", title: "Renamed" });
     const delegated = (await call("todo_delegate", { actorId: "alice", id: "T1", revision: edited.revision, assigneeId: "bob", instructions: "Implement", acceptanceCriteria: "Verify", requestId: "delegate-code" })).todo;
-    await expect(call("todo_edit", { actorId: "alice", id: "T1", revision: delegated.revision, title: "Not my turn" })).rejects.toThrow(/current responsible/);
+    expect((await call("todo_edit", { actorId: "alice", id: "T1", revision: delegated.revision, title: "Shared edit" })).todo).toMatchObject({ id: created.id, code: "T1" });
   });
   it("completes nested handoffs using receipt revisions while keeping full evidence and UI records available", async () => {
     const directory = mkdtempSync(path.join(os.tmpdir(), "office-mcp-compact-"));

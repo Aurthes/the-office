@@ -60,7 +60,7 @@ describe("stable company task codes", () => {
     expect(f.todos.bindings.get("alice")).toBe(task.id);
     expect(f.todos.raw(task.code).revision).toBe(revision);
     f.change(task.code, "delegate", { actorId: "alice", assigneeId: "bob", instructions: "Implement", acceptanceCriteria: "Verify" });
-    expect(() => f.change(task.code, "edit", { actorId: "alice", title: "Bypass" })).toThrow(/current responsible/);
+    expect(f.change(task.code, "edit", { actorId: "alice", title: "Updated by manager" }).title).toBe("Updated by manager");
     expect(f.change(task.code, "edit", { actorId: "bob", title: "Updated by worker" })).toMatchObject({ id: task.id, code: task.code });
     expect(() => f.todos.raw("Updated by worker")).toThrow(/missing/);
     expect(f.todos.list({ query: task.code }).todos[0].id).toBe(task.id);
@@ -93,7 +93,7 @@ describe("independent follow-up owners", () => {
     const scope = { instructions: "Implement only", acceptanceCriteria: "Pass checks" };
     const check = () => expect(f.todos.get({ id: row.id }).todo.ownerId).toBe("alice");
     f.change(row.id, "delegate", { actorId: "alice", assigneeId: "bob", ...scope }); check();
-    expect(() => f.change(row.id, "edit", { actorId: "alice", documentation: "Owner is not the active worker" })).toThrow(/current responsible/);
+    expect(f.change(row.id, "edit", { actorId: "alice", documentation: "Owner can update shared research" }).documentation).toBe("Owner can update shared research");
     f.change(row.id, "delegate", { actorId: "bob", assigneeId: "carol", ...scope }); check();
     f.change(row.id, "submit", { actorId: "carol", report: "Ready" }); check();
     expect(() => f.change(row.id, "review", { actorId: "alice", accept: true, notes: "Not the direct reviewer" })).toThrow(/delegating manager/);
@@ -280,4 +280,70 @@ it("does not invent a historical completion date when the original timestamp was
   const f = fixture(), row = f.create(), file = path.join(f.directory, "todos", row.id + ".json");
   const legacy = JSON.parse(readFileSync(file, "utf8")); legacy.status = "done"; delete legacy.completedAt; legacy.updatedAt = 123456; writeFileSync(file, JSON.stringify(legacy));
   const restored = new OfficeTodos(f.directory, f.deps); expect(restored.get({ id: row.id }).todo).toMatchObject({ archived: true, completedAt: null });
+});
+
+describe("collaborative metadata edits preserve workflow authority", () => {
+  const setup = (state: "working" | "review" | "accepted" | "done") => {
+    const f = fixture(); f.agents.push({ id: "carol", name: "Owner", projectId: "alpha" }, { id: "dave", name: "Other member", projectId: "beta" });
+    const task = f.create({ actorId: "alice", ownerId: "carol" });
+    f.change(task.id, "delegate", { actorId: "alice", assigneeId: "bob", instructions: "Implement", acceptanceCriteria: "Verify" });
+    f.change(task.id, "start", { actorId: "bob" }); f.advance(250);
+    if (state !== "working") f.change(task.id, "submit", { actorId: "bob", report: "Evidence" });
+    if (["accepted", "done"].includes(state)) f.change(task.id, "review", { actorId: "alice", accept: true, notes: "Verified" });
+    if (state === "done") for (const phase of task.phases) f.change(task.id, "complete", { actorId: "alice", phaseId: phase.id });
+    return { ...f, task };
+  };
+  for (const state of ["working", "review", "accepted", "done"] as const) {
+    it.each(["alice", "bob", "carol", "dave", undefined])(`allows ordinary edits in ${state} by %s without changing execution, acceptance or completion`, actorId => {
+      const f = setup(state), before = f.todos.get({ id: f.task.id }).todo;
+      const next = f.change(f.task.id, "edit", { actorId, title: "Shared title", documentation: "Shared evidence", ownerId: "dave",
+        phases: before.phases.map((phase: { id: string; title: string }) => ({ id: phase.id, title: phase.title, notes: "Updated notes" })) });
+      expect(next).toMatchObject({ title: "Shared title", documentation: "Shared evidence", ownerId: "dave", assigneeId: before.assigneeId,
+        acceptanceManagerId: before.acceptanceManagerId, handlingAgentId: before.handlingAgentId, reviewerId: before.reviewerId,
+        archived: before.archived, status: before.status, completedAt: before.completedAt, elapsedMs: before.elapsedMs, delegations: before.delegations });
+      expect(next.phases.map((phase: { id: string; completedAt: number | null }) => [phase.id, phase.completedAt])).toEqual(before.phases.map((phase: { id: string; completedAt: number | null }) => [phase.id, phase.completedAt]));
+      expect(next.events.at(-1).actor).toMatchObject(actorId ? { source: "agent", id: actorId } : { source: "user" });
+    });
+  }
+  it("rejects unknown actors, stale revisions and invalid phase plans without writing anything", () => {
+    const f = setup("working"), before = structuredClone(f.todos.raw(f.task.id));
+    expect(() => f.change(f.task.id, "edit", { actorId: "not-a-member", title: "No" })).toThrow(/existing Office agent/);
+    expect(() => f.todos.change({ id: f.task.id, revision: before.revision - 1, actorId: "carol", title: "Stale" }, "edit")).toThrow(/changed/);
+    expect(() => f.change(f.task.id, "edit", { actorId: "dave", phases: [] })).toThrow(/1–20/);
+    expect(() => f.change(f.task.id, "edit", { actorId: "dave", phases: [{ id: "unknown-phase", title: "No" }] })).toThrow(/Phase is missing/);
+    expect(() => f.change(f.task.id, "edit", { actorId: "dave", phases: [before.phases[0], before.phases[0]] })).toThrow(/unique/);
+    expect(f.todos.raw(f.task.id)).toEqual(before);
+  });
+  it.each(["bob", "carol", "dave"])("prevents %s clearing final acceptance by reassigning after an accepted handoff", actorId => {
+    const f = setup("accepted"), before = structuredClone(f.todos.raw(f.task.id));
+    expect(() => f.change(f.task.id, "edit", { actorId, assigneeId: "dave", ownerId: actorId })).toThrow(/current responsible/);
+    expect(f.todos.raw(f.task.id)).toEqual(before);
+    expect(f.change(f.task.id, "edit", { actorId: "alice", assigneeId: "dave" })).toMatchObject({ assigneeId: "dave", acceptanceManagerId: null });
+  });
+  it.each(["bob", "carol", "dave"])("prevents %s closing an unaccepted goal by removing its unfinished phases", actorId => {
+    const f = setup("accepted"); f.change(f.task.id, "complete", { actorId: "alice", phaseId: f.task.phases[0].id });
+    const before = structuredClone(f.todos.raw(f.task.id));
+    expect(() => f.change(f.task.id, "edit", { actorId, phases: [before.phases[0]] })).toThrow(/manager can close/);
+    expect(() => f.change(f.task.id, "edit", { actorId, assigneeId: "dave", phases: [before.phases[0]] })).toThrow(/manager can close/);
+    expect(f.todos.raw(f.task.id)).toEqual(before);
+    expect(f.change(f.task.id, "edit", { actorId: "alice", phases: [before.phases[0]] }).status).toBe("done");
+  });
+  it.each(["alice", "bob", "carol", "dave", undefined])("keeps active handoff final acceptance and reassignment protection for %s", actorId => {
+    const f = setup("working"); f.change(f.task.id, "complete", { actorId: "bob", phaseId: f.task.phases[0].id });
+    const before = structuredClone(f.todos.raw(f.task.id));
+    expect(() => f.change(f.task.id, "edit", { actorId, phases: [before.phases[0]] })).toThrow(/manager acceptance/);
+    expect(() => f.change(f.task.id, "edit", { actorId, assigneeId: "dave" })).toThrow(/active delegation/);
+    expect(f.todos.raw(f.task.id)).toEqual(before);
+  });
+  for (const state of ["working", "review", "accepted"] as const) it.each(["start", "pause", "complete", "reopen", "archive", "restore", "delegate", "submit", "review"])(`does not give a metadata editor execution or review authority in ${state}: %s`, action => {
+    const f = setup(state), before = structuredClone(f.todos.raw(f.task.id));
+    f.change(f.task.id, "edit", { actorId: "carol", documentation: "Owner added evidence" });
+    const edited = structuredClone(f.todos.raw(f.task.id));
+    expect(() => f.change(f.task.id, action, { actorId: "carol", phaseId: before.phases[0].id, assigneeId: "dave", report: "No", accept: true, notes: "No", instructions: "No", acceptanceCriteria: "No" })).toThrow();
+    expect(f.todos.raw(f.task.id)).toEqual(edited);
+  });
+  it("preserves the archived unfinished lifecycle rule", () => {
+    const f = fixture(), task = f.create(); f.change(task.id, "archive");
+    expect(() => f.change(task.id, "edit", { actorId: "bob", ownerId: "bob" })).toThrow(/Restore this archived/);
+  });
 });

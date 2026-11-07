@@ -272,9 +272,13 @@ class OfficeTodos {
       this.stopClock(row); row.archived = action === "archive"; if (row.status === "running") row.status = "paused";
       message = action === "archive" ? "To-do archived" : "To-do restored";
     } else throw new Error("Unsupported to-do action");
-    if (row.status === "done" && activeDelegation(row)) throw new Error("Submit the result and obtain manager acceptance before completing the final phase");
-    if (row.status === "done" && row.acceptanceManagerId && actor.id && actor.id !== row.acceptanceManagerId) throw new Error("Only the responsible manager can close this delegated goal");
-    if (actor.id && !["delegate", "recall", "submit", "review"].includes(action) && (activeDelegation(previous) || previous.acceptanceManagerId) && actor.id !== handlingAgentId(previous)) throw new Error("Only the current responsible manager or worker can update this delegated task");
+    // Metadata edits on completed tasks are not a new acceptance decision.
+    // Use the previous manager: an edit may also try to clear it by reassigning.
+    const closing = previous.status !== "done" && row.status === "done";
+    if (closing && activeDelegation(row)) throw new Error("Submit the result and obtain manager acceptance before completing the final phase");
+    if (closing && previous.acceptanceManagerId && actor.id && actor.id !== previous.acceptanceManagerId) throw new Error("Only the responsible manager can close this delegated goal");
+    const reassigning = action === "edit" && row.assigneeId !== previous.assigneeId;
+    if (actor.id && (action !== "edit" || reassigning) && !["delegate", "recall", "submit", "review"].includes(action) && (activeDelegation(previous) || previous.acceptanceManagerId) && actor.id !== handlingAgentId(previous)) throw new Error("Only the current responsible manager or worker can update this delegated task");
     if (row.status === "done") {
       row.completedAt = previous.status === "done" ? completionTime(previous) : this.now();
       row.archived = true;
