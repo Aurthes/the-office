@@ -822,8 +822,8 @@ export function OfficeScreen({
   }, [client]);
   const returnFinished = useCallback(() => setReturnRequest(null), []);
   const sessionView = process.env.NEXT_PUBLIC_CLAW3D_SESSION_VIEW === "1";
-  const [chatRosterCollapsed, setChatRosterCollapsed] = useState(false);
-  const { container: sessionListContainer, overlay: sessionListOverlay, update: resizeSessionList } = useSessionListLayout(sessionView);
+  const { container: sessionListContainer, overlay: sessionListOverlay, update: resizeSessionList,
+    collapsed: chatRosterCollapsed, setCollapsed: setChatRosterCollapsed, openChat: openSpecificChat } = useSessionListLayout(sessionView);
   const dismissSessionList = () => {
     setChatRosterCollapsed(true);
     requestAnimationFrame(() => {
@@ -1105,7 +1105,7 @@ export function OfficeScreen({
     ) => {
       setSelectedChatAgentId(agentId);
       if (options?.openChat !== false) {
-        setChatRosterCollapsed(false);
+        openSpecificChat();
         setChatOpen(true);
       }
       if (options?.selectStore !== false) {
@@ -1121,7 +1121,7 @@ export function OfficeScreen({
         };
       });
     },
-    [dispatch, setChatOpen, setChatRosterCollapsed],
+    [dispatch, setChatOpen, openSpecificChat],
   );
   const handleSelectFloor = useCallback(
     async (floorId: FloorId) => {
@@ -1211,12 +1211,12 @@ export function OfficeScreen({
   const focusChatTarget = useCallback(
     (agentId: string) => {
       setSelectedChatAgentId(agentId);
-      setChatRosterCollapsed(false);
+      openSpecificChat();
       setChatOpen(true);
 
         dispatch({ type: "selectAgent", agentId });
     },
-    [dispatch, setChatOpen, setChatRosterCollapsed],
+    [dispatch, setChatOpen, openSpecificChat],
   );
   const openAgentEditor = useCallback(
     (agentId: string, initialSection: AgentEditorSection = "avatar") => {
@@ -3777,14 +3777,14 @@ export function OfficeScreen({
             {sessionView && sessionListOverlay && !chatRosterCollapsed ? <button type="button" aria-label={t("Dismiss session list")} className="session-list-backdrop" onClick={dismissSessionList} /> : null}
             {sessionView ? !chatRosterCollapsed ? <AgentDirectory key={gatewayUrl} agents={directoryAgents} organization={organization} view={directoryView}
               onViewChange={changeDirectoryView} search={sessionSearch} onSearchChange={setSessionSearch} selectedId={selectedChatAgentId}
-              onOpenChat={id => { handleOpenAgentChat(id); if (sessionListOverlay) setChatRosterCollapsed(true); }}
+              onOpenChat={handleOpenAgentChat}
               onDismiss={sessionListOverlay ? dismissSessionList : undefined}
               onOpenTask={id => setTaskBoardRequest({ id })} taskError={currentTasks.error}
               client={client} onOpenMessage={target => {
                 const archived = target.archived || !state.agents.some(agent => agent.agentId === target.threadId);
                 if (!archived) handleOpenAgentChat(target.threadId);
+                else openSpecificChat();
                 setMessageSelection({ gateway: gatewayUrl, target: { ...target, archived } });
-                if (sessionListOverlay) setChatRosterCollapsed(true);
               }}
               focusRequest={organizationFocus} /> : null : <div
               className={`flex shrink-0 flex-col border-r border-white/10 transition-[width] ${chatRosterCollapsed ? "w-12" : "w-52"}`}
@@ -3875,7 +3875,7 @@ export function OfficeScreen({
             </div>}
             {sessionView && !chatRosterCollapsed && !sessionListOverlay ? <SessionListDivider onResize={resizeSessionList} /> : null}
 
-            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="relative isolate flex min-h-0 min-w-0 flex-1 flex-col">
               {messageTarget?.archived ? <SessionMessageLocation client={client} target={messageTarget} onClose={() => setMessageSelection(null)} headerStart={sessionListToggle} /> : null}
               {sessionView && !focusedChatAgent ? <header className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 p-2">{sessionListToggle}{sessionWindowActions}</header> : null}
               {sessionView ? <RetainedSessionPanels key={gatewayUrl} activeId={chatOpen && !messageTarget?.archived ? focusedChatAgent?.agentId ?? null : null} sessionIds={sessionPanelIds}

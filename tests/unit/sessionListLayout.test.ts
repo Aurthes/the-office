@@ -28,10 +28,12 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 function Fixture({ enabled = true, divider = 8 }: { enabled?: boolean; divider?: number }) {
   const { container, ...layout } = useSessionListLayout(enabled);
-  return React.createElement("div", { ref: container, "data-testid": "layout", "data-layout": "container", "data-mode": layout.overlay ? "overlay" : "split", style: { "--session-list-divider-width": `${divider}px` } as React.CSSProperties },
+  return React.createElement("div", { ref: container, "data-testid": "layout", "data-layout": "container", "data-mode": layout.overlay ? "overlay" : "split", "data-collapsed": String(layout.collapsed), style: { "--session-list-divider-width": `${divider}px` } as React.CSSProperties },
     React.createElement("aside", { "data-layout": "list" }, "Sessions"),
     React.createElement(SessionListDivider, { onResize: layout.update }),
-    React.createElement("textarea", { "aria-label": "Draft", defaultValue: "Unsent draft" }));
+    React.createElement("textarea", { "aria-label": "Draft", defaultValue: "Unsent draft" }),
+    React.createElement("button", { onClick: layout.openChat }, "Open specific chat externally"),
+    React.createElement("button", { onClick: () => layout.setCollapsed(value => !value) }, "Toggle session list"));
 }
 const resize = () => act(() => { [...observers].forEach(update => update()); });
 
@@ -88,4 +90,34 @@ it("uses the measured 8/12px CSS divider even when only pointer mode changes", (
   expect(row.dataset.mode).toBe("overlay");
   act(() => { coarse = false; row.style.setProperty("--session-list-divider-width", "8px"); pointerChanges.forEach(update => update()); });
   expect(row.dataset.mode).toBe("split");
+});
+
+it("keeps a first hidden narrow specific-chat opening clear, including same-target/reopen requests", () => {
+  total = 0;
+  render(React.createElement(Fixture)); const row = screen.getByTestId("layout");
+  const input = screen.getByRole("textbox", { name: "Draft" }); input.focus();
+  fireEvent.click(screen.getByRole("button", { name: "Open specific chat externally" }));
+  expect(row.dataset.collapsed).toBe("true");
+  total = 600; resize(); expect(row.dataset.mode).toBe("overlay"); expect(row.dataset.collapsed).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "Toggle session list" }));
+  resize(); resize(); expect(row.dataset.collapsed).toBe("false");
+  fireEvent.click(screen.getByRole("button", { name: "Open specific chat externally" }));
+  expect(row.dataset.collapsed).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "Open specific chat externally" }));
+  expect(row.dataset.collapsed).toBe("true");
+  total = 0; resize(); fireEvent.click(screen.getByRole("button", { name: "Open specific chat externally" }));
+  total = 600; resize(); expect(row.dataset.collapsed).toBe("true");
+  expect(screen.getByRole("textbox", { name: "Draft" })).toBe(input); expect(input).toHaveValue("Unsent draft"); expect(input).toHaveFocus();
+});
+
+it("lets deliberate list opening override pending hidden navigation, and preserves wide split opening", () => {
+  total = 0;
+  render(React.createElement(Fixture)); const row = screen.getByTestId("layout");
+  fireEvent.click(screen.getByRole("button", { name: "Open specific chat externally" }));
+  fireEvent.click(screen.getByRole("button", { name: "Toggle session list" }));
+  total = 600; resize(); expect(row.dataset.collapsed).toBe("false");
+  total = 960; resize(); fireEvent.click(screen.getByRole("button", { name: "Toggle session list" }));
+  expect(row.dataset.collapsed).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "Open specific chat externally" }));
+  expect(row.dataset.mode).toBe("split"); expect(row.dataset.collapsed).toBe("false");
 });

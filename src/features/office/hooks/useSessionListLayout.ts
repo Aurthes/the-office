@@ -1,10 +1,16 @@
 "use client";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type SetStateAction } from "react";
 import { sessionListNeedsOverlay } from "../operations/sessionListLayout";
 
 export function useSessionListLayout(enabled: boolean) {
   const container = useRef<HTMLDivElement>(null);
   const [overlay, setOverlay] = useState(false);
+  const [collapsed, setCollapsedState] = useState(false);
+  const openingChat = useRef(false);
+  const setCollapsed = useCallback((next: SetStateAction<boolean>) => {
+    openingChat.current = false; // A deliberate list action overrides pending navigation.
+    setCollapsedState(next);
+  }, []);
   const update = useCallback(() => {
     const node = container.current;
     if (!node || !enabled) return;
@@ -13,8 +19,21 @@ export function useSessionListLayout(enabled: boolean) {
     const preferred = parseFloat(node.style.getPropertyValue("--session-list-width"));
     const divider = parseFloat(getComputedStyle(node).getPropertyValue("--session-list-divider-width")) || 8;
     // Never use the overlay's actual list/chat width to decide the next mode.
-    setOverlay(sessionListNeedsOverlay(total, Number.isFinite(preferred) ? preferred : undefined, divider));
+    const nextOverlay = sessionListNeedsOverlay(total, Number.isFinite(preferred) ? preferred : undefined, divider);
+    setOverlay(nextOverlay);
+    if (openingChat.current) {
+      openingChat.current = false;
+      setCollapsedState(nextOverlay);
+    }
   }, [enabled]);
+  const openChat = useCallback(() => {
+    if (!enabled) { setCollapsed(false); return; }
+    // Hidden first openings have no width yet. Keep the selected chat clear until
+    // the first real measurement; subsequent resizes preserve deliberate toggles.
+    openingChat.current = true;
+    setCollapsedState(true);
+    update();
+  }, [enabled, setCollapsed, update]);
   useLayoutEffect(() => {
     const node = container.current;
     if (!node || !enabled) return;
@@ -25,5 +44,5 @@ export function useSessionListLayout(enabled: boolean) {
     pointer.addEventListener("change", update);
     return () => { observer.disconnect(); pointer.removeEventListener("change", update); };
   }, [enabled, update]);
-  return { container, overlay, update };
+  return { container, overlay, update, collapsed, setCollapsed, openChat };
 }
