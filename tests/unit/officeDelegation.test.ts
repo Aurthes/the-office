@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const { CodexOfficeStore } = require("../../server/codex-office-store");
 const { OfficeTodos, activeDelegation } = require("../../server/office-todos");
 const { OfficeCompany } = require("../../server/office-company");
-const { OfficeDelegation } = require("../../server/office-delegation");
+const { OfficeDelegation, taskNotification } = require("../../server/office-delegation");
 const { ceo: CEO } = require("../../src/lib/office/identities.json");
 const directories: string[] = [];
 afterEach(() => directories.splice(0).forEach(directory => rmSync(directory, { recursive: true, force: true })));
@@ -34,6 +34,43 @@ async function fixture() {
   return { root, store, client, company, manager, worker, peer, graph, saveGraph, settingsFile, todos, deps, runtime, available, canSend, send, create, input, delegate, settle };
 }
 describe("real-session Office delegation", () => {
+  it("delivers the complete plan and usable revision so work and review need no preliminary task get", async () => {
+    const f = await fixture(), task = f.create();
+    f.todos.change(f.input(task.id, f.manager, { documentation: "Current scope; frozen inputs. Artifact: result.json" }), "edit");
+    await f.delegate(task.id);
+    const snapshot = (message: string) => JSON.parse(message.split("Task snapshot: ")[1]);
+    const working = snapshot(f.send.mock.calls[0][1]);
+    expect(working).toMatchObject({ id: task.id, revision: f.todos.raw(task.id).revision, documentation: "Current scope; frozen inputs. Artifact: result.json", handoff: { state: "working", instructions: "Implement the requested change. Do not deploy." } });
+    expect(working.phases).toEqual(task.phases.map(({ id, title, notes, completedAt }: { id: string; title: string; notes: string; completedAt: number | null }) => ({ id, title, notes, completedAt })));
+    // Only transport metadata changed after dispatch; the announced revision works.
+    f.todos.change({ id: task.id, revision: working.revision, actorId: f.worker, documentation: "Verified result.json" }, "edit");
+    await f.runtime.submit(f.input(task.id, f.worker, { report: "Complete exact report. Read result.json to verify." })); await f.settle();
+    const review = snapshot(f.send.mock.calls.at(-1)![1]);
+    expect(review).toMatchObject({ revision: f.todos.raw(task.id).revision, documentation: "Verified result.json", handoff: { report: "Complete exact report. Read result.json to verify.", acceptanceCriteria: "Tests pass and the original request is met." } });
+    await f.runtime.review({ id: task.id, revision: review.revision, actorId: f.manager, accept: true, notes: "Independently verified result.json", requestId: "review-from-snapshot" });
+    expect(activeDelegation(f.todos.raw(task.id))).toBeUndefined();
+    const final = snapshot(taskNotification(f.todos.raw(task.id)));
+    expect(final.handoff).toMatchObject({ state: "accepted", report: "Complete exact report. Read result.json to verify." });
+  });
+  it("keeps real task edits conflicting while delivery receipts still persist and notify", async () => {
+    const f = await fixture(), task = f.create(); await f.delegate(task.id);
+    const row = f.todos.raw(task.id), revision = row.revision, delivery = activeDelegation(row).delivery;
+    const changed = vi.spyOn(f.todos, "changed");
+    f.todos.delivery(task.id, delivery.requestId, "uncertain", "Receipt lost");
+    expect(f.todos.raw(task.id).revision).toBe(revision);
+    expect(activeDelegation(f.todos.raw(task.id)).delivery).toMatchObject({ state: "uncertain", error: "Receipt lost" });
+    expect(changed).toHaveBeenCalledWith(task.id);
+    f.todos.change({ id: task.id, revision, actorId: CEO, documentation: "New actual user restriction" }, "edit");
+    expect(() => f.todos.change({ id: task.id, revision, actorId: f.worker, documentation: "Overwrite" }, "edit")).toThrow(/changed/);
+  });
+  it("falls back to an explicit full read for oversized snapshots without truncating acceptance data", async () => {
+    const f = await fixture(), task = f.create(); await f.delegate(task.id);
+    const row = f.todos.raw(task.id), original = JSON.stringify(row);
+    const message = taskNotification({ ...row, documentation: "边界".repeat(12000) });
+    expect(message).toContain("exceeds the notification budget"); expect(message).toContain("office_tasks.todo_get once");
+    expect(message).toContain("Task reference:"); expect(message).not.toContain("Task snapshot:");
+    expect(JSON.stringify(row)).toBe(original);
+  });
   it("reads the same live graph as the scene, applies defaults and exposes no credentials", async () => {
     const f = await fixture();
     expect(f.company.context(CEO)).toMatchObject({ delegationMode: "prefer" });

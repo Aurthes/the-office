@@ -140,6 +140,9 @@ class OfficeReplyContext {
         const candidates = this.sources(id);
         if (candidates.length !== 1) throw new Error("The original message is ambiguous. Read question_context and choose an exact source from recentSources.");
         sources = candidates;
+      } else {
+        const current = this.sources(id).filter(source => source.threadId === id && source.turnId === data.turnId);
+        if (current.length === 1) sources = uniqueSources([...sources, current[0]]);
       }
       const question = { id: `q-${crypto.randomUUID()}`, summary, sources: sources.length > 4 ? [sources[0], ...sources.slice(-3)] : sources,
         ...(parent ? { parentQuestionId: parent.id } : {}), createdBy: id, createdAt: Date.now() };

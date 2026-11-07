@@ -35,6 +35,7 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
   const task = (await client.call("todo.create", { actorId: ceo, assigneeId: ceo, title: "One delegated user goal", phases: [{ title: "Execute" }, { title: "Manager acceptance" }], requestId: "delegation-task" })).todo;
   const operations = [], observations = [], stages = new Map([[ceo, 0], [manager, 0], [worker, 0]]);
   let sawBusyInbox = false, occupied = false, recruitedWhileBusy = false, recruitRequest, number = 0;
+  const snapshots = new Set();
   setModelFixture(async (payload, res) => {
     try {
       const serialized = (payload.input || []).filter(item => item.role === "developer").flatMap(item => item.content || []).map(item => item.text || "").join("\n");
@@ -44,6 +45,14 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
       const current = (await client.call("todo.get", { id: task.id })).todo;
       observations.push({ caller, stage, assignee: current.assigneeId, handler: current.handlingAgentId, reviewer: current.reviewerId });
       const args = { id: task.id, revision: current.revision, actorId: caller, requestId: "fixture-op-" + (++number) };
+      if (caller === manager && [0, 4, 6].includes(stage) || caller === worker && stage === 0 || caller === ceo && stage === 3) {
+        const user = [...(payload.input || [])].reverse().find(item => item.role === "user");
+        const text = (user?.content || []).map(item => item.text || "").join("\n");
+        const snapshot = JSON.parse(text.split("Task snapshot: ")[1].split("\n")[0]);
+        check(`native task snapshot is complete and current for ${caller === ceo ? "CEO review" : caller === manager ? "Head stage " + stage : "worker start"}`, snapshot.id === task.id && snapshot.revision === current.revision && snapshot.phases.length === task.phases.length && typeof snapshot.documentation === "string" && Boolean(snapshot.handoff.acceptanceCriteria) && (snapshot.handoff.state !== "review" || Boolean(snapshot.handoff.report)));
+        snapshots.add(caller + ":" + stage);
+        args.revision = snapshot.revision;
+      }
       let operation;
       if (caller === existingWorker) {
         occupied = true;
@@ -101,6 +110,7 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
   await until(async () => (await client.call("office.snapshot")).agents.filter(row => [ceo, manager, worker, existingWorker].includes(row.id)).every(row => row.status === "idle"), "Native handoff turns did not finish");
   const finished = (await client.call("todo.get", { id: task.id })).todo;
   const original = finished.delegations[0].replyContext?.questions.flatMap(q => q.sources).find(source => source.threadId === ceo && source.excerpt.includes("Implement the bounded fixture goal"));
+  check("native nested work and acceptance use supplied snapshots without model-side todo_get", snapshots.size === 5 && !operations.some(([, tool]) => tool === "todo_get"));
   check("agent explicitly registers semantic Q through real native MCP", operations.some(([, name]) => name === "question_context") && finished.replyContext?.questions[0]?.summary === "Implement and verify the bounded fixture through the reporting line");
   check("task origin comes from the actual request, not the earlier idle seed chat", Boolean(original) && finished.replyContext?.questions.flatMap(q => q.sources).some(source => source.itemId === original.itemId));
   check("handoff keeps the pre-existing CEO, Head and busy employee native identities", JSON.stringify(nativeIds()) === before);

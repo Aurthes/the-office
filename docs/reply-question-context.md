@@ -23,6 +23,10 @@ never derive the Q summary from the last prompt or the current task.
 - Read: `{actorId}` returns `answering`, `context`, `knownQuestions`, `recentSources`.
 - Register: `{actorId, requestId, questions:[{key,summary,source?}], answering:[key]}`.
   `source` has exact Office `threadId`, native `turnId` and `itemId`.
+  With one current user message, register directly without a discovery read;
+  Office resolves its exact source. A child keeps its original ancestry and
+  adds a unique current clarification automatically. Several candidates require
+  explicit source selection; continuation/handoff controls are never origins.
 - Split a prompt: define Q1/Q2 in one batch, choose only the one being answered.
 - Select an existing Q: `{actorId, answering:[questionId]}`.
 - Add a step: define a child with `parentQuestionId` (existing ID or earlier

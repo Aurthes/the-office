@@ -16,6 +16,16 @@ const user = (itemId: string, content: string, turnId = "turn") => ({ id: `${tur
 const answer = (itemId: string, turnId = "turn") => ({ id: `${turnId}:${itemId}`, turnId, role: "assistant", content: "Answer" });
 const define = (context: InstanceType<typeof OfficeReplyContext>, actor: string, summary: string, extra = {}) => context.context(actor, { questions: [{ key: "q", summary, ...extra }], answering: ["q"], requestId: summary });
 
+it("registers a clarified child directly with its exact unique current source and original ancestry", async () => {
+  const { context } = fixture();
+  context.record("head", user("original", "Reduce task context", "first"));
+  const parent = (await define(context, "head", "Reduce task context")).opened.q;
+  context.record("head", user("clarification", "Fix extra round trips; keep suggestions", "second"));
+  const result = await define(context, "head", "Fix extra round trips while retaining suggestions", { parentQuestionId: parent });
+  expect(result.context.questions[0].sources.map((s: { itemId: string }) => s.itemId)).toEqual(["original", "clarification"]);
+  expect(result.context.questions[0].parents).toEqual([{ id: parent, summary: "Reduce task context" }]);
+});
+
 it("projects concise model context while preserving exact Q identities, parent steps and full discovery", async () => {
   const { context } = fixture();
   context.record("head", user("original", "实现看板并验证。".repeat(50)));

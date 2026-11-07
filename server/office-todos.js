@@ -301,7 +301,9 @@ class OfficeTodos {
     if (!entry?.delivery || entry.delivery.requestId !== requestId) return;
     entry.delivery.state = state;
     if (error) entry.delivery.error = String(error).slice(0, 500);
-    row.revision++; row.updatedAt = this.now(); this.save(row); this.changed(row.id);
+    // Transport receipts do not change the plan, report or workflow authority.
+    // Keep the announced revision usable; real task changes still conflict.
+    row.updatedAt = this.now(); this.save(row); this.changed(row.id);
   }
   delegated(agentId) {
     return [...this.rows.values()].filter(row => !row.archived && row.status !== "done" && (row.delegations || []).some(entry => !["accepted", "recalled"].includes(entry.state) && [entry.managerId, entry.workerId].includes(agentId)))

@@ -22,7 +22,7 @@ const { OfficeSchedules } = require("./office-schedules");
 const { CodexSessionComposer } = require("./codex-session-composer");
 const { CodexMessageSearch } = require("./codex-message-search");
 const { OfficeCompany, WORKFLOW, TASK_WORKFLOW } = require("./office-company");
-const { OfficeDelegation } = require("./office-delegation");
+const { OfficeDelegation, taskNotification } = require("./office-delegation");
 const { OfficeReplyContext, taskReplyContext, sourceOf } = require("./office-reply-context");
 
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
@@ -172,7 +172,7 @@ const methods = {
     if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "sending");
     todos.startForAgent(recipient, row.id);
     try {
-      const result = await controls.send(recipient, (entry?.state === "review" ? `Office delegation submitted for your acceptance. Task ${row.id}: ${row.title}\nRead office_tasks.todo_get, verify the report and artifacts, then use todo_review with evidence to accept or return. Submission alone is not acceptance.` : row.acceptanceManagerId && !entry ? `Finish manager acceptance for Office task ${row.id}: ${row.title}\nRead office_tasks.todo_get and the accepted reports. Complete only verified remaining phases; preserve the execution assignee.` : `Work on Office to-do ${row.id}: ${row.title}\nRead its full plan and documentation using office_tasks.todo_get. Keep phase progress and documentation current; finish only verified work.`), p.requestId, [], { onlyIfIdle: true, replyContext: entry?.replyContext || taskReplyContext(row) });
+      const result = await controls.send(recipient, taskNotification(todos.raw(row.id)), p.requestId, [], { onlyIfIdle: true, replyContext: entry?.replyContext || taskReplyContext(row) });
       if (result.status === "busy") throw new Error("Agent became busy; the task was not sent");
       if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "sent");
       return { id: row.id, threadId: recipient };
