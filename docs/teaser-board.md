@@ -84,7 +84,11 @@ every 15 seconds and when the page regains focus; closing it stops those request
 ## Per-question whiteboards
 
 Each card has a separate Whiteboard button, available even when teaser chat is
-unavailable. It opens a plain text editor. Save keeps the editor open; reopening
+unavailable. The selected question stays visible beside the plain text editor on
+wide screens; narrow screens stack the question above the editor. The question
+keeps its title-to-chat link and finished-only solution disclosure. Leaving for
+chat follows the same unsaved-change confirmation and saving guard as closing.
+Save keeps the editor open; reopening
 or reloading reads the saved text from the server. Empty text clears the notes.
 Unsaved changes require confirmation before returning or closing. Failed saves
 keep the draft; a revision conflict requires an explicit reload before saving.

@@ -1,5 +1,5 @@
 import { createElement as h } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { TeaserDashboard } from "@/features/ring-ship/TeaserDashboard";
 import { setUiLanguage } from "@/lib/i18n/ui-language";
@@ -13,9 +13,8 @@ beforeEach(() => {
   Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute("open"); } });
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
-function fixture() {
+function fixture(rows = [question(a, "First"), question(b, "Second")]) {
   const notes = new Map<string, TeaserWhiteboard>();
-  let rows = [question(a, "First"), question(b, "Second")];
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/office/teasers") return { ok: true, status: 200, json: async () => ({ teasers: rows }) };
     const id = url.split("/")[4];
@@ -24,7 +23,7 @@ function fixture() {
     return { ok: true, status: 200, json: async () => ({ whiteboard: notes.get(id) || current }) };
   });
   vi.stubGlobal("fetch", fetcher);
-  return { notes, fetcher, updateRows: () => { rows = rows.map(row => ({ ...row, title: row.title + " updated" })); } };
+  return { notes, fetcher, replaceRows: (next: Teaser[]) => { rows = next; }, updateRows: () => { rows = rows.map(row => ({ ...row, title: row.title + " updated" })); } };
 }
 const open = async (title = "First") => {
   fireEvent.click(await screen.findByRole("button", { name: `Open whiteboard: ${title}` }));
@@ -36,7 +35,10 @@ it("opens without chat availability and keeps two notes, exact text and empty sa
   const f = fixture(), props = { onClose: vi.fn() };
   let view = render(h(TeaserDashboard, props));
   const input = await open();
-  expect(screen.queryByRole("button", { name: "First" })).toBeNull();
+  expect(screen.getByRole("button", { name: "First" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "First" })).toBeDisabled();
+  expect(screen.getByText("Synthetic question")).toBeVisible();
+  expect(screen.getAllByRole("article")).toHaveLength(1);
   const text = "\n  <script>not executable</script>\t\n";
   fireEvent.change(input, { target: { value: text } }); fireEvent.click(screen.getByRole("button", { name: "Save whiteboard" }));
   await screen.findByText("Whiteboard saved."); expect(f.notes.get(a)?.text).toBe(text); expect(document.querySelector("script")).toBeNull();
@@ -67,6 +69,7 @@ it("never clobbers an editor draft when the board polls or receives updated ques
   fireEvent.change(input, { target: { value: "Keep during poll" } }); const before = f.fetcher.mock.calls.length;
   f.updateRows(); fireEvent.focus(window);
   await waitFor(() => expect(f.fetcher.mock.calls.length).toBeGreaterThan(before));
+  expect(screen.getByRole("button", { name: "First updated" })).toBeVisible();
   expect(screen.getByRole("textbox", { name: "Your notes" })).toBe(input); expect(input).toHaveValue("Keep during poll");
   expect(f.fetcher.mock.calls.filter(([url]) => url.endsWith("/whiteboard"))).toHaveLength(1);
 });
@@ -108,12 +111,49 @@ it("blocks all dismissal and duplicate submission while saving", async () => {
     if (init?.method === "PUT") await new Promise<void>(resolve => { finish = resolve; });
     return original(url, init);
   });
-  const close = vi.fn(), confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-  render(h(TeaserDashboard, { onClose: close })); const input = await open(); fireEvent.change(input, { target: { value: "Saving draft" } });
+  const close = vi.fn(), openSession = vi.fn(), confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  render(h(TeaserDashboard, { onClose: close, agents: [{ id: "existing-teaser", name: "teaser" }], onOpenSession: openSession })); const input = await open(); fireEvent.change(input, { target: { value: "Saving draft" } });
   fireEvent.click(screen.getByRole("button", { name: "Save whiteboard" }));
   expect(screen.getByRole("button", { name: "Back to teasers" })).toBeDisabled(); expect(screen.getByRole("button", { name: "Close teaser board" })).toBeDisabled(); expect(input).toBeDisabled();
   const dialog = screen.getByRole("dialog"); fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true })); fireEvent.click(dialog);
-  expect(close).not.toHaveBeenCalled(); expect(confirm).not.toHaveBeenCalled();
+  const title = screen.getByRole("button", { name: "First" }); expect(title).toBeDisabled(); fireEvent.click(title);
+  expect(close).not.toHaveBeenCalled(); expect(openSession).not.toHaveBeenCalled(); expect(confirm).not.toHaveBeenCalled();
   finish(); await screen.findByText("Whiteboard saved.");
   expect(f.fetcher.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1);
+  expect(title).toBeEnabled(); fireEvent.click(title);
+  expect(close).toHaveBeenCalledOnce(); expect(openSession).toHaveBeenCalledExactlyOnceWith("existing-teaser"); expect(confirm).not.toHaveBeenCalled();
+});
+
+
+it("shows the full selected question and math beside notes, with finished-only independent solution disclosure", async () => {
+  const first = { ...question(a, "First"), prompt: "Complete opening paragraph.\n\n\\[x^2 + y^2 = z^2\\]\n\nFinal question paragraph.", answer: "Unfinished secret", summary: "Unfinished summary" };
+  const finished: Teaser = { ...question(b, "Second"), status: "finished", answer: "Published answer", summary: "Published key idea" };
+  const f = fixture([first, finished]), close = vi.fn(), openSession = vi.fn();
+  render(h(TeaserDashboard, { onClose: close, agents: [{ id: "existing-teaser", name: "teaser" }], onOpenSession: openSession }));
+  await open();
+  expect(screen.getByText("Complete opening paragraph.")).toBeVisible(); expect(screen.getByText("Final question paragraph.")).toBeVisible();
+  expect(screen.getByRole("article").querySelector(".katex")).not.toBeNull();
+  expect(screen.queryByText("Unfinished secret")).toBeNull(); expect(screen.queryByText("Unfinished summary")).toBeNull();
+  expect(screen.queryByText("View answer & key idea")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Back to teasers" })); const input = await open("Second");
+  const card = screen.getByRole("article"); expect(within(card).getByRole("button", { name: "Second" })).toBeVisible();
+  expect(screen.getByText("Published answer")).not.toBeVisible(); fireEvent.click(screen.getByText("View answer & key idea"));
+  expect(screen.getByText("Published answer")).toBeVisible(); expect(screen.getByText("Published key idea")).toBeVisible();
+  expect(input).toBeEnabled(); expect(close).not.toHaveBeenCalled(); expect(openSession).not.toHaveBeenCalled();
+  fireEvent.change(input, { target: { value: "Keep this draft" } });
+  f.replaceRows([first, { ...finished, status: "open" }]); fireEvent.focus(window);
+  await waitFor(() => expect(screen.queryByText("Published answer")).toBeNull());
+  expect(screen.queryByText("View answer & key idea")).toBeNull();
+  expect(screen.getByRole("textbox", { name: "Your notes" })).toBe(input); expect(input).toHaveValue("Keep this draft");
+});
+
+it("guards title-to-chat navigation with the existing dirty confirmation and close-before-open order", async () => {
+  fixture(); const events: string[] = [], confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  render(h(TeaserDashboard, { onClose: () => events.push("close"), agents: [{ id: "current-teaser", name: " TeAsEr " }], onOpenSession: id => events.push(id) }));
+  const input = await open(); fireEvent.change(input, { target: { value: "Keep if cancelled" } });
+  const title = screen.getByRole("button", { name: "First" }); fireEvent.click(title);
+  expect(confirm).toHaveBeenCalledOnce(); expect(events).toEqual([]); expect(input).toHaveValue("Keep if cancelled");
+  expect(screen.getByRole("textbox", { name: "Your notes" })).toBe(input); expect(title).toBeVisible();
+  confirm.mockReturnValue(true); fireEvent.click(title);
+  expect(confirm).toHaveBeenCalledTimes(2); expect(events).toEqual(["close", "current-teaser"]);
 });
