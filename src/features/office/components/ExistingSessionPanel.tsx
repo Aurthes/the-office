@@ -60,7 +60,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   const t = useUiText();
   const [questionTarget, setQuestionTarget] = useState<{ ownerId: string; target: MessageSearchTarget } | null>(null);
   const shownMessageTarget = messageTarget || (questionTarget?.ownerId === threadId ? questionTarget.target : null);
-  const openQuestion = useCallback((source: ReplySource) => setQuestionTarget({ ownerId: threadId, target: { ...source, messageId: `${source.turnId}:${source.itemId}`, name: t("Original question"), project: "", archived: false, snippet: source.excerpt, snippetMatchRange: { start: 0, end: 0 }, requestId: crypto.randomUUID() } }), [t, threadId]);
+
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [previewAsset, setPreviewAsset] = useState<SessionAsset | null>(null);
   const openPreview = useCallback((asset: SessionAsset) => { setPreviewAsset(asset); setWorkspaceOpen(true); onOpenWorkspace?.(); }, [onOpenWorkspace]);
@@ -80,6 +80,19 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   const scroll = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
   const lastTop = useRef(0);
+  const sourceScroll = useRef<{ ownerId: string; top: number; following: boolean } | null>(null);
+  const openQuestion = useCallback((source: ReplySource) => {
+    sourceScroll.current = { ownerId: threadId, top: scroll.current?.scrollTop || 0, following: follow.current };
+    follow.current = false;
+    setQuestionTarget({ ownerId: threadId, target: { ...source, messageId: `${source.turnId}:${source.itemId}`, name: t("Original message"), project: "", archived: false, snippet: source.excerpt, snippetMatchRange: { start: 0, end: 0 }, requestId: crypto.randomUUID() } });
+  }, [t, threadId]);
+  useLayoutEffect(() => {
+    const saved = sourceScroll.current;
+    if (shownMessageTarget || !saved) return;
+    if (saved.ownerId === threadId && scroll.current) { scroll.current.scrollTop = saved.top; lastTop.current = saved.top; follow.current = saved.following; }
+    sourceScroll.current = null;
+  }, [shownMessageTarget, threadId]);
+
   const touchY = useRef(0);
   const anchor = useRef<{ height: number; top: number } | null>(null);
   const load = useRef<((mode: LoadMode) => Promise<void>) | null>(null);
@@ -274,7 +287,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     {error ? <p role="alert" className="p-3 text-xs text-amber-200">{t(error)} <button onClick={() => void load.current?.(failedMode.current)} className="underline">{t("Retry")}</button></p> : null}
     <div className="relative flex min-h-0 flex-1 flex-col">
     <div ref={scroll} aria-label={t("Session history")} onScroll={event => {
-      if (!active || !event.currentTarget.clientHeight) return;
+      if (!active || shownMessageTarget || !event.currentTarget.clientHeight) return;
       const node = event.currentTarget, movingUp = node.scrollTop < lastTop.current;
       follow.current = node.scrollHeight - node.scrollTop - node.clientHeight <= 60;
       setShowLatest(!follow.current);

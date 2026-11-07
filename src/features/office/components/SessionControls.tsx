@@ -18,7 +18,8 @@ import { prepareComposerMessage, referenceSerializer } from "./inlineReferences"
 
 export type SessionAsset = { source: string; name: string; kind: "image" | "markdown" | "html" | "file"; url: string; inline?: boolean; attached?: boolean };
 export type ReplySource = { threadId: string; turnId: string; itemId: string; excerpt: string };
-export type ReplyContext = { taskId?: string; taskTitle?: string; sources: ReplySource[] };
+export type ReplyQuestion = { id: string; summary: string; sources: ReplySource[]; parentQuestionId?: string; parents?: { id: string; summary: string }[] };
+export type ReplyContext = { questions?: ReplyQuestion[]; taskId?: string; taskTitle?: string; phaseId?: string; phaseTitle?: string; sources?: ReplySource[] };
 export type LiveSessionItem = { id: string; turnId?: string; source?: "voice"; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number; replyContext?: ReplyContext };
 export type SessionClient = {
   call: (method: string, params: unknown) => Promise<unknown>;

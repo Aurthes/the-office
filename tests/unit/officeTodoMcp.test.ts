@@ -28,6 +28,17 @@ async function fixture(onCall: (ws: WebSocket, frame: RequestFrame) => void, opt
 }
 function reply(ws: WebSocket, frame: RequestFrame, payload: unknown) { ws.send(JSON.stringify({ type: "res", id: frame.id, ok: true, payload })); }
 describe("Office task MCP transport", () => {
+  it("routes the semantic Q tool through the existing authenticated MCP connection", async () => {
+    const calls: RequestFrame[] = [];
+    const f = await fixture((ws, frame) => { calls.push(frame); reply(ws, frame, { answering: ["q-fixture"] }); });
+    const child = spawn(process.execPath, ["server/office-todo-mcp.js"], { env: { ...process.env, OFFICE_TASK_GATEWAY_URL: f.url, OFFICE_TASK_GATEWAY_TOKEN: "test-only" }, stdio: ["pipe", "pipe", "pipe"] });
+    cleanup.push(() => { if (child.exitCode === null) child.kill(); });
+    const args = { actorId: "fixture", questions: [{ key: "q", summary: "Capacity scope" }], answering: ["q"], requestId: "semantic-q" };
+    child.stdin.write(JSON.stringify({ id: 1, method: "tools/call", params: { name: "question_context", arguments: args } }) + "\n");
+    const [output] = await once(child.stdout, "data"); expect(JSON.parse(JSON.parse(String(output)).result.content[0].text)).toEqual({ answering: ["q-fixture"] });
+    expect(calls[0]).toMatchObject({ method: "question.context", params: args });
+    const exited = once(child, "exit"); child.stdin.end(); expect((await exited)[0]).toBe(0);
+  });
   it("authenticates once and correlates parallel out-of-order replies", async () => {
     const waiting: RequestFrame[] = [];
     const f = await fixture((ws, frame) => {

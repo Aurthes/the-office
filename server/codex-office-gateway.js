@@ -23,7 +23,7 @@ const { CodexSessionComposer } = require("./codex-session-composer");
 const { CodexMessageSearch } = require("./codex-message-search");
 const { OfficeCompany } = require("./office-company");
 const { OfficeDelegation } = require("./office-delegation");
-const { OfficeReplyContext, taskReplyContext } = require("./office-reply-context");
+const { OfficeReplyContext, taskReplyContext, sourceOf } = require("./office-reply-context");
 
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
@@ -98,6 +98,13 @@ schedules = new OfficeSchedules(directory, {
   send: (id, message, requestId) => controls.send(id, message, requestId, [], { onlyIfIdle: true }),
 });
 todos = new OfficeTodos(directory, { projects: () => store.projects(), agents, replyContext: id => controls.state(id).activeTurnId ? replyContext.forTask(id, controls.state(id).activeTurnId) : null, changed: id => broadcast("todos.updated", { id }) });
+replyContext.options.task = id => todos.raw(id);
+replyContext.options.recent = async id => (await history(id)).messages;
+replyContext.options.source = async source => {
+  const page = await messageSearch.context(source);
+  return sourceOf(source.threadId, page.messages.find(item => item.id === page.messageId));
+};
+store.questionContext = id => replyContext.state(id);
 const company = new OfficeCompany(store);
 store.companyContext = id => company.forTurn(id);
 store.todoContext = id => { const row = todos.bound(id); return { protocol: 5, agentId: id, todoId: row?.id || null, assigneeId: row?.assigneeId || null, handlingAgentId: row ? handlingAgentId(row) : null, reviewerId: activeDelegation(row || {})?.state === "review" ? activeDelegation(row).managerId : null, departmentId: store.get(id).projectId ?? null, delegatedTasks: todos.delegated(id) }; };
@@ -116,6 +123,7 @@ delegation = new OfficeDelegation({ store, todos, company, stopping: () => stopp
   send: (id, message, requestId, context) => controls.send(id, message, requestId, [], { onlyIfIdle: true, replyContext: context }),
 });
 const methods = {
+  "question.context": p => { store.get(p.actorId); return replyContext.context(p.actorId, p); },
   "todo.organization": p => company.context(p.actorId, p),
   "todo.recruit": p => company.recruit(p),
   "todo.delegate": p => delegation.delegate(p),

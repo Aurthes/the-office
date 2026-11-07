@@ -4,25 +4,27 @@ import { afterEach, expect, it, vi } from "vitest";
 import { SessionTranscript } from "../../src/features/office/components/SessionTranscript";
 afterEach(cleanup);
 
-it("shows the task and concrete original/follow-up questions with stable clickable identities", () => {
-  const sources = [
-    { threadId: "ceo", turnId: "original", itemId: "q", excerpt: "Show maker markout" },
-    { threadId: "head", turnId: "followup", itemId: "q2", excerpt: "Is capacity shared?" },
-  ];
+it("shows a dense Q summary separately from its original message link and task step", () => {
+  const source = { threadId: "ceo", turnId: "original", itemId: "q", excerpt: "Q1 memory; Q2 capacity; also verify and deploy" };
   const onOpenQuestion = vi.fn();
-  render(React.createElement(SessionTranscript, { messages: [{ id: "reply", role: "assistant", phase: "final_answer", content: "Capacity is shared.", replyContext: { taskId: "task", taskTitle: "Maker markout", sources } }], onOpenQuestion }));
-  expect(screen.getByText("Task: Maker markout")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Answering: Is capacity shared?" }));
-  expect(onOpenQuestion).toHaveBeenCalledExactlyOnceWith(sources[1]);
-  expect(screen.getByText("Capacity is shared.")).toBeVisible();
+  render(React.createElement(SessionTranscript, { messages: [{ id: "reply", role: "assistant", content: "Capacity is shared.", replyContext: { taskTitle: "Maker markout", phaseTitle: "Verify", questions: [{ id: "q-child", summary: "Capacity scope: global or per symbol", parents: [{ id: "q-parent", summary: "One hour markout" }], sources: [source] }] } }], onOpenQuestion }));
+  expect(screen.getByText("Task: Maker markout · Verify")).toBeVisible();
+  expect(screen.getByText("Capacity scope: global or per symbol")).toBeVisible(); expect(screen.getByText("One hour markout")).toBeVisible();
+  expect(screen.queryByText(source.excerpt)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Original message" })); expect(onOpenQuestion).toHaveBeenCalledExactlyOnceWith(source);
 });
 
-it("keeps legacy replies unlabelled and shows a known task without inventing its original question", () => {
-  const view = render(React.createElement(SessionTranscript, { messages: [{ id: "old", role: "assistant", content: "Legacy answer" }] }));
-  expect(screen.queryByLabelText("Answering")).toBeNull();
-  view.rerender(React.createElement(SessionTranscript, { messages: [{ id: "task", role: "assistant", content: "Task answer", replyContext: { taskTitle: "Known task", sources: [] } }] }));
-  expect(screen.getByText("Original question not recorded")).toBeVisible();
-  expect(screen.queryByRole("button")).toBeNull();
+it("shows independent Qs sharing one source without creating a task label", () => {
+  const source = { threadId: "ceo", turnId: "t", itemId: "q", excerpt: "Explain A and B" };
+  render(React.createElement(SessionTranscript, { messages: [{ id: "reply", role: "assistant", content: "A and B", replyContext: { questions: [{ id: "qa", summary: "A meaning", sources: [source] }, { id: "qb", summary: "B meaning", sources: [source] }] } }] }));
+  expect(screen.getByText("A meaning")).toBeVisible(); expect(screen.getByText("B meaning")).toBeVisible();
+  expect(screen.getAllByRole("button", { name: "Original message" })).toHaveLength(2); expect(screen.queryByText(/^Task:/)).toBeNull();
+});
+
+it("labels legacy Qs unknown and preserves only their proven message source", () => {
+  const source = { threadId: "ceo", turnId: "t", itemId: "q", excerpt: "A multi request prompt" };
+  render(React.createElement(SessionTranscript, { messages: [{ id: "old", role: "assistant", content: "Legacy answer", replyContext: { taskTitle: "Known task", sources: [source] } }] }));
+  expect(screen.getByText("Question not identified")).toBeVisible(); expect(screen.getByRole("button", { name: "Original message" })).toHaveAttribute("title", source.excerpt);
 });
 
 it("continues below each steer in a new work box while updates stay with their original calls", async () => {

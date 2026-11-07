@@ -261,7 +261,7 @@ class CodexSessionControls {
     // The desktop uses this identity to display external steering as a user
     // message. Reuse the send ID so duplicate requests keep the same identity.
     const submittedAt = Date.now();
-    this.options.replyContext?.prepare(id, requestId, replyContext || ((automaticRetry || resumeInterrupted) ? this.options.replyContext.current(id) : null));
+    this.options.replyContext?.prepare(id, requestId, replyContext || ((automaticRetry || resumeInterrupted) ? this.options.replyContext.current(id) : null), (automaticRetry || resumeInterrupted) ? "continue" : replyContext ? "handoff" : "user");
     const current = this.state(id);
     const previousTurnId = current.lastTurnId;
     let result;

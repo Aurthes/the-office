@@ -96,7 +96,7 @@ describe("department responsibilities in the actual company context", () => {
     expect(tool.inputSchema.required).toEqual(["actorId"]);
     expect(tool.inputSchema.properties.allDepartments.type).toBe("boolean");
     expect(tool.inputSchema.properties.departmentId.type).toEqual(["string", "null"]);
-    expect(tool.annotations.readOnlyHint).toBe(true); expect(tools).toHaveLength(16);
+    expect(tool.annotations.readOnlyHint).toBe(true); expect(tools).toHaveLength(17);
     expect(WORKFLOW).toContain("Open Workspace Head"); expect(WORKFLOW).toContain("explicit instruction");
     expect(WORKFLOW).toContain("never bypass reporting");
   });

@@ -1,63 +1,77 @@
-# Which question a reply answers
+# Questions and original messages
 
-Office replies show a short quote of the question above the answer. Delegated
-reports also show the task title. Clicking a quote opens the full original
-message in the existing read-only message viewer; returning preserves the live
-conversation and its scroll position. The same presentation applies to CEO,
-department Heads, and workers. Ordinary questions do not require a task.
+Each Office response names the concrete question (Q), or step of a question,
+that it answers. Its semantic summary is separate from the **Original message**
+link. One prompt can contain multiple Qs; a continuation prompt is a control,
+not a new Q. Ordinary knowledge/language questions have Qs without tasks.
 
-## Provenance
+## Model and agent protocol
 
-`OfficeReplyContext` records native input and answer identities and at most 512
-UTF-8 bytes per quoted source under the Office-owned `reply-context/` directory.
-The full message remains in Codex. An answer's association freezes at its first
-native item event or streaming delta. Later steering and late completion events
-cannot relabel it. Token updates do not write this metadata to disk.
+`OfficeReplyContext` stores immutable Qs under Office-owned `questions/` and
+per-conversation selections/reply bindings under `reply-context/`. A Q has a
+stable `q-UUID`, semantic `summary` (180 characters), source message identities
+and optionally `parentQuestionId`. Child Qs represent meaningful steps, inherit
+the original source, and may add a clarification's source. Full original text
+remains in native Codex; each source excerpt is bounded to 512 UTF-8 bytes.
 
-Task creation during an active agent turn captures that turn's request. Tasks
-created outside an active conversation acquire their origin on the first
-explicit delegation. Each handoff saves its original and specific follow-up
-references; submit, return, acceptance, and nested forwarding preserve them.
-An unrelated task notification cannot replace a saved task origin. The existing
-assignment, review, delivery, and retry rules are unchanged.
-When several unlinked questions have been steered into the same active turn,
-task operations preserve their existing origin rather than guessing that the
-latest question caused them. Explicit inherited handoff context remains usable.
+The agent must call the existing Office MCP server's `question_context` before
+public commentary or an answer. It chooses Qs by meaning; the UI and backend
+never derive the Q summary from the last prompt or the current task.
 
-Original requests and at most two later references are displayed separately.
-When a response addresses several concrete questions, Office's response
-instructions require short question headings for each answer. The header shows
-request provenance; it does not infer semantic citations for individual sentences.
+- Read: `{actorId}` returns `answering`, `context`, `knownQuestions`, `recentSources`.
+- Register: `{actorId, requestId, questions:[{key,summary,source?}], answering:[key]}`.
+  `source` has exact Office `threadId`, native `turnId` and `itemId`.
+- Split a prompt: define Q1/Q2 in one batch, choose only the one being answered.
+- Select an existing Q: `{actorId, answering:[questionId]}`.
+- Add a step: define a child with `parentQuestionId` (existing ID or earlier
+  local key in the same batch). A source is optional when inheriting a parent.
+- Optionally attach valid `taskId`/`phaseId` when selecting Qs. Q registration
+  never creates, starts or completes a task. Actionable task workflow is separate.
 
-Live delivery and history reads attach the saved association to each answer.
-For older messages without metadata, only a preceding user message visible in
-the same native turn can supply a quote. Missing page-boundary origins remain
-unlabelled. Legacy delegated tasks may show a task title with “Original question
-not recorded”; a submission notification is never presented as the user's
-original question. No lookup uses an agent's current task to relabel history.
+At most eight Qs are defined/selected in one call. Definition retries reuse
+`requestId`; changed arguments with the same ID fail rather than duplicate Qs.
+A source defaults only when exactly one current original user message is
+available. Several candidates require an explicit source; this provenance
+convenience does not infer a semantic Q. Multi-Q answers use matching short Q
+headings in the body. Agent declarations determine meaning; metadata validation
+checks identity and provenance, not whether a summary is semantically correct.
 
-## Read-only source lookup
+## Reply, resume and delegation behavior
 
-The pinned `@openai/codex` 0.166.0 protocol supports `thread/items/read` with an
-exact thread, turn, and item identity. `session.messageContext` reuses this API
-for reply references without a search cursor. It supports archived Office chats
-without resuming them or starting a turn. Missing or deleted sources show the
-existing message-unavailable state. Existing search-cursor context paging is
-unchanged. Long originals use the existing bounded-history truncation indicator.
+A reply freezes the selected Q snapshots at its first native assistant event
+or delta. Later selection, steering, delayed events, history pagination and
+restarts cannot relabel it. Streaming tokens do not repeatedly write metadata.
+New human input clears the selection; the agent explicitly chooses whether it
+continues an existing Q or opens new Qs. Play/automatic retry carries the prior
+selection using the native send identity. `Continue where you left off` and
+Office task/report notifications are never registered as original sources.
+
+Tasks capture only explicitly selected Qs. Existing real handoffs carry their
+stable identities through CEO → Head → worker, return, submission and review.
+A selected child can refine a task's saved root Q; unrelated work cannot replace
+that root. Assignee, reporting-line and acceptance rules remain unchanged.
+
+Old v1 message-only associations preserve proven source links with no semantic
+Q. The UI says **Question not identified** rather than showing a copied prompt
+as a Q summary. It never reconstructs missing Qs from nearby messages. Source
+viewing uses the pinned Codex 0.166.0 `thread/items/read` through the existing
+read-only viewer, including archived Office chats, without resuming an agent.
+Returning retains the live conversation DOM and restores its scroll position.
 
 ## Verification
 
-Unit checks cover steering, delayed events, restart/pagination, unrelated tasks,
-Unicode bounds, ordinary replies, native source identity checks, and the source
-viewer preserving the active chat. The real Codex/MCP delegation check adds
-CEO → Head → worker → Head → CEO provenance, return/resubmission, gateway
-restart, and exact source reading using a loopback model:
+Unit/component cases cover semantic selection, multiple Qs from one message,
+child steps, source ambiguity, retries, resume, first-event snapshots, stale
+turns, legacy migration, task boundaries and exact source navigation.
 
 ```sh
-NODE_ENV=test npm test -- --run tests/unit/officeReplyContext.test.ts tests/unit/sessionTranscript.test.ts tests/unit/sessionMessageLocation.test.ts tests/unit/codexMessageSearch.test.ts
+NODE_ENV=test npm test -- --run tests/unit/officeReplyContext.test.ts tests/unit/sessionTranscript.test.ts tests/unit/sessionMessageLocation.test.ts tests/unit/codexSessionControls.test.ts tests/unit/officeTodoMcp.test.ts
 NODE_ENV=test node scripts/check-office-codex.mjs --codex "$PWD/node_modules/.bin/codex" --delegation-only
 ```
 
-This check uses disposable employees and state, does not message existing
-employees, and does not call a paid model endpoint. Git rollout alone does not
-deploy or restart Office.
+The native check uses actual pinned Codex and authenticated MCP with disposable
+employees/state and a loopback model. It exercises Q declaration, nested handoff,
+return/resubmission, restart and exact original-message reading; it does not
+message existing employees or call a paid endpoint. Real model/browser semantic
+acceptance is a separate deployment check; unit or loopback success alone does
+not establish that every production agent chose the right Q.

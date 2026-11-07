@@ -25,6 +25,15 @@ describe("shared App session controls", () => {
     await controls.send("id", "next", "hot-3");
     expect(client.call.mock.calls.map(([method]) => method)).toEqual(["turn/start"]);
   });
+  it("marks Play as control and carries the explicit Q instead of using the continue prompt", async () => {
+    const { client, controls } = setup();
+    const context = { questions: [{ id: "q-known", summary: "Verify markout coverage", sources: [{ threadId: "id", turnId: "origin", itemId: "q", excerpt: "Original request" }] }] };
+    const replyContext = { current: vi.fn(() => context), prepare: vi.fn() };
+    controls.options.replyContext = replyContext;
+    client.call.mockImplementation(async (method: string) => method === "thread/turns/list" ? { data: [{ id: "stopped", status: "interrupted" }] } : method === "turn/start" ? { turn: { id: "resumed" } } : {});
+    await controls.send("id", "Continue where you left off.", "play", [], { resumeInterrupted: true });
+    expect(replyContext.prepare).toHaveBeenCalledExactlyOnceWith("id", "play", context, "continue");
+  });
   it("checks native status after an uncertain send without replaying that request", async () => {
     const { client, controls } = setup(); await controls.attach("id");
     client.call.mockRejectedValueOnce(new Error("Timed out"));

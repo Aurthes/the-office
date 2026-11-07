@@ -159,7 +159,7 @@ class CodexOfficeStore {
     try {
       // Capture context and policy together before any await. Project edits during
       // dispatch or execution apply to the next turn, never this one.
-      const context = starting ? JSON.stringify({ project: row.projectId == null ? "Open Workspace" : this.project(row.projectId).name, workingDirectory: row.workspace, folders: this.sessionFolders(row), ...(this.todoContext ? { tasks: this.todoContext(row.id) } : {}), ...(this.companyContext ? { company: this.companyContext(row.id) } : {}) }) : null;
+      const context = starting ? JSON.stringify({ project: row.projectId == null ? "Open Workspace" : this.project(row.projectId).name, workingDirectory: row.workspace, folders: this.sessionFolders(row), ...(this.todoContext ? { tasks: this.todoContext(row.id) } : {}), ...(this.companyContext ? { company: this.companyContext(row.id) } : {}), ...(this.questionContext ? { questions: this.questionContext(row.id) } : {}) }) : null;
       const overrides = starting ? this.overrides(row.id) : null;
       const voiceSettings = voiceStarting ? { cwd: row.workspace, sandbox: ACCESS[row.settings.accessMode].sandbox, approvalPolicy: overrides.approvalPolicy,
         ...(overrides.model ? { model: overrides.model } : {}), config: {

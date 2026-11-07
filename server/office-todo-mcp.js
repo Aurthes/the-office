@@ -37,6 +37,12 @@ const definitions = [
   ["restore", "Restore an archived unfinished to-do. Completed work stays archived: add or reopen a phase to follow up.", ["id", "revision", "actorId"], ["id", "revision", "actorId"]],
 ];
 const tools = definitions.map(([name, description, keys, required]) => ({ name: `todo_${name}`, description, annotations: { readOnlyHint: ["list", "get", "organization"].includes(name), destructiveHint: false, openWorldHint: false }, inputSchema: { type: "object", properties: Object.fromEntries(keys.map(key => [key, properties[key]])), required, additionalProperties: false } }));
+const sourceSchema = { type: "object", properties: Object.fromEntries(["threadId", "turnId", "itemId"].map(key => [key, { type: "string" }])), required: ["threadId", "turnId", "itemId"], additionalProperties: false };
+tools.push({ name: "question_context", description: "Identify the actual question(s) this response answers, separately from the original message. Call before public commentary or an answer. Read with actorId only to see selected Qs, known Q IDs and recentSources. Define semantic summaries (max 180 characters) using local keys; answering selects those keys or existing Q IDs. One message can define multiple Qs. A step is a child with parentQuestionId (ID or earlier local key), inheriting its original source. Specify exact source IDs when ambiguous. Continue/Play/retry resumes the selected Q, never creates a Continue question. Tasks and phases are optional: ordinary questions must not create tasks. Reuse requestId for definition retries.", annotations: { destructiveHint: false, openWorldHint: false }, inputSchema: { type: "object", properties: {
+  actorId: properties.actorId, requestId: properties.requestId,
+  questions: { type: "array", maxItems: 8, items: { type: "object", properties: { key: { type: "string", maxLength: 32 }, summary: { type: "string", minLength: 1, maxLength: 180 }, parentQuestionId: { type: "string" }, source: sourceSchema }, required: ["key", "summary"], additionalProperties: false } },
+  answering: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } }, taskId: { type: "string" }, phaseId: properties.phaseId,
+}, required: ["actorId"], additionalProperties: false } });
 function createGatewayClient({ address = process.env.OFFICE_TASK_GATEWAY_URL, token = process.env.OFFICE_TASK_GATEWAY_TOKEN, timeoutMs = 20000 } = {}) {
   let connection, serial = 0, closed = false;
   function retire(current, error) {
@@ -98,7 +104,7 @@ async function handle(frame) {
   if (frame.method === "tools/call") {
     const tool = tools.find(tool => tool.name === frame.params?.name);
     if (!tool) throw new Error("Unknown Office task tool");
-    try { const result = await gateway(`todo.${tool.name.slice(5)}`, frame.params.arguments || {}); return { content: [{ type: "text", text: JSON.stringify(result) }] }; }
+    try { const result = await gateway(tool.name === "question_context" ? "question.context" : `todo.${tool.name.slice(5)}`, frame.params.arguments || {}); return { content: [{ type: "text", text: JSON.stringify(result) }] }; }
     catch (error) { return { isError: true, content: [{ type: "text", text: error.message }] }; }
   }
   throw new Error("Method not found");

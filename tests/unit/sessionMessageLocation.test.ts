@@ -16,7 +16,7 @@ it("opens a reply's exact question while preserving the current chat and scroll"
     return { threadId: "head", nextCursor: null, messages: [{ id: "answer", role: "assistant", content: "Department answer", replyContext: { taskTitle: "Departments", sources: [source] } }] };
   });
   render(createElement(ExistingSessionPanel, { client: { call }, threadId: "head" }));
-  const quote = await screen.findByRole("button", { name: `Answering: ${source.excerpt}` });
+  const quote = await screen.findByRole("button", { name: "Original message" });
   const history = screen.getByLabelText("Session history"); history.scrollTop = 123;
   fireEvent.click(quote);
   const viewer = await screen.findByRole("region", { name: "Message location" });
@@ -60,7 +60,7 @@ it("loads earlier and later context around a match without duplicate messages", 
   fireEvent.click(await screen.findByRole("button", { name: "Load earlier context" })); await screen.findByText("Earlier context");
   expect(screen.getAllByRole("article", { name: "Codex" })).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Load later context" })); await screen.findByText("Later context");
-  expect(screen.getAllByRole("article").map(article => article.textContent)).toEqual(["Earlier context", "A past question", "CodexA past answer", "CodexLater context"]);
+  expect(screen.getAllByRole("article").map(article => article.textContent)).toEqual(["Earlier context", "A past question", "CodexQuestion not identifiedA past answer", "CodexQuestion not identifiedLater context"]);
 });
 it("preserves the live history DOM, loaded older pages and scroll while viewing a historical match", async () => {
   const call = vi.fn(async (method: string, params: unknown) => {
