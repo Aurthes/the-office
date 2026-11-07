@@ -3314,7 +3314,6 @@ export function OfficeScreen({
     "Connected to the gateway, but no agents were loaded into the office.";
   const sessionListToggle = <button type="button" onClick={() => {
     setChatRosterCollapsed(value => !value);
-    if (chatRosterCollapsed && sessionListOverlay) requestAnimationFrame(() => sessionListContainer.current?.querySelector<HTMLInputElement>("#session-chat-list input")?.focus({ preventScroll: true }));
   }}
     aria-label={t(chatRosterCollapsed ? "Open session list" : "Close session list")} aria-expanded={!chatRosterCollapsed} aria-controls="session-chat-list"
     title={`${t("Sessions ·")} ${chatRosterEntries.length}`} className="session-header-button"><PanelLeft size={18} /></button>;
