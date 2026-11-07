@@ -3,6 +3,7 @@
 .office-session-chat {
   --chat-gap: 0px;
   --chat-default-width: 100vw;
+  --session-list-default-width: 240px;
   --chat-max-width: calc(100vw - var(--chat-gap) * 2);
   --chat-max-height: calc(var(--chat-viewport-height, 100dvh) - var(--chat-gap) * 2);
   --chat-frame-width: clamp(min(360px, var(--chat-max-width)), var(--chat-width, var(--chat-default-width)), var(--chat-max-width));
@@ -25,7 +26,7 @@
 }
 
 @media (min-width: 768px) {
-  .office-session-chat { --chat-gap: 12px; --chat-default-width: 960px; }
+  .office-session-chat { --chat-gap: 12px; --chat-default-width: max(1100px, 66.6667vw); --session-list-default-width: 360px; }
 }
 .office-session-chat[data-chat-expanded="true"] {
   --chat-frame-width: var(--chat-max-width); --chat-frame-height: var(--chat-max-height);
@@ -49,7 +50,7 @@
 .session-chat-layout { --session-list-divider-width: 8px; }
 .session-chat-layout[data-session-list-mode="overlay"] > .session-chat-list {
   position: absolute; inset: 0 auto 0 0; z-index: 3;
-  width: clamp(96px, var(--session-list-width, 240px), min(360px, calc(100% - 48px)));
+  width: clamp(96px, var(--session-list-width, var(--session-list-default-width, 240px)), min(360px, calc(100% - 48px)));
   box-shadow: 8px 0 24px #0006;
 }
 .session-list-backdrop { position: absolute; inset: 0; z-index: 2; background: #0006; cursor: default; }
@@ -57,7 +58,7 @@
 .directory-dismiss:hover { background: #ffffff14; }
 
 /* Reserve 200px for the conversation and 12px for the touch divider. */
-.session-chat-list { width: clamp(96px, var(--session-list-width, min(240px, 40%)), min(360px, 50%, calc(100% - 212px))); }
+.session-chat-list { width: clamp(96px, var(--session-list-width, min(var(--session-list-default-width, 240px), 40%)), min(360px, 50%, calc(100% - 212px))); }
 .session-list-divider {
   position: relative; z-index: 1; flex: 0 0 var(--session-list-divider-width, 8px); cursor: col-resize;
   touch-action: none; user-select: none; background: #171e28;

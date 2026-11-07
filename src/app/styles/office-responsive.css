@@ -33,6 +33,7 @@
   .office-responsive .office-session-chat {
     --chat-gap: 0px;
     --chat-default-width: 100vw;
+    --session-list-default-width: 240px;
     border-radius: 0;
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);

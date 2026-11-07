@@ -17,9 +17,11 @@ export function useSessionListLayout(enabled: boolean) {
     const total = node.getBoundingClientRect().width;
     if (!total) return; // A closed chat retains its last measured mode and width.
     const preferred = parseFloat(node.style.getPropertyValue("--session-list-width"));
-    const divider = parseFloat(getComputedStyle(node).getPropertyValue("--session-list-divider-width")) || 8;
+    const style = getComputedStyle(node);
+    const defaultWidth = parseFloat(style.getPropertyValue("--session-list-default-width")) || 240;
+    const divider = parseFloat(style.getPropertyValue("--session-list-divider-width")) || 8;
     // Never use the overlay's actual list/chat width to decide the next mode.
-    const nextOverlay = sessionListNeedsOverlay(total, Number.isFinite(preferred) ? preferred : undefined, divider);
+    const nextOverlay = sessionListNeedsOverlay(total, Number.isFinite(preferred) ? preferred : undefined, divider, defaultWidth);
     setOverlay(nextOverlay);
     if (openingChat.current) {
       openingChat.current = false;
@@ -42,7 +44,9 @@ export function useSessionListLayout(enabled: boolean) {
     observer.observe(node);
     const pointer = window.matchMedia("(pointer: coarse)");
     pointer.addEventListener("change", update);
-    return () => { observer.disconnect(); pointer.removeEventListener("change", update); container.current = null; };
+    // Media defaults can change even when a manually sized frame stays fixed.
+    window.addEventListener("resize", update);
+    return () => { observer.disconnect(); pointer.removeEventListener("change", update); window.removeEventListener("resize", update); container.current = null; };
   }, [enabled, update]);
   return { container, containerRef, overlay, update, collapsed, setCollapsed, openChat };
 }

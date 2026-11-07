@@ -26,10 +26,10 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-function Fixture({ enabled = true, divider = 8, mounted = true }: { enabled?: boolean; divider?: number; mounted?: boolean }) {
+function Fixture({ enabled = true, divider = 8, defaultWidth = 240, mounted = true }: { enabled?: boolean; divider?: number; defaultWidth?: number; mounted?: boolean }) {
   const { containerRef, ...layout } = useSessionListLayout(enabled);
   if (!mounted) return React.createElement("div", null, "Connecting");
-  return React.createElement("div", { ref: containerRef, "data-testid": "layout", "data-layout": "container", "data-mode": layout.overlay ? "overlay" : "split", "data-collapsed": String(layout.collapsed), style: { "--session-list-divider-width": `${divider}px` } as React.CSSProperties },
+  return React.createElement("div", { ref: containerRef, "data-testid": "layout", "data-layout": "container", "data-mode": layout.overlay ? "overlay" : "split", "data-collapsed": String(layout.collapsed), style: { "--session-list-divider-width": `${divider}px`, "--session-list-default-width": `${defaultWidth}px` } as React.CSSProperties },
     React.createElement("aside", { "data-layout": "list" }, "Sessions"),
     React.createElement(SessionListDivider, { onResize: layout.update }),
     React.createElement("textarea", { "aria-label": "Draft", defaultValue: "Unsent draft" }),
@@ -49,6 +49,40 @@ it("keeps the existing clamp and default width rather than inventing another wid
   expect(sessionListWidth(500, 350)).toBe(250);
   expect(sessionListWidth(300, 350)).toBe(96);
   expect(sessionListWidth(960, 32)).toBe(96);
+});
+
+it("uses the responsive default within the existing split budget and preserves explicit preferences", () => {
+  expect(sessionListWidth(1100, undefined, 360)).toBe(360);
+  expect(sessionListWidth(800, undefined, 360)).toBe(320);
+  expect(sessionListWidth(1100, 180, 360)).toBe(180);
+  expect(sessionListNeedsOverlay(748, undefined, 8, 360)).toBe(false);
+  expect(sessionListNeedsOverlay(746, undefined, 8, 360)).toBe(true);
+  expect(sessionListNeedsOverlay(754, undefined, 12, 360)).toBe(false);
+  expect(sessionListNeedsOverlay(753, undefined, 12, 360)).toBe(true);
+  expect(sessionListNeedsOverlay(800, 360, 8, 240)).toBe(true);
+});
+
+it("reads the CSS default without creating a custom width and tracks media changes in a fixed-size frame", () => {
+  total = 730;
+  render(React.createElement(Fixture, { defaultWidth: 360 }));
+  const row = screen.getByTestId("layout"), input = screen.getByRole("textbox", { name: "Draft" });
+  expect(row.dataset.mode).toBe("overlay");
+  listWidth = 360; resize(); resize();
+  expect(row.dataset.mode).toBe("overlay");
+  expect(row.style.getPropertyValue("--session-list-width")).toBe("");
+  row.style.setProperty("--session-list-default-width", "240px");
+  fireEvent(window, new Event("resize"));
+  expect(row.dataset.mode).toBe("split");
+  row.style.setProperty("--session-list-width", "300px"); resize();
+  expect(row.dataset.mode).toBe("overlay");
+  row.style.setProperty("--session-list-default-width", "360px");
+  fireEvent(window, new Event("resize"));
+  expect(row.dataset.mode).toBe("overlay");
+  total = 1100; resize();
+  expect(row.dataset.mode).toBe("split");
+  expect(row.style.getPropertyValue("--session-list-width")).toBe("300px");
+  expect(screen.getByRole("textbox", { name: "Draft" })).toBe(input);
+  expect(input).toHaveValue("Unsent draft");
 });
 
 it("tracks real container width at the same viewport, preserves preferred width and ignores the overlay's actual list size", () => {
