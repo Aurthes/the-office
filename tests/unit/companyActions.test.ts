@@ -2,6 +2,7 @@ import React from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CompanyActions } from "../../src/features/office/components/CompanyActions";
+vi.mock("@/features/office/components/RecruitmentTemplates", () => ({ RecruitmentTemplates: () => null }));
 afterEach(cleanup);
 const projects = [{ id: "p", name: "Native project" }];
 describe("company creation controls", () => {
@@ -55,7 +56,7 @@ describe("company creation controls", () => {
     await act(async () => {});
     expect(call).toHaveBeenCalledWith("session.create", { name: "Explorer", projectId: null, workspace: "/existing/work", requestId: expect.any(String) });
     expect(call.mock.calls.some(([method]) => method === "project.create")).toBe(false);
-    expect(onCreated).toHaveBeenCalledWith("unassigned", expect.objectContaining({ seed: "unassigned", duck: expect.any(Object) }));
+    expect(onCreated).toHaveBeenCalledWith("unassigned");
   });
   it("keeps an Open Space recruit after cancelling the folder picker and never creates before a folder is chosen", async () => {
     const call = vi.fn(async (method: string) => method === "office.account" ? { loggedIn: true } : { directory: "/existing/work", parent: "/existing", entries: [] });
@@ -104,7 +105,7 @@ describe("company creation controls", () => {
     expect(call.mock.calls.filter(([method]) => method === "session.create")).toHaveLength(1);
     expect(call).toHaveBeenCalledWith("session.create", { name: "Research", projectId: "p", requestId: expect.any(String) });
     await act(async () => finish({ threadId: "native-id" }));
-    expect(onCreated).toHaveBeenCalledWith("native-id", expect.objectContaining({ seed: "native-id", duck: expect.any(Object) }));
+    expect(onCreated).toHaveBeenCalledWith("native-id");
   });
   it("keeps input and shows uncertain creation errors without automatic retry", async () => {
     const call = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => { throw new Error("请求超时"); });
@@ -177,15 +178,8 @@ describe("company creation controls", () => {
 
 });
 
-// Creation uses the existing avatar settings contract; the gateway needs no new field or RPC.
-it("creates distinct recruit styles and keeps them through the existing settings reload", async () => {
-  const { createDuckAppearanceFromSeed } = await import("@/lib/avatars/duck");
-  const { normalizeStudioSettings } = await import("@/lib/studio/settings");
-  const { loadCompanySnapshot } = await import("@/features/office/operations/loadCompanySnapshot");
-  type Profile = ReturnType<typeof import("@/lib/avatars/profile").createDefaultAgentAvatarProfile>;
-  const profiles: Record<string, Profile> = {};
-  const onCreated = vi.fn(async (id?: string, profile?: Profile) => { if (id && profile) profiles[id] = profile; });
-  let next = 0;
+it("refreshes backend-created recruits without supplementing or writing an avatar from the UI", async () => {
+  const onCreated = vi.fn(async () => {}); let next = 0;
   const call = vi.fn(async (method: string) => method === "office.account" ? { loggedIn: true } : { threadId: `recruit-${++next}` });
   render(React.createElement(CompanyActions, { client: { call }, projects, disabled: false, onCreated }));
   for (const name of ["Scout", "Navigator"]) {
@@ -194,18 +188,11 @@ it("creates distinct recruit styles and keeps them through the existing settings
     fireEvent.click(screen.getByRole("button", { name: "Recruit and create session" }));
     await act(async () => {});
   }
+  expect(onCreated.mock.calls).toEqual([["recruit-1"], ["recruit-2"]]);
   expect(call.mock.calls.filter(([method]) => method === "session.create")).toHaveLength(2);
-  expect(profiles["recruit-1"].duck).toEqual(createDuckAppearanceFromSeed("recruit-1"));
-  expect(profiles["recruit-1"].duck).not.toEqual(profiles["recruit-2"].duck);
-  const settings = normalizeStudioSettings(JSON.parse(JSON.stringify({ avatars: { "ws://office": profiles } })));
-  const agents = ["recruit-1", "recruit-2", "older"].map(id => ({ id, name: id, role: "Project", status: "idle", updatedAt: 0 }));
-  const reloaded = await loadCompanySnapshot({ client: { call: async () => ({ mainKey: "main", agents, projects: [], creationAvailable: true }) }, gatewayUrl: "ws://office", loadSettings: async () => settings });
-  expect(reloaded.hydration.seeds[0].avatarProfile).toEqual(profiles["recruit-1"]);
-  expect(reloaded.hydration.seeds[1].avatarProfile).toEqual(profiles["recruit-2"]);
-  expect(reloaded.hydration.seeds[2].avatarProfile?.duck).toBeUndefined();
 });
 
-it("does not duplicate a session when saving its appearance fails", async () => {
+it("does not duplicate a session when refreshing the created employee fails", async () => {
   const call = vi.fn(async (method: string) => method === "office.account" ? { loggedIn: true } : { threadId: "created" });
   const onCreated = vi.fn(async () => { throw new Error("settings unavailable"); });
   render(React.createElement(CompanyActions, { client: { call }, projects, disabled: false, onCreated }));

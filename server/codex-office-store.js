@@ -9,6 +9,7 @@ const { pendingAfterItem } = require("./codex-session-questions");
 const { WORKFLOW } = require("./office-company");
 const { OFFICE_CHAT_TOOLS } = require("./codex-session-composer");
 const { ceo: CEO_ID } = require("../src/lib/office/identities.json");
+const { createDuckAppearanceFromSeed } = require("../src/lib/avatars/duck-appearance");
 
 const ACCESS = {
   ":read-only": { approvalPolicy: "on-request", sandbox: "read-only", policy: "readOnly" },
@@ -79,9 +80,70 @@ class CodexOfficeStore {
     return roots.map(root => this.directory(root));
   }
   createSession(input, { recruitment } = {}) {
+    // Manual Recruit and Head recruitment share this complete initializer.
+    // once owns template resolution, validation, settings and persisted appearance.
     const name = this.name(input.name), project = input.projectId ? this.project(input.projectId) : null;
     const workspace = this.directory(project ? project.rootPaths[0] : input.workspace);
-    return this.once(input, () => { const session = { id: crypto.randomUUID(), name, workspace, projectId: project?.id ?? null, ...(recruitment ? { recruitment } : {}), updatedAt: Date.now(), status: "idle", settings: { model: null, effort: null, accessMode: ":workspace" } }; this.data.sessions.push(session); return { threadId: session.id }; });
+    return this.once(input, async () => {
+      const templates = this.recruitmentTemplates(), key = project?.id ?? "open-workspace";
+      const templateId = input.templateId === undefined ? templates.defaults[key] : input.templateId;
+      if (templateId != null && typeof templateId !== "string") throw new Error("Choose a recruitment template or Fresh defaults");
+      const template = templateId == null ? null : templates.templates.find(row => row.id === templateId);
+      if (templateId != null && !template) throw new Error("Recruitment template is unavailable. Choose another template or Fresh defaults.");
+      const settings = template ? await this.recruitmentSettings(template, workspace, true) : { model: null, effort: null, accessMode: ":workspace" };
+      this.directory(workspace);
+      if (project && !this.project(project.id).rootPaths.includes(workspace)) throw new Error("Project folders changed. Reload before recruiting.");
+      const id = crypto.randomUUID();
+      const session = { id, name, workspace, projectId: project?.id ?? null, ...(recruitment ? { recruitment } : {}), updatedAt: Date.now(), status: "idle", settings,
+        avatarSeed: id, avatarProfile: { version: 1, seed: id, duck: createDuckAppearanceFromSeed(id) } };
+      this.data.sessions.push(session); return { threadId: session.id };
+    });
+  }
+  recruitmentTemplates() {
+    return { templates: (this.data.recruitmentTemplates || []).map(row => ({ ...row })), defaults: { ...this.data.recruitmentDefaults } };
+  }
+  async recruitmentChoices(input) {
+    const project = input.projectId == null ? null : this.project(input.projectId);
+    const workspace = this.directory(project ? project.rootPaths[0] : input.workspace);
+    const choices = await sessionChoices(this.client, workspace);
+    return { ...choices, accessModes: choices.accessModes.filter(mode => ACCESS[mode.id]) };
+  }
+  async recruitmentSettings(input, workspace, confirmed = false) {
+    if (typeof input.model !== "string" || !input.model.trim() || !(input.effort === null || typeof input.effort === "string") || !Object.hasOwn(ACCESS, input.accessMode)) throw new Error("Choose a valid model, effort and access mode for the recruitment template");
+    const choices = await sessionChoices(this.client, workspace);
+    settingsPatch({ model: input.model, ...(input.effort === null ? {} : { effort: input.effort }), accessMode: input.accessMode, confirmFullAccess: confirmed || input.confirmFullAccess },
+      { model: "", effort: null, accessMode: ":workspace" }, { ...choices, accessModes: choices.accessModes.filter(mode => ACCESS[mode.id]) });
+    return { model: input.model, effort: input.effort, accessMode: input.accessMode };
+  }
+  saveRecruitmentTemplate(input) {
+    return this.once(input, async () => {
+      const project = input.projectId == null ? null : this.project(input.projectId);
+      const workspace = this.directory(project ? project.rootPaths[0] : input.workspace);
+      const name = this.name(input.name), settings = await this.recruitmentSettings(input, workspace);
+      const templates = this.data.recruitmentTemplates || [];
+      if (input.id !== undefined && !templates.some(row => row.id === input.id)) throw new Error("Recruitment template is unavailable");
+      const template = { id: input.id ?? crypto.randomUUID(), name, ...settings };
+      this.data.recruitmentTemplates = [...templates.filter(row => row.id !== template.id), template];
+      return { template };
+    });
+  }
+  deleteRecruitmentTemplate(input) {
+    return this.once(input, () => {
+      if (!(this.data.recruitmentTemplates || []).some(row => row.id === input.id)) throw new Error("Recruitment template is unavailable");
+      this.data.recruitmentTemplates = this.data.recruitmentTemplates.filter(row => row.id !== input.id);
+      this.data.recruitmentDefaults = Object.fromEntries(Object.entries(this.data.recruitmentDefaults || {}).filter(([, id]) => id !== input.id));
+      return { deleted: true };
+    });
+  }
+  setRecruitmentDefault(input) {
+    return this.once(input, () => {
+      const key = input.projectId == null ? "open-workspace" : this.project(input.projectId).id;
+      if (input.templateId !== null && !(this.data.recruitmentTemplates || []).some(row => row.id === input.templateId)) throw new Error("Recruitment template is unavailable");
+      this.data.recruitmentDefaults ||= {};
+      if (input.templateId === null) delete this.data.recruitmentDefaults[key];
+      else this.data.recruitmentDefaults[key] = input.templateId;
+      return { updated: true };
+    });
   }
   ensureCeo() {
     // The organization root is a normal Office session. Never resurrect an

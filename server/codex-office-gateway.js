@@ -179,6 +179,11 @@ const methods = {
       entries: result.entries.filter(e => e.isDirectory && typeof e.fileName === "string" && e.fileName && !/[\/\\\0\r\n]/.test(e.fileName) && !e.fileName.startsWith(".")).map(e => e.fileName).sort().slice(0, 300) };
   },
   "session.create": p => store.createSession(p),
+  "recruitment.list": () => store.recruitmentTemplates(),
+  "recruitment.choices": p => store.recruitmentChoices(p),
+  "recruitment.save": p => store.saveRecruitmentTemplate(p),
+  "recruitment.delete": p => store.deleteRecruitmentTemplate(p),
+  "recruitment.default": p => store.setRecruitmentDefault(p),
   "session.fork": p => store.forkSession(p),
   "session.new": p => { const row = store.get(p.threadId); return store.createSession({ name: p.name || "New chat", projectId: row.projectId, workspace: row.workspace, requestId: p.requestId }); },
   "session.firefighter": () => store.firefighter(),

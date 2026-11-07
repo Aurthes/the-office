@@ -70,7 +70,8 @@ class OfficeCompany {
     const recruitment = { managerId: manager.id, reason: input.reason.trim() };
     // Recruitment only bootstraps a new employee's reporting line. Saved Studio
     // organization edits remain authoritative, and no Codex work is sent here.
-    return this.store.createSession({ actorId: manager.id, name: input.name, projectId: manager.projectId, workspace: manager.workspace, reason: recruitment.reason, requestId: input.requestId }, { recruitment });
+    return this.store.createSession({ actorId: manager.id, name: input.name, projectId: manager.projectId, workspace: manager.workspace, reason: recruitment.reason, requestId: input.requestId,
+      ...(input.templateId === undefined ? {} : { templateId: input.templateId }) }, { recruitment });
   }
 }
 module.exports = { OfficeCompany, WORKFLOW };
