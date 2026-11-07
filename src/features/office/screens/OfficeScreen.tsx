@@ -822,7 +822,7 @@ export function OfficeScreen({
   }, [client]);
   const returnFinished = useCallback(() => setReturnRequest(null), []);
   const sessionView = process.env.NEXT_PUBLIC_CLAW3D_SESSION_VIEW === "1";
-  const { container: sessionListContainer, overlay: sessionListOverlay, update: resizeSessionList,
+  const { container: sessionListContainer, containerRef: attachSessionList, overlay: sessionListOverlay, update: resizeSessionList,
     collapsed: chatRosterCollapsed, setCollapsed: setChatRosterCollapsed, openChat: openSpecificChat } = useSessionListLayout(sessionView);
   const dismissSessionList = () => {
     setChatRosterCollapsed(true);
@@ -3759,7 +3759,7 @@ export function OfficeScreen({
       >
         {(chatOpen || sessionView) && (
           <div
-            ref={sessionListContainer}
+            ref={attachSessionList}
             data-session-list-mode={sessionView ? sessionListOverlay ? "overlay" : "split" : undefined}
             onKeyDown={event => {
               if (sessionView && sessionListOverlay && !chatRosterCollapsed && event.key === "Escape" && !event.defaultPrevented) {

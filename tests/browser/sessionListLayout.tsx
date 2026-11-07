@@ -16,7 +16,7 @@ const agents = [{ id: "fixture", name: "Fixture worker", projectId: null, projec
 const organization = { ceoAvatar: null, savePosition: async () => {}, people: [{ id: "fixture", name: "Fixture worker", title: "Worker", department: "Fixture", departmentId: null, reportsTo: [] }] };
 
 function App() {
-  const { container, overlay, collapsed, setCollapsed, openChat, update } = useSessionListLayout(true);
+  const { containerRef, overlay, collapsed, setCollapsed, openChat, update } = useSessionListLayout(true);
   const [open, setOpen] = useState(false), [archived, setArchived] = useState(false), [width, setWidth] = useState(500);
   const [search, setSearch] = useState("");
   const openSpecificChat = () => { openChat(); setOpen(true); setArchived(false); };
@@ -28,7 +28,7 @@ function App() {
       <label>Container width<input aria-label="Container width" type="number" value={width} onChange={event => setWidth(Number(event.target.value))} /></label>
     </div>
     <div className="office-session-chat" style={{ display: open ? "flex" : "none", width, height: 600 }}>
-      <div ref={container} className="session-chat-layout relative flex min-h-0 w-full flex-1 overflow-hidden" data-session-list-mode={overlay ? "overlay" : "split"} onKeyDown={event => {
+      <div ref={containerRef} className="session-chat-layout relative flex min-h-0 w-full flex-1 overflow-hidden" data-session-list-mode={overlay ? "overlay" : "split"} onKeyDown={event => {
         if (overlay && !collapsed && event.key === "Escape") { event.stopPropagation(); setCollapsed(true); }
       }}>
         {overlay && !collapsed ? <button aria-label="Backdrop dismiss" className="session-list-backdrop" onClick={() => setCollapsed(true)} /> : null}

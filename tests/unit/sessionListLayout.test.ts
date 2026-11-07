@@ -26,9 +26,10 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-function Fixture({ enabled = true, divider = 8 }: { enabled?: boolean; divider?: number }) {
-  const { container, ...layout } = useSessionListLayout(enabled);
-  return React.createElement("div", { ref: container, "data-testid": "layout", "data-layout": "container", "data-mode": layout.overlay ? "overlay" : "split", "data-collapsed": String(layout.collapsed), style: { "--session-list-divider-width": `${divider}px` } as React.CSSProperties },
+function Fixture({ enabled = true, divider = 8, mounted = true }: { enabled?: boolean; divider?: number; mounted?: boolean }) {
+  const { containerRef, ...layout } = useSessionListLayout(enabled);
+  if (!mounted) return React.createElement("div", null, "Connecting");
+  return React.createElement("div", { ref: containerRef, "data-testid": "layout", "data-layout": "container", "data-mode": layout.overlay ? "overlay" : "split", "data-collapsed": String(layout.collapsed), style: { "--session-list-divider-width": `${divider}px` } as React.CSSProperties },
     React.createElement("aside", { "data-layout": "list" }, "Sessions"),
     React.createElement(SessionListDivider, { onResize: layout.update }),
     React.createElement("textarea", { "aria-label": "Draft", defaultValue: "Unsent draft" }),
@@ -120,4 +121,19 @@ it("lets deliberate list opening override pending hidden navigation, and preserv
   expect(row.dataset.collapsed).toBe("true");
   fireEvent.click(screen.getByRole("button", { name: "Open specific chat externally" }));
   expect(row.dataset.mode).toBe("split"); expect(row.dataset.collapsed).toBe("false");
+});
+
+
+it("attaches after the loading screen mounts the container, and cleans up on reconnect", () => {
+  const view = render(React.createElement(Fixture, { mounted: false }));
+  expect(observers.size).toBe(0); expect(pointerChanges.size).toBe(0);
+  total = 500; view.rerender(React.createElement(Fixture));
+  expect(screen.getByTestId("layout").dataset.mode).toBe("overlay");
+  total = 960; resize(); expect(screen.getByTestId("layout").dataset.mode).toBe("split");
+  view.rerender(React.createElement(Fixture, { mounted: false }));
+  expect(observers.size).toBe(0); expect(pointerChanges.size).toBe(0);
+  total = 500; view.rerender(React.createElement(Fixture));
+  expect(screen.getByTestId("layout").dataset.mode).toBe("overlay");
+  total = 960; resize(); expect(screen.getByTestId("layout").dataset.mode).toBe("split");
+  view.unmount(); expect(observers.size).toBe(0); expect(pointerChanges.size).toBe(0);
 });

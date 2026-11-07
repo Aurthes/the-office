@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useLayoutEffect, useRef, useState, type SetStateAction } from "react";
+import { useCallback, useRef, useState, type SetStateAction } from "react";
 import { sessionListNeedsOverlay } from "../operations/sessionListLayout";
 
 export function useSessionListLayout(enabled: boolean) {
@@ -34,15 +34,15 @@ export function useSessionListLayout(enabled: boolean) {
     setCollapsedState(true);
     update();
   }, [enabled, setCollapsed, update]);
-  useLayoutEffect(() => {
-    const node = container.current;
+  const containerRef = useCallback((node: HTMLDivElement | null) => {
+    container.current = node;
     if (!node || !enabled) return;
     // ResizeObserver also delivers the initial measurement, including on reopen.
     const observer = new ResizeObserver(update);
     observer.observe(node);
     const pointer = window.matchMedia("(pointer: coarse)");
     pointer.addEventListener("change", update);
-    return () => { observer.disconnect(); pointer.removeEventListener("change", update); };
+    return () => { observer.disconnect(); pointer.removeEventListener("change", update); container.current = null; };
   }, [enabled, update]);
-  return { container, overlay, update, collapsed, setCollapsed, openChat };
+  return { container, containerRef, overlay, update, collapsed, setCollapsed, openChat };
 }
