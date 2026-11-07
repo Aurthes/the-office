@@ -7,6 +7,29 @@ import type { MessageSearchTarget } from "@/features/office/components/MessageSe
 const target: MessageSearchTarget = { requestId: "request", threadId: "session", name: "Researcher", project: "Research", archived: true, itemId: "a", turnId: "past", turnCursor: "past-position", messageId: "past:a", snippet: "A past answer", snippetMatchRange: { start: 2, end: 6 } };
 const context = { threadId: "session", name: "Researcher", project: "Research", archived: true, messageId: "past:a", messages: [{ id: "past:u", turnId: "past", role: "user", content: "A past question" }, { id: "past:a", turnId: "past", role: "assistant", phase: "final_answer", content: "A past answer" }], olderOffset: null, newerOffset: null };
 afterEach(cleanup);
+
+it("opens a reply's exact question while preserving the current chat and scroll", async () => {
+  const source = { threadId: "archived-parent", turnId: "origin", itemId: "question", excerpt: "What is the department responsible for?" };
+  const call = vi.fn(async (method: string) => {
+    if (method === "session.inspect") return { id: "head", name: "Office Head", project: "Office", workspace: "/repo" };
+    if (method === "session.messageContext") return { threadId: "archived-parent", name: "CEO", project: "Open Workspace", archived: true, messageId: "origin:question", messages: [{ id: "origin:question", turnId: "origin", role: "user", content: "Full original question and constraints" }], olderOffset: null, newerOffset: null };
+    return { threadId: "head", nextCursor: null, messages: [{ id: "answer", role: "assistant", content: "Department answer", replyContext: { taskTitle: "Departments", sources: [source] } }] };
+  });
+  render(createElement(ExistingSessionPanel, { client: { call }, threadId: "head" }));
+  const quote = await screen.findByRole("button", { name: `Answering: ${source.excerpt}` });
+  const history = screen.getByLabelText("Session history"); history.scrollTop = 123;
+  fireEvent.click(quote);
+  const viewer = await screen.findByRole("region", { name: "Message location" });
+  expect(await within(viewer).findByText("Full original question and constraints")).toBeVisible();
+  expect(history.closest("[inert]")).not.toBeNull();
+  expect(call).toHaveBeenCalledWith("session.messageContext", expect.objectContaining({ ...source, messageId: "origin:question" }));
+  expect((call.mock.calls.find(([method]) => method === "session.messageContext") as unknown[])[1]).not.toHaveProperty("turnCursor");
+  fireEvent.click(within(viewer).getByRole("button", { name: "Back to conversation" }));
+  expect(screen.getByLabelText("Session history")).toBe(history);
+  expect(history.scrollTop).toBe(123);
+  expect(screen.getByText("Department answer")).toBeVisible();
+  expect(call.mock.calls.every(([method]) => !["session.send", "session.attach", "session.archive"].includes(method))).toBe(true);
+});
 it("opens and focuses an archived message with context without attaching or starting any agent", async () => {
   const call = vi.fn(async () => context), onClose = vi.fn();
   const view = render(createElement(SessionMessageLocation, { client: { call }, target, onClose }));

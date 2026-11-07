@@ -99,6 +99,8 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
   await until(async () => (await client.call("todo.get", { id: task.id })).todo.status === "done", "Native delegation chain did not finish", 45000);
   await until(async () => (await client.call("office.snapshot")).agents.filter(row => [ceo, manager, worker, existingWorker].includes(row.id)).every(row => row.status === "idle"), "Native handoff turns did not finish");
   const finished = (await client.call("todo.get", { id: task.id })).todo;
+  const original = finished.delegations[0].replyContext?.sources.find(source => source.threadId === ceo && source.excerpt.includes("Implement the bounded fixture goal"));
+  check("task origin comes from the actual request, not the earlier idle seed chat", Boolean(original) && finished.replyContext?.sources.some(source => source.itemId === original.itemId));
   check("handoff keeps the pre-existing CEO, Head and busy employee native identities", JSON.stringify(nativeIds()) === before);
   check("busy manager keeps a persistent pending review instead of being steered", sawBusyInbox);
   check("worker cannot close the final phase without manager acceptance", payloads.some(payload => JSON.stringify(payload).includes("obtain manager acceptance")));
@@ -107,6 +109,8 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
   for (const id of [ceo, manager, worker]) {
     const history = await client.call("session.history", { threadId: id });
     check(`real ${id === ceo ? "CEO" : id === manager ? "manager" : "worker"} conversation contains handoff and replies`, history.messages.some(message => message.role === "assistant" && message.content.includes("OFFICE_HANDOFF_FIXTURE_OK")) && history.messages.some(message => message.role === "user" && message.content.includes(task.id)));
+    const replies = history.messages.filter(message => message.role === "assistant" && message.content.includes("OFFICE_HANDOFF_FIXTURE_OK") && message.replyContext?.taskId === task.id);
+    check(`real ${id === ceo ? "CEO" : id === manager ? "manager" : "worker"} replies point back to the original user question`, replies.length > 0 && replies.every(message => message.replyContext.sources.some(source => source.threadId === original.threadId && source.turnId === original.turnId && source.itemId === original.itemId)));
   }
   check("real tool chain includes nested delegation, three submissions and three manager reviews", operations.filter(([, name]) => name === "todo_review").length === 3 && operations.filter(([, name]) => name === "todo_submit").length === 3);
   check("actual resumed MCP calls can read all departments and Open Workspace", operations.filter(([, name]) => name === "todo_organization").length === 2 && payloads.some(payload => JSON.stringify(payload).includes("Unassigned fixture work")));
@@ -121,6 +125,10 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
   const postRestart = await restart(); await postRestart.call("office.snapshot");
   check("recruit and its reporting line survive gateway restart without a duplicate", (await postRestart.call("todo.organization", { actorId: worker })).managers.some(row => row.id === manager) && (await postRestart.call("office.snapshot")).agents.length === initialIds.length + 1);
   client = postRestart;
+  const restored = await client.call("session.history", { threadId: ceo });
+  check("reply provenance survives a real gateway restart and bounded history reload", restored.messages.some(message => message.replyContext?.taskId === task.id && message.replyContext.sources.some(source => source.itemId === original.itemId)));
+  const originalPage = await client.call("session.messageContext", original);
+  check("the pinned native item API opens the full exact original request", originalPage.messageId === `${original.turnId}:${original.itemId}` && originalPage.messages.some(message => message.content === "Implement the bounded fixture goal through your direct report and verify it. Do not deploy."));
   setModelFixture(null);
   return client;
 }

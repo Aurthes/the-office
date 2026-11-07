@@ -51,7 +51,7 @@ export function SessionMessageLocation({ client, target, onClose, headerStart }:
   };
   return <section className="session-message-location absolute inset-0 z-30 flex min-h-0 min-w-0 flex-col bg-[#111b27] text-white" aria-label={t("Message location")}>
     <header className="flex shrink-0 items-center gap-2 border-b border-white/10 p-3">
-      {headerStart}<div className="min-w-0 flex-1"><strong className="block truncate text-sm">{current && state.name || target.name}</strong><small className="text-white/50">{current && state.project || target.project}{target.archived ? ` · ${t("Archived · Read only")}` : ` · ${t("Message search")}`}</small></div>
+      {headerStart}<div className="min-w-0 flex-1"><strong className="block truncate text-sm">{current && state.name || target.name}</strong><small className="text-white/50">{current && state.project || target.project}{(current ? state.archived : target.archived) ? ` · ${t("Archived · Read only")}` : ` · ${t(target.turnCursor ? "Message search" : "Original question")}`}</small></div>
       <button type="button" className="session-action-back" onClick={onClose}><ArrowLeft size={14} />{t("Back to conversation")}</button>
     </header>
     <p className="message-location-snippet shrink-0 border-b border-white/10 px-4 py-2 text-xs"><SearchSnippet text={target.snippet} range={target.snippetMatchRange} /></p>

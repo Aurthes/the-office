@@ -128,3 +128,31 @@ it("only offers overlay dismissal when requested and leaves chat selection to it
   expect(onDismiss).toHaveBeenCalledOnce();
   expect(props.onOpenChat).not.toHaveBeenCalled();
 });
+
+it.each(["project", "activity", "organization"] as const)("keeps department buttons distinct from chats and exposes full department names in %s", view => {
+  const name = "A department name long enough to be visually truncated", openDepartment = vi.fn(), onOpenChat = vi.fn();
+  const ceo: DirectoryAgent = { ...agents[0], id: CEO_ID, name: "CEO", projectId: null, projectName: "Company", tasks: [] };
+  render(createElement(AgentDirectory, {
+    agents: [ceo, ...agents.map(agent => agent.projectId ? { ...agent, projectName: name } : agent)],
+    organization: { ...organization, openDepartment, people: organization.people.map(person => person.departmentId ? { ...person, department: name } : person) },
+    view, search: "", onSearchChange: vi.fn(), selectedId: null, onViewChange: vi.fn(), onOpenChat, onOpenTask: vi.fn(),
+  }));
+  const buttons = screen.getAllByRole("button", { name });
+  for (const button of buttons) {
+    expect(button).toHaveClass("directory-department"); expect(button).toHaveAttribute("title", name);
+    expect(button.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    expect(button.closest(".directory-agent-open")).toBeNull();
+  }
+  fireEvent.click(buttons[0]); expect(openDepartment).toHaveBeenLastCalledWith("office");
+  const open = screen.getAllByRole("button", { name: "Open Workspace" })[0];
+  expect(open).toHaveAttribute("title", "Open Workspace");
+  fireEvent.click(open); expect(openDepartment).toHaveBeenLastCalledWith("open-workspace");
+  if (view !== "project") {
+    const company = screen.getAllByRole("button", { name: "Company" })[0];
+    expect(company).toHaveAttribute("title", "Company"); fireEvent.click(company);
+    expect(openDepartment).toHaveBeenLastCalledWith(undefined);
+  }
+  expect(onOpenChat).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Open session: CEO" }));
+  expect(onOpenChat).toHaveBeenCalledWith(CEO_ID);
+});
