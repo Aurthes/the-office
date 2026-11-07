@@ -74,8 +74,35 @@ and leaves a `.lock`, verify no writer is active before removing that one lease.
 Corrupt records cause an explicit error and are never silently overwritten.
 
 The read-only `GET /api/office/teasers` endpoint stays behind Office's existing
-authentication. It omits answers and summaries for unfinished items. There is no
-new HTTP write endpoint, command execution API, or anonymous publishing channel.
+authentication. It omits answers and summaries for unfinished items. Publishing
+and updating teaser records remain CLI-only; there is no command execution API
+or anonymous publishing channel.
 The local publisher uses the host user's filesystem authority. Published content
 is treated as Markdown data; raw HTML is not enabled. The open dashboard refreshes
 every 15 seconds and when the page regains focus; closing it stops those requests.
+
+## Per-question whiteboards
+
+Each card has a separate Whiteboard button, available even when teaser chat is
+unavailable. It opens a plain text editor. Save keeps the editor open; reopening
+or reloading reads the saved text from the server. Empty text clears the notes.
+Unsaved changes require confirmation before returning or closing. Failed saves
+keep the draft; a revision conflict requires an explicit reload before saving.
+
+Notes live outside the teaser directory, in its sibling
+`<resolved teaser directory>-whiteboards/<teaser UUID>.json`. Each record contains
+only `id`, `text`, `revision`, and `updatedAt`. Notes are persistent business data,
+not a build cache. They do not change the question, answer, status, or publisher
+CLI. Missing notes read as empty without creating a file; the teaser must exist.
+
+`GET /api/office/teasers/:id/whiteboard` reads notes and
+`PUT /api/office/teasers/:id/whiteboard` accepts only JSON `{ "text": "…", "revision": 0 }`.
+Both use Office's existing authentication boundary and return `Cache-Control:
+no-store`. Writes require a trusted same-origin request, at most 12,000 text
+characters and a body of at most 96 KiB. Each note has its own revision and short
+file lease; stale or concurrent saves return HTTP 409 instead of overwriting
+another edit. Corrupt records return an error and are not overwritten. If a
+writer is forcibly killed, verify it is gone before removing its leftover lease.
+
+The editor follows the existing Office theme, treats all text as text, and uses
+16px input text on narrow screens. Dashboard refreshes do not replace its draft.
