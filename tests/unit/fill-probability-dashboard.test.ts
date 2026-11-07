@@ -62,7 +62,7 @@ it("marks retained snapshots stale when refresh stalls and stops exposing curren
   expect(screen.getByText("0.0004")).toBeInTheDocument();
   await act(() => vi.advanceTimersByTimeAsync(30_001));
   expect(screen.queryByText("0.0004")).toBeNull();
-  expect(screen.getByText("Snapshot expired or read failed")).toBeInTheDocument();
+  expect(screen.getByText("Snapshot expired or freshness unverified")).toBeInTheDocument();
   expect(document.querySelector('[data-state="reference"]')).toBeNull();
 });
 it("pauses while hidden, resumes when visible, and aborts on unmount", async () => {
@@ -152,7 +152,7 @@ it("does not mix an expired quote with a current ready EMA", async () => {
   const table = await screen.findByRole("table", { name: "Fill probability stages" });
   expect(table.querySelector('[data-stage="actual"]')).toHaveAttribute("data-state", "current");
   expect(table.querySelector('[data-stage="final"] .fill-value')).toHaveTextContent("N/A");
-  expect(screen.getByText("Quote observation expired or read failed")).toBeInTheDocument();
+  expect(screen.getByText("Quote observation expired or freshness unverified")).toBeInTheDocument();
 });
 
 it("distinguishes an observed but not-ready quote from telemetry that was never exported", async () => {
@@ -284,6 +284,77 @@ it("rejects a mismatched thin detail and marks retained facts unverified", async
   vi.useFakeTimers();const a=fillRow({id:"a",ready:true,observedAt:FILL_NOW,quote:fillQuote()}),b=fillRow({id:"b",symbol:"venue.perp.b_usdt"});
   const fetcher=vi.fn().mockResolvedValueOnce(Response.json(recordSnapshot([a,b],a))).mockResolvedValueOnce(Response.json(recordSnapshot([a,b],b)));
   vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));await act(async()=>{});await act(()=>vi.advanceTimersByTimeAsync(10_000));
-  expect(screen.getByRole("alert")).toBeInTheDocument();expect(screen.getByText("Snapshot expired or read failed")).toBeInTheDocument();expect(document.querySelector('[data-stage="actual"] .fill-value')).toHaveTextContent("N/A");
+  expect(screen.getByRole("alert")).toBeInTheDocument();expect(screen.getByText("Snapshot expired or freshness unverified")).toBeInTheDocument();expect(document.querySelector('[data-stage="actual"] .fill-value')).toHaveTextContent("N/A");
   expect(screen.queryByRole("heading",{name:/b_usdt · Buy/})).toBeNull();
+});
+
+it("includes nine seconds of request time for a twenty-six-second observation while aging quote separately", async () => {
+  vi.useFakeTimers();let monotonic=0;vi.spyOn(performance,"now").mockImplementation(()=>monotonic);
+  const row=fillRow({ready:true,observedAt:FILL_NOW-26_000,quote:fillQuote()});
+  const fetcher=vi.fn(()=>new Promise<Response>(resolve=>setTimeout(()=>resolve(Response.json(recordSnapshot([row]))),9000)));
+  vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));
+  monotonic=9000;await act(()=>vi.advanceTimersByTimeAsync(9000));
+  expect(screen.getByText("Snapshot expired or freshness unverified")).toBeInTheDocument();
+  for(const stage of ["base","model","actual"])expect(document.querySelector(`[data-stage="${stage}"] .fill-value strong`)).toHaveTextContent("N/A");
+  expect(document.querySelector('[data-stage="final"] .fill-value strong')).toHaveTextContent("0.0009");
+  expect(screen.getByText("Current quote observation")).toBeInTheDocument();expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByText("Freshness includes request time; slow responses may appear gray.")).toBeInTheDocument();
+});
+
+it("keeps a fast response current then expires at the original thirty-second tick boundary", async () => {
+  vi.useFakeTimers();let monotonic=0;vi.spyOn(performance,"now").mockImplementation(()=>monotonic);
+  const row=fillRow({ready:true,observedAt:FILL_NOW-10_000,quote:fillQuote()});
+  const fetcher=vi.fn(()=>new Promise<Response>(()=>{})).mockImplementationOnce(()=>new Promise(resolve=>setTimeout(()=>resolve(Response.json(recordSnapshot([row]))),1000)));
+  vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));
+  monotonic=1000;await act(()=>vi.advanceTimersByTimeAsync(1000));expect(document.querySelector('.fill-state')).toHaveAttribute("data-state","ready");
+  monotonic=19_000;await act(()=>vi.advanceTimersByTimeAsync(18_000));expect(document.querySelector('.fill-state')).toHaveAttribute("data-state","ready");
+  monotonic=20_000;await act(()=>vi.advanceTimersByTimeAsync(1000));expect(document.querySelector('.fill-state')).toHaveAttribute("data-state","stale");
+  expect(document.querySelector('[data-stage="actual"] .fill-value strong')).toHaveTextContent("N/A");expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it.each([365*86400_000,-365*86400_000])("ignores phone wall-clock jumps of %sms before and after receiving a sample", async offset => {
+  vi.useFakeTimers();vi.setSystemTime(FILL_NOW);let monotonic=0;vi.spyOn(performance,"now").mockImplementation(()=>monotonic);
+  const row=fillRow({ready:true,observedAt:FILL_NOW-10_000,quote:fillQuote()});
+  const fetcher=vi.fn(()=>new Promise<Response>(()=>{})).mockImplementationOnce(()=>new Promise(resolve=>setTimeout(()=>resolve(Response.json(recordSnapshot([row]))),1000)));
+  vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));
+  vi.setSystemTime(FILL_NOW+offset);monotonic=1000;await act(()=>vi.advanceTimersByTimeAsync(1000));
+  expect(document.querySelector('.fill-state')).toHaveAttribute("data-state","ready");
+  vi.setSystemTime(FILL_NOW-offset);monotonic=19_000;await act(()=>vi.advanceTimersByTimeAsync(18_000));expect(document.querySelector('.fill-state')).toHaveAttribute("data-state","ready");
+  vi.setSystemTime(FILL_NOW+offset);monotonic=20_000;await act(()=>vi.advanceTimersByTimeAsync(1000));expect(document.querySelector('.fill-state')).toHaveAttribute("data-state","stale");
+});
+
+it("does not reset a same-ID sample's age when its next read starts or fails", async () => {
+  vi.useFakeTimers();let monotonic=0;vi.spyOn(performance,"now").mockImplementation(()=>monotonic);
+  const row=fillRow({ready:true,observedAt:FILL_NOW-20_000,quote:fillQuote()});
+  const next=deferredResponse();const fetcher=vi.fn().mockImplementationOnce(()=>new Promise(resolve=>setTimeout(()=>resolve(Response.json(recordSnapshot([row]))),2000))).mockReturnValueOnce(next.promise);
+  vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));
+  monotonic=2000;await act(()=>vi.advanceTimersByTimeAsync(2000));expect(document.querySelector('.fill-state')).toHaveAttribute("data-state","ready");
+  monotonic=10_000;await act(()=>vi.advanceTimersByTimeAsync(8000));expect(fetcher).toHaveBeenCalledTimes(2);expect(document.querySelector('.fill-state')).toHaveAttribute("data-state","stale");
+  await act(async()=>next.reject(new Error("read failed")));expect(screen.getByRole("alert")).toBeInTheDocument();expect(document.querySelector('[data-stage="actual"] .fill-value')).toHaveTextContent("N/A");
+});
+
+it("anchors a queued latest selection to its own request, never the superseded request or response", async () => {
+  vi.useFakeTimers();let monotonic=0;vi.spyOn(performance,"now").mockImplementation(()=>monotonic);
+  const a=fillRow({id:"a",ready:true,observedAt:FILL_NOW}),b=fillRow({id:"b",symbol:"venue.perp.b_usdt"}),c=fillRow({id:"c",symbol:"venue.perp.c_usdt",ready:true,observedAt:FILL_NOW-24_000});
+  const old=deferredResponse();const fetcher=vi.fn().mockResolvedValueOnce(Response.json(recordSnapshot([a,b,c],a))).mockReturnValueOnce(old.promise)
+    .mockImplementationOnce(()=>new Promise(resolve=>setTimeout(()=>resolve(Response.json(recordSnapshot([a,b,c],c))),4000)));
+  vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));await act(async()=>{});
+  monotonic=1000;await act(()=>vi.advanceTimersByTimeAsync(1000));fireEvent.change(screen.getByRole("combobox",{name:"Record (3)"}),{target:{value:"b"}});
+  monotonic=5000;await act(()=>vi.advanceTimersByTimeAsync(4000));fireEvent.change(screen.getByRole("combobox",{name:"Record (3)"}),{target:{value:"c"}});
+  monotonic=6000;await act(()=>vi.advanceTimersByTimeAsync(1000));await act(async()=>old.resolve(Response.json(recordSnapshot([a,b,c],b))));
+  expect(fetcher).toHaveBeenCalledTimes(3);expect(screen.getByRole("status")).toBeInTheDocument();
+  monotonic=10_000;await act(()=>vi.advanceTimersByTimeAsync(4000));expect(screen.getByRole("heading",{name:/c_usdt · Buy/})).toBeInTheDocument();expect(document.querySelector('.fill-state')).toHaveAttribute("data-state","ready");
+  monotonic=12_000;await act(()=>vi.advanceTimersByTimeAsync(2000));expect(document.querySelector('.fill-state')).toHaveAttribute("data-state","stale");expect(fetcher).toHaveBeenCalledTimes(3);
+});
+
+it("keeps old evidence stale through hide and resume until a newly bounded sample arrives", async () => {
+  vi.useFakeTimers();let monotonic=0,hidden=false;vi.spyOn(performance,"now").mockImplementation(()=>monotonic);vi.spyOn(document,"hidden","get").mockImplementation(()=>hidden);
+  const row=fillRow({ready:true,observedAt:FILL_NOW-20_000,quote:fillQuote()});const resumed=deferredResponse();
+  const fetcher=vi.fn().mockImplementationOnce(()=>new Promise(resolve=>setTimeout(()=>resolve(Response.json(recordSnapshot([row]))),1000))).mockReturnValueOnce(resumed.promise);
+  vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));monotonic=1000;await act(()=>vi.advanceTimersByTimeAsync(1000));
+  monotonic=4000;await act(()=>vi.advanceTimersByTimeAsync(3000));hidden=true;fireEvent(document,new Event("visibilitychange"));
+  monotonic=11_000;await act(()=>vi.advanceTimersByTimeAsync(7000));expect(fetcher).toHaveBeenCalledTimes(1);expect(document.querySelector('.fill-state')).toHaveAttribute("data-state","stale");
+  hidden=false;fireEvent(document,new Event("visibilitychange"));expect(fetcher).toHaveBeenCalledTimes(2);expect(document.querySelector('.fill-state')).toHaveAttribute("data-state","stale");
+  monotonic=20_000;await act(()=>vi.advanceTimersByTimeAsync(9000));const reply=recordSnapshot([row]);reply.serverTime=FILL_NOW+11_000;
+  await act(async()=>resumed.resolve(Response.json(reply)));expect(document.querySelector('.fill-state')).toHaveAttribute("data-state","stale");expect(screen.queryByRole("alert")).toBeNull();
 });

@@ -57,7 +57,7 @@ function Stages({ row, now, failed }: { row: FillRow; now: number; failed: boole
   const disabledReasons = q?.disabledMask == null ? t("Source reason not exported") :
     ([ [1, "Model disabled this side"], [2, "Fee unavailable"], [4, "Risk blocked"], [8, "EV blocked"], [16, "Anti-arbitrage blocked"] ] as const)
       .filter(([bit]) => (q.disabledMask! & bit) !== 0).map(([, label]) => t(label)).join(", ") || t("No side disable flag");
-  const status = t(state === "ready" ? "Original controller ready; current observation" : state === "stale" ? "Snapshot expired or read failed" : state === "disabled" ? "Feedback disabled" : state === "empty" ? "No weighted exposure" : state === "not-ready" ? "Original controller not ready" : state === "unknown" ? "Source or schema unverified" : "Historical snapshot; observation time and readiness unknown");
+  const status = t(state === "ready" ? "Original controller ready; current observation" : state === "stale" ? "Snapshot expired or freshness unverified" : state === "disabled" ? "Feedback disabled" : state === "empty" ? "No weighted exposure" : state === "not-ready" ? "Original controller not ready" : state === "unknown" ? "Source or schema unverified" : "Historical snapshot; observation time and readiness unknown");
   const guardLabel = (value: FillGuardState | undefined) => t(value === "changed" ? "Changed price" : value === "unchanged" ? "Passed without price change" : value === "not-run" ? "Not run" : value === "rejected" ? "Rejected" : "Unknown");
   const quoteValue = (value: number | null | undefined) => quoteReady ? value ?? null : null;
   const reference = quoteReady ? q!.baseTarget : row.target;
@@ -111,13 +111,14 @@ function Stages({ row, now, failed }: { row: FillRow; now: number; failed: boole
       <div><dt>{t("Last observation time")}</dt><dd>{stamp(row.observedAt)}</dd></div>
       <div><dt>{t("Quote calculation time")}</dt><dd>{stamp(q?.at ?? null)}</dd></div>
       <div><dt>{t("Quote export time")}</dt><dd>{stamp(q?.exportedAt ?? null)}</dd></div>
-      <div><dt>{t("Quote observation state")}</dt><dd>{t(currentQuoteState === "ready" ? "Current quote observation" : currentQuoteState === "stale" ? "Quote observation expired or read failed" : "Quote observation unavailable")}</dd></div>
+      <div><dt>{t("Quote observation state")}</dt><dd>{t(currentQuoteState === "ready" ? "Current quote observation" : currentQuoteState === "stale" ? "Quote observation expired or freshness unverified" : "Quote observation unavailable")}</dd></div>
       <div><dt>{t("Quote source reason")}</dt><dd>{q?.guardReason || "—"}</dd></div>
       <div><dt>{t("Half-life / adjustment interval")}</dt><dd>{number(row.halfLife)} / {number(row.adjustmentInterval)} {clockUnit}</dd></div>
       <div><dt>{t("Adjustment progress (remainder)")}</dt><dd>{number(row.adjustmentProgress)} {clockUnit}</dd></div>
       <div><dt>{t("Weighted hits / weighted exposure")}</dt><dd>{number(row.weightedHits)} / {number(row.weightedExposureSeconds)} s</dd></div>
       <div><dt>{t("Original controller readiness / skip reason")}</dt><dd>{typeof row.ready !== "boolean" ? t("Not exported; unknown") : `${t(row.ready ? "Ready" : "Not ready")} · ${row.skipReason || "—"}`}</dd></div>
     </dl><p>{t("Export time is not observation time. Weighted exposure is not elapsed time or sample count; adjustment progress is not total samples.")}</p>
+      <p>{t("Freshness includes request time; slow responses may appear gray.")}</p>
       <p>{t("Controller ready is the producer's existing rule, not statistical confidence or trading health.")}</p>
       {row.reason ? <p>{t("Source note")}: {t(sourceNotes[row.reason] || "Source or schema unverified")}</p> : null}
     </details>
@@ -128,7 +129,7 @@ function Stages({ row, now, failed }: { row: FillRow; now: number; failed: boole
 
 export function FillProbabilityDashboard() {
   const t = useUiText();
-  const [sample, setSample] = useState<{ data: FillRecordSnapshot; receivedAt: number } | null>(null);
+  const [sample, setSample] = useState<{ data: FillRecordSnapshot; requestStartedAt: number } | null>(null);
   const [clock, setClock] = useState(0), [failed, setFailed] = useState(false), [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [selected, setSelected] = useState("");
@@ -151,7 +152,7 @@ export function FillProbabilityDashboard() {
       if (busy) { if (replace) { queued = true; controller?.abort(); } return; }
       queued = false;
       busy = true; setLoading(true); controller = new AbortController();
-      const request = controller, spec = selection.current;
+      const request = controller, spec = selection.current, requestStartedAt = performance.now();
       // The producer read allows 12s; leave time for that read and public-network transfer.
       const timeout = setTimeout(() => request.abort(), 20_000);
       try {
@@ -163,7 +164,7 @@ export function FillProbabilityDashboard() {
         const data = recordReply(await response.json(), spec.filters, spec.selected);
         if (!stopped && !request.signal.aborted && spec.version === selection.current.version) {
           records = data.records; detailId = data.row?.id;
-          const receivedAt = performance.now(); setSample({ data, receivedAt }); setClock(receivedAt); setFailed(false);
+          const receivedAt = performance.now(); setSample({ data, requestStartedAt }); setClock(receivedAt); setFailed(false);
         }
       } catch { if (!stopped && !queued && spec.version === selection.current.version) setFailed(true); }
       finally {
@@ -187,7 +188,7 @@ export function FillProbabilityDashboard() {
   const filtered = matching(rows, filters);
   const wanted = filtered.find(item => item.id === selected) || filtered[0];
   const row = sample?.data.row?.id === wanted?.id ? sample?.data.row : null;
-  const now = sample ? sample.data.serverTime + Math.max(0, clock - sample.receivedAt) : 0;
+  const now = sample ? sample.data.serverTime + Math.max(0, clock - sample.requestStartedAt) : 0;
   return <section className="fill-dashboard" aria-label={t("Fill probability")}>
     <header><div><p className="fill-eyebrow">{t("MONITOR ROOM")}</p><h2>{t("Fill probability")}</h2><p>{t("One-second probability, target distance and the real quote path.")}</p></div>
       <button type="button" onClick={() => refresh.current()} disabled={loading} aria-label={t("Refresh fill probability")}><RefreshCw size={15} />{t("Refresh fill probability")}</button></header>

@@ -119,6 +119,14 @@ aging remain in effect. No numbers, precision, state or quote fields are removed
 from the selected row. Without `view=record`, the endpoint keeps its full `rows`
 response for older clients; the UI also accepts that response after rollback.
 
+Freshness conservatively includes the whole request's elapsed time using the
+browser's monotonic clock, then continues aging every second. This does not use
+the phone's wall clock or alter any producer timestamps. The elapsed time also
+includes collection before the server timestamp was generated, so it is an
+age upper bound, not exact network delay. Slow responses can therefore make
+uncertain EMA or quote observations gray early; each keeps its own original
+observation/export times and the existing 30-second rule.
+
 Validation covers stateless conversion, strict schema separation, missing and
 zero fields, stale/read-failed states, signed gaps/color monotonicity, cache
 coalescing, API privacy, UI filters and control-room embedding. Full-chain live
