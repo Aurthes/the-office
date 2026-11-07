@@ -136,12 +136,13 @@ explicit source override; Office cannot infer private launcher settings.
   `includeHistory: true` to read every report and event. Storage, UI and acceptance
   permissions remain unchanged. Compact mutation receipts supply the next
   revision so an unchanged plan need not be fetched again.
-- Task dispatch and report notifications include a complete current snapshot
-  when it fits 24 KiB: documentation, phase identities/notes/completion, current
-  handoff criteria, report and revision. Read this snapshot directly; an immediate
-  `todo_get` is unnecessary. Oversized snapshots explicitly require a full read
-  instead of silently truncating acceptance evidence. Manual task starts and
-  automatic handoffs use the same formatter. Delivery receipts still persist
+- Task notifications carry the revision and only the current handoff input:
+  instructions and acceptance criteria for new work, the new report for review,
+  or correction feedback for a return. They do not repeat task documentation,
+  phase notes or earlier reports. Reuse known context; call `todo_get` when
+  necessary context is missing or a real revision conflict requires refreshing
+  it. Reports and feedback are preserved in full, without silent truncation.
+  Manual task starts and automatic handoffs use the same formatter. Delivery receipts still persist
   and notify the UI, but do not invalidate the task revision; actual plan,
   report, assignment and workflow changes retain optimistic concurrency checks.
   Managers can finish their turn while awaiting the existing durable report

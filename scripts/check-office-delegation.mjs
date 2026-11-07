@@ -32,10 +32,11 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
   check("department context defaults to own scope and explicit read-only lookups use saved responsibilities", own.departments.length === 1 && own.departments[0].id === project.id && own.departments[0].description === "Scoped fixture product work" && directory.departments.length === 2 && shared.departments[0].id === "open-workspace" && directory.departments.find(row => row.id === project.id).heads[0].id === manager);
   const tools = await client.call("session.mcp", { threadId: manager });
   check("existing resumed conversations discover delegation MCP tools", tools.servers.some(server => server.name === "office_tasks" && server.tools === 17));
-  const task = (await client.call("todo.create", { actorId: ceo, assigneeId: ceo, title: "One delegated user goal", phases: [{ title: "Execute" }, { title: "Manager acceptance" }], requestId: "delegation-task" })).todo;
+  const task = (await client.call("todo.create", { actorId: ceo, assigneeId: ceo, title: "One delegated user goal", documentation: "STORED_TASK_SCOPE " + "Previous verified work. ".repeat(250), phases: [{ title: "Execute", notes: "STORED_PHASE_NOTES" }, { title: "Manager acceptance" }], requestId: "delegation-task" })).todo;
   const operations = [], observations = [], stages = new Map([[ceo, 0], [manager, 0], [worker, 0]]);
   let sawBusyInbox = false, occupied = false, recruitedWhileBusy = false, recruitRequest, number = 0;
-  const snapshots = new Set();
+  const notifications = new Set();
+  let workerHasPlan = false;
   setModelFixture(async (payload, res) => {
     try {
       const serialized = (payload.input || []).filter(item => item.role === "developer").flatMap(item => item.content || []).map(item => item.text || "").join("\n");
@@ -48,13 +49,17 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
       if (caller === manager && [0, 4, 6].includes(stage) || caller === worker && stage === 0 || caller === ceo && stage === 3) {
         const user = [...(payload.input || [])].reverse().find(item => item.role === "user");
         const text = (user?.content || []).map(item => item.text || "").join("\n");
-        const snapshot = JSON.parse(text.split("Task snapshot: ")[1].split("\n")[0]);
-        check(`native task snapshot is complete and current for ${caller === ceo ? "CEO review" : caller === manager ? "Head stage " + stage : "worker start"}`, snapshot.id === task.id && snapshot.revision === current.revision && snapshot.phases.length === task.phases.length && typeof snapshot.documentation === "string" && Boolean(snapshot.handoff.acceptanceCriteria) && (snapshot.handoff.state !== "review" || Boolean(snapshot.handoff.report)));
-        snapshots.add(caller + ":" + stage);
-        args.revision = snapshot.revision;
+        const update = JSON.parse(text.split("Task update: ")[1].split("\n")[0]);
+        const entry = current.delegations.findLast(entry => !["accepted", "recalled"].includes(entry.state)), expected = entry.state === "review" ? { report: entry.report } : entry.review?.accepted === false ? { feedback: entry.review.notes } : { instructions: entry.instructions, acceptanceCriteria: entry.acceptanceCriteria };
+        check(`native handoff carries only current input and usable revision for ${caller === ceo ? "CEO review" : caller === manager ? "Head stage " + stage : "worker start"}`, text.includes(task.id) && JSON.stringify(update) === JSON.stringify({ revision: current.revision, ...expected }) && !text.includes("STORED_TASK_SCOPE") && !text.includes("STORED_PHASE_NOTES"));
+        notifications.add(caller + ":" + stage);
+        args.revision = update.revision;
       }
       let operation;
-      if (caller === existingWorker) {
+      if (caller === worker && stage === 0 && !workerHasPlan) {
+        workerHasPlan = true; stages.set(caller, stage);
+        operation = ["todo_get", { id: task.id }]; // Fresh recipient loads missing context once.
+      } else if (caller === existingWorker) {
         occupied = true;
         await until(async () => (await client.call("office.snapshot")).agents.some(row => row.name === "Fixture recruit"), "Head did not recruit while existing report was busy");
       } else if (caller === ceo) {
@@ -110,7 +115,7 @@ export async function checkOfficeDelegation({ client, restart, workspace, stateD
   await until(async () => (await client.call("office.snapshot")).agents.filter(row => [ceo, manager, worker, existingWorker].includes(row.id)).every(row => row.status === "idle"), "Native handoff turns did not finish");
   const finished = (await client.call("todo.get", { id: task.id })).todo;
   const original = finished.delegations[0].replyContext?.questions.flatMap(q => q.sources).find(source => source.threadId === ceo && source.excerpt.includes("Implement the bounded fixture goal"));
-  check("native nested work and acceptance use supplied snapshots without model-side todo_get", snapshots.size === 5 && !operations.some(([, tool]) => tool === "todo_get"));
+  check("native ping-pong uses current updates, with one cold-context read and no repeated full task reads", notifications.size === 5 && operations.filter(([, tool]) => tool === "todo_get").length === 1 && payloads.some(payload => (payload.input || []).some(item => /output/.test(item.type) && JSON.stringify(item).includes("STORED_TASK_SCOPE"))));
   check("agent explicitly registers semantic Q through real native MCP", operations.some(([, name]) => name === "question_context") && finished.replyContext?.questions[0]?.summary === "Implement and verify the bounded fixture through the reporting line");
   check("task origin comes from the actual request, not the earlier idle seed chat", Boolean(original) && finished.replyContext?.questions.flatMap(q => q.sources).some(source => source.itemId === original.itemId));
   check("handoff keeps the pre-existing CEO, Head and busy employee native identities", JSON.stringify(nativeIds()) === before);

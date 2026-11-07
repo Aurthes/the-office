@@ -34,23 +34,26 @@ async function fixture() {
   return { root, store, client, company, manager, worker, peer, graph, saveGraph, settingsFile, todos, deps, runtime, available, canSend, send, create, input, delegate, settle };
 }
 describe("real-session Office delegation", () => {
-  it("delivers the complete plan and usable revision so work and review need no preliminary task get", async () => {
+  it("delivers only the new handoff input or report with a usable revision", async () => {
     const f = await fixture(), task = f.create();
     f.todos.change(f.input(task.id, f.manager, { documentation: "Current scope; frozen inputs. Artifact: result.json" }), "edit");
     await f.delegate(task.id);
-    const snapshot = (message: string) => JSON.parse(message.split("Task snapshot: ")[1]);
-    const working = snapshot(f.send.mock.calls[0][1]);
-    expect(working).toMatchObject({ id: task.id, revision: f.todos.raw(task.id).revision, documentation: "Current scope; frozen inputs. Artifact: result.json", handoff: { state: "working", instructions: "Implement the requested change. Do not deploy." } });
-    expect(working.phases).toEqual(task.phases.map(({ id, title, notes, completedAt }: { id: string; title: string; notes: string; completedAt: number | null }) => ({ id, title, notes, completedAt })));
+    const update = (message: string) => JSON.parse(message.split("Task update: ")[1].split("\n")[0]);
+    const working = update(f.send.mock.calls[0][1]);
+    expect(working).toEqual({ revision: f.todos.raw(task.id).revision, instructions: "Implement the requested change. Do not deploy.", acceptanceCriteria: "Tests pass and the original request is met." });
+    expect(f.send.mock.calls[0][1]).not.toContain("Current scope; frozen inputs");
+    // A new recipient can still load the full plan when it is missing.
+    expect(f.todos.get({ id: task.id }).todo.phases.map(({ id }: { id: string }) => id)).toEqual(task.phases.map(({ id }: { id: string }) => id));
     // Only transport metadata changed after dispatch; the announced revision works.
     f.todos.change({ id: task.id, revision: working.revision, actorId: f.worker, documentation: "Verified result.json" }, "edit");
     await f.runtime.submit(f.input(task.id, f.worker, { report: "Complete exact report. Read result.json to verify." })); await f.settle();
-    const review = snapshot(f.send.mock.calls.at(-1)![1]);
-    expect(review).toMatchObject({ revision: f.todos.raw(task.id).revision, documentation: "Verified result.json", handoff: { report: "Complete exact report. Read result.json to verify.", acceptanceCriteria: "Tests pass and the original request is met." } });
-    await f.runtime.review({ id: task.id, revision: review.revision, actorId: f.manager, accept: true, notes: "Independently verified result.json", requestId: "review-from-snapshot" });
+    const review = update(f.send.mock.calls.at(-1)![1]);
+    expect(review).toEqual({ revision: f.todos.raw(task.id).revision, report: "Complete exact report. Read result.json to verify." });
+    await f.runtime.review({ id: task.id, revision: review.revision, actorId: f.manager, accept: true, notes: "Independently verified result.json", requestId: "review-from-update" });
     expect(activeDelegation(f.todos.raw(task.id))).toBeUndefined();
-    const final = snapshot(taskNotification(f.todos.raw(task.id)));
-    expect(final.handoff).toMatchObject({ state: "accepted", report: "Complete exact report. Read result.json to verify." });
+    const final = update(taskNotification(f.todos.raw(task.id)));
+    expect(final).toEqual({ revision: f.todos.raw(task.id).revision });
+    expect(taskNotification(f.todos.raw(task.id))).not.toContain(review.report);
   });
   it("keeps real task edits conflicting while delivery receipts still persist and notify", async () => {
     const f = await fixture(), task = f.create(); await f.delegate(task.id);
@@ -63,12 +66,14 @@ describe("real-session Office delegation", () => {
     f.todos.change({ id: task.id, revision, actorId: CEO, documentation: "New actual user restriction" }, "edit");
     expect(() => f.todos.change({ id: task.id, revision, actorId: f.worker, documentation: "Overwrite" }, "edit")).toThrow(/changed/);
   });
-  it("falls back to an explicit full read for oversized snapshots without truncating acceptance data", async () => {
+  it("does not grow when unrelated task documentation, phases and history grow", async () => {
     const f = await fixture(), task = f.create(); await f.delegate(task.id);
     const row = f.todos.raw(task.id), original = JSON.stringify(row);
-    const message = taskNotification({ ...row, documentation: "边界".repeat(12000) });
-    expect(message).toContain("exceeds the notification budget"); expect(message).toContain("office_tasks.todo_get once");
-    expect(message).toContain("Task reference:"); expect(message).not.toContain("Task snapshot:");
+    const message = taskNotification(row);
+    const huge = { ...row, documentation: "边界".repeat(12000), phases: row.phases.map((phase: object) => ({ ...phase, notes: "historical notes".repeat(2000) })), delegations: [{ state: "accepted", report: "old report".repeat(2000) }, ...row.delegations] };
+    expect(taskNotification(huge)).toBe(message);
+    expect(message).toContain("only for missing information or a revision conflict");
+    expect(message).not.toContain("Task snapshot:");
     expect(JSON.stringify(row)).toBe(original);
   });
   it("reads the same live graph as the scene, applies defaults and exposes no credentials", async () => {
@@ -128,9 +133,16 @@ describe("real-session Office delegation", () => {
     const f = await fixture(), task = f.create(); await f.delegate(task.id);
     await f.runtime.submit(f.input(task.id, f.worker, { report: "First result" })); await f.settle();
     await f.runtime.review(f.input(task.id, f.manager, { accept: false, notes: "Fix the missing edge case" }));
+    const update = (message: string) => JSON.parse(message.split("Task update: ")[1].split("\n")[0]);
+    const returned = f.send.mock.calls.at(-1)![1];
+    expect(update(returned)).toEqual({ revision: f.todos.raw(task.id).revision, feedback: "Fix the missing edge case" });
+    expect(returned).not.toContain("First result"); expect(returned).not.toContain("Implement the requested change");
     expect(f.todos.raw(task.id)).toMatchObject({ id: task.id, assigneeId: f.worker });
     expect(activeDelegation(f.todos.raw(task.id))).toMatchObject({ state: "working", review: { notes: "Fix the missing edge case" } });
     await f.runtime.submit(f.input(task.id, f.worker, { report: "Edge case fixed, verified with test." })); await f.settle();
+    const resubmitted = f.send.mock.calls.at(-1)![1];
+    expect(update(resubmitted)).toEqual({ revision: f.todos.raw(task.id).revision, report: "Edge case fixed, verified with test." });
+    expect(resubmitted).not.toContain("Fix the missing edge case"); expect(resubmitted).not.toContain("First result");
     expect(f.todos.raw(task.id).phases.map((phase: { id: string }) => phase.id)).toEqual(task.phases.map((phase: { id: string }) => phase.id));
     expect(f.todos.rows.size).toBe(1); expect(f.todos.raw(task.id).events.some((event: { message: string }) => event.message.includes("First result"))).toBe(true);
   });
