@@ -64,6 +64,18 @@ store = new CodexOfficeStore(directory, native, changed, id => Boolean(voice?.ac
 store.ensureCeo();
 controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features, replyContext,
   changed: id => { stream?.changed(id); changed(); },
+  editBlocked: id => voice?.active?.threadId === id || store.starting.has(id),
+  history: {
+    read: id => store.get(id).historyEpoch,
+    reset: (id, historyEpoch, removedTurnId) => {
+      const row = store.get(id);
+      if (removedTurnId) row.revertedTurnIds = [...new Set([...(row.revertedTurnIds || []), removedTurnId])].slice(-128);
+      row.historyEpoch = historyEpoch; store.save();
+      broadcast("session.historyReset", { threadId: id, historyEpoch });
+    },
+    reverted: id => store.reverted(id),
+    refused: (id, turnId) => { const row = store.get(id); row.revertedTurnIds = (row.revertedTurnIds || []).filter(id => id !== turnId); store.save(); },
+  },
   recovery: {
     read: id => store.data.sessions.find(row => row.id === id)?.recovery,
     write: (id, recovery) => { const row = store.data.sessions.find(row => row.id === id); if (row) { row.recovery = recovery; store.save(); } },
@@ -85,7 +97,13 @@ const agents = () => {
   return store.list().map(row => ({ ...row, hasPendingSchedule: pending.has(row.id), status: controls.state(row.id).retry ? "running" : row.status, role: row.project, identity: { name: row.name, emoji: "💬" }, needsInput: Boolean(store.pendingQuestions(row.id).length || controls.questions(row.id).some(q => !q.submitted) || controls.approvalCount(row.id)) }));
 };
 const key = id => `agent:${id}:main`;
-const history = (id, cursor) => loadSessionHistoryPage(store.call.bind(store), store.get(id), cursor, replyContext);
+const history = async (id, cursor, epoch) => {
+  const current = controls.state(id).historyEpoch;
+  if (cursor && epoch !== undefined && epoch !== current) throw new Error("History changed. Reload the latest messages.");
+  const result = await loadSessionHistoryPage(store.call.bind(store), store.get(id), cursor, replyContext);
+  if (controls.state(id).historyEpoch !== current) throw new Error("History changed during the read. Reload the latest messages.");
+  return { ...result, historyEpoch: current };
+};
 async function account(options) { const status = await accountContext.read(options); return { loggedIn: Boolean(status.account) || status.requiresOpenaiAuth === false, email: status.account?.email || null, requiresAuth: status.requiresOpenaiAuth !== false, loginFlow: process.env.CLAW3D_OFFICE_DESKTOP === "1" ? "browser" : "device", login }; }
 schedules = new OfficeSchedules(directory, {
   getSession: id => store.get(id), changed: () => { broadcast("schedules.updated", {}); changed(); },
@@ -202,14 +220,20 @@ const methods = {
   "sessions.list": async p => ({ sessions: store.list().filter(r => !p.agentId || p.agentId === r.id).map(r => ({ key: key(r.id), displayName: r.name, updatedAt: r.updatedAt, model: r.model, thinkingLevel: r.effort })) }),
   "sessions.preview": async p => ({ ts: Date.now(), previews: (p.keys || []).map(key => ({ key, status: "empty", items: [] })) }),
   "chat.history": async p => ({ sessionKey: p.sessionKey, ...await history(String(p.sessionKey).split(":")[1], p.cursor) }),
-  "session.history": p => history(p.threadId, p.cursor),
+  "session.history": p => history(p.threadId, p.cursor, p.historyEpoch),
   "session.search": p => messageSearch.search(p),
   "session.messageContext": p => messageSearch.context(p),
-  "session.inspect": async p => { store.get(p.threadId); return { ...store.list().find(row => row.id === p.threadId), statusSource: "Office Codex runtime", runtime: "office", terminalAvailable: true, readOnly: false, controlsAvailable: native.ready, ...(p.includeHistory === false ? {} : await history(p.threadId)) }; },
+  "session.inspect": async p => { store.get(p.threadId); return { ...store.list().find(row => row.id === p.threadId), historyEpoch: controls.state(p.threadId).historyEpoch, statusSource: "Office Codex runtime", runtime: "office", terminalAvailable: true, readOnly: false, controlsAvailable: native.ready, ...(p.includeHistory === false ? {} : await history(p.threadId)) }; },
   "session.attach": async p => { store.get(p.threadId); await controls.attach(p.threadId); return controls.snapshot(p.threadId); },
   "session.subscribe": (p, ws) => { store.get(p.threadId); return stream.subscribe(ws, p.threadId, p.subscriptionId); },
   "session.unsubscribe": (p, ws) => stream.unsubscribe(ws, p.subscriptionId),
   "session.send": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, p.message, p.requestId, p.attachments, { references: p.references || [] }); store.clearQuestions(p.threadId, pending); return result; },
+  "session.edit.prepare": p => { store.get(p.threadId); return controls.prepareEdit(p.threadId); },
+  "session.edit.commit": async p => {
+    store.get(p.threadId);
+    if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending");
+    return store.once(p, () => controls.commitEdit(p.threadId, p));
+  },
   "session.composer.options": p => composer.options(p.threadId, p.kind, p.query),
   "session.compact": p => { store.get(p.threadId); if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before compacting"); return store.once(p, () => controls.compact(p.threadId)); },
   "session.mcp": async p => { store.get(p.threadId); const result = await native.call("mcpServerStatus/list", { limit: 50 }); return { servers: result.data.map(server => ({ name: server.name, status: server.runtimeStatus || server.authStatus, tools: Object.keys(server.tools || {}).length })) }; },
@@ -218,7 +242,7 @@ const methods = {
   "session.settings.choices": p => { store.get(p.threadId); return controls.choices(p.threadId); },
   "session.settings.update": p => { store.get(p.threadId); if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before changing settings"); return controls.updateSettings(p.threadId, p.settings); },
   "session.voice.options": () => voice.choices(),
-  "session.voice.start": async (p, ws) => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before calling"); return voice.start(ws, p.threadId, p.sdp, p.voiceId, p.voice); },
+  "session.voice.start": async (p, ws) => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before calling"); if (controls.state(p.threadId).editUncertain && !await controls.reconcileEdit(p.threadId)) throw new Error("A previous rewind is still unconfirmed. Wait before calling."); if (controls.state(p.threadId).editCommit) throw new Error("Wait for the edit to finish before calling"); return voice.start(ws, p.threadId, p.sdp, p.voiceId, p.voice); },
   "session.voice.stop": (p, ws) => { store.get(p.threadId); return voice.stop(ws, p.threadId, p.voiceId); },
   "session.question.reply": async p => {
     store.get(p.threadId);
@@ -276,7 +300,7 @@ wss.on("connection", ws => {
         if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) throw new Error("Invalid gateway token");
         if (!native.ready) throw new Error("Office Codex is starting");
         connected = true; clients.add(ws);
-        result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "office-codex-1", connId: crypto.randomUUID() }, features: { methods: Object.keys(methods), events: ["tick", "session.stream", "session.terminal", "session.voice", "roster.updated", "project.updated", "office.account", "session.prediction", "schedules.updated", "todos.updated"] }, snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: store.list()[0]?.id }, sessionDefaults: { mainKey: "main" } }, auth: { role: "operator", scopes: ["operator.read", "operator.write", "operator.approvals"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
+        result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "office-codex-1", connId: crypto.randomUUID() }, features: { methods: Object.keys(methods), events: ["tick", "session.stream", "session.historyReset", "session.terminal", "session.voice", "roster.updated", "project.updated", "office.account", "session.prediction", "schedules.updated", "todos.updated"] }, snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: store.list()[0]?.id }, sessionDefaults: { mainKey: "main" } }, auth: { role: "operator", scopes: ["operator.read", "operator.write", "operator.approvals"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
       } else {
         if (!connected) throw new Error("Connect first");
         if (!Object.hasOwn(methods, frame.method)) throw new Error("This feature is not available in Office");

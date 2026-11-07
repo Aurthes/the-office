@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Headphones, Mic, Paperclip, Play, Square, X } from "lucide-react";
+import { Headphones, Mic, Paperclip, PencilLine, Play, Square, X } from "lucide-react";
 import { SessionSettings, type ChatSettings } from "./SessionSettings";
 import { SessionContextUsage } from "./SessionContextUsage";
 import { useSessionVoice, type SessionVoiceController } from "./useSessionVoice";
@@ -20,7 +20,7 @@ export type SessionAsset = { source: string; name: string; kind: "image" | "mark
 export type ReplySource = { threadId: string; turnId: string; itemId: string; excerpt: string };
 export type ReplyQuestion = { id: string; summary: string; sources: ReplySource[]; parentQuestionId?: string; parents?: { id: string; summary: string }[] };
 export type ReplyContext = { questions?: ReplyQuestion[]; taskId?: string; taskTitle?: string; phaseId?: string; phaseTitle?: string; sources?: ReplySource[] };
-export type LiveSessionItem = { id: string; clientId?: string; turnId?: string; source?: "voice"; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number; replyContext?: ReplyContext;
+export type LiveSessionItem = { historyEpoch?: string; id: string; clientId?: string; turnId?: string; source?: "voice"; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number; replyContext?: ReplyContext;
   delivery?: "sending" | "accepted" | "failed" | "unknown"; attachmentNames?: string[]; deliveryError?: string };
 export type SessionClient = {
   call: (method: string, params: unknown) => Promise<unknown>;
@@ -29,19 +29,22 @@ export type SessionClient = {
   onGap?: (handler: (gap: { expected: number; received: number }) => void) => () => void;
 };
 type Approval = { requestId: string; method: string; params: Record<string, unknown>; details?: string; decisions: string[]; supported: boolean; submitted?: boolean };
-type Snapshot = { connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; activeTurnStartedAt?: number | null; turnStatus?: string; error?: string | null; retryAt?: number | null; retrying?: boolean; retryExhausted?: boolean; settings?: ChatSettings; features?: { dictation: boolean; dictationHTTP?: boolean; dictationReason?: string | null; dictationRetryAt?: number | null; voice: boolean; prediction: boolean; accountVersion?: number; composer?: boolean; chatReferences?: boolean }; tokenUsage?: { last: { inputTokens: number; outputTokens: number }; modelContextWindow?: number | null }; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number; questions?: SessionQuestionRequest[] };
+type Snapshot = { historyEpoch?: string; connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; activeTurnStartedAt?: number | null; turnStatus?: string; error?: string | null; retryAt?: number | null; retrying?: boolean; retryExhausted?: boolean; settings?: ChatSettings; features?: { dictation: boolean; dictationHTTP?: boolean; dictationReason?: string | null; dictationRetryAt?: number | null; voice: boolean; prediction: boolean; accountVersion?: number; composer?: boolean; chatReferences?: boolean }; tokenUsage?: { last: { inputTokens: number; outputTokens: number }; modelContextWindow?: number | null }; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number; questions?: SessionQuestionRequest[] };
 type StreamSnapshot = Omit<Snapshot, "items"> & { threadId: string; subscriptionId: string;
   items: (LiveSessionItem | (Omit<LiveSessionItem, "content"> & { append: string; baseVersion: number }))[] };
 type Upload = { id: string; name: string; size: number; ref?: string; error?: string };
 // Closing a conversation is navigation, not a request to discard its draft.
 const sessionDrafts = new Map<string, string>();
 const attachmentDrafts = new Map<string, Upload[]>();
+type TurnEdit = { token: string; turnId: string; inputCount: number; originalText: string; originalUploads: Upload[]; outcome?: string };
+const turnEditDrafts = new Map<string, TurnEdit>();
 
-export function SessionControls({ client, threadId, active = true, onItems, onHistorySync, onActiveTurnChange, onSendState, voice: sharedVoice, onOpenThread, onRenamed, onFork }: {
+export function SessionControls({ client, threadId, active = true, onItems, onHistorySync, onHistoryReset, onActiveTurnChange, onSendState, voice: sharedVoice, onOpenThread, onRenamed, onFork }: {
   client: SessionClient;
   active?: boolean;
   threadId: string; onItems: (items: LiveSessionItem[]) => void;
   onHistorySync?: () => void;
+  onHistoryReset?: (epoch: string) => void;
   onActiveTurnChange?: (turnId: string | null) => void;
   onSendState?: (threadId: string, item: LiveSessionItem) => void;
   voice?: SessionVoiceController;
@@ -68,6 +71,9 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
     if (value) sessionDrafts.set(threadId, value); else sessionDrafts.delete(threadId);
     setTextState(value);
   }, [threadId]);
+  const [edit, setEditState] = useState<TurnEdit | null>(() => turnEditDrafts.get(threadId) || null);
+  const setEdit = (value: TurnEdit | null) => { if (value) turnEditDrafts.set(threadId, value); else turnEditDrafts.delete(threadId); setEditState(value); };
+  const historyEpoch = useRef<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [error, setError] = useState("");
@@ -85,7 +91,7 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
   const input = useRef<HTMLTextAreaElement>(null);
   const setInputRef = useCallback((node: HTMLInputElement | HTMLTextAreaElement | null) => { input.current = node as HTMLTextAreaElement | null; }, []);
   const focusPending = useRef(true);
-  const composer = useSessionComposer({ client, threadId, enabled: Boolean(state?.connected && state.features?.composer), chatReferences: Boolean(state?.features?.chatReferences), text, setText, input, onOpenThread, onError: setError,
+  const composer = useSessionComposer({ client, threadId, enabled: Boolean(!edit && state?.connected && state.features?.composer), chatReferences: Boolean(state?.features?.chatReferences), text, setText, input, onOpenThread, onError: setError,
     onCommand: (command, argument) => { void executeCommand(command, argument).catch(cause => setError(cause instanceof Error ? cause.message : "Command failed")); } });
   const suggestedText = prediction?.threadId === threadId && state?.connected && !state.activeTurnId && state.turnStatus === "completed" && !text && !uploads.length && !composer.references.length ? prediction.text : "";
   useEffect(() => {
@@ -182,6 +188,7 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
     };
   }, [threadId]);
   const addFiles = async (files: File[]) => {
+    if (edit) { setError("Only ordinary text can be edited. Attachments are unavailable in this mode."); return; }
     if (actionBusy.current || settingsBusy || !state?.connected) return;
     if (uploadsRef.current.length + files.length > 8) { setError("Up to 8 attachments per message"); return; }
     if (files.some(file => file.size > 20 * 1024 * 1024 || !file.size)) { setError("Attachments must not be empty and must be under 20 MB each"); return; }
@@ -202,11 +209,15 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
     }));
   };
   const removeFile = (id: string) => { uploadRequests.current.get(id)?.abort(); updateUploads(uploadsRef.current.filter(item => item.id !== id)); };
-  const canContinue = Boolean(state?.turnStatus === "interrupted" && !state.activeTurnId && !text.trim() && !uploads.length && !composer.references.length && !dictation.busy && voice.status === "off");
-  const showStop = Boolean((state?.activeTurnId || state?.retryAt) && !dictation.busy && !text.trim() && !uploads.length && !composer.references.length);
-  const readyToSend = canContinue || Boolean((recording || text.trim() || suggestedText || uploads.length || composer.references.length) && uploads.every(file => file.ref) && dictation.phase !== "transcribing");
+  const canContinue = Boolean(!edit && state?.turnStatus === "interrupted" && !state.activeTurnId && !text.trim() && !uploads.length && !composer.references.length && !dictation.busy && voice.status === "off");
+  const showStop = Boolean(!edit && (state?.activeTurnId || state?.retryAt) && !dictation.busy && !text.trim() && !uploads.length && !composer.references.length);
+  const readyToSend = !edit?.outcome && (canContinue || Boolean((recording || text.trim() || suggestedText || uploads.length || composer.references.length) && uploads.every(file => file.ref) && dictation.phase !== "transcribing"));
   const send = () => {
     if (busy || settingsBusy || !state?.connected || !readyToSend) return;
+    if (edit) {
+      if (prepareComposerMessage(text).references.length) { setError("Only ordinary text can be edited."); return; }
+      void action("session.edit.commit", { token: edit.token, message: text, requestId: crypto.randomUUID() }); return;
+    }
     if (recording) { void stopDictation(true); return; }
     if (canContinue) { void action("session.continue", { requestId: crypto.randomUUID() }); return; }
     const message = text || suggestedText;
@@ -216,7 +227,7 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
     const prepared = prepareComposerMessage(message);
     void action("session.send", { ...prepared, attachments: uploads.map(file => file.ref), requestId: crypto.randomUUID() });
   };
-  const dictationShortcut = useDictationShortcut({ input, phase: dictation.phase, enabled: active && !busy && !settingsBusy && Boolean(state?.connected) && (recording || !dictationUnavailable) && voice.status === "off",
+  const dictationShortcut = useDictationShortcut({ input, phase: dictation.phase, enabled: !edit && active && !busy && !settingsBusy && Boolean(state?.connected) && (recording || !dictationUnavailable) && voice.status === "off",
     start: dictation.start, stop: submit => submit ? send() : stopDictation(), discard: dictation.discard });
   useEffect(() => {
     // The gateway has one chat stream per socket. Cached panels keep their
@@ -228,6 +239,9 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
     const items = new Map<string, LiveSessionItem>();
     const apply = (result: StreamSnapshot | Snapshot) => {
       if (stopped || result.version <= version) return;
+      if (result.historyEpoch && result.historyEpoch !== historyEpoch.current) {
+        historyEpoch.current = result.historyEpoch; items.clear(); onHistoryReset?.(result.historyEpoch);
+      }
       const changed: LiveSessionItem[] = [];
       for (const item of result.items) {
         if ("append" in item) {
@@ -295,18 +309,32 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
       document.removeEventListener("visibilitychange", onVisible);
       if (client.onEvent && subscriptionId) void client.call("session.unsubscribe", { threadId, subscriptionId }).catch(() => {});
     };
-  }, [active, client, threadId, onItems, onHistorySync]);
+  }, [active, client, threadId, onItems, onHistorySync, onHistoryReset]);
   const action = async (method: string, params: object) => {
     if (actionBusy.current || settingsBusy || !state?.connected) return;
     actionBusy.current = true;
-    setBusy(true); setError(""); setNotice("");
+    setBusy(true); setError(""); setNotice(method === "session.edit.commit" ? "Rewinding the turn and waiting for receipt…" : "");
     const send = method === "session.send" ? params as { requestId: string; message: string } : null;
     const local: LiveSessionItem | null = send ? { id: `local-send:${send.requestId}`, clientId: send.requestId, role: "user", content: send.message,
-      timestamp: Date.now(), delivery: "sending", attachmentNames: uploadsRef.current.map(file => file.name) } : null;
+      timestamp: Date.now(), historyEpoch: historyEpoch.current, delivery: "sending", attachmentNames: uploadsRef.current.map(file => file.name) } : null;
     if (local) onSendState?.(threadId, local);
     try {
       const result = await client.call(method, { threadId, ...params });
       if (local) onSendState?.(threadId, { ...local, delivery: "accepted" });
+      if (method === "session.edit.commit") {
+        setNotice("");
+        const outcome = result as { status: string; message?: string; historyEpoch?: string };
+        if (outcome.status === "edited" && edit) {
+          const sent = params as { requestId: string; message: string };
+          onSendState?.(threadId, { id: `local-send:${sent.requestId}`, clientId: sent.requestId, role: "user", content: sent.message, timestamp: Date.now(), historyEpoch: outcome.historyEpoch, delivery: "accepted" });
+          setText(edit.originalText); updateUploads(edit.originalUploads); setEdit(null); focusPending.current = true;
+          setNotice("Edited turn submitted. Existing file changes were kept.");
+        } else {
+          if (edit) setEdit({ ...edit, outcome: outcome.status });
+          setError(outcome.message || "Edit outcome is unknown. Text kept; check the conversation before sending again.");
+        }
+        onHistorySync?.();
+      }
       if (method === "session.send") { focusPending.current = true; setText(""); composer.clear(); if (!dictation.error) dictation.clear(); updateUploads([]); setNotice("Submitted to the session"); }
       if (method === "session.compact") { setText(""); focusPending.current = true; setNotice("Context compaction requested"); }
       if (method === "session.rename") { setText(""); onRenamed?.((result as { name: string }).name); setNotice("Chat renamed"); }
@@ -320,20 +348,35 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
       return result;
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Action failed. Check the session before retrying.";
+      if (method === "session.edit.commit" && edit) { setEdit({ ...edit, outcome: "unknown" }); setNotice(""); }
       if (local) {
         // Transport failures (including generic server errors) cannot prove that
         // native input was rejected. Only explicit validation/auth refusals can.
         const code = cause && typeof cause === "object" && "code" in cause ? String(cause.code) : "";
         const rejected = ["INVALID_REQUEST", "INVALID_PARAMS", "UNAUTHORIZED", "FORBIDDEN"].includes(code)
-          || /^(Sign in to Codex for Office before sending|请发送不超过|每次最多 8 个附件|请先输入消息或添加附件|附件引用无效|附件不属于此会话|Message text must be a string|Invalid composer reference)/.test(message);
+          || /^(A previous rewind is still unconfirmed|An edit is being committed|Sign in to Codex for Office before sending|请发送不超过|每次最多 8 个附件|请先输入消息或添加附件|附件引用无效|附件不属于此会话|Message text must be a string|Invalid composer reference)/.test(message);
         onSendState?.(threadId, { ...local, delivery: rejected ? "failed" : "unknown", deliveryError: message });
         if (!rejected) onHistorySync?.(); // Read only; never replay an uncertain send.
       }
       // The timeline owns this send's feedback and removes it on exact receipt.
       // Other actions and standalone composers still use their existing alert.
-      setError(local && onSendState ? "" : message);
+      setError(local && onSendState ? "" : method === "session.edit.commit" ? `Edit outcome is unknown. Text kept; check the conversation before sending again. ${message}` : message);
     }
     finally { actionBusy.current = false; setBusy(false); }
+  };
+  const beginEdit = async () => {
+    if (actionBusy.current || busy || settingsBusy || dictation.busy || voice.status !== "off" || uploads.some(file => !file.ref)) return;
+    actionBusy.current = true; setBusy(true); setError(""); setNotice("");
+    try {
+      const prepared = await client.call("session.edit.prepare", { threadId }) as { token: string; turnId: string; text: string; inputCount: number };
+      setEdit({ token: prepared.token, turnId: prepared.turnId, inputCount: prepared.inputCount, originalText: text, originalUploads: uploadsRef.current });
+      setText(prepared.text); updateUploads([]); setPrediction(null); focusPending.current = true;
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not prepare the interrupted turn."); }
+    finally { actionBusy.current = false; setBusy(false); }
+  };
+  const cancelEdit = () => {
+    if (!edit || busy) return;
+    setText(edit.originalText); updateUploads(edit.originalUploads); setEdit(null); setError("");
   };
   async function executeCommand(command: string, argument: string) {
     if (busy || settingsBusy || !state?.connected) return;
@@ -376,6 +419,10 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
     {state?.settings ? <SessionSettings key={`${threadId}:${state.features?.accountVersion || 0}:${settingsPanel?.nonce || ""}`} client={client} threadId={threadId} current={state.settings} disabled={busy || !state.connected || voice.status !== "off"} active={Boolean(state.activeTurnId)} onBusyChange={setSettingsBusy} initialPanel={settingsPanel?.kind}>
       {state.tokenUsage ? <SessionContextUsage usage={state.tokenUsage} /> : null}
     </SessionSettings> : null}
+    {edit ? <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-300/20 p-2 text-amber-100" role="status">
+      <span className="min-w-0 flex-1">{t("Editing the whole interrupted turn ({count} inputs). Resend rewinds its conversation history. File and code changes remain.", { count: edit.inputCount })}</span>
+      <button type="button" disabled={busy} className="shrink-0 underline disabled:opacity-40" onClick={cancelEdit}>{t(edit.outcome ? "Discard edit" : "Cancel edit")}</button>
+    </div> : state?.connected && !state.activeTurnId && state.turnStatus === "interrupted" ? <button type="button" disabled={busy || settingsBusy || dictation.busy || voice.status !== "off"} onClick={() => void beginEdit()} className="mb-2 flex min-h-9 items-center gap-1 text-cyan-200 disabled:opacity-40"><PencilLine size={14} />{t("Edit interrupted turn")}</button> : null}
     <input ref={picker} type="file" multiple className="hidden" aria-label={t("Choose attachments")} onChange={event => { void addFiles(Array.from(event.target.files || [])); event.target.value = ""; }} />
     {uploads.length ? <div className="mb-2 flex max-h-24 flex-wrap gap-2 overflow-y-auto" aria-label={t("Pending attachments")}>{uploads.map(file => <div key={file.id} className="flex max-w-full items-center gap-2 rounded-lg border border-white/15 bg-white/5 py-1 pl-2">
       <span className="min-w-0 truncate" title={file.name}>{file.name}</span><span className={file.error ? "text-rose-200" : "shrink-0 text-white/40"}>{file.error ? t(file.error) : (!file.ref ? t("Uploading…") : Math.max(1, Math.ceil(file.size / 1024)) + " KB")}</span>
@@ -415,6 +462,7 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
       const rich = event.clipboardData.getData("text/react-mentions");
       const node = input.current!;
       const start = node.selectionStart, end = node.selectionEnd;
+      if (edit && rich && referenceSerializer.findAll(rich).length) { event.preventDefault(); setError("Only ordinary text can be edited."); return; }
       if (rich && referenceSerializer.findAll(rich).length) { event.preventDefault(); composer.replaceRange(node.selectionStart, node.selectionEnd, rich, prepareComposerMessage(rich).message.length); return; }
       if (pasted && typeof document.execCommand === "function" && document.execCommand("insertText", false, pasted)) {
         event.preventDefault(); composer.replaceRange(start, end, pasted);
@@ -427,7 +475,7 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
     <div className="session-composer-actions mt-2">
       <div className="session-composer-tools flex shrink-0 items-center gap-1">
         {dictation.busy ? <button aria-label={t("Cancel recording")} title={t("Cancel recording (Esc)")} onClick={dictation.discard} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5"><X size={19} /></button> :
-          <button aria-label={t("Add attachments")} title={t("Add attachments, drag files, or paste images")} disabled={busy || settingsBusy || !state?.connected} onClick={() => picker.current?.click()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Paperclip size={19} /></button>}
+          <button aria-label={t("Add attachments")} title={t("Add attachments, drag files, or paste images")} disabled={Boolean(edit) || busy || settingsBusy || !state?.connected} onClick={() => picker.current?.click()} className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Paperclip size={19} /></button>}
       </div>
       {dictation.busy ? <span role="status" className="session-composer-status min-w-0 truncate text-xs text-rose-200">
         {dictation.phase === "starting" ? t("Preparing microphone…") : dictation.phase === "transcribing" ? t("Transcribing…") : t("Recording · {time}", { time: `${Math.floor(dictation.seconds / 60)}:${String(Math.floor(dictation.seconds % 60)).padStart(2, "0")}` })}
@@ -439,13 +487,13 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
         </span> : null}
       </span>}
       <div className="session-composer-submit flex shrink-0 items-center gap-2">
-        <button aria-label={recording ? t("Stop recording and transcribe") : t("Dictation")} title={!recording && dictationUnavailable ? t(dictationReason) : dictationShortcut === "off" ? t("Click to record. Enter: transcribe and send. Esc: cancel.") : t("Click to record. {shortcut}: tap to toggle, hold to dictate. Enter: transcribe and send. Esc: cancel.", { shortcut: dictationShortcutLabel(dictationShortcut) })} disabled={(!recording && dictationUnavailable) || dictation.phase === "transcribing" || (!recording && (busy || settingsBusy || !state?.connected || voice.status !== "off"))} onClick={() => { if (recording) void stopDictation(); else void dictation.start(); }} className={"session-composer-audio grid h-10 w-10 place-items-center rounded-lg disabled:opacity-40 " + (dictation.phase === "recording" ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65 hover:bg-white/5")}><Mic size={19} /></button>
-        {!dictation.busy ? <button aria-label={t("Voice chat")} title={state?.features?.voice === false ? t("Live voice is not connected to the Office runtime yet") : t("Start an experimental voice call in this session")} disabled={state?.features?.voice === false || busy || settingsBusy || !state?.connected || dictation.busy || voice.status !== "off"} onClick={() => void voice.start(threadId)} className="session-composer-audio grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button> : null}
+        <button aria-label={recording ? t("Stop recording and transcribe") : t("Dictation")} title={!recording && dictationUnavailable ? t(dictationReason) : dictationShortcut === "off" ? t("Click to record. Enter: transcribe and send. Esc: cancel.") : t("Click to record. {shortcut}: tap to toggle, hold to dictate. Enter: transcribe and send. Esc: cancel.", { shortcut: dictationShortcutLabel(dictationShortcut) })} disabled={Boolean(edit) || (!recording && dictationUnavailable) || dictation.phase === "transcribing" || (!recording && (busy || settingsBusy || !state?.connected || voice.status !== "off"))} onClick={() => { if (recording) void stopDictation(); else void dictation.start(); }} className={"session-composer-audio grid h-10 w-10 place-items-center rounded-lg disabled:opacity-40 " + (dictation.phase === "recording" ? "animate-pulse bg-rose-900/40 text-rose-200" : "text-white/65 hover:bg-white/5")}><Mic size={19} /></button>
+        {!dictation.busy ? <button aria-label={t("Voice chat")} title={state?.features?.voice === false ? t("Live voice is not connected to the Office runtime yet") : t("Start an experimental voice call in this session")} disabled={Boolean(edit) || state?.features?.voice === false || busy || settingsBusy || !state?.connected || dictation.busy || voice.status !== "off"} onClick={() => void voice.start(threadId)} className="session-composer-audio grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/5 disabled:opacity-40"><Headphones size={19} /></button> : null}
         {!state?.settings && state?.tokenUsage ? <SessionContextUsage usage={state.tokenUsage} above /> : null}
         <button aria-label={showStop ? t("Stop") : canContinue ? t("Continue interrupted task") : recording ? t("Transcribe and send") : undefined} title={showStop ? t("Stop") : canContinue ? t("Continue interrupted task") : recording ? t("Transcribe and send (Enter)") : undefined}
           disabled={busy || settingsBusy || !state?.connected || (!showStop && !readyToSend)} onClick={showStop ? () => void action("session.stop", {}) : send}
           className={showStop ? "session-composer-stop grid h-10 w-10 place-items-center rounded-lg text-rose-200 hover:bg-white/5 disabled:opacity-40" : "min-h-10 rounded-lg bg-cyan-700 px-4 text-sm text-white disabled:opacity-40"}>
-          {showStop ? <Square size={15} fill="currentColor" aria-hidden="true" /> : busy ? t("Submitting…") : canContinue ? <Play size={18} fill="currentColor" aria-hidden="true" /> : dictation.busy ? t("Send") : state?.activeTurnId ? t("Steer") : t("Send")}
+          {showStop ? <Square size={15} fill="currentColor" aria-hidden="true" /> : busy ? t("Submitting…") : edit ? t("Confirm resend") : canContinue ? <Play size={18} fill="currentColor" aria-hidden="true" /> : dictation.busy ? t("Send") : state?.activeTurnId ? t("Steer") : t("Send")}
         </button>
       </div>
     </div>

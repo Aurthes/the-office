@@ -261,17 +261,18 @@ class CodexOfficeStore {
       // for Office rows created before structured questions were supported.
       const latestRead = method === "thread/turns/list" && params.limit === 1 && params.sortDirection === "desc";
       const previousStatus = row.status, previousCompletion = row.completionKey, previousTurn = row.lastTurnId;
+      const readEpoch = row.historyEpoch;
       const restoreQuestions = latestRead && !Array.isArray(row.pendingQuestions);
       if (restoreQuestions) mapped.itemsView = "full";
       try {
         const result = await this.client.call(method, mapped);
         let updated = false;
-        if (restoreQuestions && !Array.isArray(row.pendingQuestions)) {
+        if (restoreQuestions && readEpoch === row.historyEpoch && !Array.isArray(row.pendingQuestions)) {
           row.pendingQuestions = (result.data[0]?.items || []).reduce(pendingAfterItem, []); updated = true;
         }
         // Reconcile persisted running/unknown rows after an Office restart.
         // A live event received during this read remains authoritative.
-        if (latestRead && row.status === previousStatus && row.completionKey === previousCompletion && row.lastTurnId === previousTurn) {
+        if (latestRead && readEpoch === row.historyEpoch && row.status === previousStatus && row.completionKey === previousCompletion && row.lastTurnId === previousTurn) {
           const turn = result.data[0], turnStatus = turn?.status || null;
           const status = turnStatus === "inProgress" ? "running" : ["failed", "interrupted"].includes(turnStatus) ? "error" : "idle";
           const completionKey = turn?.status === "completed" ? turn.id : null;
@@ -292,12 +293,18 @@ class CodexOfficeStore {
     } finally { if (starting) this.starting.delete(row.id); }
   }
 
+  reverted(id) {
+    const row = this.get(id);
+    row.projectContext = null; row.pendingQuestions = []; row.status = "idle"; row.turnStatus = null;
+    row.lastTurnId = null; row.completionKey = null; this.save(); this.changed();
+  }
   respond(id, result) { return this.client.respond(id, result); }
   handle(frame) {
     const p = frame.params || {}, nativeId = p.threadId || p.thread?.id;
     if (!nativeId) return frame;
     const row = this.data.sessions.find(s => s.codexThreadId === nativeId);
-    if (!row) return null;
+    if (!row || row.revertedTurnIds?.includes(p.turnId || p.turn?.id)) return null;
+    if (frame.method === "thread/reverted") this.reverted(row.id);
     if (frame.method === "turn/started") { row.hasTurns = true; row.status = "running"; row.turnStatus = "inProgress"; row.lastTurnId = p.turn.id; row.completionKey = null; row.updatedAt = Date.now(); this.save(); }
     if (frame.method === "turn/completed") { row.status = ["failed", "interrupted"].includes(p.turn.status) ? "error" : "idle"; row.turnStatus = p.turn.status; row.lastTurnId = p.turn.id; row.updatedAt = Date.now(); row.completionKey = p.turn.status === "completed" ? p.turn.id : null; this.save(); }
     if (frame.method === "item/completed" && ["agentMessage", "userMessage"].includes(p.item?.type)) {
