@@ -176,3 +176,22 @@ it("maps all reported disable bits to their original meanings without inferring 
   for (const reason of ["Model disabled this side", "Fee unavailable", "Risk blocked", "EV blocked", "Anti-arbitrage blocked", "Disable mask: 31"])
     expect(final).toHaveTextContent(reason);
 });
+
+
+it("accepts a cold producer response beyond one refresh interval without a false read failure", async () => {
+  vi.useFakeTimers();
+  const fetcher = vi.fn((_url: string, options: RequestInit) => new Promise<Response>((resolve, reject) => {
+    const response = setTimeout(() => resolve(Response.json(fillSnapshot())), 12_000);
+    options.signal?.addEventListener("abort", () => {
+      clearTimeout(response);
+      reject(new DOMException("Aborted", "AbortError"));
+    }, { once: true });
+  }));
+  vi.stubGlobal("fetch", fetcher);
+  render(createElement(FillProbabilityDashboard));
+  await act(() => vi.advanceTimersByTimeAsync(12_000));
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("table", { name: "Fill probability stages" })).toBeInTheDocument();
+  expect(screen.getByText("0.0004")).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).toBeNull();
+});
