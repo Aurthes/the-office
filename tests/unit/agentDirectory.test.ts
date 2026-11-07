@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AgentDirectory } from "@/features/office/components/AgentDirectory";
 import { getAgentActivity } from "@/features/retro-office/core/agentActivity";
-import { currentTasksByAgent, reportingForest, taskCode, type DirectoryAgent, type ReportingNode } from "@/features/office/operations/agentDirectory";
+import { currentTasksByAgent, reportingForest, type DirectoryAgent, type ReportingNode } from "@/features/office/operations/agentDirectory";
 import { CEO_ID, type OrganizationView } from "@/lib/office/organization";
 import { setUiLanguage } from "@/lib/i18n/ui-language";
 
@@ -35,10 +35,10 @@ function fixture(view: "project" | "activity" | "organization" = "project", sear
   return { ...result, props };
 }
 it("indexes the same task ID under Owner and Assignee, deduplicates the same person and keeps different tasks", () => {
-  const shared = { id: "same", title: "Shared task", ownerId: "head", assigneeId: "worker", status: "paused", archived: false };
-  const indexed = currentTasksByAgent([shared, shared, { ...shared, id: "both", ownerId: "worker" }, { ...shared, id: "finished", status: "done" }, { ...shared, id: "archived", archived: true }]);
-  expect(indexed.get("head")).toEqual([{ id: "same", title: "Shared task", code: "ST", roles: ["Owner"] }]);
-  expect(indexed.get("worker")).toEqual([{ id: "same", title: "Shared task", code: "ST", roles: ["Assignee"] }, { id: "both", title: "Shared task", code: "ST", roles: ["Owner", "Assignee"] }]);
+  const shared = { id: "same", code: "T1", title: "Shared task", ownerId: "head", assigneeId: "worker", status: "paused", archived: false };
+  const indexed = currentTasksByAgent([shared, shared, { ...shared, id: "both", code: "T2", ownerId: "worker" }, { ...shared, id: "finished", status: "done" }, { ...shared, id: "archived", archived: true }]);
+  expect(indexed.get("head")).toEqual([{ id: "same", title: "Shared task", code: "T1", roles: ["Owner"] }]);
+  expect(indexed.get("worker")).toEqual([{ id: "same", title: "Shared task", code: "T1", roles: ["Assignee"] }, { id: "both", title: "Shared task", code: "T2", roles: ["Owner", "Assignee"] }]);
 });
 it.each(["project", "activity", "organization"] as const)("shows each person's actual task roles in single badges and multi-task menus in %s", view => {
   const indexed = currentTasksByAgent([{ id: "same", title: "Shared task", ownerId: "head", assigneeId: "worker", status: "queued", archived: false }, { id: "both", title: "Both roles", ownerId: "worker", assigneeId: "worker", status: "paused", archived: false }]);
@@ -87,13 +87,13 @@ it("keeps ancestor paths when searching by a task code and lets branches collaps
   expect(within(tree).getByLabelText("Also reports here")).toBeTruthy();
 });
 it("keeps all open assignments including queued and paused work, excluding completed, archived and unassigned work", () => {
-  const task = { id: "avc", title: "Agent View Compression (AVC)", status: "running", archived: false, assigneeId: "worker" };
+  const task = { id: "avc", code: "T37", title: "Agent View Compression (AVC)", status: "running", archived: false, assigneeId: "worker" };
   const result = currentTasksByAgent([task, task, { ...task, id: "paused", status: "paused" }, { ...task, id: "queued", status: "queued", assigneeId: "head" }, { ...task, id: "done", status: "done" }, { ...task, id: "archived", archived: true }, { ...task, id: "orphan", assigneeId: null }]);
   expect([...result.keys()]).toEqual(["worker", "head"]);
   expect(result.get("worker")?.map(task => task.id)).toEqual(["avc", "paused"]);
-  expect(result.get("head")).toEqual([{ id: "queued", title: task.title, code: "AVC", roles: ["Assignee"] }]);
-  expect(taskCode("Background Music Theme")).toBe("BMT");
-  expect(taskCode("整理实验数据")).toBe("整理实验数据");
+  expect(result.get("head")).toEqual([{ id: "queued", title: task.title, code: "T37", roles: ["Assignee"] }]);
+  expect(currentTasksByAgent([{ ...task, title: "Renamed task" }]).get("worker")?.[0].code).toBe("T37");
+  expect(currentTasksByAgent([{ ...task, code: undefined }]).get("worker")?.[0].code).toBe(task.id);
 });
 it.each(["project", "activity", "organization"] as const)("keeps idle agents' assignments accessible and searchable in %s", view => {
   const { props, rerender } = fixture(view);

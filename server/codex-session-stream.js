@@ -45,7 +45,11 @@ class CodexSessionStream {
     if (this.subscriptions.get(ws) !== entry) return;
     if (ws.readyState !== 1) return this.disconnected(ws);
     try {
-      const snapshot = this.controls.snapshot(threadId, Math.max(0, entry.version));
+      let snapshot = this.controls.snapshot(threadId, Math.max(0, entry.version));
+      if (entry.historyEpoch !== snapshot.historyEpoch) {
+        entry.items.clear(); entry.historyEpoch = snapshot.historyEpoch;
+        snapshot = this.controls.snapshot(threadId, 0);
+      }
       if (snapshot.version === entry.version) return;
       const items = snapshot.items.map(item => {
         const previous = entry.items.get(item.id);

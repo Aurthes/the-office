@@ -19,6 +19,14 @@ function fixture(scope?: string | null, overrides: Partial<OfficeTodo> = {}, tas
   const view = render(createElement(TaskBoard, props));
   return { todo, call, props, ...view };
 }
+it("shows the backend task code in both the list and the existing detail view", async () => {
+  const f = fixture(undefined, { code: "T37" });
+  const card = await screen.findByTestId("todo-card");
+  expect(within(card).getByText("T37")).toBeTruthy();
+  fireEvent.click(await within(card).findByRole("button"));
+  expect(await screen.findByRole("heading", { name: "T37 · Release app" })).toBeTruthy();
+  expect(f.call).toHaveBeenCalledWith("todo.get", { id: f.todo.id });
+});
 it("separates the Owner and Assignee filters and displays both on cards and details", async () => {
   const f = fixture(undefined, { ownerId: "alice", ownerName: "Follow-up Alice", assigneeName: "Executor Alice" });
   await screen.findByRole("combobox", { name: "Task owner" });

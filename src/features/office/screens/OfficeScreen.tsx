@@ -20,6 +20,7 @@ import { AgentDirectory } from "@/features/office/components/AgentDirectory";
 import { useCurrentAgentTasks } from "@/features/office/hooks/useCurrentAgentTasks";
 import type { AgentDirectoryView, DirectoryAgent } from "@/features/office/operations/agentDirectory";
 import { TaskBoard } from "@/features/ring-ship/TaskBoard";
+import { SessionTaskContext } from "@/features/office/components/SessionTaskContext";
 import { ExistingSessionPanel } from "@/features/office/components/ExistingSessionPanel";
 import { RetainedSessionPanels } from "@/features/office/components/RetainedSessionPanels";
 import { SessionMessageLocation } from "@/features/office/components/SessionMessageLocation";
@@ -835,6 +836,7 @@ export function OfficeScreen({
   };
   const [directoryView, setDirectoryView] = useState<AgentDirectoryView>("organization");
   const [taskBoardRequest, setTaskBoardRequest] = useState<{ id?: string } | null>(null);
+  const openTaskDetails = useCallback((id: string) => setTaskBoardRequest({ id }), [setTaskBoardRequest]);
   const [messageSelection, setMessageSelection] = useState<{ gateway: string; target: MessageSearchTarget } | null>(null);
   const messageTarget = messageSelection?.gateway === gatewayUrl ? messageSelection.target : null;
   const [chatExpanded, setChatExpanded] = useState(false);
@@ -3378,6 +3380,7 @@ export function OfficeScreen({
   );
 
   return (
+    <SessionTaskContext.Provider value={openTaskDetails}>
     <main className="office-responsive relative h-full w-full overflow-hidden bg-black">
       {voice.status !== "off" && (!chatOpen || focusedChatAgent?.agentId !== voice.threadId) ? <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-3 right-3 z-[90] mx-auto max-w-lg">
         <SessionVoiceCall voice={voice} owner={state.agents.find(agent => agent.agentId === voice.threadId)?.name || voice.threadId || "Codex"} onReturn={() => { if (voice.threadId) handleOpenAgentChat(voice.threadId); }} />
@@ -4102,5 +4105,6 @@ export function OfficeScreen({
         onCreateCompany={handleCreateCompanyFromPlan}
       />
     </main>
+    </SessionTaskContext.Provider>
   );
 }

@@ -1,6 +1,6 @@
 import type { MentionSerializer } from "react-mentions-ts";
 
-export type ComposerReference = { kind: "chat" | "file" | "skill" | "app"; id: string; name: string };
+export type ComposerReference = { kind: "chat" | "file" | "skill" | "app" | "task"; id: string; name: string };
 export type InlineReference = ComposerReference & { start: number; end: number };
 const pattern = /\{\{office-ref:([^{}]+)\}\}/g;
 export const referenceLabel = (reference: ComposerReference) => (reference.kind === "skill" ? "$" : "@") + reference.name.replace(/[\r\n]/g, " ");
@@ -8,7 +8,7 @@ export const referenceLabel = (reference: ComposerReference) => (reference.kind 
 function decode(id: string): ComposerReference | null {
   try {
     const reference = JSON.parse(decodeURIComponent(id)) as ComposerReference;
-    return reference && ["chat", "file", "skill", "app"].includes(reference.kind) && typeof reference.id === "string" && typeof reference.name === "string" ? reference : null;
+    return reference && ["chat", "file", "skill", "app", "task"].includes(reference.kind) && typeof reference.id === "string" && typeof reference.name === "string" ? reference : null;
   } catch { return null; }
 }
 

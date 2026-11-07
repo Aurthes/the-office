@@ -64,7 +64,7 @@ function DepartmentTasks({ departmentId, tasks, onOpenTask }: { departmentId: st
     {tasks.loading ? <p role="status">{t("Loading tasks…")}</p> : null}
     {tasks.error ? <p role="alert">{t(tasks.error)}</p> : null}
     {!tasks.loading && !tasks.error && !rows.length ? <p>{t("No tasks need follow-up.")}</p> : null}
-    <ul>{rows.map(task => <li key={task.id}><button type="button" disabled={!onOpenTask} onClick={() => onOpenTask?.(task.id)}>{task.title}</button>
+    <ul>{rows.map(task => <li key={task.id}><button type="button" disabled={!onOpenTask} onClick={() => onOpenTask?.(task.id)}>{task.code ? <><span className="font-mono">{task.code}</span> · </> : null}{task.title}</button>
       <small>{t(task.reviewerId ? "Awaiting manager review" : task.status === "running" ? "Running" : task.status === "paused" ? "Paused" : "Queued")}</small>
       <p>{t("Owner")}: {task.ownerName || task.ownerId || t(task.ownerId === undefined ? "Not recorded" : "Unassigned")} · {t("Assignee")}: {task.assigneeName || task.assigneeId || t("Unassigned")}</p>
     </li>)}</ul>

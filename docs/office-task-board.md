@@ -12,6 +12,8 @@ The Office-owned Gateway stores private records in `<Office data directory>/todo
 
 Agents receive the current Office agent ID and bound task ID in their developer context. The Office-owned Codex runtime discovers the bundled `office_tasks` MCP service, including on resumed conversations. The service exposes `todo_list`, `todo_get`, `todo_create`, `todo_edit`, `todo_start`, `todo_pause`, `todo_complete`, `todo_reopen`, `todo_archive` and `todo_restore`. Read a task before editing; pass its revision and your `actorId`. Preserve existing phase IDs when changing a plan. Update documentation with results and evidence, then check verified phases. On conflict, fetch the new record and reconcile the changes.
 
+MCP responses are compact at the model-facing boundary; Gateway/UI records remain complete. Task changes return the current revision, status, phase IDs and handoff delivery state, without repeating documentation, event history or prior reports. Use the returned revision for the next change; reread after a conflict or when new work/reports arrive. `todo_list` returns summaries and phase counts; `todo_get` returns the complete plan, documentation and handoff reports, omitting event history unless `includeHistory=true`. Keep documentation as a concise current summary with evidence paths rather than repeatedly copying the full work log.
+
 The bundled task tools are trusted to update Office task records without a separate approval for each check or edit. This policy is scoped to the Office task service. The MCP configuration is supplied only to Office's child process. Its Gateway credential is forwarded through the child environment and is never included in model context or command arguments. Native Codex App configuration and conversations remain separate. As with existing Office controls, connected operators share access to instance data. The Gateway and frontend must both support this feature; installing a new frontend alone does not add task storage or tools.
 
 Validation: `NODE_ENV=test npx vitest run tests/unit/officeTodos.test.ts tests/unit/taskBoard.test.ts`; existing Node-side Office tests use `--environment node`. `scripts/check-macos-browser.mjs` also checks the board against an isolated real bundled runtime and browser, with synthetic local model replies exercising actual MCP tools. It never reads or changes production tasks.
@@ -35,3 +37,24 @@ On load, unfinished legacy handoffs recover that manager from the open chain.
 Only a pending-review legacy record assigned to its exact reviewer is reassigned
 to that handoff's recorded worker; completed history is not rewritten and earlier
 execution is not guessed. The conversion is persisted once with a revision/event.
+
+## Stable task codes and chat references
+
+Each task has a company-wide code such as `T1` or `T37`, shown on task cards,
+details, department task links and employee badges. The UUID remains its identity.
+Codes stay the same through renaming, assignment, completion, archiving and
+follow-up; they are never recycled. Existing tasks receive codes in creation-time
+and UUID order above all already saved codes. Startup backfill preserves task
+revisions, phase IDs, ownership and recorded times; normal restart timer recovery
+is unchanged. No separate counter service or lock is needed: the existing
+single-process registry derives the next code from its highest saved number.
+
+Existing `office_tasks` tools accept either a UUID or a code in the `id` argument,
+for example `todo_get({id: "T37"})`. Responses retain both the canonical UUID and
+code. Actor checks, revision checks and delegation/acceptance rules still apply.
+The normal task search also matches codes.
+
+In chat, type `@task` and search by code or title. Choose a result to keep its UUID
+in the reference, even when tasks have identical titles. Sending it adds only a
+short link and retrieval instruction; it neither duplicates the plan nor starts
+a task. See [composer references](codex-composer.md) for editing and link behavior.

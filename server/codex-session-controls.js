@@ -1,6 +1,7 @@
 "use strict";
 const crypto = require("node:crypto");
 const { sessionItem, realtimeSessionItem, clipText } = require("./codex-session-items");
+const { interruptedInput } = require("./codex-session-edit");
 const { answerQuestions } = require("./codex-session-questions");
 const { messageInput } = require("./codex-session-uploads");
 const { sessionSettings, sessionChoices, settingsPatch } = require("./codex-session-settings");
@@ -11,7 +12,7 @@ const MAX_AUTO_RETRIES = 3;
 class CodexSessionControls {
   constructor(client, asyncQuestions = () => [], options = {}) { this.client = client; this.asyncQuestions = asyncQuestions; this.options = options; this.states = new Map(); this.requests = new Map(); this.sends = new Map(); this.attaching = new Map(); }
   state(id) {
-    if (!this.states.has(id)) this.states.set(id, { version: 0, turnVersion: 0, turnStateKnown: false, activeTurnId: null, activeTurnStartedAt: null, items: new Map(), turnStatus: null, error: null,
+    if (!this.states.has(id)) this.states.set(id, { version: 0, turnVersion: 0, turnStateKnown: false, activeTurnId: null, activeTurnStartedAt: null, items: new Map(), turnStatus: null, error: null, historyEpoch: this.options.history?.read(id) || "0", pendingSends: 0, discardedTurns: new Set(),
       recovery: { attempts: 0, stopped: false, ...this.options.recovery?.read(id) } });
     return this.states.get(id);
   }
@@ -30,7 +31,7 @@ class CodexSessionControls {
   scheduleRetry(id, turn) {
     const state = this.state(id);
     if (this.closed || !turn?.id || !["failed", "interrupted"].includes(turn.status) || state.recovery.stopped
-      || state.recovery.attempts >= MAX_AUTO_RETRIES || state.retryHandledTurnId === turn.id) return;
+      || state.editCommit || state.editUncertain || state.recovery.attempts >= MAX_AUTO_RETRIES || state.retryHandledTurnId === turn.id) return;
     this.cancelRetry(id);
     const retry = { turnId: turn.id, at: Date.now() + RETRY_DELAY_MS, dispatching: false };
     state.retryHandledTurnId = turn.id; state.retry = retry;
@@ -124,6 +125,8 @@ class CodexSessionControls {
     if (!id) return;
     if (frame.method === "thread/closed" || (frame.method === "thread/status/changed" && p.status?.type === "notLoaded")) this.attaching.delete(id);
     const state = this.state(id);
+    if (state.discardedTurns.has(p.turnId || p.turn?.id)) return;
+    if (frame.method === "thread/reverted") { state.revertCount = (state.revertCount || 0) + 1; state.editUncertain = null; this.resetHistory(id); return; }
     if (frame.method === "thread/tokenUsage/updated") { state.tokenUsage = p.tokenUsage; state.version++; return; }
     if (frame.method === "thread/settings/updated") { this.saveSettings(id, p.threadSettings); return; }
     if (frame.id !== undefined) {
@@ -212,7 +215,7 @@ class CodexSessionControls {
       items.push(visible); bytes += size;
     }
     const hasMore = items.length < changed.length;
-    return { connected: true, version: hasMore ? items.at(-1).version : state.version, hasMore, activeTurnId: state.activeTurnId, activeTurnStartedAt: state.activeTurnStartedAt, turnStatus: state.turnStatus, error: state.error, retryAt: state.retry?.at ?? null, retrying: Boolean(state.retry?.dispatching),
+    return { connected: true, historyEpoch: state.historyEpoch, version: hasMore ? items.at(-1).version : state.version, hasMore, activeTurnId: state.activeTurnId, activeTurnStartedAt: state.activeTurnStartedAt, turnStatus: state.turnStatus, error: state.error, retryAt: state.retry?.at ?? null, retrying: Boolean(state.retry?.dispatching),
       retryExhausted: !state.retry && !state.recovery.stopped && state.recovery.attempts >= MAX_AUTO_RETRIES && ["failed", "interrupted"].includes(state.turnStatus),
       settings: state.settings, tokenUsage: state.tokenUsage, ...(this.options.features ? { features: { ...this.options.features, ...(this.options.composer ? { chatReferences: this.options.composer.canReference(id) } : {}) } } : {}), items,
       questions,
@@ -225,7 +228,20 @@ class CodexSessionControls {
           details: item?.details, supported: request.supported && !oversized && (request.method !== "item/fileChange/requestApproval" || Boolean(item?.details && !item.incompleteDetails)) };
       }) };
   }
-  async send(id, text, requestId, attachments = [], { resumeInterrupted = false, onlyIfIdle = false, automaticRetry = null, references = [], replyContext = null } = {}) {
+  async send(id, text, requestId, attachments = [], options = {}) {
+    const state = this.state(id);
+    if (state.editCommit) throw new Error("An edit is being committed. Wait before sending.");
+    if (state.editUncertain && options.automaticRetry) return { status: "cancelled" };
+    state.pendingSends++;
+    try {
+      // A timed-out revert may arrive later and cut off a newly started turn.
+      // New user input is NOT proof that the old destructive request ended.
+      if (state.editUncertain && !await this.reconcileEdit(id)) throw new Error("A previous rewind is still unconfirmed. No new input was sent; check the conversation before retrying.");
+      return await this.sendInput(id, text, requestId, attachments, options);
+    }
+    finally { state.pendingSends--; }
+  }
+  async sendInput(id, text, requestId, attachments = [], { resumeInterrupted = false, onlyIfIdle = false, automaticRetry = null, references = [], replyContext = null } = {}) {
     this.requireReady();
     if (!automaticRetry) this.cancelRetry(id);
     const prepared = this.options.composer ? await this.options.composer.prepare(id, text, references) : { text, items: [] };
@@ -237,7 +253,7 @@ class CodexSessionControls {
       if (!prior.result) throw new Error("这次发送已提交，结果需核对，未重复发送");
       return prior.result;
     }
-    const entry = { id, resumeInterrupted, hash: crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex") };
+    const entry = { id, clientId: requestId, resumeInterrupted, hash: crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex") };
     this.sends.set(requestId, entry);
     if (this.sends.size > 128) this.sends.delete(this.sends.keys().next().value);
     if (!automaticRetry) this.saveRecovery(id, { attempts: 0, stopped: false });
@@ -268,6 +284,7 @@ class CodexSessionControls {
     if (automaticRetry) current.autoStarting = automaticRetry;
     current.turnStateKnown = false;
     try {
+      entry.dispatched = true;
       result = await this.client.call(active ? "turn/steer" : "turn/start", { threadId: id, input, clientUserMessageId: requestId, ...(active ? { expectedTurnId: active } : this.options.settings?.overrides(id) || {}) });
     } catch (error) {
       current.turnStateKnown = false; throw error;
@@ -292,8 +309,106 @@ class CodexSessionControls {
     }
     return entry.result = { status: active ? "steered" : "started", turnId };
   }
+  resetHistory(id, targetTurnId) {
+    const state = this.state(id);
+    this.cancelRetry(id);
+    const removedTurnId = targetTurnId || state.lastTurnId || state.edit?.turnId;
+    if (removedTurnId) state.discardedTurns.add(removedTurnId);
+    while (state.discardedTurns.size > 128) state.discardedTurns.delete(state.discardedTurns.values().next().value);
+    state.historyEpoch = crypto.randomUUID(); state.items.clear(); state.turnVersion++;
+    state.turnStateKnown = false; state.lastTurnId = null; state.activeTurnId = null; state.activeTurnStartedAt = null;
+    state.turnStatus = null; state.error = null; state.tokenUsage = null;
+    for (const [key, request] of this.requests) if (request.params.threadId === id) this.requests.delete(key);
+    this.options.history?.reset(id, state.historyEpoch, removedTurnId);
+    state.version++; this.options.changed?.(id);
+  }
+  async reconcileEdit(id) {
+    const state = this.state(id), pending = state.editUncertain;
+    if (!pending) return true;
+    let cursor;
+    for (let page = 0; page < 64; page++) {
+      const result = await this.client.call("thread/turns/list", { threadId: id, limit: 100, itemsView: "notLoaded", sortDirection: "desc", ...(cursor ? { cursor } : {}) });
+      if (state.editUncertain !== pending) return !state.editUncertain;
+      if (result.data.some(turn => turn.id === pending.turnId)) return false;
+      if (!result.nextCursor) {
+        // Only a complete authoritative read proves the target is gone. A
+        // different latest turn alone is insufficient (target may be older).
+        state.editUncertain = null; state.edit = null;
+        this.options.history?.reverted?.(id); this.resetHistory(id, pending.turnId);
+        return true;
+      }
+      cursor = result.nextCursor;
+    }
+    return false;
+  }
+  async prepareEdit(id) {
+    this.requireReady();
+    const state = this.state(id);
+    if (state.editUncertain && !await this.reconcileEdit(id)) throw new Error("The previous rewind is not confirmed. Check the conversation before editing again.");
+    if (state.editCommit || state.pendingSends || this.options.editBlocked?.(id)) throw new Error("Wait for pending input or the voice call to finish before editing.");
+    await this.attach(id);
+    const version = state.turnVersion;
+    const input = await interruptedInput(this.client, id);
+    if (version !== state.turnVersion || state.pendingSends) throw new Error("The conversation changed. Stop it and prepare the edit again.");
+    for (const entry of this.sends.values()) if (entry.id === id && entry.dispatched && !entry.result && !input.clientIds.includes(entry.clientId)) throw new Error("A previous send is not confirmed. Check the conversation before editing.");
+    this.saveRecovery(id, { stopped: true }); this.cancelRetry(id);
+    const prepared = { ...input, token: crypto.randomUUID(), historyEpoch: state.historyEpoch };
+    state.edit = prepared;
+    return { token: prepared.token, turnId: input.turnId, text: input.text, inputCount: input.inputCount };
+  }
+  async commitEdit(id, { token, message, requestId }) {
+    this.requireReady();
+    // Validate everything recoverable before the destructive RPC.
+    await messageInput(message, [], id);
+    if (typeof requestId !== "string" || !requestId || requestId.length > 100) throw new Error("An edit request ID is required");
+    const state = this.state(id), prepared = state.edit;
+    if (this.sends.has(requestId)) throw new Error("A fresh send identity is required for the edited turn");
+    if (!prepared || prepared.token !== token) throw new Error("This edit has expired. Prepare it again.");
+    if (state.editCommit || state.editUncertain || state.pendingSends || this.options.editBlocked?.(id)) throw new Error("Pending input or an unresolved edit prevents resending. Check the conversation.");
+    state.editCommit = true;
+    this.saveRecovery(id, { stopped: true }); this.cancelRetry(id);
+    try {
+      const version = state.turnVersion;
+      const current = await interruptedInput(this.client, id);
+      if (state.turnVersion !== version || state.historyEpoch !== prepared.historyEpoch || current.fingerprint !== prepared.fingerprint) throw new Error("The conversation changed. Nothing was rewound; prepare the edit again.");
+      // Persist invalidation BEFORE dispatch, including crashes or an unknown
+      // revert result. Re-reading unchanged history after refusal is harmless.
+      this.resetHistory(id, prepared.turnId);
+      const observedReverts = state.revertCount || 0;
+      try { await this.client.call("thread/revert", { threadId: id, beforeTurnId: prepared.turnId }); }
+      catch (error) {
+        if (typeof error.code === "number") {
+          state.discardedTurns.delete(prepared.turnId);
+          this.options.history?.refused?.(id, prepared.turnId);
+          await this.refreshTurn(id).catch(() => {});
+          return { status: "revert_failed", message: `History was not rewound: ${error.message}` };
+        }
+        state.editUncertain = (state.revertCount || 0) > observedReverts ? null : { turnId: prepared.turnId };
+        // Reconcile by native event or a complete read, never by resubmitting.
+        const targetDeleted = !state.editUncertain || await this.reconcileEdit(id).catch(() => false);
+        return { status: "revert_unknown", message: targetDeleted
+          ? "History was rewound, but the revert receipt was lost. Edited text was not sent. Check the conversation before sending again."
+          : "The rewind outcome is unknown. Edited text was not sent. Check the conversation before sending again." };
+      }
+      state.edit = null;
+      this.options.history?.reverted?.(id);
+      this.resetHistory(id, prepared.turnId);
+      try {
+        const result = await this.sendInput(id, message, requestId, [], { onlyIfIdle: true });
+        if (result.status === "busy") throw new Error("A new turn is already running");
+        return { ...result, status: "edited", historyEpoch: state.historyEpoch };
+      } catch (error) {
+        this.saveRecovery(id, { stopped: true }); this.cancelRetry(id);
+        return { status: typeof error.code === "number" ? "send_failed" : "send_unknown", message: `History was rewound; ${typeof error.code === "number" ? "edited text was rejected" : "edited text delivery was not confirmed"}. Keep this text and check the conversation before sending again. ${error.message}` };
+      }
+    } finally {
+      state.editCommit = false;
+      this.scheduleRetry(id, { id: state.lastTurnId, status: state.turnStatus });
+    }
+  }
   async stop(id) {
     this.requireReady();
+    if (this.state(id).editCommit) throw new Error("Wait for the edit to finish before stopping.");
     const retry = this.state(id).retry || this.state(id).autoStarting;
     if (retry) retry.stopRequested = true;
     this.saveRecovery(id, { stopped: true });
@@ -306,7 +421,8 @@ class CodexSessionControls {
     return { status: "interruptRequested", turnId };
   }
   async compact(id) {
-    this.requireReady(); if (!await this.attach(id)) await this.refreshTurn(id);
+    this.requireReady();
+    if (this.state(id).editCommit || this.state(id).editUncertain) throw new Error("Finish or reconcile the edit before compacting."); if (!await this.attach(id)) await this.refreshTurn(id);
     if (this.state(id).activeTurnId) throw new Error("Wait for the current task to finish before compacting");
     this.cancelRetry(id);
     this.state(id).turnStateKnown = false;

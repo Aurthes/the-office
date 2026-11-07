@@ -4,7 +4,8 @@
 const readline = require("node:readline");
 const { WebSocket } = require("ws");
 const properties = {
-  id: { type: "string", description: "To-do ID" }, revision: { type: "integer", description: "Current revision from list/get; required for changes" },
+  id: { type: "string", description: "To-do UUID or stable task code, for example T37" }, revision: { type: "integer", description: "Current revision from list/get or the preceding successful change; required for changes" },
+  includeHistory: { type: "boolean", description: "Include task event history when explicitly needed; omitted by default" },
   actorId: { type: "string", description: "Your Office agent ID from the current Office context" },
   name: { type: "string", minLength: 1, maxLength: 120, description: "Stable employee name, not a task label" },
   templateId: { type: ["string", "null"], description: "An existing saved recruitment template. Omit for the department default; null explicitly uses fresh defaults. Creates a fresh session, never copies a conversation." },
@@ -26,8 +27,8 @@ const definitions = [
   ["submit", "Submit the active delegated work and evidence to its delegating manager for acceptance, preserving the execution assignee. Keeps the same task open and notifies the manager's real conversation when available. Leave the final unfinished phase for acceptance. Reuse requestId on retry.", ["id", "revision", "actorId", "report", "requestId"], ["id", "revision", "actorId", "report", "requestId"]],
   ["review", "The delegating manager verifies a submitted result, then accepts it with evidence or returns specific feedback. Acceptance does not close the task or replace an upstream manager's acceptance. Reuse requestId on retry.", ["id", "revision", "actorId", "accept", "notes", "requestId"], ["id", "revision", "actorId", "accept", "notes", "requestId"]],
   ["recall", "The delegating manager takes an unfinished handoff back with a reason. Does not claim the result was accepted. Inspect the worker conversation first; an active worker must be stopped before recall. Reuse requestId on retry.", ["id", "revision", "actorId", "reason", "requestId"], ["id", "revision", "actorId", "reason", "requestId"]],
-  ["list", "List shared Office to-dos, department totals and available agents. assigneeId filters the executor; ownerId filters the follow-up owner. Owner adds no execution or acceptance permissions; handlingAgentId/reviewerId indicate workflow and acceptance. Filter or paginate when needed.", ["departmentId", "assigneeId", "ownerId", "status", "query", "offset", "limit"], []],
-  ["get", "Read a to-do, its current revision, phase IDs, documentation and history before editing.", ["id"], ["id"]],
+  ["list", "List compact task summaries, department totals and available agents. Use todo_get for a task's plan, documentation and handoffs. assigneeId filters the executor; ownerId filters the follow-up owner. Owner adds no permissions; handlingAgentId/reviewerId indicate workflow and acceptance. Filter or paginate when needed.", ["departmentId", "assigneeId", "ownerId", "status", "query", "offset", "limit"], []],
+  ["get", "Read the current task revision, complete phase plan, documentation and handoff reports. Event history is omitted unless includeHistory=true. Reuse a known unchanged plan and revisions returned by successful changes; reread after conflicts or when new work/reports arrive.", ["id", "includeHistory"], ["id"]],
   ["create", "Create a record only for actionable work, never casual chat or general questions. One task is one user goal; related follow-ups reuse an existing task, including a completed one. Check recent tasks first. Ask the user before splitting uncertain scope. Define phases and owner before executing; reuse requestId on retry.", ["actorId", "title", "documentation", "departmentId", "assigneeId", "ownerId", "phases", "requestId"], ["actorId", "title", "phases", "requestId"]],
   ["edit", "Update the plan, assignment or documentation, including completed archived tasks. Adding an unfinished phase to completed work returns it to the current board; documentation-only edits keep it archived and preserve completion time. Preserve existing phase IDs and accumulated times. New phases omit id. Fetch fresh revision after a conflict.", ["id", "revision", "actorId", "title", "documentation", "departmentId", "assigneeId", "ownerId", "phases"], ["id", "revision", "actorId"]],
   ["start", "Start or resume the current phase timer. This does not send a chat message.", ["id", "revision", "actorId"], ["id", "revision", "actorId"]],
@@ -39,7 +40,7 @@ const definitions = [
 ];
 const tools = definitions.map(([name, description, keys, required]) => ({ name: `todo_${name}`, description, annotations: { readOnlyHint: ["list", "get", "organization"].includes(name), destructiveHint: false, openWorldHint: false }, inputSchema: { type: "object", properties: Object.fromEntries(keys.map(key => [key, properties[key]])), required, additionalProperties: false } }));
 const sourceSchema = { type: "object", properties: Object.fromEntries(["threadId", "turnId", "itemId"].map(key => [key, { type: "string" }])), required: ["threadId", "turnId", "itemId"], additionalProperties: false };
-tools.push({ name: "question_context", description: "Identify the actual question(s) this response answers, separately from the original message. Call before public commentary or an answer. Read with actorId only to see selected Qs, known Q IDs and recentSources. Define semantic summaries (max 180 characters) using local keys; answering selects those keys or existing Q IDs. One message can define multiple Qs. A step is a child with parentQuestionId (ID or earlier local key), inheriting its original source. Specify exact source IDs when ambiguous. Continue/Play/retry resumes the selected Q, never creates a Continue question. Tasks and phases are optional: ordinary questions must not create tasks. Reuse requestId for definition retries.", annotations: { destructiveHint: false, openWorldHint: false }, inputSchema: { type: "object", properties: {
+tools.push({ name: "question_context", description: "Select the actual semantic Q/step when selection is missing or changes; new user messages clear selection. Reuse the selection for subsequent commentary/answers to that same Q; do not reselect before every response. Select/create returns selected IDs and opened aliases. Read with actorId only when discovery is needed for selected Qs, known IDs and recentSources. Define summaries (max 180 characters) using local keys; answering selects keys or Q IDs. A message may contain several Qs. A child uses parentQuestionId (ID or earlier key), inheriting its source. Specify exact source IDs when ambiguous. Continue/Play/retry preserves Q and source. Tasks/phases are optional; ordinary questions never require a task. Reuse requestId on definition retries.", annotations: { destructiveHint: false, openWorldHint: false }, inputSchema: { type: "object", properties: {
   actorId: properties.actorId, requestId: properties.requestId,
   questions: { type: "array", maxItems: 8, items: { type: "object", properties: { key: { type: "string", maxLength: 32 }, summary: { type: "string", minLength: 1, maxLength: 180 }, parentQuestionId: { type: "string" }, source: sourceSchema }, required: ["key", "summary"], additionalProperties: false } },
   answering: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } }, taskId: { type: "string" }, phaseId: properties.phaseId,
@@ -98,6 +99,31 @@ function createGatewayClient({ address = process.env.OFFICE_TASK_GATEWAY_URL, to
 }
 let bridge;
 function gateway(method, params) { return (bridge ||= createGatewayClient()).call(method, params); }
+
+// Only model-facing responses are compact. Gateway/UI data and stored evidence
+// stay complete; task reads retain every phase and handoff report.
+function modelResult(name, args, result) {
+  if (name === "question_context") return args.answering || args.questions?.length
+    ? { answering: result.answering, ...(result.opened && Object.keys(result.opened).length ? { opened: result.opened } : {}) } : result;
+  if (name === "todo_list") return { ...result, todos: result.todos.map(todo => {
+    const summary = { ...todo, phaseCount: todo.phases.length };
+    delete summary.phases; delete summary.replyContext; delete summary.delegations;
+    return summary;
+  }) };
+  if (!result?.todo) return result;
+  const todo = result.todo;
+  if (name === "todo_get") {
+    if (args.includeHistory) return result;
+    const details = { ...todo }; delete details.events;
+    return { ...result, todo: details };
+  }
+  const fields = ["id", "code", "revision", "status", "archived", "assigneeId", "ownerId", "handlingAgentId", "reviewerId", "progress"];
+  return { ...result, todo: {
+    ...Object.fromEntries(fields.filter(key => Object.hasOwn(todo, key)).map(key => [key, todo[key]])),
+    phases: todo.phases.map(({ id, title, completedAt }) => ({ id, title, completedAt })),
+    ...(todo.delegations ? { delegations: todo.delegations.map(({ id, managerId, workerId, state, delivery }) => ({ id, managerId, workerId, state, delivery })) } : {}),
+  } };
+}
 async function handle(frame) {
   if (frame.method === "initialize") return { protocolVersion: frame.params?.protocolVersion || "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "office_tasks", version: "1" } };
   if (frame.method === "ping") return {};
@@ -105,7 +131,12 @@ async function handle(frame) {
   if (frame.method === "tools/call") {
     const tool = tools.find(tool => tool.name === frame.params?.name);
     if (!tool) throw new Error("Unknown Office task tool");
-    try { const result = await gateway(tool.name === "question_context" ? "question.context" : `todo.${tool.name.slice(5)}`, frame.params.arguments || {}); return { content: [{ type: "text", text: JSON.stringify(result) }] }; }
+    try {
+      const args = frame.params.arguments || {}, params = { ...args };
+      delete params.includeHistory;
+      const result = await gateway(tool.name === "question_context" ? "question.context" : `todo.${tool.name.slice(5)}`, params);
+      return { content: [{ type: "text", text: JSON.stringify(modelResult(tool.name, args, result)) }] };
+    }
     catch (error) { return { isError: true, content: [{ type: "text", text: error.message }] }; }
   }
   throw new Error("Method not found");

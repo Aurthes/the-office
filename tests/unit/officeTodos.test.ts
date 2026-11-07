@@ -17,6 +17,62 @@ function fixture() {
   const change = (id: string, action: string, extra = {}) => todos.change({ id, revision: todos.raw(id).revision, ...extra }, action).todo;
   return { directory, todos, deps, create, change, projects, agents, advance: (ms: number) => { now += ms; } };
 }
+describe("stable company task codes", () => {
+  it("keeps codes across duplicate requests, renames, completion, follow-up and restart without recycling", () => {
+    const f = fixture();
+    const request = { requestId: "stable-request", title: "Same name" };
+    const a = f.create(request), b = f.create({ title: "Same name" });
+    expect([a.code, b.code]).toEqual(["T1", "T2"]);
+    expect(f.create(request)).toMatchObject({ id: a.id, code: a.code });
+    f.change(a.code, "edit", { title: "Renamed" });
+    for (const phase of a.phases) f.change(a.code, "complete", { phaseId: phase.id });
+    expect(f.todos.get({ id: a.code }).todo).toMatchObject({ id: a.id, code: "T1", archived: true });
+    expect(f.create().code).toBe("T3");
+    f.change(a.code, "edit", { phases: [...f.todos.raw(a.code).phases, { title: "Follow-up" }] });
+    const restored = new OfficeTodos(f.directory, f.deps);
+    expect(restored.get({ id: " t1 " }).todo).toMatchObject({ id: a.id, title: "Renamed", code: "T1", archived: false });
+    expect(restored.create({ requestId: "after-restart", title: "Next", phases: [{ title: "Verify" }] }).todo.code).toBe("T4");
+  });
+  it("backfills legacy tasks deterministically above all saved codes without changing their business state", () => {
+    const f = fixture(), a = f.create(), b = f.create(), c = f.create();
+    const originals = new Map<string, Record<string, unknown>>();
+    for (const [index, task] of [a, b, c].entries()) {
+      const file = path.join(f.directory, "todos", task.id + ".json"), row = JSON.parse(readFileSync(file, "utf8"));
+      if (task.id === b.id) row.code = "T37"; else delete row.code;
+      row.createdAt = 100 + index; writeFileSync(file, JSON.stringify(row)); originals.set(task.id, row);
+    }
+    const restored = new OfficeTodos(f.directory, f.deps);
+    expect([a, b, c].map(task => restored.raw(task.id).code)).toEqual(["T38", "T37", "T39"]);
+    for (const task of [a, b, c]) {
+      const saved = JSON.parse(readFileSync(path.join(f.directory, "todos", task.id + ".json"), "utf8"));
+      expect(saved).toEqual({ ...originals.get(task.id), code: restored.raw(task.id).code });
+    }
+    const bytes = [a, b, c].map(task => readFileSync(path.join(f.directory, "todos", task.id + ".json"), "utf8"));
+    const again = new OfficeTodos(f.directory, f.deps);
+    expect([a, b, c].map(task => readFileSync(path.join(f.directory, "todos", task.id + ".json"), "utf8"))).toEqual(bytes);
+    expect(again.create({ requestId: "new", title: "Next", phases: [{ title: "Plan" }] }).todo.code).toBe("T40");
+  });
+  it("resolves code lookups through existing mutations and actor checks, retaining canonical bindings", () => {
+    const f = fixture(), task = f.create();
+    f.todos.startForAgent("alice", task.code);
+    const revision = f.todos.raw(task.id).revision;
+    f.todos.startForAgent("alice", task.code);
+    expect(f.todos.bindings.get("alice")).toBe(task.id);
+    expect(f.todos.raw(task.code).revision).toBe(revision);
+    f.change(task.code, "delegate", { actorId: "alice", assigneeId: "bob", instructions: "Implement", acceptanceCriteria: "Verify" });
+    expect(() => f.change(task.code, "edit", { actorId: "alice", title: "Bypass" })).toThrow(/current responsible/);
+    expect(f.change(task.code, "edit", { actorId: "bob", title: "Updated by worker" })).toMatchObject({ id: task.id, code: task.code });
+    expect(() => f.todos.raw("Updated by worker")).toThrow(/missing/);
+    expect(f.todos.list({ query: task.code }).todos[0].id).toBe(task.id);
+  });
+  it("refuses duplicate persisted codes rather than rebinding an existing reference", () => {
+    const f = fixture(), a = f.create(), b = f.create();
+    const file = path.join(f.directory, "todos", b.id + ".json"), row = JSON.parse(readFileSync(file, "utf8"));
+    row.code = a.code; writeFileSync(file, JSON.stringify(row));
+    expect(() => new OfficeTodos(f.directory, f.deps)).toThrow(/duplicate task code/);
+    expect(JSON.parse(readFileSync(file, "utf8")).code).toBe(a.code);
+  });
+});
 describe("independent follow-up owners", () => {
   it("defaults agent creations to the actor, preserves explicit null and filters owner separately from execution", () => {
     const f = fixture();

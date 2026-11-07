@@ -45,6 +45,13 @@ class CodexSessionComposer {
     if (typeof query !== "string" || query.length > 200) throw new Error("Search text is too long");
     const matches = value => value.toLowerCase().includes(query.toLowerCase());
     if (kind === "command") return { options: COMMANDS.filter(item => matches(item.name + " " + item.description)) };
+    if (kind === "task") {
+      if (!this.todos) throw new Error("Tasks are unavailable in this Office runtime");
+      // Search the registry before limiting, including completed/archived tasks.
+      const tasks = [...this.todos.rows.values()].filter(task => matches(task.code + " " + task.title));
+      tasks.sort((a, b) => Number(b.code.toLowerCase() === query.toLowerCase()) - Number(a.code.toLowerCase() === query.toLowerCase()) || b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
+      return { options: tasks.slice(0, 50).map(task => ({ kind, id: task.id, name: `${task.code} ${task.title}`, description: `${task.departmentName} · ${task.status}` })) };
+    }
     if (kind === "chat") return { available: this.canReference(id), options: this.store.list().filter(other => other.id !== id && matches(other.name + " " + other.project))
       .slice(0, 50).map(other => ({ kind, id: other.id, name: other.name, description: other.project })) };
     if (kind === "skill" || kind === "app") return { options: (await this.catalog(id, kind)).filter(item => matches(item.name + " " + item.description)).slice(0, 50) };
@@ -75,7 +82,7 @@ class CodexSessionComposer {
     const ordered = inline ? [...references].sort((a, b) => (a?.start ?? -1) - (b?.start ?? -1)) : references;
     let end = 0;
     for (const reference of ordered) {
-      if (!reference || typeof reference.id !== "string" || reference.id.length > 4096 || !["chat", "file", "skill", "app"].includes(reference.kind)) throw new Error("Invalid composer reference");
+      if (!reference || typeof reference.id !== "string" || reference.id.length > 4096 || !["chat", "file", "skill", "app", "task"].includes(reference.kind)) throw new Error("Invalid composer reference");
       if (inline) {
         const label = (reference.kind === "skill" ? "$" : "@") + String(reference.name ?? "").replace(/[\r\n]/g, " ");
         if (!Number.isSafeInteger(reference.start) || !Number.isSafeInteger(reference.end) || reference.start < end || reference.end <= reference.start || reference.end > text.length || text.slice(reference.start, reference.end) !== label) throw new Error("Invalid inline reference range");
@@ -84,7 +91,7 @@ class CodexSessionComposer {
     }
     if (new Set(ordered.map(reference => reference.kind + ":" + reference.id)).size > 8) throw new Error("Up to 8 references per message");
     const row = this.store.get(id), items = [], links = [], resolved = new Map();
-    let prepared = "", position = 0;
+    let prepared = "", position = 0, hasTasks = false;
     for (const reference of ordered) {
       const key = reference.kind + ":" + reference.id;
       if (!resolved.has(key)) {
@@ -93,6 +100,10 @@ class CodexSessionComposer {
           if (!this.canReference(id)) throw new Error("This older chat has no Office reference tools. Start a new chat to reference existing workers.");
           const target = this.store.get(reference.id);
           link = `[@${markdownName(target.name)}](thread://${target.id})`;
+        } else if (reference.kind === "task") {
+          if (!this.todos?.rows.has(reference.id)) throw new Error("This task is no longer available. Choose it again.");
+          const task = this.todos.raw(reference.id);
+          link = `[@${markdownName(task.code + " " + task.title)}](task://${task.id})`; hasTasks = true;
         } else if (reference.kind === "file") {
           const root = this.store.sessionFolders(row).find(root => contains(root, path.resolve(reference.id)));
           if (!root) throw new Error("File is outside this workspace");
@@ -109,7 +120,8 @@ class CodexSessionComposer {
       }
       if (inline) { prepared += text.slice(position, reference.start) + resolved.get(key); position = reference.end; }
     }
-    return { text: inline ? prepared + text.slice(position) : links.length ? links.join(" ") + (text.trim() ? "\n" + text : "") : text, items };
+    const message = inline ? prepared + text.slice(position) : links.length ? links.join(" ") + (text.trim() ? "\n" + text : "") : text;
+    return { text: message + (hasTasks ? "\nTask references: read office_tasks.todo_get using the UUID in each task:// link." : ""), items };
   }
   handleToolCall(frame) {
     if (frame.method !== "item/tool/call" || frame.params?.namespace !== "office") return false;
