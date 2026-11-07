@@ -1778,6 +1778,8 @@ export const ZH_CN: Record<string, string> = {
   "Could not sample this background task.": "暂时无法读取这个后台任务的状态。",
   "{0} unread": "{0} 条未读",
   "Teaser board": "趣题看板",
+  "Discuss with teaser": "与 teaser 讨论",
+  "Teaser chat is unavailable.": "teaser 会话暂不可用。",
   "Open teaser board": "打开趣题看板",
   "Close teaser board": "关闭趣题看板",
   "Refresh teasers": "刷新趣题",
