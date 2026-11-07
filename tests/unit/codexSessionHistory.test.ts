@@ -9,6 +9,16 @@ const entries = (items: unknown[], turnId = "turn") => items.map(item => ({ type
 const voice = { id: "segment", realtimeSessionId: "call", type: "transcriptSegment", role: "user", text: " Full spoken sentence " };
 
 describe("bounded native timeline history", () => {
+  it("preserves exact optional native send identities through history and live normalization", async () => {
+    const identified = { ...item("one", "userMessage", "Identical text"), clientId: "request-one" };
+    const second = { ...item("two", "userMessage", "Identical text"), clientId: "request-two" };
+    const legacy = { ...item("old", "userMessage", "Identical text"), clientId: null };
+    const page = await loadSessionHistoryPage(vi.fn().mockResolvedValue({ data: entries([identified, second, legacy]) }), row);
+    expect(page.messages.map((message: { clientId?: string }) => message.clientId)).toEqual(["request-one", "request-two", undefined]);
+    const controls = new CodexSessionControls({ ready: true });
+    for (const raw of [identified, second, legacy]) controls.handle({ method: "item/completed", params: { threadId: row.id, turnId: "turn", item: raw } });
+    expect(controls.snapshot(row.id).items.map((message: { clientId?: string }) => message.clientId)).toEqual(["request-one", "request-two", undefined]);
+  });
   it("reads one native page in canonical order with chat and voice, and uses the same IDs as live delivery", async () => {
     const call = vi.fn().mockResolvedValue({ data: [
       { type: "turnStarted", turnId: "turn", position: 1 },

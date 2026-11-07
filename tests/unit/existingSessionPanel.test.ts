@@ -136,14 +136,14 @@ describe("existing session history pagination", () => {
 
   it.each([true, false])("reconciles accepted steer from history without an item notification; success=%s", async success => {
     const events = sessionEvents(); let subscriptionId = ""; const threadId = `steer-ack-${success}`;
-    const messages = [{ id: "original", turnId: "t", role: "user", content: "Initial prompt" }];
+    const messages: { id: string; turnId: string; role: string; content: string; clientId?: string }[] = [{ id: "original", turnId: "t", role: "user", content: "Initial prompt" }];
     const call = vi.fn(async (method: string, params: unknown) => {
       if (method === "session.inspect") return { ...metadata(threadId), controlsAvailable: true };
       if (method === "session.history") return { threadId, messages: [...messages], nextCursor: null };
       if (method === "session.subscribe") subscriptionId = (params as { subscriptionId: string }).subscriptionId;
       if (method === "session.send") {
         if (!success) throw new Error("Send outcome uncertain");
-        messages.push({ id: "native-steer-id", turnId: "t", role: "user", content: "My steered prompt" });
+        messages.push({ id: "native-steer-id", clientId: (params as { requestId: string }).requestId, turnId: "t", role: "user", content: "My steered prompt" });
         return { status: "steered", turnId: "t" };
       }
       return {};
@@ -154,9 +154,9 @@ describe("existing session history pagination", () => {
     const input = screen.getByRole("textbox", { name: "Send to session" });
     fireEvent.change(input, { target: { value: "My steered prompt" } }); fireEvent.click(screen.getByRole("button", { name: "Steer" }));
     if (success) { await screen.findByText("My steered prompt"); expect(input).toHaveValue(""); }
-    else { await screen.findByText("Send outcome uncertain"); expect(input).toHaveValue("My steered prompt"); expect(screen.queryByText("My steered prompt", { selector: "p" })).toBeNull(); }
+    else { await screen.findByText(/Delivery not confirmed/); expect(input).toHaveValue("My steered prompt"); expect(screen.getByText("My steered prompt", { selector: "p" })).toBeInTheDocument(); }
     expect(call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(1);
-    expect(call.mock.calls.filter(([method]) => method === "session.history")).toHaveLength(success ? 2 : 1);
+    expect(call.mock.calls.filter(([method]) => method === "session.history")).toHaveLength(2);
   });
 
   it("exposes return-to-Earth for an interactive original session and disables it while busy", async () => {

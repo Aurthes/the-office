@@ -30,6 +30,10 @@ const DuckCharacterPanel = dynamic(() => import("@/features/ring-ship/DuckCharac
 type Message = LiveSessionItem;
 type HistoryPage = { threadId: string; messages: Message[]; nextCursor: string | null };
 type LoadMode = "latest" | "older" | "sync";
+function reconcileLocalSends(messages: Message[]) {
+  const received = new Set(messages.filter(message => message.role === "user" && !message.delivery && message.clientId).map(message => message.clientId));
+  return messages.filter(message => !message.delivery || !received.has(message.clientId));
+}
 
 export function ExistingSessionPanel({ client, threadId, active = true, focusMode = false, onToggleFocus, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, onOpenThread, onFork, forkDisabled, headerStart, headerEnd, projects = [], voice, organization, messageTarget, onCloseMessage }: {
   client: SessionClient;
@@ -69,6 +73,8 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   const [data, setData] = useState<SessionInspection | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const messagesRef = useRef(messages);
+  const owner = useRef(threadId);
+  useLayoutEffect(() => { owner.current = threadId; }, [threadId]);
   useLayoutEffect(() => { messagesRef.current = messages; }, [messages]);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [olderCursor, setOlderCursor] = useState<string | null>(null);
@@ -99,6 +105,15 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   const onHistorySync = useCallback(() => { void load.current?.("sync"); }, []);
   const failedMode = useRef<LoadMode>("latest");
   const liveItems = useRef(new Map<string, LiveSessionItem>());
+  const onSendState = useCallback((id: string, item: LiveSessionItem) => {
+    if (owner.current !== id) return;
+    setMessages(previous => {
+      if (previous.some(message => message.role === "user" && !message.delivery && message.clientId === item.clientId)) return previous;
+      const index = previous.findIndex(message => message.id === item.id);
+      if (index < 0) return [...previous, item];
+      return previous.map((message, i) => i === index ? item : message);
+    });
+  }, []);
   const onLiveItems = useCallback((items: LiveSessionItem[]) => {
     for (const item of items) liveItems.current.set(item.id, item);
     while (liveItems.current.size > 128) liveItems.current.delete(liveItems.current.keys().next().value!);
@@ -108,7 +123,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
         const index = next.findIndex(message => message.id === item.id);
         if (index < 0) next.push(item); else next[index] = { ...next[index], ...item };
       }
-      return next;
+      return items.some(item => item.role === "user" && item.clientId) ? reconcileLocalSends(next) : next;
     });
   }, []);
 
@@ -159,7 +174,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
       busy = true; if (mode !== "sync") setLoading(true); failedMode.current = mode;
       // Keep changes received during the read, including updates to existing IDs.
       const liveBeforeRead = new Map(liveItems.current);
-      const previousIds = new Set(messagesRef.current.map(message => message.id));
+      const previousIds = new Set(messagesRef.current.filter(message => !message.delivery).map(message => message.id));
       const before = mode === "older" && scroll.current ? { height: scroll.current.scrollHeight, top: scroll.current.scrollTop } : null;
       try {
         const result = await client.call("session.history", { threadId, ...(mode === "older" ? { cursor } : {}) }) as HistoryPage;
@@ -194,10 +209,11 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
             }
             const merged = [...page.flatMap(message => [...(before.get(message.id) || []), message]), ...unmatched];
             for (const item of merged) ids.add(item.id);
-            return [...merged, ...[...liveItems.current.values()].filter(item => !ids.has(item.id) && liveBeforeRead.get(item.id) !== item)];
+            const keptLocal = mode === "sync" ? [] : previous.filter(message => message.delivery && !ids.has(message.id));
+            return reconcileLocalSends([...merged, ...keptLocal, ...[...liveItems.current.values()].filter(item => !ids.has(item.id) && liveBeforeRead.get(item.id) !== item)]);
           }
           const existing = new Set(previous.map(message => message.id));
-          return [...result.messages.filter(message => !existing.has(message.id)), ...previous];
+          return reconcileLocalSends([...result.messages.filter(message => !existing.has(message.id)), ...previous]);
         });
         if (!overlap) cursor = result.nextCursor;
         setOlderCursor(cursor); setLoaded(true); setError("");
@@ -315,7 +331,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     }} className="absolute bottom-3 left-1/2 z-10 min-h-10 -translate-x-1/2 rounded-full border border-white/20 bg-[#243346] px-4 text-xs text-white shadow-xl hover:bg-[#30445c]">{t("↓ Latest messages")}</button> : null}
     </div>
     {data?.runtime === "office" ? <OfficeCodexAccount client={client} quiet /> : null}
-    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onActiveTurnChange={setActiveTurnId} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
+    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onActiveTurnChange={setActiveTurnId} onSendState={onSendState} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
     </div>
     {workspaceOpen ? <SessionWorkspace key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
       assets={[...new Map(messages.flatMap(message => message.assets || []).map(asset => [asset.url, asset])).values()].slice(-40)}

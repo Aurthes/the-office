@@ -31,8 +31,13 @@ function ReplyHeading({ context, onOpenSource }: { context?: ReplyContext; onOpe
 }
 
 const MessageBody = memo(function MessageBody({ message, truncatedLabel }: { message: LiveSessionItem; truncatedLabel: string }) {
+  const t = useUiText();
   return <>
     <SessionMarkdown content={message.content} assets={message.assets} user={message.role === "user"} />
+    {message.attachmentNames?.length ? <div className="mt-1 flex flex-wrap gap-2 text-xs text-white/65">{message.attachmentNames.map((name, index) => <span key={index}>{name}</span>)}</div> : null}
+    {message.delivery ? <p role={message.delivery === "failed" || message.delivery === "unknown" ? "alert" : "status"} className={`mt-1 text-xs ${message.delivery === "failed" || message.delivery === "unknown" ? "text-amber-200" : "text-white/55"}`}>
+      {t(({ sending: "Waiting for receipt…", accepted: "Accepted · Waiting for message history", failed: "Message rejected · Draft and attachments kept", unknown: "Delivery not confirmed · Check the conversation before sending again" })[message.delivery])}{message.deliveryError ? ` · ${message.deliveryError}` : ""}
+    </p> : null}
     {message.truncated ? <p className="mt-2 text-[10px] text-amber-200/70">{truncatedLabel}</p> : null}
     <MessageTime timestamp={message.timestamp} />
   </>;
@@ -91,7 +96,7 @@ export const SessionTranscript = memo(function SessionTranscript({ messages, act
   }
   const blocks: ({ message: LiveSessionItem } | { group: { id: string; turnId?: string; items: LiveSessionItem[] } })[] = [];
   for (const message of messages) {
-    if (message.role === "user" && !visibleUserText(message.content).trim() && !message.assets?.some(asset => asset.inline || asset.attached)) continue;
+    if (message.role === "user" && !visibleUserText(message.content).trim() && !message.assets?.some(asset => asset.inline || asset.attached) && !message.attachmentNames?.length) continue;
     if (message.role === "tool" || message.phase === "commentary") {
       // Steers share a turn ID. Only adjacent work belongs in the same box,
       // otherwise new responses jump above the user message that prompted them.

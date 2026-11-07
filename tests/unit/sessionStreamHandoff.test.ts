@@ -22,7 +22,7 @@ function setup() {
   const ws = { readyState: 1, bufferedAmount: 0, send: (raw: string) => events.forEach(handler => handler(JSON.parse(raw))), close: vi.fn() };
   const stream = new CodexSessionStream(native, { delay: 0 });
   const call = vi.fn(async (method: string, params: unknown): Promise<unknown> => {
-    const p = params as { threadId: string; subscriptionId: string; cursor?: string; message?: string };
+    const p = params as { threadId: string; subscriptionId: string; cursor?: string; message?: string; requestId?: string };
     if (method === "session.subscribe") return stream.subscribe(ws, p.threadId, p.subscriptionId);
     if (method === "session.unsubscribe") return stream.unsubscribe(ws, p.subscriptionId);
     if (method === "session.inspect") return { id: p.threadId, name: p.threadId, workspace: "/repo", project: "Project", controlsAvailable: true };
@@ -32,7 +32,7 @@ function setup() {
       return { threadId: p.threadId, messages: all.slice(start, end), nextCursor: start ? String(start) : null };
     }
     if (method === "session.send") {
-      change(p.threadId, [message(p.message!, "user")], "working");
+      change(p.threadId, [{ ...message(p.message!, "user"), clientId: p.requestId }], "working");
       return { status: "started" };
     }
     return {};
@@ -108,7 +108,7 @@ it("fills a multi-page missed gap in order while preserving older history, curso
   stream.controls.snapshot = (id: string) => id === "A" ? { ...state, items: [] } : { connected: true, version: 1, activeTurnId: null, items: [], approvals: [] };
   call.mockClear(); view.rerender(panel("A")); await screen.findByText("new-4");
   expect(within(screen.getByRole("region", { name: "Codex session" })).getByLabelText("Session history")).toBe(original); expect(original.scrollTop).toBe(350);
-  expect(screen.getAllByRole("article").map(article => article.textContent?.replace(/^Codex/, ""))).toEqual(["A-2", "A-3", "A-4", "A-5", "new-0", "new-1", "new-2", "new-3", "new-4"]);
+  expect(screen.getAllByRole("article").map(article => article.dataset.messageId)).toEqual(["A-2", "A-3", "A-4", "A-5", "new-0", "new-1", "new-2", "new-3", "new-4"]);
   expect(call.mock.calls.filter(([method]) => method === "session.history").map(([, p]) => (p as { cursor?: string }).cursor)).toEqual([undefined, "9", "7"]);
   fireEvent.click(screen.getByRole("button", { name: /Load older messages/ })); await screen.findByText("A-0");
   expect(call).toHaveBeenLastCalledWith("session.history", { threadId: "A", cursor: "2" });

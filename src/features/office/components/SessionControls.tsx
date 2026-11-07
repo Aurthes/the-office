@@ -20,7 +20,8 @@ export type SessionAsset = { source: string; name: string; kind: "image" | "mark
 export type ReplySource = { threadId: string; turnId: string; itemId: string; excerpt: string };
 export type ReplyQuestion = { id: string; summary: string; sources: ReplySource[]; parentQuestionId?: string; parents?: { id: string; summary: string }[] };
 export type ReplyContext = { questions?: ReplyQuestion[]; taskId?: string; taskTitle?: string; phaseId?: string; phaseTitle?: string; sources?: ReplySource[] };
-export type LiveSessionItem = { id: string; turnId?: string; source?: "voice"; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number; replyContext?: ReplyContext };
+export type LiveSessionItem = { id: string; clientId?: string; turnId?: string; source?: "voice"; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number; replyContext?: ReplyContext;
+  delivery?: "sending" | "accepted" | "failed" | "unknown"; attachmentNames?: string[]; deliveryError?: string };
 export type SessionClient = {
   call: (method: string, params: unknown) => Promise<unknown>;
   onEvent?: (handler: (event: { event: string; payload?: unknown }) => void) => () => void;
@@ -36,12 +37,13 @@ type Upload = { id: string; name: string; size: number; ref?: string; error?: st
 const sessionDrafts = new Map<string, string>();
 const attachmentDrafts = new Map<string, Upload[]>();
 
-export function SessionControls({ client, threadId, active = true, onItems, onHistorySync, onActiveTurnChange, voice: sharedVoice, onOpenThread, onRenamed, onFork }: {
+export function SessionControls({ client, threadId, active = true, onItems, onHistorySync, onActiveTurnChange, onSendState, voice: sharedVoice, onOpenThread, onRenamed, onFork }: {
   client: SessionClient;
   active?: boolean;
   threadId: string; onItems: (items: LiveSessionItem[]) => void;
   onHistorySync?: () => void;
   onActiveTurnChange?: (turnId: string | null) => void;
+  onSendState?: (threadId: string, item: LiveSessionItem) => void;
   voice?: SessionVoiceController;
   onOpenThread?: (id: string) => void | Promise<void>;
   onRenamed?: (name: string) => void;
@@ -298,8 +300,13 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
     if (actionBusy.current || settingsBusy || !state?.connected) return;
     actionBusy.current = true;
     setBusy(true); setError(""); setNotice("");
+    const send = method === "session.send" ? params as { requestId: string; message: string } : null;
+    const local: LiveSessionItem | null = send ? { id: `local-send:${send.requestId}`, clientId: send.requestId, role: "user", content: send.message,
+      timestamp: Date.now(), delivery: "sending", attachmentNames: uploadsRef.current.map(file => file.name) } : null;
+    if (local) onSendState?.(threadId, local);
     try {
       const result = await client.call(method, { threadId, ...params });
+      if (local) onSendState?.(threadId, { ...local, delivery: "accepted" });
       if (method === "session.send") { focusPending.current = true; setText(""); composer.clear(); if (!dictation.error) dictation.clear(); updateUploads([]); setNotice("Submitted to the session"); }
       if (method === "session.compact") { setText(""); focusPending.current = true; setNotice("Context compaction requested"); }
       if (method === "session.rename") { setText(""); onRenamed?.((result as { name: string }).name); setNotice("Chat renamed"); }
@@ -311,7 +318,21 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
       if (method === "session.approval.reply") setNotice("Approval reply submitted; waiting for confirmation");
       if (!client.onEvent) await refresh.current?.();
       return result;
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Action failed. Check the session before retrying."); }
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Action failed. Check the session before retrying.";
+      if (local) {
+        // Transport failures (including generic server errors) cannot prove that
+        // native input was rejected. Only explicit validation/auth refusals can.
+        const code = cause && typeof cause === "object" && "code" in cause ? String(cause.code) : "";
+        const rejected = ["INVALID_REQUEST", "INVALID_PARAMS", "UNAUTHORIZED", "FORBIDDEN"].includes(code)
+          || /^(Sign in to Codex for Office before sending|请发送不超过|每次最多 8 个附件|请先输入消息或添加附件|附件引用无效|附件不属于此会话|Message text must be a string|Invalid composer reference)/.test(message);
+        onSendState?.(threadId, { ...local, delivery: rejected ? "failed" : "unknown", deliveryError: message });
+        if (!rejected) onHistorySync?.(); // Read only; never replay an uncertain send.
+      }
+      // The timeline owns this send's feedback and removes it on exact receipt.
+      // Other actions and standalone composers still use their existing alert.
+      setError(local && onSendState ? "" : message);
+    }
     finally { actionBusy.current = false; setBusy(false); }
   };
   async function executeCommand(command: string, argument: string) {

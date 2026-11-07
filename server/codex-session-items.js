@@ -8,7 +8,7 @@ function sessionItem(item, turnId) {
   const base = { id: `${turnId}:${item.id}`, turnId, ...(timestamp === undefined ? {} : { timestamp }) };
   if (item.type === "userMessage") {
     const content = (item.content || []).filter(p => ["text", "inputText", "input_text"].includes(p.type)).map(p => p.text).join("\n");
-    return { ...base, role: "user", content: visibleUserText(content), assets: describeSessionAssets(content, item.content || []) };
+    return { ...base, ...(typeof item.clientId === "string" && item.clientId ? { clientId: item.clientId } : {}), role: "user", content: visibleUserText(content), assets: describeSessionAssets(content, item.content || []) };
   }
   if (item.type === "agentMessage") return { ...base, role: "assistant", phase: item.phase, content: item.text || "", assets: describeSessionAssets(item.text || "") };
   if (item.type === "plan") return { ...base, role: "assistant", phase: "partial_answer", content: item.text || "" };
