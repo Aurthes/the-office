@@ -24,9 +24,40 @@ function sourceHome(environment = process.env) {
   return path.resolve(environment.CLAW3D_CODEX_CONFIG_HOME || environment.CODEX_HOME || path.join(os.homedir(), ".codex"));
 }
 
+// Office-local standalone skills win over discovered copies. Only the child
+// process's supported per-path enablement changes; source files/links stay put.
+function duplicateSkills(roots, configured) {
+  const groups = new Map(), seen = new Set();
+  const canonical = file => fs.existsSync(file) ? fs.realpathSync(file) : path.resolve(file);
+  for (const root of roots) {
+    let entries;
+    try { entries = fs.readdirSync(root); } catch { continue; }
+    for (const entry of entries.sort()) {
+      try {
+        const file = fs.realpathSync(path.join(root, entry, "SKILL.md"));
+        if (seen.has(file)) continue;
+        const front = fs.readFileSync(file, "utf8").match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
+        const match = front?.match(/^name:[ \t]*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\r\n#]+))/m);
+        const name = (match?.[1] || match?.[2] || match?.[3] || "").trim();
+        if (!name) continue;
+        seen.add(file); const group = groups.get(name) || []; group.push(file); groups.set(name, group);
+      } catch { /* Missing or invalid skills remain the native loader's concern. */ }
+    }
+  }
+  const disabled = [];
+  for (const [name, files] of groups) {
+    if (files.length < 2 || configured.some(entry => entry.name === name)) continue;
+    const setting = file => configured.find(entry => entry.path && [file, path.dirname(file)].includes(canonical(entry.path)));
+    const explicit = files.filter(file => setting(file)?.enabled === true);
+    const winners = new Set(explicit.length ? explicit : files.filter(file => setting(file)?.enabled !== false).slice(0, 1));
+    for (const file of files) if (!winners.has(file) && !setting(file)) disabled.push({ path: file, enabled: false });
+  }
+  return disabled;
+}
+
 // Read only public user-authored configuration. Never inspect App state or copy
 // a whole config.toml: it can redirect credentials, databases and tool bridges.
-function prepareOfficeProfile(home, environment = process.env) {
+function prepareOfficeProfile(home, environment = process.env, additionalInstructions = "") {
   const source = sourceHome(environment), warnings = [], links = {}, rules = [];
   const record = path.join(home, "office-rule-links.json");
   let previous = {};
@@ -66,16 +97,26 @@ function prepareOfficeProfile(home, environment = process.env) {
   // Carry per-skill overrides; Codex interprets their enablement semantics.
   // Office's own entries come last, as the deliberate local override.
   const skillEntries = native.skills?.config;
-  if (Array.isArray(skillEntries)) {
+  {
     const merged = new Map();
-    for (const [entries, root] of [[skillEntries, source], [own.skills?.config || [], home]]) {
-      for (const entry of entries) {
+    for (const [entries, root] of [[skillEntries || [], source], [own.skills?.config || [], home]]) {
+      for (const entry of Array.isArray(entries) ? entries : []) {
         if (typeof entry.enabled !== "boolean" || (!entry.path && !entry.name)) continue;
         const item = { ...(entry.path ? { path: path.resolve(root, entry.path) } : { name: entry.name }), enabled: entry.enabled };
         merged.set(item.path || item.name, item);
       }
     }
-    assign(inherited, "skills.config", [...merged.values()]); defaults.push("skills.config");
+    const configured = [...merged.values()];
+    const suppressed = duplicateSkills([path.join(home, "skills"), path.join(source, "skills"), path.join(environment.HOME || os.homedir(), ".agents/skills")], configured);
+    if (Array.isArray(skillEntries) || Array.isArray(own.skills?.config) || suppressed.length) {
+      assign(inherited, "skills.config", [...configured, ...suppressed]); defaults.push("skills.config");
+    }
+  }
+  if (additionalInstructions) {
+    const instructions = own.developer_instructions ?? native.developer_instructions ?? "";
+    if (typeof instructions !== "string") throw new Error("developer_instructions must be text");
+    assign(inherited, "developer_instructions", [instructions, additionalInstructions].filter(Boolean).join("\n"));
+    if (!defaults.includes("developer_instructions")) defaults.push("developer_instructions");
   }
   const legacy = path.join(source, "skills");
   let skillRoots = [];

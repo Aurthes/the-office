@@ -21,7 +21,7 @@ const { OfficeTodos, activeDelegation, handlingAgentId } = require("./office-tod
 const { OfficeSchedules } = require("./office-schedules");
 const { CodexSessionComposer } = require("./codex-session-composer");
 const { CodexMessageSearch } = require("./codex-message-search");
-const { OfficeCompany } = require("./office-company");
+const { OfficeCompany, WORKFLOW, TASK_WORKFLOW } = require("./office-company");
 const { OfficeDelegation } = require("./office-delegation");
 const { OfficeReplyContext, taskReplyContext, sourceOf } = require("./office-reply-context");
 
@@ -35,6 +35,7 @@ const features = { dictation: false, dictationHTTP: true, voice: true, predictio
 const broadcast = (event, payload) => { const frame = JSON.stringify({ type: "event", event, seq: seq++, payload }); for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame); };
 function changed() { if (!rosterTimer) rosterTimer = setTimeout(() => { rosterTimer = null; broadcast("roster.updated", { ts: Date.now() }); }, 150); }
 const native = new CodexOfficeClient({
+  additionalInstructions: WORKFLOW + "\n" + TASK_WORKFLOW,
   env: { ...process.env, OFFICE_TASK_GATEWAY_URL: `ws://127.0.0.1:${process.env.CODEX_ADAPTER_PORT || 18790}`, OFFICE_TASK_GATEWAY_TOKEN: token },
   configOverrides: [
     `mcp_servers.office_tasks.command=${JSON.stringify(process.execPath)}`,
@@ -123,7 +124,7 @@ replyContext.options.source = async source => {
   const page = await messageSearch.context(source);
   return sourceOf(source.threadId, page.messages.find(item => item.id === page.messageId));
 };
-store.questionContext = id => replyContext.state(id);
+store.questionContext = id => replyContext.forModel(id);
 const company = new OfficeCompany(store);
 store.companyContext = id => company.forTurn(id);
 store.todoContext = id => { const row = todos.bound(id); return { protocol: 5, agentId: id, todoId: row?.id || null, assigneeId: row?.assigneeId || null, handlingAgentId: row ? handlingAgentId(row) : null, reviewerId: activeDelegation(row || {})?.state === "review" ? activeDelegation(row).managerId : null, departmentId: store.get(id).projectId ?? null, delegatedTasks: todos.delegated(id) }; };

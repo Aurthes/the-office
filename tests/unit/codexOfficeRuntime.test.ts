@@ -49,11 +49,11 @@ describe("independent Office runtime", () => {
     const injections = f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
     expect(injections).toHaveLength(2);
     expect(JSON.stringify(injections[1])).toContain("second");
-    expect(JSON.stringify(injections[1])).toContain("office_tasks MCP tools");
+    expect(JSON.stringify(injections[1])).not.toContain("Office task workflow:");
     expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
   });
 
-  it("refreshes legacy cached context with current workflow once, then reuses it on subsequent turns", async () => {
+  it("refreshes legacy cached context once with dynamic data only, then reuses it on subsequent turns", async () => {
     const f = fixture(), id = await session(f);
     f.store.companyContext = () => ({ agentId: id, title: "Head" });
     await f.store.call("turn/start", { threadId: id, input: [] });
@@ -66,7 +66,8 @@ describe("independent Office runtime", () => {
     restored.companyContext = f.store.companyContext;
     await restored.call("turn/start", { threadId: id, input: [] });
     expect(injections()).toHaveLength(2);
-    expect(JSON.stringify(injections()[1])).toContain("do not repeat the call before every response");
+    expect(JSON.stringify(injections()[1])).toContain("Current Office project context");
+    expect(JSON.stringify(injections()[1])).not.toContain("Office question workflow:");
     await restored.call("turn/start", { threadId: id, input: [] });
     expect(injections()).toHaveLength(2);
   });

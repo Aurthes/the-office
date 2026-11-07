@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parse } from "smol-toml";
@@ -10,15 +10,47 @@ const { officeEnvironment } = require("../../server/codex-office-client.js");
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
 function fixture() {
-  const root = mkdtempSync(path.join(tmpdir(), "office-profile-")); roots.push(root);
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "office-profile-"))); roots.push(root);
   const source = path.join(root, "existing-codex"), home = path.join(root, "office");
   mkdirSync(source); mkdirSync(home);
-  const environment = { CODEX_HOME: source };
+  const environment = { CODEX_HOME: source, HOME: root };
   const prepare = () => prepareOfficeProfile(home, environment);
   const settings = () => parse(prepare().overrides.filter((_: string, i: number) => i % 2 === 1).join("\n"));
   return { root, source, home, environment, prepare, settings };
 }
 describe("automatic Office configuration discovery", () => {
+  it("appends fixed Office instructions to the effective developer rules without editing either config", () => {
+    const f = fixture(), source = path.join(f.source, "config.toml"), own = path.join(f.home, "config.toml");
+    writeFileSync(source, 'developer_instructions="User rules"\n');
+    const settings = () => parse(prepareOfficeProfile(f.home, f.environment, "Office rules").overrides.filter((_: string, i: number) => i % 2 === 1).join("\n"));
+    expect(settings().developer_instructions).toBe("User rules\nOffice rules");
+    writeFileSync(own, 'developer_instructions="Office-specific user rules"\n');
+    expect(settings().developer_instructions).toBe("Office-specific user rules\nOffice rules");
+    expect(readFileSync(source, "utf8")).toBe('developer_instructions="User rules"\n');
+    expect(readFileSync(own, "utf8")).toBe('developer_instructions="Office-specific user rules"\n');
+  });
+  it("deduplicates same-name skills by Office, imported and user priority, preserving explicit choices and files", () => {
+    const f = fixture();
+    const skill = (root: string, folder: string, name: string, version: string) => {
+      const dir = path.join(root, folder); mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, "SKILL.md"); writeFileSync(file, `---\nname: ${name}\ndescription: ${version}\n---\n${version}\n`); return file;
+    };
+    const office = path.join(f.home, "skills"), imported = path.join(f.source, "skills"), user = path.join(f.root, ".agents/skills");
+    const current = skill(office, "current", "same", "new required safeguards"), old = skill(imported, "old", "same", "old rules");
+    const userCopy = skill(user, "same", "same", "user copy");
+    symlinkSync(path.dirname(current), path.join(user, "alias"));
+    const disabled = () => (f.settings().skills as { config: { path: string; enabled: boolean }[] }).config;
+    expect(disabled()).toEqual([{ path: old, enabled: false }, { path: userCopy, enabled: false }]);
+    expect(readFileSync(current, "utf8")).toContain("new required safeguards");
+    expect(readFileSync(old, "utf8")).toContain("old rules");
+    expect(readlinkSync(path.join(user, "alias"))).toBe(path.dirname(current));
+    writeFileSync(path.join(f.home, "config.toml"), `[[skills.config]]\npath=${JSON.stringify(old)}\nenabled=true\n`);
+    expect(disabled()).toEqual([{ path: old, enabled: true }, { path: current, enabled: false }, { path: userCopy, enabled: false }]);
+    writeFileSync(path.join(f.home, "config.toml"), `[[skills.config]]\npath=${JSON.stringify(current)}\nenabled=false\n`);
+    expect(disabled()).toEqual([{ path: current, enabled: false }, { path: userCopy, enabled: false }]);
+    writeFileSync(path.join(f.home, "config.toml"), '[[skills.config]]\nname="same"\nenabled=true\n');
+    expect(disabled()).toEqual([{ name: "same", enabled: true }]);
+  });
   it("shares existing rule files and legacy skills while importing only ordinary defaults", () => {
     const f = fixture();
     writeFileSync(path.join(f.source, "AGENTS.md"), "shared rules");

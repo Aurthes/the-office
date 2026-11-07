@@ -31,6 +31,19 @@ async function fixture() {
   return { root, store, company, call, head, worker, researcher, sharedHead, product, research, empty, gateway, file, patch };
 }
 describe("department responsibilities in the actual company context", () => {
+  it("keeps responsibilities, membership, roles and reporting while omitting redundant model fields", async () => {
+    const f = await fixture(), full = f.company.context(CEO), model = f.company.forTurn(CEO);
+    expect(model.departments.map((d: { id: string }) => d.id)).toEqual(full.departments.map((d: { id: string }) => d.id));
+    for (const department of model.departments) {
+      const original = full.departments.find((d: { id: string }) => d.id === department.id);
+      expect(department.description).toBe(original.description);
+      expect(department.members).toEqual(original.members.map(({ id, name, title, reportsTo }: { id: string; name: string; title: string; reportsTo: string[] }) => ({ id, name, title, reportsTo })));
+      expect(department.heads.map((p: { id: string }) => p.id)).toEqual(original.heads.map((p: { id: string }) => p.id));
+    }
+    expect(Buffer.byteLength(JSON.stringify(model))).toBeLessThan(Buffer.byteLength(JSON.stringify(full)));
+    expect(f.company.context(CEO)).toEqual(full);
+    expect(() => f.company.assertDelegate(f.worker, f.researcher)).toThrow("direct report");
+  });
   it("reads the UI's saved descriptions and derives the same full directory for the CEO", async () => {
     const f = await fixture(), view = f.company.context(CEO);
     const saved = JSON.parse(readFileSync(f.file, "utf8"));

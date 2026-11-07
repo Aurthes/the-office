@@ -109,11 +109,24 @@ describe("compact model-facing Office information", () => {
     await change("review", "bob", { accept: true, notes: "Independently verified result.json" });
     await change("submit", "bob", { report: "Nested result verified" });
     await change("review", "alice", { accept: true, notes: "Final behavior verified" });
+    // A later round on the same route must not replay its earlier closed report.
+    const oldDelegation = todos.get({ id }).todo.delegations[0];
+    await change("delegate", "alice", { assigneeId: "bob", ...scope, requestId: "second-round" });
+    let compact = (await call("todo_get", { id })).todo;
+    expect(compact.delegations[0]).toMatchObject({ id: oldDelegation.id, state: "accepted", detailsOmitted: true });
+    expect(compact.delegations[0]).not.toHaveProperty("report");
+    expect(compact.delegations[1]).toMatchObject({ state: "accepted", report: "Behavior verified; artifact: result.json" });
+    expect(compact.delegations[2]).toMatchObject({ state: "working", ...scope });
+    await change("submit", "bob", { report: "Latest verified report", requestId: "second-report" });
+    compact = (await call("todo_get", { id })).todo;
+    expect(compact.delegations[2]).toMatchObject({ report: "Latest verified report" });
+    await change("review", "alice", { accept: true, notes: "Verified second round", requestId: "second-review" });
     await change("complete", "alice", { phaseId: phaseIds[1] });
-    expect(result.todo).toMatchObject({ status: "done", archived: true, assigneeId: "carol" });
+    expect(result.todo).toMatchObject({ status: "done", archived: true, assigneeId: "bob" });
     await expect(call("todo_edit", { id, revision: 1, actorId: "alice", documentation: "Stale" })).rejects.toThrow(/changed/);
     const history = await call("todo_get", { id, includeHistory: true });
     expect(history).toEqual(todos.get({ id }));
+    expect(history.todo.delegations[0].report).toBe("Nested result verified");
     expect(history.todo.events.length).toBeGreaterThan(5);
     const list = await call("todo_list", { status: "done", limit: 1 });
     expect(list).toMatchObject({ total: 1, limit: 1, todos: [{ id, phaseCount: 2, ownerId: "alice" }] });

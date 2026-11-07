@@ -16,6 +16,25 @@ const user = (itemId: string, content: string, turnId = "turn") => ({ id: `${tur
 const answer = (itemId: string, turnId = "turn") => ({ id: `${turnId}:${itemId}`, turnId, role: "assistant", content: "Answer" });
 const define = (context: InstanceType<typeof OfficeReplyContext>, actor: string, summary: string, extra = {}) => context.context(actor, { questions: [{ key: "q", summary, ...extra }], answering: ["q"], requestId: summary });
 
+it("projects concise model context while preserving exact Q identities, parent steps and full discovery", async () => {
+  const { context } = fixture();
+  context.record("head", user("original", "实现看板并验证。".repeat(50)));
+  const parent = (await define(context, "head", "Markout dashboard")).opened.q;
+  const child = (await define(context, "head", "Verify dashboard", { parentQuestionId: parent })).opened.q;
+  const full = context.state("head"), model = context.forModel("head");
+  expect(model.answering).toEqual([child]);
+  expect(model.context.questions[0]).toMatchObject({ id: child, parentQuestionId: parent, parents: [{ id: parent, summary: "Markout dashboard" }], sources: [{ threadId: "head", turnId: "turn", itemId: "original" }] });
+  expect(model.knownQuestions).toEqual([{ id: parent, summary: "Markout dashboard" }, { id: child, summary: "Verify dashboard", parentQuestionId: parent }]);
+  expect(Buffer.byteLength(model.context.questions[0].sources[0].excerpt)).toBeLessThanOrEqual(180);
+  expect(model.context.questions[0].sources[0].excerpt).not.toContain("\uFFFD");
+  expect(Buffer.byteLength(JSON.stringify(model))).toBeLessThan(Buffer.byteLength(JSON.stringify(full)));
+  expect(context.state("head")).toEqual(full);
+  context.prepare("head", "resume", context.current("head"), "continue");
+  context.record("head", user("continue", "Continue where you left off.", "next"), "resume");
+  expect(context.forModel("head").answering).toEqual([child]);
+  expect(context.forModel("head").context.questions[0].sources[0].itemId).toBe("original");
+});
+
 it("splits one prompt into independent semantic Qs and freezes each reply before later selection", async () => {
   const { root, context } = fixture(), save = vi.spyOn(context, "save");
   context.record("head", user("original", "Q1: How much memory? Q2: Is the capacity shared?"));

@@ -167,6 +167,21 @@ class OfficeReplyContext {
       knownQuestions: data.known.slice(-12).map(questionId => { const question = this.getQuestion(questionId); return { id: question.id, summary: question.summary, parentQuestionId: question.parentQuestionId, sources: question.sources.map(source => ({ ...source, excerpt: clipText(source.excerpt, 160).content })) }; }),
       recentSources: this.sources(id) };
   }
+  forModel(id) {
+    const state = this.state(id);
+    const source = ({ threadId, turnId, itemId, excerpt }) => ({ threadId, turnId, itemId, ...(excerpt ? { excerpt: clipText(excerpt, 160).content } : {}) });
+    const question = ({ id, summary, parentQuestionId, sources, parents }) => ({ id, summary,
+      ...(parentQuestionId ? { parentQuestionId } : {}),
+      ...(sources ? { sources: sources.map(source) } : {}),
+      ...(parents?.length ? { parents } : {}),
+    });
+    return { answering: state.answering,
+      context: state.context ? { ...state.context, ...(state.context.questions ? { questions: state.context.questions.map(question) } : {}),
+        ...(state.context.sources ? { sources: state.context.sources.map(source) } : {}) } : null,
+      knownQuestions: state.knownQuestions.map(({ id, summary, parentQuestionId }) => ({ id, summary, ...(parentQuestionId ? { parentQuestionId } : {}) })),
+      recentSources: state.recentSources.map(source),
+    };
+  }
   prepare(id, requestId, context, kind = "handoff") {
     if (!context && kind === "user") return;
     if (["__proto__", "constructor", "prototype"].includes(requestId)) throw new Error("Invalid send identity");

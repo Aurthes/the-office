@@ -28,7 +28,7 @@ const definitions = [
   ["review", "The delegating manager verifies a submitted result, then accepts it with evidence or returns specific feedback. Acceptance does not close the task or replace an upstream manager's acceptance. Reuse requestId on retry.", ["id", "revision", "actorId", "accept", "notes", "requestId"], ["id", "revision", "actorId", "accept", "notes", "requestId"]],
   ["recall", "The delegating manager takes an unfinished handoff back with a reason. Does not claim the result was accepted. Inspect the worker conversation first; an active worker must be stopped before recall. Reuse requestId on retry.", ["id", "revision", "actorId", "reason", "requestId"], ["id", "revision", "actorId", "reason", "requestId"]],
   ["list", "List compact task summaries, department totals and available agents. Use todo_get for a task's plan, documentation and handoffs. assigneeId filters the executor; ownerId filters the follow-up owner. Owner adds no permissions; handlingAgentId/reviewerId indicate workflow and acceptance. Filter or paginate when needed.", ["departmentId", "assigneeId", "ownerId", "status", "query", "offset", "limit"], []],
-  ["get", "Read the current task revision, complete phase plan, documentation and handoff reports. Event history is omitted unless includeHistory=true. Reuse a known unchanged plan and revisions returned by successful changes; reread after conflicts or when new work/reports arrive.", ["id", "includeHistory"], ["id"]],
+  ["get", "Read the current task revision, complete phase plan, documentation, open handoffs and the latest report per manager/worker route. Earlier handoff details and event history require includeHistory=true. Reuse a known unchanged plan and revisions returned by successful changes; reread after conflicts or when new work/reports arrive.", ["id", "includeHistory"], ["id"]],
   ["create", "Create a record only for actionable work, never casual chat or general questions. One task is one user goal; related follow-ups reuse an existing task, including a completed one. Check recent tasks first. Ask the user before splitting uncertain scope. Define phases and owner before executing; reuse requestId on retry.", ["actorId", "title", "documentation", "departmentId", "assigneeId", "ownerId", "phases", "requestId"], ["actorId", "title", "phases", "requestId"]],
   ["edit", "Update the plan, assignment or documentation, including completed archived tasks. Adding an unfinished phase to completed work returns it to the current board; documentation-only edits keep it archived and preserve completion time. Preserve existing phase IDs and accumulated times. New phases omit id. Fetch fresh revision after a conflict.", ["id", "revision", "actorId", "title", "documentation", "departmentId", "assigneeId", "ownerId", "phases"], ["id", "revision", "actorId"]],
   ["start", "Start or resume the current phase timer. This does not send a chat message.", ["id", "revision", "actorId"], ["id", "revision", "actorId"]],
@@ -115,6 +115,15 @@ function modelResult(name, args, result) {
   if (name === "todo_get") {
     if (args.includeHistory) return result;
     const details = { ...todo }; delete details.events;
+    // Keep open work and the latest evidence on each actual reporting route.
+    // Older rounds remain addressable by ID through the explicit history read.
+    const latest = new Map();
+    for (const entry of todo.delegations || []) latest.set(JSON.stringify([entry.managerId, entry.workerId]), entry.id);
+    if (todo.delegations) details.delegations = todo.delegations.map(entry => {
+      if (!["accepted", "recalled"].includes(entry.state) || latest.get(JSON.stringify([entry.managerId, entry.workerId])) === entry.id) return entry;
+      const { id, managerId, workerId, state, createdAt, submittedAt } = entry;
+      return { id, managerId, workerId, state, createdAt, submittedAt, detailsOmitted: true };
+    });
     return { ...result, todo: details };
   }
   const fields = ["id", "code", "revision", "status", "archived", "assigneeId", "ownerId", "handlingAgentId", "reviewerId", "progress"];

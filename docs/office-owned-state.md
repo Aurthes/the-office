@@ -110,7 +110,11 @@ explicit source override; Office cannot infer private launcher settings.
   resumed after a backend restart. Other already-loaded contexts are not patched.
 - Repository rules and `$HOME/.agents/skills` use Codex's normal discovery.
   Older standalone skills under the discovered `skills/` directory are added
-  with public `skills/extraRoots/set`. Codex performs discovery and deduplication.
+  with public `skills/extraRoots/set`. For standalone skills sharing a declared
+  name, Office supplies per-path `skills.config` disables to its own child only:
+  Office-local skills take priority over imported skills, then user skills.
+  Real-file aliases count once. Explicit per-path enablement and named choices
+  remain authoritative. Skill files, symlinks and global config are not changed.
 - Public `config.toml` is parsed as TOML. The allowlist is `model`,
   `model_reasoning_effort`, `model_verbosity`, `personality`, `service_tier`,
   `developer_instructions`, `project_doc_max_bytes`,
@@ -118,6 +122,20 @@ explicit source override; Office cannot infer private launcher settings.
   enablement. Office-specific settings win; model/access controls still govern
   each Office turn. Custom-provider model defaults are not imported into the
   independently authenticated OpenAI provider.
+- Fixed Office Q/company/task rules are appended to the effective user
+  `developer_instructions` through child-process overrides. Dynamic turn
+  injections contain only project/task/organization/Q data and are cached when
+  unchanged. Department descriptions, membership, roles and reporting remain
+  available; repeated department labels and full Head records are omitted from
+  that projection. Explicit organization reads still return the full directory.
+  Native resume/compaction retains fixed rules. Existing conversations can still
+  contain earlier injections until normal context compaction removes them.
+- Model-facing `todo_get` returns the complete current plan/documentation, all
+  open handoffs and the latest full handoff per manager/worker pair. Older closed
+  rounds retain identities/status with `detailsOmitted: true`; use
+  `includeHistory: true` to read every report and event. Storage, UI and acceptance
+  permissions remain unchanged. Compact mutation receipts supply the next
+  revision so an unchanged plan need not be fetched again.
 - Selected defaults are supplied through Codex's public `-c key=value` arguments.
   The pinned app-server does not support named `--profile` selection.
   `config.toml` itself is never linked or copied. Credentials, projects, trust,

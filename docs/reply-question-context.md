@@ -14,8 +14,10 @@ and optionally `parentQuestionId`. Child Qs represent meaningful steps, inherit
 the original source, and may add a clarification's source. Full original text
 remains in native Codex; each source excerpt is bounded to 512 UTF-8 bytes.
 
-The agent must call the existing Office MCP server's `question_context` before
-public commentary or an answer. It chooses Qs by meaning; the UI and backend
+The agent must select the actual Q with the existing Office MCP server's
+`question_context` before its first public response, and again when the Q or
+task/phase changes. Reuse that selection for commentary and the final answer.
+It chooses Qs by meaning; the UI and backend
 never derive the Q summary from the last prompt or the current task.
 
 - Read: `{actorId}` returns `answering`, `context`, `knownQuestions`, `recentSources`.
@@ -77,3 +79,8 @@ acceptance is a separate deployment check; unit or loopback success alone does
 not establish that every production agent chose the right Q.
 
 Select a Q before its first response and when the actual Q/step or task/phase binding changes. The selected binding already applies to subsequent commentary and answers; repeating `question_context` for the same Q is unnecessary. Selection/creation returns only selected IDs and newly opened aliases. An actor-only discovery read still returns current context, known Qs and original message sources. Full provenance remains stored and available to chat rendering and message navigation.
+
+Automatic turn context includes the selected Q's summary, parent steps and exact
+source identities with short excerpts. Known Qs include only IDs, summaries and
+parent IDs; their sources can be read on demand with actor-only discovery.
+This projection changes neither stored provenance nor original-message links.

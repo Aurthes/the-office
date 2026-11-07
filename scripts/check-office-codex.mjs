@@ -29,6 +29,10 @@ fs.mkdirSync(legacySkill, { recursive: true }); fs.mkdirSync(disabledSkill, { re
 fs.writeFileSync(path.join(legacySkill, "SKILL.md"), '---\nname: office-profile-probe\ndescription: OFFICE_LEGACY_SKILL_MARKER\n---\nA temporary skill used only by the local Office integration fixture.\n');
 fs.writeFileSync(path.join(disabledSkill, "SKILL.md"), '---\nname: disabled-profile-probe\ndescription: OFFICE_DISABLED_SKILL_MARKER\n---\nDisabled test fixture.\n');
 fs.appendFileSync(path.join(foreign, "config.toml"), `[[skills.config]]\npath=${JSON.stringify(path.join(disabledSkill, "SKILL.md"))}\nenabled=false\n`);
+for (const [parent, description] of [[home, "OFFICE_CURRENT_SKILL_MARKER"], [foreign, "OFFICE_OLD_SKILL_MARKER"]]) {
+  const directory = path.join(parent, "skills", "duplicate-probe"); fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, "SKILL.md"), `---\nname: office-duplicate-probe\ndescription: ${description}\n---\nVersion selection fixture.\n`);
+}
 function sourceSnapshot(directory = foreign) {
   return fs.readdirSync(directory).sort().flatMap(name => { const file = path.join(directory, name); return fs.statSync(file).isDirectory() ? sourceSnapshot(file) : [[path.relative(foreign, file), crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")]]; });
 }
@@ -78,6 +82,10 @@ const provider = http.createServer((request, response) => {
 const pause = ms => new Promise(r => setTimeout(r, ms));
 async function until(predicate, label, timeout = 20000) { const end = Date.now() + timeout; while (!predicate()) { if (Date.now() > end) throw new Error(label); await pause(20); } }
 function check(name, pass) { if (!pass) throw new Error(name); checks.push(name); console.log(JSON.stringify({ check: name, passed: true })); }
+function checkRules(label, payload) {
+  const text = JSON.stringify(payload);
+  check(label, ["Office question workflow:", "Office company workflow:", "Office task workflow:"].every(marker => text.split(marker).length === 2));
+}
 class BrowserClient {
   constructor(ws) {
     this.ws = ws; this.pending = new Map(); this.serial = 0; this.events = [];
@@ -173,6 +181,8 @@ try {
   if (!imagePresent) console.log(JSON.stringify({ diagnostic: payloads.map(p => ({ model: p.model, userContent: p.input?.filter(i => i.role === "user").flatMap(i => i.content || []).map(c => ({ type: c.type, text: c.text?.slice(-350) })) })) }));
   check("actual Codex reply and image input", imagePresent);
   check("Codex loads shared global instructions", JSON.stringify(payloads.at(-1).input).includes("OFFICE_GLOBAL_RULE_MARKER"));
+  checkRules("fixed Office rules appear exactly once in the actual first model request", payloads.at(-1));
+  check("actual skill discovery keeps the Office-local version only", JSON.stringify(payloads.at(-1).input).includes("OFFICE_CURRENT_SKILL_MARKER") && !JSON.stringify(payloads.at(-1).input).includes("OFFICE_OLD_SKILL_MARKER"));
   check("Codex discovers legacy skills through the public extra-roots API", JSON.stringify(payloads.at(-1).input).includes("OFFICE_LEGACY_SKILL_MARKER"));
   check("source per-skill disables remain effective", !JSON.stringify(payloads.at(-1).input).includes("OFFICE_DISABLED_SKILL_MARKER"));
   check("project context reaches Codex without appearing as a user message", payloads.some(p => p.input?.some(i => i.role === "developer" && JSON.stringify(i).includes(fs.realpathSync(secondary)))) && !(await client.call("session.history", { threadId })).messages.some(m => m.content.includes("Current Office project context")));
@@ -186,6 +196,7 @@ try {
   await client.call("session.send", { threadId, message: "OFFICE_SECOND_MARKER", requestId: "send-2" });
   await until(() => payloads.length >= 2, "Continuation did not reach the provider");
   check("resumed chats load updated shared rules after restart", JSON.stringify(payloads.at(-1).input).includes("OFFICE_UPDATED_GLOBAL_RULE_MARKER"));
+  checkRules("resumed model requests keep one copy of fixed Office rules after changed context", payloads.at(-1));
   const contexts = payloads.at(-1).input.filter(i => i.role === "developer" && JSON.stringify(i).includes("Current Office project context"));
   check("project edits replace folder context after restart", contexts.length > 0 && !JSON.stringify(contexts.at(-1)).includes(fs.realpathSync(secondary)));
   await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions.find(row => row.id === threadId).status === "idle", "Second turn did not finish");
@@ -301,6 +312,9 @@ try {
   await until(() => client.events.some(event => event.event === "session.stream" && event.payload.subscriptionId === "compact-check" && event.payload.items.some(item => item.content === "整理上下文")), "Native context-compaction lifecycle was not observed");
   await until(() => JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions.find(row => row.id === forked.threadId)?.status === "idle", "Compaction did not finish");
   check("manual compaction emits the native context-compaction lifecycle", true);
+  await client.call("session.send", { threadId: forked.threadId, message: "OFFICE_AFTER_COMPACTION", requestId: "after-compaction" });
+  await until(() => JSON.stringify(payloads.at(-1).input).includes("OFFICE_AFTER_COMPACTION") && JSON.parse(fs.readFileSync(path.join(data, "office.json"))).sessions.find(row => row.id === forked.threadId)?.status === "idle", "Post-compaction turn did not finish");
+  checkRules("fixed Office rules survive native compaction without duplication", payloads.at(-1));
   const handoffConfig = { ...scheduleConfig, threadId: forked.threadId, firstRunAt: Date.now() + 3600000 };
   const handoff = await client.call("schedule.create", { ...handoffConfig, requestId: "handoff-create" });
   await client.call("session.unsubscribe", { subscriptionId: "compact-check" });
