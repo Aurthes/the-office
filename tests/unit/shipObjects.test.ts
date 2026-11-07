@@ -78,6 +78,9 @@ describe("individually interactive batched ship props", () => {
     const boards = objects.filter(o => o.kind === "taskWhiteboard");
     expect(boards).toHaveLength(1);
     expect(boards[0].cabinId).toBe("public:monitor");
+    const teaserBoards = objects.filter(o => o.kind === "teaserBoard");
+    expect(teaserBoards).toHaveLength(1);
+    expect(teaserBoards[0].cabinId).toBe("public:break-room");
     for (const kind of ["workstation", "pottedPlant", "rainforestFern", "tropicalPlant", "spareServerRack", "machineFan", "growingBed", "seedling", "treadmill", "taskWhiteboard", "crate", "telescope", "workbench", "monitor"])
       expect(objects.some(o => o.kind === kind), kind).toBe(true);
     model.children.forEach(object => { const mesh = object as THREE.Mesh; mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose(); });

@@ -16,6 +16,13 @@ export function addBreakRoom(b: Builder, layout: ShipLayout, cabin: ShipCabin) {
     const p = breakRoomPoint(layout, cabin, x + .085, z);
     b.curve([[p.x, y + .04, p.z], [p.x + Math.cos(angle) * .05, y + .08, p.z - Math.sin(angle) * .05], [p.x, y + .13, p.z]], .014, color);
   };
+  b.object("teaserBoard", () => {
+    const c = BREAK_ROOM.teaserBoard;
+    box(c.x, c.z, c.y, [c.width, c.height, .12], "#c5a477");
+    box(c.x, c.z - .075, c.y, [c.width - .14, c.height - .14, .04], "#183832");
+    for (const side of [-1, 1]) box(c.x + side * .76, c.z, .59, [.07, 1.1, .09], "#60756c");
+    box(c.x, c.z - .1, c.y - c.height / 2, [c.width, .06, .2], "#d3b37a");
+  });
   b.object("refreshmentCounter", () => {
     const c = BREAK_ROOM.counter;
     box(0, c.z, .54, [c.width, .92, c.depth], "#c9ae8d");

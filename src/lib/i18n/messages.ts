@@ -1776,7 +1776,30 @@ export const ZH_CN: Record<string, string> = {
   "Local services are only supported on macOS.": "本地系统服务目前仅支持 macOS。",
   "Service is not loaded.": "系统尚未加载这个服务。",
   "Could not sample this background task.": "暂时无法读取这个后台任务的状态。",
-  "{0} unread": "{0} 条未读"
+  "{0} unread": "{0} 条未读",
+  "Teaser board": "趣题看板",
+  "Open teaser board": "打开趣题看板",
+  "Close teaser board": "关闭趣题看板",
+  "Refresh teasers": "刷新趣题",
+  "Take a brain break": "来一道趣题，换换脑子",
+  "Small challenges. Fresh perspectives. Share the idea that made it click.": "小挑战，新视角。把想通的关键一笔记下来。",
+  "Teasers finished": "已完成的趣题",
+  "Teaser status": "趣题状态",
+  "Open": "待解",
+  "In progress": "进行中",
+  "Finished": "已完成",
+  "All": "全部",
+  "View answer & key idea": "查看答案与核心思路",
+  "Key idea": "核心思路",
+  "Answer": "答案",
+  "Loading teasers…": "正在读取趣题…",
+  "The teaser board could not be loaded.": "趣题看板暂时无法读取。",
+  "Use Refresh to try again.": "点击刷新重试。",
+  "No teasers with this status.": "这个状态下还没有趣题。",
+  "The next good question belongs here.": "下一道好问题，就放在这里。",
+  "Ask teaser to drop a challenge on the board.": "让 teaser 往看板投放一道趣题吧。",
+  "Finished teasers keep their answer and a short explanation of the key idea.": "完成的趣题会保留答案和简短的核心思路总结。",
+  "Small challenges, shared discoveries and the idea that made it click.": "一起解小挑战，留下想通的关键思路。"
 };
 
 const ENGLISH = new Map(Object.entries(ZH_CN).map(([en, zh]) => [zh, en]));

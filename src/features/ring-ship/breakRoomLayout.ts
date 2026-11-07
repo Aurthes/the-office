@@ -6,6 +6,7 @@ export const BREAK_ROOM = {
   tables: [-2.15, 2.15], tableRadius: .54, tableHeight: .83,
   seats: [-3.2, -1.1, 1.1, 3.2], radial: 1.05, seatHeight: .48,
   counter: { x: 0, z: 2.05, width: 3.4, depth: .65, height: 1.05 },
+  teaserBoard: { x: 3.05, z: 2.65, y: 1.65, width: 2.1, height: 1.4 },
 } as const;
 export type BreakAction = "coffee" | "tea" | "snack" | "chat";
 export const BREAK_ACTIONS: readonly BreakAction[] = ["coffee", "tea", "snack", "chat"];

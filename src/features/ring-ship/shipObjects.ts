@@ -3,6 +3,7 @@ import { DECK_STEP, type DeckIndex } from "./layout";
 
 export const SHIP_OBJECT_INFO = {
   taskWhiteboard: ["Task whiteboard", "Open the task board for all departments."],
+  teaserBoard: ["Teaser board", "Small challenges, shared discoveries and the idea that made it click."],
   refreshmentCounter: ["Refreshment counter", "Tea, coffee and a well-defended supply of snacks."],
   teaStation: ["Tea station", "A warm cup and a little time to steep."],
   snackTray: ["Snack tray", "Emergency biscuits, fruit and small reasons to take a break."],
