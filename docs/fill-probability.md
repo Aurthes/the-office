@@ -247,3 +247,23 @@ Returning to visibility does not revive an exhausted round. Old values continue
 aging with their original epochs; each successful attempt uses its own pre-fetch
 monotonic anchor. A 30-second request budget does not extend the independent
 30-second evidence freshness threshold.
+
+## Pricing scope compatibility
+
+Feedback version 10 uses the original exposure-seconds controller (inner schema
+2) at `cache:mm:target_fill_feedback:v10:<strategy>:<instance>:base_token:<token>:symbol:<exact-symbol>:tif:<normalized-TIF>`.
+Its envelope must declare `mode=per_symbol_tif`, exact token/symbol/TIF and
+`clock=exposure_seconds`. It cannot fall back to version 8/9 or another TIF.
+
+Quote observation schema 2 retains the original consumer rows and times, and
+adds `pricing_scope=per_symbol_tif` plus frozen `bindings` from account/symbol to
+token/symbol/TIF. The existing cold exporter supplies these bindings even before
+a quote exists. Office checks their process, instance and export time, reads
+each shared leaf key once, then associates its original values with matching
+consumers. Accounts never become model identities. Missing bindings remain
+unverified; they cannot borrow a neighboring account's quote or feedback.
+The source evidence displays TIF; filtering, sorting, five default columns and
+independent quote/EMA aging stay unchanged. A restored prior has no invented
+observation time. Deployment pins and production state are not changed by this
+compatibility update.
+

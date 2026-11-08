@@ -143,6 +143,16 @@ class FillProbeTests(unittest.TestCase):
         changed=copy.deepcopy(envelope);changed["rows"][0]["bid"]["quoted"]=False
         with self.assertRaises(ValueError):probe.decode_quotes(changed,"maker","5",123,2200,1000)
 
+    def test_projection_preserves_optional_scope_without_inventing_legacy_binding(self):
+        required = {"id", "producer", "strategy", "instance", "account", "exchange", "market", "symbol", "side", "sourceSha", "pid", "heartbeatAt", "savedAt", "observedAt", "schema", "clock", "enabled", "weightedExposureSeconds", "ready", "error", "reason", "skipReason", "target"}
+        p = probe.validate_projection(dict(row=sorted(required | {"pricingMode", "baseToken", "tif"}), quote=["at", "available", "baseTarget", "currentCaProbability", "exportedAt"]))
+        row = {**dict.fromkeys(required), "schema":8, "quote":None}
+        self.assertNotIn("tif",probe.project_rows([row],p)[0])
+        row.update(schema=10,pricingMode="per_symbol_tif",baseToken="coin",tif="rpi")
+        self.assertEqual(probe.project_rows([row],p)[0]["tif"],"rpi")
+        del row["tif"]
+        with self.assertRaises(KeyError):probe.project_rows([row],p)
+
     def test_projection_whitelist_before_any_source_read_and_missing_not_null(self):
         required = {"id", "producer", "strategy", "instance", "account", "exchange", "market", "symbol", "side", "sourceSha", "pid", "heartbeatAt", "savedAt", "observedAt", "schema", "clock", "enabled", "weightedExposureSeconds", "ready", "error", "reason", "skipReason", "target"}
         quote = {"available", "at", "exportedAt", "baseTarget", "currentCaProbability"}
@@ -163,5 +173,48 @@ class FillProbeTests(unittest.TestCase):
         with self.assertRaises(ValueError):probe.encode_reply(dict(data="x"*(4*1024*1024)))
         with self.assertRaises(ValueError):probe.encode_reply(dict(data=base64.b64encode(os.urandom(2*1024*1024+8192)).decode()),True)
 
+
+
+class ScopedFillTests(unittest.TestCase):
+    def test_v10_requires_exact_scope_and_uses_seconds(self):
+        value=state(8);value.update(version=10,mode='per_symbol_tif',base_token='coin',tif='RPI',clock='exposure_seconds')
+        binding=dict(mode='per_symbol_tif',base_token='coin',tif='RPI')
+        result=probe.decode_state(value,'maker','5',value['symbol'],10,2100,1000,binding)
+        self.assertEqual(result['bid']['clock'],'exposure_seconds')
+        self.assertEqual(result['bid']['actualEma'],decode(state())['bid']['actualEma'])
+        for field,bad in [('tif','GTX'),('base_token','other'),('mode','per_token'),('clock','trials')]:
+            wrong=dict(value,**{field:bad})
+            with self.assertRaises(ValueError): probe.decode_state(wrong,'maker','5',value['symbol'],10,2100,1000,binding)
+        with self.assertRaises(ValueError): probe.decode_state(value,'maker','5',value['symbol'],10,2100,1000)
+    def test_frozen_binding_cannot_borrow_another_account_or_tif(self):
+        binding=dict(account='a',symbol='v.perp.coin_usdt',base_token='coin',tif='RPI',mode='per_symbol_tif')
+        payload=dict(observation_schema=2,pricing_scope='per_symbol_tif',strategy='maker',instance_id='5',pid=123,exported_at_ms=2000,bindings=[binding])
+        result=probe.decode_bindings(payload,'maker','5',123,2100,1000)
+        self.assertEqual(result[('a',binding['symbol'])]['tif'],'RPI')
+        self.assertNotIn(('b',binding['symbol']),result)
+        payload['bindings']=[binding,binding]
+        with self.assertRaises(ValueError): probe.decode_bindings(payload,'maker','5',123,2100,1000)
+
+class ScopedCollectionTests(unittest.TestCase):
+    def test_cross_account_leaf_reads_once_and_different_tifs_do_not_share(self):
+        with tempfile.TemporaryDirectory() as directory:
+            setting=Path(directory)/'atom_setting.json';setting.write_text(json.dumps(dict(system=dict(cache_redis='redis://private'),strategy=dict(params=dict(instance_id='5')))))
+            symbol='venue.perp.coin_usdt'
+            class Client:
+                def mget(self,keys):
+                    return [json.dumps(dict(ts=2100,strategy='maker',strategy_idx='5',pid=123,type='hb',success=True,reporter_started_at_ms=1500)),
+                            json.dumps(dict(portfolio_params=dict(unit_params={a:{symbol:dict(mode='maker')} for a in ('a','b','c')}))),
+                            json.dumps(dict(observation_schema=2,pricing_scope='per_symbol_tif',strategy='maker',instance_id='5',pid=123,exported_at_ms=2000,rows=[],bindings=[
+                                dict(account=a,symbol=symbol,mode='per_symbol_tif',base_token='coin',tif='GTX' if a=='c' else 'RPI') for a in ('a','b','c')]))]
+                def close(self): pass
+            def cache(root,key,now):
+                result=state();result.update(version=10,mode='per_symbol_tif',base_token='coin',tif=key.rsplit(':',1)[1],clock='exposure_seconds')
+                return result
+            config=dict(id='primary',strategies=[dict(name='maker',setting=str(setting),sourceSha='a'*40,feedbackVersion=10)])
+            with patch.object(probe,'identity',return_value=(123,'a'*40,1000)),patch.object(probe,'filekv',side_effect=cache) as read:
+                rows=probe.collect(config,lambda *a,**k:Client())['rows']
+            self.assertEqual(read.call_count,2);self.assertEqual(len(rows),6)
+            self.assertEqual([r['tif'] for r in rows],['RPI','RPI','RPI','RPI','GTX','GTX'])
+            self.assertEqual(rows[0]['actualEma'],rows[2]['actualEma'])
 
 if __name__ == "__main__": unittest.main()

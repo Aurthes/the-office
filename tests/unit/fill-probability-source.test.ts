@@ -103,3 +103,17 @@ it("projects requested fields exactly, retains hidden ordering and zero, and ref
     const missing=structuredClone(raw);delete (missing.rows[0] as Record<string,unknown>).observedAt;expect(()=>parseFillReply(missing,source,fields)).toThrow();expect(()=>parseFillReply({...raw,projection:{row:[],quote:[]}},source,fields)).toThrow();
   }
 });
+
+it("accepts only exact v10 seconds scope and retains v8/v9 contracts", async () => {
+  const scoped: FillSource = { ...source, strategies: [{ ...source.strategies[0], feedbackVersion: 10 }] };
+  const row = fillRow({schema:10,pricingMode:"per_symbol_tif",baseToken:"coin",tif:"RPI"});
+  expect(parseFillSources({version:1,sources:[scoped]})).toEqual([scoped]);
+  expect(parseFillReply({version:1,rows:[row]},scoped)).toEqual([row]);
+  const {fillTableFields}=await import("@/lib/fill-probability/model"),fields=fillTableFields(["actual"]);
+  const projection={row:[...new Set(["id","producer","strategy","instance","account","exchange","market","symbol","side",...fields.row])].sort(),quote:[...fields.quote].sort()};
+  const partial={...Object.fromEntries(projection.row.map(k=>[k,row[k as keyof typeof row]])),quote:null};
+  expect(parseFillReply({version:1,rows:[partial],projection},scoped,fields)[0]).toMatchObject({schema:10,pricingMode:row.pricingMode,baseToken:row.baseToken,tif:row.tif,actualEma:row.actualEma});
+  delete (partial as Record<string,unknown>).tif;expect(()=>parseFillReply({version:1,rows:[partial],projection},scoped,fields)).toThrow();
+  for (const bad of [{...row,tif:""},{...row,pricingMode:undefined},{...row,baseToken:{}},{...row,clock:"trials"},{...row,schema:8}])
+    expect(()=>parseFillReply({version:1,rows:[bad]},scoped)).toThrow();
+});

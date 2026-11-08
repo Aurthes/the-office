@@ -30,7 +30,7 @@ def decode_quotes(value, name, instance, pid, now, started):
     if not value:
         return {}
     exported = number(value.get("exported_at_ms"))
-    if (value.get("observation_schema") != 1 or value.get("strategy") != name or value.get("instance_id") != instance or
+    if (value.get("observation_schema") not in (1, 2) or value.get("strategy") != name or value.get("instance_id") != instance or
             value.get("pid") != pid or exported is None or not started <= exported <= now+5000 or
             not isinstance(value.get("rows"), list) or len(value["rows"]) > 2048):
         raise ValueError("quote identity")
@@ -59,6 +59,27 @@ def decode_quotes(value, name, instance, pid, now, started):
                 raise ValueError("no quote probability")
             sides[side] = {key: row[key] for key in (*QUOTE_NUMBERS, *QUOTE_BOOLS, *QUOTE_STATES, "available", "guardReason")}
         result[(account, symbol)] = sides
+    return result
+
+
+def decode_bindings(value, name, instance, pid, now, started):
+    exported = number(value.get("exported_at_ms"))
+    if (value.get("observation_schema") != 2 or value.get("pricing_scope") != "per_symbol_tif" or
+            value.get("strategy") != name or value.get("instance_id") != instance or value.get("pid") != pid or
+            exported is None or not started <= exported <= now+5000 or
+            not isinstance(value.get("bindings"), list) or len(value["bindings"]) > 2048):
+        raise ValueError("scope identity")
+    result = {}
+    for binding in value["bindings"]:
+        fields = ("account", "symbol", "base_token", "tif")
+        if (not isinstance(binding, dict) or binding.get("mode") != "per_symbol_tif" or
+                any(not isinstance(binding.get(k), str) or not binding[k] or len(binding[k]) > 256 for k in fields) or
+                binding["tif"] not in ("RPI", "GTX", "GTC", "IOC", "FOK")):
+            raise ValueError("scope identity")
+        key = (binding["account"], binding["symbol"])
+        if key in result:
+            raise ValueError("duplicate scope identity")
+        result[key] = binding
     return result
 
 
@@ -136,8 +157,12 @@ def expected(dynamic):
     return sorted(rows, key=lambda row: (row["account"], row["symbol"]))
 
 
-def decode_state(value, name, instance, symbol, version, now, started):
-    clock = "exposure_seconds" if version == 8 else "trials"
+def decode_state(value, name, instance, symbol, version, now, started, binding=None):
+    if version == 10 and (not binding or value.get("mode") != "per_symbol_tif" or
+            value.get("base_token") != binding["base_token"] or value.get("tif") != binding["tif"] or
+            value.get("clock") != "exposure_seconds"):
+        raise ValueError("scope identity")
+    clock = "exposure_seconds" if version in (8, 10) else "trials"
     half_key = "half_life_" + clock
     interval_key = "adjustment_interval_" + clock
     half, interval = number(value.get(half_key)), number(value.get(interval_key))
@@ -153,7 +178,7 @@ def decode_state(value, name, instance, symbol, version, now, started):
         raise ValueError("invalid-cache")
     result = {}
     sides = value.get("side_states", {})
-    progress_key = "exposure_since_adjustment_seconds" if version == 8 else "trials_since_adjustment"
+    progress_key = "exposure_since_adjustment_seconds" if version in (8, 10) else "trials_since_adjustment"
     for side in ("bid", "ask"):
         ema = sides.get(side, {}).get("ema", {})
         masses = [number(ema.get(key)) for key in ("hit_ema", "exposure_ema_seconds", "base_model_hazard_ema", "model_hazard_ema")]
@@ -209,7 +234,7 @@ def validate_projection(value):
     if value is None:
         return None
     required_row = {"id", "producer", "strategy", "instance", "account", "exchange", "market", "symbol", "side", "sourceSha", "pid", "heartbeatAt", "savedAt", "observedAt", "schema", "clock", "enabled", "weightedExposureSeconds", "ready", "error", "reason", "skipReason", "target"}
-    allowed_row = required_row | {"halfLife", "adjustmentInterval", "adjustmentProgress", "weightedHits", "baseTheoreticalEma", "theoreticalEma", "actualEma", "ca", "logCa"}
+    allowed_row = required_row | {"pricingMode", "baseToken", "tif", "halfLife", "adjustmentInterval", "adjustmentProgress", "weightedHits", "baseTheoreticalEma", "theoreticalEma", "actualEma", "ca", "logCa"}
     required_quote = {"available", "at", "exportedAt", "baseTarget", "currentCaProbability"}
     allowed_quote = set(QUOTE_NUMBERS + QUOTE_BOOLS + QUOTE_STATES + ("available", "guardReason"))
     if not isinstance(value, dict) or set(value) != {"row", "quote"}:
@@ -228,7 +253,7 @@ def project_rows(rows, projection):
     result = []
     for row in rows:
         q = row["quote"]
-        result.append({**{key: row[key] for key in projection["row"]},
+        result.append({**{key: row[key] for key in projection["row"] if key in row or key not in ("pricingMode", "baseToken", "tif") or row.get("schema") == 10 or row.get("pricingMode") is not None},
                        "quote": None if q is None else {key: q[key] for key in projection["quote"]}})
     return result
 
@@ -287,34 +312,55 @@ def collect(config, client_factory=None):
                     process_error = "live-identity-unverified"
                 states = {}
                 quotes = {}
+                bindings = {}
                 if not process_error:
                     try:
                         quotes = decode_quotes(quote_payload, name, instance, pid, now, started)
+                        if spec["feedbackVersion"] == 10:
+                            bindings = decode_bindings(quote_payload, name, instance, pid, now, started)
                     except (ValueError, TypeError, AttributeError):
                         pass  # Unknown quote metadata cannot invalidate older EMA evidence.
-                for symbol in sorted({unit["symbol"] for unit in units}):
+                for unit in units:
+                    symbol = unit["symbol"]
+                    binding = bindings.get((unit["account"], symbol))
+                    scope = (symbol, binding["base_token"], binding["tif"]) if binding else (symbol, None, None)
+                    if scope in states:
+                        continue
                     try:
                         if process_error:
                             raise ValueError("identity")
                         version = spec["feedbackVersion"]
-                        prefix = "cache:mm:target_fill_feedback:" + ("v9:" if version == 9 else "")
-                        key = prefix + name + ":" + instance + ":symbol:" + symbol
+                        if version == 10:
+                            if binding is None:
+                                raise ValueError("scope binding unavailable")
+                            key = ("cache:mm:target_fill_feedback:v10:" + name + ":" + instance +
+                                   ":base_token:" + binding["base_token"] + ":symbol:" + symbol + ":tif:" + binding["tif"])
+                        else:
+                            prefix = "cache:mm:target_fill_feedback:" + ("v9:" if version == 9 else "")
+                            key = prefix + name + ":" + instance + ":symbol:" + symbol
                         value = filekv(root / ".deploy_runtime/mm_cpp/local-persistence/state", key, now)
-                        states[symbol] = decode_state(value, name, instance, symbol, version, now, started)
+                        states[scope] = decode_state(value, name, instance, symbol, version, now, started, binding)
                     except FileNotFoundError:
-                        states[symbol] = "cache-not-exported"
+                        states[scope] = "cache-not-exported"
                     except Exception:
-                        states[symbol] = process_error or "invalid-cache"
+                        states[scope] = process_error or "invalid-cache"
                 for unit in units:
                     for side in ("bid", "ask"):
                         row = blank(config["id"], name, instance, unit, side)
                         row.update(metadata)
-                        state = states[unit["symbol"]]
+                        binding = bindings.get((unit["account"], unit["symbol"]))
+                        scope = (unit["symbol"], binding["base_token"], binding["tif"]) if binding else (unit["symbol"], None, None)
+                        state = states[scope]
+                        if binding is not None:
+                            row.update(pricingMode="per_symbol_tif", baseToken=binding["base_token"], tif=binding["tif"])
+                        if spec["feedbackVersion"] == 10 and binding is None:
+                            row["quote"] = None
                         if isinstance(state, dict):
                             row.update(state[side])
                         else:
                             row.update(reason=state)
-                        row["quote"] = quotes.get((unit["account"], unit["symbol"]), {}).get(side)
+                        row["quote"] = (quotes.get((unit["account"], unit["symbol"]), {}).get(side)
+                            if spec["feedbackVersion"] != 10 or binding is not None else None)
                         output.append(row)
         finally:
             if client is not None:
