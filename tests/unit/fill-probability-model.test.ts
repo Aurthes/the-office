@@ -55,3 +55,36 @@ it("ages current quote and historical EMA independently", () => {
   expect(quoteState(fillRow({ quote: fillQuote(), sourceSha: null }), FILL_NOW)).toBe("unknown");
   expect(quoteState(current, FILL_NOW, true)).toBe("stale");
 });
+
+
+it("projects selected original scalars and pairs only complete context identities", async () => {
+  const {projectFillTable,FILL_DEFAULT_COLUMNS,FILL_COLUMNS}=await import("@/lib/fill-probability/model");
+  const {fillQuote,fillSnapshot}=await import("../fixtures/fill-probability");
+  const a=fillRow({id:"a",actualEma:0,quote:fillQuote()}),b=fillRow({id:"b",side:"ask",schema:9,clock:"trials",quote:fillQuote({ca:null})});
+  const other=fillRow({id:"c",instance:"another",quote:null});
+  const full=fillSnapshot([a,b,other]),reply=projectFillTable(full,FILL_DEFAULT_COLUMNS);
+  expect(reply.rows).toHaveLength(2);expect(reply.rows[0].bid!.actualEma).toBe(0);expect(reply.rows[0].ask!.schema).toBe(9);
+  expect(reply.rows[0].bid!.quote!.ca).toBe(a.quote!.ca);expect(reply.rows[0].ask!.quote!.ca).toBeNull();
+  expect(reply.rows[1].ask).toBeNull();expect(reply.rows[0].bid).not.toHaveProperty("baseTheoreticalEma");
+  expect(reply.rows[0].bid!.quote).not.toHaveProperty("guardReason");expect(reply.rows[0].bid!.quote!.at).toBe(a.quote!.at);
+  for(const columns of [[],[...FILL_COLUMNS]]) {
+    const projected=projectFillTable(full,columns).rows[0].bid!;
+    for(const [key,value] of Object.entries(projected)) if(key!=="quote") expect(value).toEqual(a[key as keyof typeof a]);
+    for(const [key,value] of Object.entries(projected.quote!)) expect(value).toEqual(a.quote![key as keyof typeof a.quote]);
+    expect(projected.quote!.currentCaProbability).toBe(a.quote!.currentCaProbability);
+  }
+  expect(()=>projectFillTable(fillSnapshot([a,a]),FILL_DEFAULT_COLUMNS)).toThrow();
+});
+
+it("orders by the sum of both absolute deviations, not maximum probability", async()=>{
+  const {projectFillTable,fillTableDeviation,fillTableOrder}=await import("@/lib/fill-probability/model");
+  const {fillQuote,fillSnapshot}=await import("../fixtures/fill-probability");
+  const pair=(symbol:string,bid:number,ask:number,target=.001)=>[fillRow({id:symbol+"b",symbol,quote:fillQuote({currentCaProbability:bid,baseTarget:target})}),fillRow({id:symbol+"a",symbol,side:"ask",quote:fillQuote({currentCaProbability:ask,baseTarget:target})})];
+  const rows=projectFillTable(fillSnapshot([...pair("two",.0018,.0018),...pair("one",.002,.001),...pair("zero",0,0),...pair("hit",.001,.001),...pair("different",.002,.002,.002)]),[]).rows;
+  expect([...rows].sort((a,b)=>fillTableOrder(a,b,FILL_NOW)).map(r=>r.symbol)).toEqual(["zero","two","one","different","hit"]);
+  expect(fillTableDeviation(rows[0],FILL_NOW)).toBeCloseTo(.0016);expect(fillTableDeviation(rows[2],FILL_NOW)).toBe(.002);
+  rows[0].ask!.quote!.at=FILL_NOW-30_000;expect(fillTableDeviation(rows[0],FILL_NOW)).toBeNull();
+  expect([...rows].sort((a,b)=>fillTableOrder(a,b,FILL_NOW)).at(-1)!.symbol).toBe("two");
+  expect(fillTableDeviation(rows[1],FILL_NOW,true)).toBeNull();
+  rows[1].bid!.savedAt=FILL_NOW-60_000;expect(fillTableDeviation(rows[1],FILL_NOW)).not.toBeNull();
+});

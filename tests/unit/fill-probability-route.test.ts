@@ -112,3 +112,39 @@ it("shares one pending and ten-second source read across legacy and different se
   now+=9999;await get("?view=record&symbol=missing");expect(read).toHaveBeenCalledTimes(1);
   now++;await get("?view=record&recordId=a");expect(read).toHaveBeenCalledTimes(2);
 });
+
+
+it("serves only requested table scalars, keeps all identities, and preserves zero and independent clocks",async()=>{
+  const {FILL_DEFAULT_COLUMNS,FILL_COLUMNS,projectFillTable}=await import("@/lib/fill-probability/model");
+  const rows=[fillRow({id:"b",actualEma:0,observedAt:FILL_NOW-2000,quote:fillQuote()}),fillRow({id:"a",side:"ask",schema:9,clock:"trials",quote:fillQuote({ca:null})}),fillRow({id:"other",account:"two"})];
+  const snapshot=fillSnapshot(rows);mocks.read.mockResolvedValue(snapshot);
+  for(const selected of [undefined,[],["actual","final"] as const,[...FILL_COLUMNS]]) {
+    const columns=selected===undefined?FILL_DEFAULT_COLUMNS:FILL_COLUMNS.filter(c=>selected.includes(c as never));
+    const query=selected===undefined?"":`&columns=${selected.join(",")}`;
+    const response=await GET(new Request("https://office.test/api/monitoring/fill-probability?view=table"+query));
+    expect(response.status).toBe(200);expect(await response.json()).toEqual(projectFillTable(snapshot,columns));
+  }
+  expect(snapshot.rows).toEqual(rows);
+});
+it("rejects table query mistakes before collection and never enables old benchmark keys",async()=>{
+  for(const q of ["columns=nope","columns=ca,ca","columns=actual&columns=ca","view=table","host=private","benchmarkSource=disk","columns="+"x".repeat(65536)]) {
+    expect((await GET(new Request("https://office.test/api/monitoring/fill-probability?view=table&"+q))).status).toBe(400);
+  }
+  expect(mocks.read).not.toHaveBeenCalled();
+});
+it("preserves table compression, refusal and private 503, including duplicate-side failure",async()=>{
+  const snapshot=fillSnapshot(Array.from({length:20},(_,i)=>fillRow({id:String(i),symbol:String(i),quote:fillQuote()})));mocks.read.mockResolvedValue(snapshot);
+  const get=(encoding:string)=>GET(new Request("https://office.test/api/monitoring/fill-probability?view=table",{headers:{"Accept-Encoding":encoding}}));
+  const plain=await get("gzip;q=0"),packed=await get("gzip");expect(packed.headers.get("content-encoding")).toBe("gzip");
+  expect(JSON.parse(gunzipSync(new Uint8Array(await packed.arrayBuffer())).toString())).toEqual(await plain.json());expect(packed.headers.get("cache-control")).toBe("no-store");
+  mocks.read.mockResolvedValueOnce(fillSnapshot([fillRow(),fillRow()]));expect((await get("gzip")).status).toBe(503);
+  mocks.read.mockRejectedValueOnce(new Error("private-password"));const failed=await get("gzip");expect(failed.status).toBe(503);expect(await failed.text()).not.toContain("password");
+});
+it("coalesces table selections with full and record on one original ten-second read",async()=>{
+  const {createFillReader}=await vi.importActual<typeof import("@/lib/fill-probability/source")>("@/lib/fill-probability/source");
+  let now=FILL_NOW;const read=vi.fn(async()=>[fillRow()]);const cached=createFillReader(read,()=>now);
+  const source={id:"primary",strategies:[{name:"maker",setting:"/srv/setting.json",sourceSha:"a".repeat(40),feedbackVersion:8 as const}]};mocks.read.mockImplementation(()=>cached([source]));
+  const get=(q:string)=>GET(new Request("https://office.test/api/monitoring/fill-probability"+q));
+  await Promise.all([get(""),get("?view=record"),get("?view=table"),get("?view=table&columns=actual")]);expect(read).toHaveBeenCalledTimes(1);
+  now+=9999;await get("?view=table&columns=");expect(read).toHaveBeenCalledTimes(1);now++;await get("?view=table");expect(read).toHaveBeenCalledTimes(2);
+});

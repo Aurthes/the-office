@@ -183,3 +183,16 @@ Observation source and consumer require separate validated rollout/deployment.
 Do not change the private source pin to a candidate SHA while production still
 runs the old binary. Offline candidate fixtures are labelled as such; existing
 production without new metadata remains a real, explicitly partial source.
+
+
+## Symbol table
+
+The normal control-room view shows one row per producer / instance / strategy / exchange / market / account / symbol, with bid and ask labeled in the same metric cell. It never averages accounts. Five defaults are historical C_A-adjusted theoretical EMA, actual EMA, applied C_A, and before/after current C_A probabilities at the same captured reference price. Other original stages can be selected under Columns. Applied C_A/log come only from the quote capture: missing or expired quote never falls back to the controller-export C_A. EMA and quote retain their independent source clocks and gray states; native C_A/log have no probability gap.
+
+Internal descending order is `abs(bid.currentCaProbability - bid.baseTarget) + abs(ask.currentCaProbability - ask.baseTarget)`. Both quotes must be current and both original probabilities/targets valid; otherwise the entire row sorts last. Real zero is valid. The score is not displayed or a selectable column. Side filtering only hides a side, and hiding after-C_A keeps its sorting dependencies. Ties use the complete identity tuple. The existing one-second aging tick can move expired rows to the end without refreshing source times.
+
+`GET /api/monitoring/fill-probability?view=table&columns=model,actual,ca,base-reference,ca-probability` opts into a selected-field table projection of one existing shared snapshot. Omitted columns means the five defaults; empty columns means identity only. Unknown/duplicate columns or parameters fail before reading sources. Original full and record responses remain compatible. All table rows share the original ten-second pending/cache; selecting columns never reads a symbol separately. Filters are local. JSON/gzip/no-store/private-error behavior and the original 20-second client timeout remain.
+
+Each accepted response retains its own pre-fetch `performance.now()` anchor. Freshness includes the total request elapsed time as a conservative upper bound; slow reads can turn gray sooner. Column changes, failed reads, filters, hiding/resuming and sorting do not reset old observation epochs. Only the latest column request can install a response. Complete old full responses can be projected locally during a server rollback; incomplete record-only responses cannot represent a table.
+
+Choosing every optional metric naturally transfers more facts. Offline body-size measurements are documented with their historical input identity; they do not establish public-network speed or a storage-engine ranking. The mobile table scrolls inside its own container rather than widening the page.

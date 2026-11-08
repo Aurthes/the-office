@@ -44,7 +44,7 @@ const finite = (v: number | null): v is number => typeof v === "number" && Numbe
 const probability = (v: number | null): v is number => finite(v) && v >= 0 && v <= 1;
 const fresh = (v: number | null, now: number) => finite(v) && v > 0 && v <= now + 5_000 && now - v < FILL_MAX_AGE_MS;
 
-export function fillState(row: FillRow, now: number, readFailed = false): FillState {
+export function fillState(row: Pick<FillRow, "error" | "enabled" | "sourceSha" | "schema" | "clock" | "heartbeatAt" | "savedAt" | "weightedExposureSeconds" | "ready" | "observedAt">, now: number, readFailed = false): FillState {
   if (readFailed || row.error) return "stale";
   if (row.enabled === false) return "disabled";
   if (row.enabled !== true || !row.sourceSha || !/^[0-9a-f]{40}$/i.test(row.sourceSha) ||
@@ -61,7 +61,7 @@ export function fillState(row: FillRow, now: number, readFailed = false): FillSt
   return "snapshot";
 }
 
-export function quoteState(row: FillRow, now: number, readFailed = false): "ready" | "stale" | "unknown" {
+export function quoteState(row: Pick<FillRow, "error" | "sourceSha" | "pid" | "heartbeatAt"> & { quote: Pick<FillQuote, "available" | "at" | "exportedAt" | "baseTarget"> | null }, now: number, readFailed = false): "ready" | "stale" | "unknown" {
   if (readFailed || row.error) return "stale";
   const q = row.quote;
   // Backend schema/pin verification owns quote.available. EMA readiness and its
@@ -87,4 +87,65 @@ export function gapColor(relative: number, trusted: boolean): string {
   if (!trusted || !Number.isFinite(relative)) return "#a8b5bd";
   const hue = 120 * (1 - Math.min(Math.abs(relative), 1));
   return `hsl(${hue} 65% 70%)`;
+}
+
+export const FILL_COLUMNS = ["target", "base", "model", "actual", "ca", "logca", "base-reference", "ca-probability", "before-normalize", "pmax", "after-normalize", "before-guard", "p1", "post-only", "p2", "guard", "final"] as const;
+export type FillColumn = typeof FILL_COLUMNS[number];
+export const FILL_DEFAULT_COLUMNS: FillColumn[] = ["model", "actual", "ca", "base-reference", "ca-probability"];
+const tableIdentity = ["producer", "instance", "strategy", "exchange", "market", "account", "symbol"] as const;
+const sideFields = ["id", "sourceSha", "pid", "heartbeatAt", "savedAt", "observedAt", "schema", "clock", "enabled", "weightedExposureSeconds", "ready", "error", "reason", "skipReason", "target"] as const;
+export type FillTableSide = Pick<FillRow, typeof sideFields[number]> & Partial<Pick<FillRow, "baseTheoreticalEma" | "theoreticalEma" | "actualEma">> & {
+  quote: Pick<FillQuote, "available" | "at" | "exportedAt" | "baseTarget" | "currentCaProbability"> & Partial<FillQuote> | null;
+};
+export type FillTableRow = Pick<FillRow, typeof tableIdentity[number]> & { id: string; bid: FillTableSide | null; ask: FillTableSide | null };
+export type FillTableSnapshot = Omit<FillSnapshot, "rows"> & { view: "table"; columns: FillColumn[]; rows: FillTableRow[] };
+export const fillTableId = (row: Pick<FillRow, typeof tableIdentity[number]>) => JSON.stringify(tableIdentity.map(key => row[key]));
+
+// A scalar projection of one existing shared snapshot, also used for full-server rollback.
+export function projectFillTable(snapshot: FillSnapshot, columns: FillColumn[]): FillTableSnapshot {
+  const rowFields: (keyof FillRow)[] = [...sideFields];
+  const quoteFields = new Set<keyof FillQuote>(["available", "at", "exportedAt", "baseTarget", "currentCaProbability"]);
+  const dependencies: Partial<Record<FillColumn, (keyof FillQuote)[]>> = {
+    ca: ["ca"], logca: ["logCa"], "base-reference": ["baseAtReferenceProbability", "referencePrice"], "ca-probability": ["referencePrice"],
+    "before-normalize": ["beforeNormalize"], pmax: ["pmax", "normalizationEnabled"],
+    "after-normalize": ["afterNormalize", "normalizationEnabled", "normalizationScale", "underflow", "logAfterNormalize"],
+    "before-guard": ["p1BeforeProbability", "p1BeforePrice"], p1: ["p1State", "p1AfterProbability", "p1AfterPrice"],
+    "post-only": ["postOnlyState", "postOnlyAfterProbability", "postOnlyAfterPrice"], p2: ["p2State", "p2AfterProbability", "p2AfterPrice"],
+    guard: ["postOnlyState", "p2State", "guardReason"], final: ["quoted", "finalProbability", "finalPrice", "guardReason", "disabledMask"],
+  };
+  for (const column of columns) {
+    if (column === "base") rowFields.push("baseTheoreticalEma");
+    if (column === "model") rowFields.push("theoreticalEma");
+    if (column === "actual") rowFields.push("actualEma");
+    for (const field of dependencies[column] || []) quoteFields.add(field);
+  }
+  const groups = new Map<string, FillTableRow>();
+  for (const row of snapshot.rows) {
+    const id = fillTableId(row);
+    if (!groups.has(id)) groups.set(id, { id, ...Object.fromEntries(tableIdentity.map(key => [key, row[key]])), bid: null, ask: null } as FillTableRow);
+    const group = groups.get(id)!;
+    if (group[row.side] !== null) throw new Error("Duplicate probability side");
+    group[row.side] = { ...Object.fromEntries(rowFields.map(key => [key, row[key]])),
+      quote: row.quote === null ? null : Object.fromEntries([...quoteFields].map(key => [key, row.quote![key]])),
+    } as FillTableSide;
+  }
+  return { configured: snapshot.configured, serverTime: snapshot.serverTime, sampledAt: snapshot.sampledAt,
+    sourceErrors: snapshot.sourceErrors, view: "table", columns: [...columns], rows: [...groups.values()] };
+}
+
+// Internal ordering only. Both original quote clocks must be usable; zero is data.
+export function fillTableDeviation(row: FillTableRow, now: number, failed = false): number | null {
+  let sum = 0;
+  for (const side of [row.bid, row.ask]) {
+    if (!side || quoteState(side, now, failed) !== "ready") return null;
+    const q = side.quote!;
+    if (!probability(q.currentCaProbability) || !probability(q.baseTarget)) return null;
+    sum += Math.abs(q.currentCaProbability - q.baseTarget);
+  }
+  return sum;
+}
+export function fillTableOrder(a: FillTableRow, b: FillTableRow, now: number, failed = false): number {
+  const av = fillTableDeviation(a, now, failed), bv = fillTableDeviation(b, now, failed);
+  const order = av === null ? bv === null ? 0 : 1 : bv === null ? -1 : bv - av;
+  return order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }

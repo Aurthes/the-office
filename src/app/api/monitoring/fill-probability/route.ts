@@ -1,7 +1,7 @@
 import { gzip } from "node:zlib";
 import { promisify } from "node:util";
 import { getFillSnapshot } from "@/lib/fill-probability/source";
-import type { FillRecordSnapshot } from "@/lib/fill-probability/model";
+import { FILL_COLUMNS, FILL_DEFAULT_COLUMNS, projectFillTable, type FillColumn, type FillRecordSnapshot, type FillTableSnapshot } from "@/lib/fill-probability/model";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +11,15 @@ export async function GET(request: Request) {
   const headers = { "Cache-Control": "no-store", "Vary": "Accept-Encoding" };
   const url = new URL(request.url), params = url.searchParams;
   const recordView = params.get("view") === "record";
+  const tableView = params.get("view") === "table";
+  let columns: FillColumn[] = FILL_DEFAULT_COLUMNS;
+  if (tableView) {
+    const requested = params.has("columns") ? (params.get("columns") ? params.get("columns")!.split(",") : []) : FILL_DEFAULT_COLUMNS;
+    if (url.search.length > 65_536 || [...params.keys()].some(key => !["view", "columns"].includes(key) || params.getAll(key).length !== 1) ||
+        requested.length > FILL_COLUMNS.length || new Set(requested).size !== requested.length || requested.some(key => !FILL_COLUMNS.includes(key as FillColumn)))
+      return Response.json({ error: "Invalid fill probability selection" }, { status: 400, headers });
+    columns = FILL_COLUMNS.filter(key => requested.includes(key));
+  }
   if (recordView) {
     const keys = ["view", "recordId", "strategy", "exchange", "account", "symbol", "side"];
     if (url.search.length > 65_536 || [...params.keys()].some(key => !keys.includes(key) || params.getAll(key).length !== 1) ||
@@ -20,7 +29,8 @@ export async function GET(request: Request) {
   }
   try {
     const snapshot = await getFillSnapshot();
-    let reply: typeof snapshot | FillRecordSnapshot = snapshot;
+    let reply: typeof snapshot | FillRecordSnapshot | FillTableSnapshot = snapshot;
+    if (tableView) reply = projectFillTable(snapshot, columns);
     if (recordView) {
       const filtered = snapshot.rows.filter(row =>
         (!params.get("strategy") || row.strategy === params.get("strategy")) &&
