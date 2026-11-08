@@ -206,3 +206,22 @@ For an actual read, `srcN_prepareMs`, `execMs`, and `decodeMs` cover script/regi
 `fill_project`, `fill_json`, `fill_gzip`, decoded/encoded byte counts and `fill_ready` describe the same route. `fill_ready` stops before returning `Response`; it is **not a socket-finish event**. A same-request passive local framing receipt, when available, provides the separate completion boundary; otherwise that boundary stays unmeasured.
 
 The component uses fixed-size local `fill:*` performance marks for real fetch start, response availability, read-JSON completion, validation, submit, DOM commit (`useLayoutEffect`) and a two-rAF display opportunity. Detail contains only a local sequence and validated response request ID. Only the latest mark per stage is retained; an in-memory task observer may capture a bounded sample. JSON-read includes decoding/parse/scheduling; commit/display opportunity does not claim GPU pixels finished. No global fetch/JSON hook, new request, cache bypass, timeout/freshness change or user-visible metric is introduced.
+
+## Pricing scope compatibility
+
+Feedback version 10 uses the original exposure-seconds controller (inner schema
+2) at `cache:mm:target_fill_feedback:v10:<strategy>:<instance>:base_token:<token>:symbol:<exact-symbol>:tif:<normalized-TIF>`.
+Its envelope must declare `mode=per_symbol_tif`, exact token/symbol/TIF and
+`clock=exposure_seconds`. It cannot fall back to version 8/9 or another TIF.
+
+Quote observation schema 2 retains the original consumer rows and times, and
+adds `pricing_scope=per_symbol_tif` plus frozen `bindings` from account/symbol to
+token/symbol/TIF. The existing cold exporter supplies these bindings even before
+a quote exists. Office checks their process, instance and export time, reads
+each shared leaf key once, then associates its original values with matching
+consumers. Accounts never become model identities. Missing bindings remain
+unverified; they cannot borrow a neighboring account's quote or feedback.
+The source evidence displays TIF; filtering, sorting, five default columns and
+independent quote/EMA aging stay unchanged. A restored prior has no invented
+observation time. Deployment pins and production state are not changed by this
+compatibility update.

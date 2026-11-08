@@ -10,7 +10,7 @@ import { FILL_REFRESH_MS, type FillRow, type FillSnapshot, type FillQuote } from
 
 const exec = promisify(execFile);
 export type FillSource = { id: string; host?: string; python?: string; strategies: {
-  name: string; setting: string; sourceSha: string; feedbackVersion: 8 | 9;
+  name: string; setting: string; sourceSha: string; feedbackVersion: 8 | 9 | 10;
 }[] };
 const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
 export function parseFillSources(raw: unknown): FillSource[] {
@@ -28,7 +28,7 @@ export function parseFillSources(raw: unknown): FillSource[] {
     for (const p of s.strategies) {
       if (!p || typeof p.name !== "string" || !/^[a-zA-Z0-9_.:-]{1,128}$/.test(p.name) || strategies.has(p.name) ||
           !absolute(p.setting) || typeof p.sourceSha !== "string" || !/^[0-9a-f]{40}$/.test(p.sourceSha) ||
-          ![8, 9].includes(p.feedbackVersion)) throw new Error("Invalid fill strategy");
+          ![8, 9, 10].includes(p.feedbackVersion)) throw new Error("Invalid fill strategy");
       strategies.add(p.name);
     }
   }
@@ -63,7 +63,7 @@ export function parseFillReply(raw: unknown, source: FillSource): FillRow[] {
     const spec = source.strategies.find(s => s.name === r?.strategy);
     if (!r || typeof r !== "object" || strings.some(k => typeof r[k] !== "string" || (r[k] as string).length > 1024) ||
         !spec || r.producer !== `${source.id}:${r.strategy}` ||
-        r.schema !== null && (r.schema !== spec.feedbackVersion || r.sourceSha !== spec.sourceSha || r.clock !== (r.schema === 8 ? "exposure_seconds" : "trials")) ||
+        r.schema !== null && (r.schema !== spec.feedbackVersion || r.sourceSha !== spec.sourceSha || r.clock !== (r.schema === 9 ? "trials" : "exposure_seconds")) ||
         !["bid", "ask"].includes(String(r.side)) || !["exposure_seconds", "trials", "unknown"].includes(String(r.clock)) ||
         numbers.some(k => r[k] !== null && (typeof r[k] !== "number" || !Number.isFinite(r[k]))) ||
         r.sourceSha !== null && (typeof r.sourceSha !== "string" || !/^[0-9a-f]{40}$/.test(r.sourceSha)) ||
@@ -71,8 +71,12 @@ export function parseFillReply(raw: unknown, source: FillSource): FillRow[] {
         r.ready !== null && typeof r.ready !== "boolean" ||
         r.skipReason !== null && !["", "disabled", "insufficient_exposure", "invalid_config", "invalid_episode"].includes(String(r.skipReason)) ||
         r.reason !== null && !["no-exposure", "cache-not-exported", "invalid-cache", "live-identity-unverified"].includes(String(r.reason)) || ids.has(String(r.id))) throw new Error("Invalid fill row");
+    if ((r.schema === 10 || r.pricingMode !== undefined) && (r.pricingMode !== "per_symbol_tif" ||
+        typeof r.baseToken !== "string" || !r.baseToken || r.baseToken.length > 256 ||
+        !["RPI", "GTX", "GTC", "IOC", "FOK"].includes(String(r.tif)))) throw new Error("Invalid scoped fill row");
     ids.add(String(r.id));
-    return { ...Object.fromEntries([...strings, ...numbers, "sourceSha", "side", "clock", "enabled", "error", "reason", "ready", "skipReason"].map(k => [k, r[k]])), quote: parseFillQuote(r.quote) } as FillRow;
+    return { ...Object.fromEntries([...strings, ...numbers, "sourceSha", "side", "clock", "enabled", "error", "reason", "ready", "skipReason"].map(k => [k, r[k]])), quote: parseFillQuote(r.quote),
+      ...(r.pricingMode === "per_symbol_tif" ? { pricingMode: r.pricingMode, baseToken: r.baseToken, tif: r.tif } : {}) } as FillRow;
   });
 }
 

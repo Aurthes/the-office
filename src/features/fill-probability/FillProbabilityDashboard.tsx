@@ -90,6 +90,7 @@ function SymbolRow({ row, columns, availableColumns, sideFilter, now, failed }: 
   return <tr data-symbol={row.symbol} data-record={row.id}>
     <th scope="row"><strong>{row.symbol}</strong><small>{row.strategy} / {row.account} / {row.exchange} {row.market}</small>
       <details className="fill-row-evidence"><summary>{t("Source evidence")}</summary><small>{row.producer} / {row.instance}</small>
+        {(row.bid?.pricingMode || row.ask?.pricingMode) && <small>per_symbol_tif / {row.bid?.baseToken || row.ask?.baseToken} / {row.bid?.tif || row.ask?.tif}</small>}
         {sides.map(side => { const item = row[side]; return <div key={side}>{t(side === "bid" ? "Buy / bid" : "Sell / ask")}: {item ? <>
           <span data-ema-state={fillState(item, now, failed)}>{t("EMA")}: {fillState(item, now, failed)}</span> · <span data-quote-state={quoteState(item, now, failed)}>{t("Quote")}: {quoteState(item, now, failed)}</span>
           <small>{t("Observed")}: {stamp(item.observedAt)} · {t("Saved")}: {stamp(item.savedAt)} · {t("Quote")}: {stamp(item.quote?.at ?? null)} · {t("Exported")}: {stamp(item.quote?.exportedAt ?? null)}</small>
@@ -194,7 +195,7 @@ export function FillProbabilityDashboard() {
       <label>{t("Side")}<select value={filters.side} onChange={e => setFilters(current => ({ ...current, side: e.target.value }))}><option value="">{t("All")}</option><option value="bid">{t("Buy / bid")}</option><option value="ask">{t("Sell / ask")}</option></select></label>
     </div>
     <details className="fill-columns"><summary>{t("Columns")}</summary><fieldset><legend>{t("Select metrics")}</legend>{FILL_COLUMNS.map(key => <label key={key}><input type="checkbox" checked={columns.includes(key)} onChange={e => changeColumn(key, e.target.checked)} />{t(labels[key])}</label>)}</fieldset></details>
-    <p className="fill-scope">{t("EMA scope: symbol + side, shared across accounts in this strategy instance.")} {t("Quote scope: this account + symbol + side. Quote and EMA clocks are separate.")}</p>
+    <p className="fill-scope">{t(rows.some(row => row.bid?.schema === 10 || row.ask?.schema === 10) ? "EMA scope: symbol + TIF + side, shared across accounts in this strategy instance." : "EMA scope: symbol + side, shared across accounts in this strategy instance.")} {t("Quote scope: this account + symbol + side. Quote and EMA clocks are separate.")}</p>
     <p className="fill-legend">{t("Green → red follows absolute distance from target; unavailable, expired or sample-unknown evidence stays gray.")} {t("Freshness includes the time spent reading. A slow response may turn gray.")}</p>
     {filtered.length ? <div className="fill-table-scroll"><table className="fill-symbol-table" aria-label={t("Fill probability symbols")}><thead><tr><th scope="col">{t("Symbol")}</th>{columns.map(key => <th key={key} scope="col">{t(labels[key])}</th>)}</tr></thead><tbody>{filtered.map(row => <SymbolRow key={row.id} row={row} columns={columns} availableColumns={sample!.data.columns} sideFilter={filters.side} now={now} failed={failed} />)}</tbody></table></div> : sample?.data.configured ? <p>{t("No matching probability records.")}</p> : null}
     <footer>{t("Read-only · Refreshes every 10 seconds while visible · No EMA or trading control is recalculated in the browser")}</footer>
