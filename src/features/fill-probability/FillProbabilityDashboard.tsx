@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { useUiText } from "@/lib/i18n/ui-language";
-import { FILL_REFRESH_MS, FILL_COLUMNS, FILL_DEFAULT_COLUMNS, fillState, quoteState, probabilityGap, projectFillTable, fillTableId, fillTableOrder,
+import { FILL_REFRESH_MS, FILL_COLUMNS, FILL_DEFAULT_COLUMNS, fillState, quoteState, probabilityGap, projectFillTable, fillTableFields, fillTableId, fillTableOrder,
   type FillColumn, type FillGuardState, type FillSnapshot, type FillTableSnapshot, type FillTableSide, type FillTableRow } from "@/lib/fill-probability/model";
 import "./fill-probability.css";
 
@@ -23,7 +23,7 @@ function tableReply(raw: FillSnapshot | FillTableSnapshot, columns: FillColumn[]
   if (!Number.isFinite(raw.serverTime) || typeof raw.configured !== "boolean" || !Number.isFinite(raw.sourceErrors) || !finiteOrNull(raw.sampledAt)) throw new Error();
   const data = "view" in raw && raw.view === "table" ? raw : !("view" in raw) && Array.isArray(raw.rows) ? projectFillTable(raw, columns) : null;
   if (!data || !Array.isArray(data.rows) || !Array.isArray(data.columns) || JSON.stringify(data.columns) !== JSON.stringify(columns)) throw new Error();
-  const ids = new Set<string>(), sideIds = new Set<string>();
+  const ids = new Set<string>(), sideIds = new Set<string>(), fields = fillTableFields(columns);
   for (const row of data.rows) {
     if (!row || [row.producer, row.instance, row.strategy, row.exchange, row.market, row.account, row.symbol].some(v => typeof v !== "string" || v.length > 1024) || row.id !== fillTableId(row) || ids.has(row.id)) throw new Error();
     ids.add(row.id);
@@ -39,6 +39,10 @@ function tableReply(raw: FillSnapshot | FillTableSnapshot, columns: FillColumn[]
         if (columns.includes(column) && !finiteOrNull(side[field])) throw new Error();
       const q = side.quote;
       if (q !== null && (!q || typeof q.available !== "boolean" || [q.at, q.exportedAt, q.baseTarget, q.currentCaProbability].some(v => !finiteOrNull(v)))) throw new Error();
+      if (q) for (const key of fields.quote) {
+        const value = q[key];
+        if (!Object.hasOwn(q, key) || (key === "available" ? typeof value !== "boolean" : ["normalizationEnabled", "underflow", "quoted"].includes(key) ? ![null, true, false].includes(value as boolean | null) : ["p1State", "postOnlyState", "p2State"].includes(key) ? !["changed", "unchanged", "not-run", "rejected", "unknown"].includes(String(value)) : key === "guardReason" ? value !== null && (typeof value !== "string" || value.length > 128) : !finiteOrNull(value))) throw new Error();
+      }
     }
   }
   return data;
@@ -122,7 +126,9 @@ function markFillRequest(stage: string, timing: FillRequestTiming, at = performa
 export function FillProbabilityDashboard() {
   const t = useUiText();
   const [sample, setSample] = useState<{ data: FillTableSnapshot; requestStartedAt: number; timing: FillRequestTiming } | null>(null);
-  const [clock, setClock] = useState(0), [failed, setFailed] = useState(false), [loading, setLoading] = useState(true);
+  const [clock, setClock] = useState(0), [failed, setFailed] = useState(false);
+  const [readStatus, setReadStatus] = useState<{ kind: "loading" | "retry" | "idle" | "exhausted" | "blocked"; attempt: number }>({ kind: "loading", attempt: 1 });
+  const loading = readStatus.kind === "loading" || readStatus.kind === "retry";
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [columns, setColumns] = useState<FillColumn[]>([...FILL_DEFAULT_COLUMNS]);
   const requestSequence = useRef(0);
@@ -140,43 +146,85 @@ export function FillProbabilityDashboard() {
     return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); };
   }, [sample]);
   useEffect(() => {
-    let stopped = false, busy = false, controller: AbortController | null = null, queued = false;
-    const load = async (replace = false) => {
-      if (stopped || document.hidden) return;
-      if (busy) { if (replace) { queued = true; controller?.abort(); } return; }
-      queued = false; busy = true; setLoading(true); controller = new AbortController();
-      const request = controller, spec = selection.current, requestStartedAt = performance.now();
-      const timing: FillRequestTiming = { sequence: ++requestSequence.current, requestId: null };
-      markFillRequest("fetch-start", timing, requestStartedAt);
-      const timeout = setTimeout(() => request.abort(), 20_000);
+    type Round = { id: number; spec: typeof selection.current; attempts: number; phase: "idle" | "active" | "backoff" | "paused" | "halted"; resumeRetry: boolean };
+    let stopped = false, busy = false, queued = false, generation = 0;
+    let active: { controller: AbortController; intentional: boolean; timedOut: boolean; timer?: ReturnType<typeof setTimeout> } | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const fresh = (): Round => ({ id: ++generation, spec: selection.current, attempts: 0, phase: "idle", resumeRetry: false });
+    let round = fresh();
+    const halted = (r: Round) => r.phase === "halted";
+    const clearRetry = () => { clearTimeout(retryTimer); retryTimer = undefined; };
+    const cancel = () => { if (active) { active.intentional = true; clearTimeout(active.timer); active.controller.abort(); } };
+    const backoff = (r: Round) => {
+      if (stopped || r !== round || r.phase === "halted") return;
+      r.phase = document.hidden ? "paused" : "backoff"; r.resumeRetry = true;
+      setReadStatus({ kind: "retry", attempt: r.attempts });
+      if (!document.hidden) retryTimer = setTimeout(() => { retryTimer = undefined; if (!stopped && r === round) { r.phase = "paused"; void load(); } }, 2_000);
+    };
+    const load = async () => {
+      if (stopped || document.hidden || busy || round.phase === "halted" || round.phase === "backoff") return;
+      const r = round, spec = r.spec;
+      queued = false; busy = true; r.phase = "active"; r.resumeRetry = false; r.attempts++;
+      const request = { controller: new AbortController(), intentional: false, timedOut: false, timer: undefined as ReturnType<typeof setTimeout> | undefined };
+      active = request;
+      const requestStartedAt = performance.now(), timing: FillRequestTiming = { sequence: ++requestSequence.current, requestId: null };
+      markFillRequest("fetch-start", timing, requestStartedAt); setReadStatus({ kind: "loading", attempt: r.attempts });
+      request.timer = setTimeout(() => { request.timedOut = true; request.controller.abort(); }, 30_000);
+      let retryable = true;
       try {
         const params = new URLSearchParams({ view: "table", columns: spec.columns.join(",") });
-        const response = await fetch(`/api/monitoring/fill-probability?${params}`, { cache: "no-store", signal: request.signal });
+        const response = await fetch(`/api/monitoring/fill-probability?${params}`, { cache: "no-store", signal: request.controller.signal });
         const id = response.headers.get("x-fill-request-id");
         timing.requestId = id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : null;
         markFillRequest("headers", timing);
-        if (!response.ok) throw new Error();
-        const raw = await response.json();
-        markFillRequest("json-read", timing);
+        if (!response.ok) {
+          retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+          if (retryable) { try { if ((await response.json())?.retryable === false) retryable = false; } catch { /* HTTP error pages may be HTML or interrupted. */ } }
+          throw new Error();
+        }
+        let raw: FillSnapshot | FillTableSnapshot;
+        try { raw = await response.json(); } catch (error) { retryable = !(error instanceof SyntaxError); throw error; }
+        markFillRequest("json-read", timing); retryable = false;
         const data = tableReply(raw, spec.columns);
         markFillRequest("validated", timing);
-        if (!stopped && !request.signal.aborted && spec.version === selection.current.version) {
-          markFillRequest("submit", timing);
-          setSample({ data, requestStartedAt, timing }); setClock(performance.now()); setFailed(false);
+        if (data.sourceErrors > 0) { retryable = true; throw new Error(); }
+        if (request.timedOut) { retryable = true; throw new Error(); }
+        if (!stopped && r === round && !request.controller.signal.aborted && spec.version === selection.current.version) {
+          markFillRequest("submit", timing); setSample({ data, requestStartedAt, timing }); setClock(performance.now()); setFailed(false);
+          r.phase = "idle"; setReadStatus({ kind: "idle", attempt: r.attempts });
         }
-      } catch { if (!stopped && !queued && spec.version === selection.current.version) setFailed(true); }
-      finally {
-        markFillRequest("settled", timing);
-        clearTimeout(timeout); busy = false;
-        if (!stopped) { if (queued && !document.hidden) { void load(); } else setLoading(false); }
+      } catch {
+        if (!stopped && r === round) {
+          if (request.intentional) { r.attempts = Math.max(0, r.attempts - 1); r.phase = "paused"; }
+          else {
+            setFailed(true);
+            if ((request.timedOut || retryable) && r.attempts < 3) backoff(r);
+            else { r.phase = "halted"; setReadStatus({ kind: request.timedOut || retryable ? "exhausted" : "blocked", attempt: r.attempts }); }
+          }
+        }
+      } finally {
+        if (request.intentional && r === round && r.phase === "active") { r.attempts = Math.max(0, r.attempts - 1); r.phase = "paused"; }
+        markFillRequest("settled", timing); clearTimeout(request.timer); active = null; busy = false;
+        // Only the latest explicit query/resume can start after a cancelled in-flight promise settles.
+        if (!stopped && queued && !document.hidden && !halted(round)) { queued = false; void load(); }
       }
     };
-    refresh.current = (replace = false) => { void load(replace); };
-    const visible = () => { setClock(performance.now()); if (document.hidden) controller?.abort(); else void load(true); };
-    const poll = setInterval(() => { void load(); }, FILL_REFRESH_MS);
+    const reset = () => {
+      clearRetry(); round = fresh(); setReadStatus({ kind: "loading", attempt: 1 });
+      if (busy) { queued = true; cancel(); } else void load();
+    };
+    refresh.current = reset;
+    const visible = () => {
+      setClock(performance.now());
+      if (document.hidden) { clearRetry(); if (busy) cancel(); else if (round.phase === "backoff") { round.phase = "paused"; round.resumeRetry = true; } return; }
+      if (round.phase === "halted") return;
+      if (busy) { queued = true; return; }
+      if (round.phase === "paused") { if (round.resumeRetry) backoff(round); else void load(); } else if (round.phase === "idle") reset();
+    };
+    const poll = setInterval(() => { if (!document.hidden && !busy && round.phase === "idle") reset(); }, FILL_REFRESH_MS);
     const age = setInterval(() => setClock(performance.now()), 1_000);
     document.addEventListener("visibilitychange", visible); void load();
-    return () => { stopped = true; controller?.abort(); clearInterval(poll); clearInterval(age); document.removeEventListener("visibilitychange", visible); refresh.current = () => undefined; };
+    return () => { stopped = true; clearRetry(); cancel(); clearInterval(poll); clearInterval(age); document.removeEventListener("visibilitychange", visible); refresh.current = () => undefined; };
   }, []);
   const rows = sample?.data.rows || [];
   const now = sample ? sample.data.serverTime + Math.max(0, clock - sample.requestStartedAt) : 0;
@@ -187,7 +235,7 @@ export function FillProbabilityDashboard() {
     <header><div><p className="fill-eyebrow">{t("MONITOR ROOM")}</p><h2>{t("Fill probability")}</h2><p>{t("One-second probability, target distance and the real quote path.")}</p></div>
       <button type="button" onClick={() => refresh.current()} disabled={loading} aria-label={t("Refresh fill probability")}><RefreshCw size={15} />{t("Refresh fill probability")}</button></header>
     {failed || (sample?.data.sourceErrors ?? 0) > 0 ? <p className="fill-notice" role="alert">{t("Probability data could not be read. Previous values are unverified.")}</p> : null}
-    {loading ? <p role="status">{t("Loading fill probability…")}</p> : null}
+    {readStatus.kind !== "idle" ? <p role="status">{t(readStatus.kind === "loading" ? "Reading / transferring data. Please wait patiently. Attempt {attempt}/3." : readStatus.kind === "retry" ? "Temporary read failure. Retrying in 2 seconds. Attempt {attempt}/3." : readStatus.kind === "exhausted" ? "Read attempts exhausted. Please refresh manually. Attempt {attempt}/3." : "Data could not be read. Please refresh manually. Attempt {attempt}/3.", { attempt: readStatus.attempt })}</p> : null}
     {sample && !sample.data.configured ? <p>{t("Fill probability source has not been configured.")}</p> : null}
     <div className="fill-filters">{([ ["strategy", "Strategy"], ["exchange", "Exchange"], ["account", "Account"] ] as const).map(([key, label]) => <label key={key}>{t(label)}<select value={filters[key]} onChange={e => setFilters(current => ({ ...current, [key]: e.target.value }))}><option value="">{t("All")}</option>{[...new Set(rows.map(item => item[key]))].sort().map(value => <option key={value}>{value}</option>)}</select></label>)}
       <label>{t("Symbol")}<input value={filters.symbol} onChange={e => setFilters(current => ({ ...current, symbol: e.target.value }))} placeholder={t("Filter symbol")} /></label>

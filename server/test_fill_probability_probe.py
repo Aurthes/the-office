@@ -1,4 +1,7 @@
 import copy
+import gzip
+import base64
+import os
 import importlib.util
 import json
 import math
@@ -139,6 +142,26 @@ class FillProbeTests(unittest.TestCase):
             with self.assertRaises(ValueError):probe.decode_quotes(changed,"maker","5",123,2200,1000)
         changed=copy.deepcopy(envelope);changed["rows"][0]["bid"]["quoted"]=False
         with self.assertRaises(ValueError):probe.decode_quotes(changed,"maker","5",123,2200,1000)
+
+    def test_projection_whitelist_before_any_source_read_and_missing_not_null(self):
+        required = {"id", "producer", "strategy", "instance", "account", "exchange", "market", "symbol", "side", "sourceSha", "pid", "heartbeatAt", "savedAt", "observedAt", "schema", "clock", "enabled", "weightedExposureSeconds", "ready", "error", "reason", "skipReason", "target"}
+        quote = {"available", "at", "exportedAt", "baseTarget", "currentCaProbability"}
+        p=dict(row=sorted(required|{"actualEma"}),quote=sorted(quote|{"ca"}))
+        self.assertEqual(probe.validate_projection(p),p)
+        row={k:None for k in p["row"]};row.update(actualEma=0,quote={k:None for k in p["quote"]})
+        self.assertEqual(probe.project_rows([row],p)[0]["actualEma"],0)
+        missing=copy.deepcopy(row);del missing["observedAt"]
+        with self.assertRaises(KeyError):probe.project_rows([missing],p)
+        for bad in [dict(row=["actualEma"],quote=p["quote"]),dict(row=p["row"]+["password"],quote=p["quote"]),dict(row=p["row"],quote=["ca"]),dict(row=p["row"]*2,quote=p["quote"])]:
+            with self.assertRaises(ValueError):probe.collect(dict(projection=bad),lambda *a,**k:self.fail("must reject before Redis"))
+
+    def test_gzip_wire_roundtrip_crc_and_both_size_caps(self):
+        reply=dict(version=1,rows=[dict(actualEma=0,quote=None)])
+        wire=probe.encode_reply(reply,True)
+        self.assertEqual(json.loads(gzip.decompress(wire)),reply)
+        self.assertEqual(probe.encode_reply(reply),json.dumps(reply,allow_nan=False,separators=(",",":")).encode()+b"\n")
+        with self.assertRaises(ValueError):probe.encode_reply(dict(data="x"*(4*1024*1024)))
+        with self.assertRaises(ValueError):probe.encode_reply(dict(data=base64.b64encode(os.urandom(2*1024*1024+8192)).decode()),True)
 
 
 if __name__ == "__main__": unittest.main()

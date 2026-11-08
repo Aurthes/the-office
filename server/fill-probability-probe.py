@@ -4,6 +4,7 @@
 No EMA updates, model solves, Redis writes, scans or exchange requests.
 Probability conversion is the controller's stateless snapshot readout.
 """
+import gzip
 import datetime
 import json
 import math
@@ -203,7 +204,49 @@ def blank(source_id, name, instance, unit, side):
                 producer=source_id + ":" + name, strategy=name, instance=instance, side=side, clock="unknown", error=False)
 
 
+# Source output projection only; all original identity/controller/quote validation runs first.
+def validate_projection(value):
+    if value is None:
+        return None
+    required_row = {"id", "producer", "strategy", "instance", "account", "exchange", "market", "symbol", "side", "sourceSha", "pid", "heartbeatAt", "savedAt", "observedAt", "schema", "clock", "enabled", "weightedExposureSeconds", "ready", "error", "reason", "skipReason", "target"}
+    allowed_row = required_row | {"halfLife", "adjustmentInterval", "adjustmentProgress", "weightedHits", "baseTheoreticalEma", "theoreticalEma", "actualEma", "ca", "logCa"}
+    required_quote = {"available", "at", "exportedAt", "baseTarget", "currentCaProbability"}
+    allowed_quote = set(QUOTE_NUMBERS + QUOTE_BOOLS + QUOTE_STATES + ("available", "guardReason"))
+    if not isinstance(value, dict) or set(value) != {"row", "quote"}:
+        raise ValueError("projection")
+    for key, required, allowed in (("row", required_row, allowed_row), ("quote", required_quote, allowed_quote)):
+        fields = value[key]
+        if (not isinstance(fields, list) or len(fields) > 64 or any(not isinstance(f, str) for f in fields) or
+                len(set(fields)) != len(fields) or not required <= set(fields) <= allowed):
+            raise ValueError("projection")
+    return {key: sorted(value[key]) for key in ("row", "quote")}
+
+
+def project_rows(rows, projection):
+    if projection is None:
+        return rows
+    result = []
+    for row in rows:
+        q = row["quote"]
+        result.append({**{key: row[key] for key in projection["row"]},
+                       "quote": None if q is None else {key: q[key] for key in projection["quote"]}})
+    return result
+
+
+def encode_reply(reply, compressed=False):
+    raw = json.dumps(reply, allow_nan=False, separators=(",", ":")).encode()
+    if len(raw) > 4*1024*1024:
+        raise ValueError("reply size")
+    if not compressed:
+        return raw + b"\n"
+    wire = gzip.compress(raw, mtime=0)
+    if len(wire) > 2*1024*1024:
+        raise ValueError("wire size")
+    return wire
+
+
 def collect(config, client_factory=None):
+    projection = validate_projection(config.get("projection"))
     if client_factory is None:
         import redis
         client_factory = redis.Redis.from_url
@@ -276,12 +319,15 @@ def collect(config, client_factory=None):
         finally:
             if client is not None:
                 client.close()
-    return dict(version=1, rows=output)
+    return dict(version=1, rows=project_rows(output, projection), **({"projection": projection} if projection is not None else {}))
 
 
 if __name__ == "__main__":
     try:
-        print(json.dumps(collect(json.loads(sys.argv[1])), allow_nan=False, separators=(",", ":")))
+        config = json.loads(sys.argv[1])
+        if config.get("wire_gzip") is not None and type(config["wire_gzip"]) is not bool:
+            raise ValueError("wire format")
+        sys.stdout.buffer.write(encode_reply(collect(config), config.get("wire_gzip") is True))
     except Exception:
         # Exceptions may contain credential URLs or private paths.
         print('{"error":"read-failed"}')

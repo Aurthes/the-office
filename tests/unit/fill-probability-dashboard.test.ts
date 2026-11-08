@@ -96,10 +96,10 @@ it("serializes rapid column changes and never installs superseded results or cat
   expect(fetcher).toHaveBeenCalledTimes(3);expect(order()).toEqual(["new"]);expect(screen.queryByRole("alert")).toBeNull();
   expect(table().querySelector('[data-column="base"]')).toBeNull();expect(table().querySelector('[data-column="after-normalize"]')).not.toBeNull();
 });
-it("keeps the original twenty-second timeout and old facts gray on failure",async()=>{
+it("keeps the requested thirty-second timeout and old facts gray on failure",async()=>{
   vi.useFakeTimers();let signal:AbortSignal|undefined;
   const fetcher=vi.fn().mockResolvedValueOnce(Response.json(fillSnapshot(pair()))).mockImplementation((_url:string,options:RequestInit)=>new Promise((_resolve,reject)=>{signal=options.signal!;signal!.addEventListener("abort",()=>reject(new Error("abort")));}));vi.stubGlobal("fetch",fetcher);
-  render(createElement(FillProbabilityDashboard));await act(async()=>{});await tick(10_000);await tick(19_999);expect(signal?.aborted).toBe(false);await tick(1);expect(signal?.aborted).toBe(true);expect(screen.getByRole("alert")).toBeInTheDocument();expect(cell("venue.perp.a_usdt","model").textContent).toContain("N/A");
+  render(createElement(FillProbabilityDashboard));await act(async()=>{});await tick(10_000);await tick(29_999);expect(signal?.aborted).toBe(false);await tick(1);expect(signal?.aborted).toBe(true);expect(screen.getByRole("alert")).toBeInTheDocument();expect(cell("venue.perp.a_usdt","model").textContent).toContain("N/A");
 });
 it("uses request-start elapsed for slow responses and independent quote time",async()=>{
   vi.useFakeTimers();const pending=deferred(),rows=pair();for(const r of rows) {r.observedAt=FILL_NOW-26_000;r.quote!.at=FILL_NOW;}
@@ -154,4 +154,42 @@ it("correlates local fetch/JSON/commit marks to response ID without changing bus
 it("diagnostic mark failures do not fail normal reads or create additional fetches",async()=>{
   vi.spyOn(performance,"mark").mockImplementation(()=>{throw new Error("unsupported diagnostics");});
   const {fetcher}=await load();expect(fetcher).toHaveBeenCalledTimes(1);expect(screen.queryByRole("alert")).toBeNull();expect(order()).toEqual(["venue.perp.a_usdt"]);
+});
+
+
+it("allows exactly three temporary attempts with 2s gaps, stops polls when exhausted, and manual refresh opens a new round",async()=>{
+ vi.useFakeTimers();const fetcher=vi.fn().mockRejectedValue(new TypeError("offline"));vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));await act(async()=>{});
+ expect(fetcher).toHaveBeenCalledTimes(1);expect(screen.getByRole("status").textContent).toContain("Attempt 1/3");await tick(1999);expect(fetcher).toHaveBeenCalledTimes(1);await tick(1);expect(fetcher).toHaveBeenCalledTimes(2);await tick(2000);expect(fetcher).toHaveBeenCalledTimes(3);
+ expect(screen.getByRole("status").textContent).toContain("exhausted");await tick(60000);expect(fetcher).toHaveBeenCalledTimes(3);fetcher.mockResolvedValueOnce(Response.json(fillSnapshot(pair("restored"))));fireEvent.click(screen.getByRole("button",{name:"Refresh fill probability"}));await act(async()=>{});expect(fetcher).toHaveBeenCalledTimes(4);expect(order()).toEqual(["restored"]);
+});
+it.each([408,429,502,503,530])("retries temporary HTTP %s then installs only the successful original facts",async status=>{
+ vi.useFakeTimers();const fetcher=vi.fn().mockResolvedValueOnce(new Response("<html>temporary</html>",{status})).mockResolvedValue(Response.json(fillSnapshot(pair())));vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));await act(async()=>{});expect(fetcher).toHaveBeenCalledTimes(1);await tick(2000);expect(fetcher).toHaveBeenCalledTimes(2);expect(order()).toEqual(["venue.perp.a_usdt"]);expect(screen.queryByRole("alert")).toBeNull();
+});
+it.each([400,401,403,404])("does not automatically retry permanent HTTP %s",async status=>{
+ vi.useFakeTimers();const fetcher=vi.fn(async()=>new Response("denied",{status}));vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));await act(async()=>{});await tick(60000);expect(fetcher).toHaveBeenCalledTimes(1);expect(screen.getByRole("status").textContent).toContain("refresh manually");
+});
+it("does not retry schema-invalid successful JSON or explicitly invalid source data",async()=>{
+ vi.useFakeTimers();for(const response of [Response.json({configured:true,serverTime:1,rows:[{bad:true}]}),Response.json({error:"invalid",retryable:false},{status:502}),new Response("{",{status:200})]){const fetcher=vi.fn(async()=>response);vi.stubGlobal("fetch",fetcher);const v=render(createElement(FillProbabilityDashboard));await act(async()=>{});await tick(30000);expect(fetcher).toHaveBeenCalledTimes(1);v.unmount();}
+});
+it("retries sourceErrors and a temporary body disconnect without installing failed samples",async()=>{
+ vi.useFakeTimers();const failed=fillSnapshot(pair("failed"));failed.sourceErrors=1;const cut={ok:true,status:200,headers:new Headers(),json:()=>Promise.reject(new TypeError("body disconnected"))} as unknown as Response;
+ const fetcher=vi.fn().mockResolvedValueOnce(Response.json(failed)).mockResolvedValueOnce(cut).mockResolvedValue(Response.json(fillSnapshot(pair("good"))));vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));await act(async()=>{});expect(screen.queryByRole("table")).toBeNull();await tick(4000);expect(fetcher).toHaveBeenCalledTimes(3);expect(order()).toEqual(["good"]);
+});
+it("honors 30s per attempt and never starts overlapping polls during timeout or backoff",async()=>{
+ vi.useFakeTimers();const signals:AbortSignal[]=[];const fetcher=vi.fn((_u:string,o:RequestInit)=>new Promise((_ok,no)=>{signals.push(o.signal!);o.signal!.addEventListener("abort",()=>no(new Error("aborted")));}));vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));await act(async()=>{});
+ await tick(29999);expect(signals[0].aborted).toBe(false);expect(fetcher).toHaveBeenCalledTimes(1);await tick(1);expect(signals[0].aborted).toBe(true);await tick(1999);expect(fetcher).toHaveBeenCalledTimes(1);await tick(1);expect(fetcher).toHaveBeenCalledTimes(2);await tick(30000);await tick(2000);await tick(30000);expect(fetcher).toHaveBeenCalledTimes(3);expect(screen.getByRole("status").textContent).toContain("exhausted");await tick(20000);expect(fetcher).toHaveBeenCalledTimes(3);
+});
+it("a column change cancels backoff and starts its own generation, without an old timer fetch",async()=>{
+ vi.useFakeTimers();const fetcher=vi.fn().mockRejectedValueOnce(new TypeError()).mockResolvedValue(Response.json(fillSnapshot(pair())));vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));await act(async()=>{});toggle("Base theoretical EMA");await act(async()=>{});expect(fetcher).toHaveBeenCalledTimes(2);await tick(2000);expect(fetcher).toHaveBeenCalledTimes(2);expect(new URL(fetcher.mock.calls[1][0],"https://test").searchParams.get("columns")).toContain("base");
+});
+it("hiding cancels intentionally without consuming a failure opportunity, and visibility cannot revive exhaustion",async()=>{
+ vi.useFakeTimers();let hidden=false;vi.spyOn(document,"hidden","get").mockImplementation(()=>hidden);const pending=deferred();const fetcher=vi.fn().mockImplementationOnce(()=>pending.promise).mockRejectedValue(new TypeError());vi.stubGlobal("fetch",fetcher);render(createElement(FillProbabilityDashboard));await act(async()=>{});
+ hidden=true;fireEvent(document,new Event("visibilitychange"));await act(async()=>pending.reject(new Error("intentional")));hidden=false;fireEvent(document,new Event("visibilitychange"));await act(async()=>{});expect(screen.getByRole("status").textContent).toContain("Attempt 1/3");await tick(4000);expect(fetcher).toHaveBeenCalledTimes(4);hidden=true;fireEvent(document,new Event("visibilitychange"));hidden=false;fireEvent(document,new Event("visibilitychange"));await tick(30000);expect(fetcher).toHaveBeenCalledTimes(4);
+});
+it("unmount during backoff removes the scheduled retry",async()=>{
+ vi.useFakeTimers();const fetcher=vi.fn().mockRejectedValue(new TypeError());vi.stubGlobal("fetch",fetcher);const v=render(createElement(FillProbabilityDashboard));await act(async()=>{});v.unmount();await tick(60000);expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+it("treats a missing selected quote field as nonretryable and does not spend hidden intentional cancellations",async()=>{
+ vi.useFakeTimers();const data=projectFillTable(fillSnapshot(pair()),FILL_DEFAULT_COLUMNS);delete data.rows[0].bid!.quote!.ca;const fetcher=vi.fn(async()=>Response.json(data));vi.stubGlobal("fetch",fetcher);const view=render(createElement(FillProbabilityDashboard));await act(async()=>{});await tick(30000);expect(fetcher).toHaveBeenCalledTimes(1);view.unmount();
 });

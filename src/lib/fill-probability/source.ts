@@ -4,11 +4,18 @@ import os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
+import { gunzip } from "node:zlib";
 import { resolveStateDir } from "@/lib/clawdbot/paths";
 import { loadServerRegistry, sshTransportOptions } from "../../../server/server-registry";
-import { FILL_REFRESH_MS, type FillRow, type FillSnapshot, type FillQuote } from "./model";
+import { FILL_REFRESH_MS, type FillRow, type FillSnapshot, type FillQuote, type fillTableFields } from "./model";
 
-const exec = promisify(execFile);
+const exec = promisify(execFile), decompress = promisify(gunzip);
+export type FillProjection = ReturnType<typeof fillTableFields>;
+export class FillSourceDataError extends Error { constructor() { super("Invalid fill source data"); } }
+const sourceProjection = (projection: FillProjection) => ({
+  row: [...new Set(["id", "producer", "strategy", "instance", "account", "exchange", "market", "symbol", "side", ...projection.row])].sort(),
+  quote: [...projection.quote].sort(),
+});
 export type FillSource = { id: string; host?: string; python?: string; strategies: {
   name: string; setting: string; sourceSha: string; feedbackVersion: 8 | 9;
 }[] };
@@ -53,7 +60,21 @@ export function parseFillQuote(raw: unknown): FillQuote | null {
   return Object.fromEntries([...numbers, ...bools, ...states, "available", "guardReason"].map(k => [k, q[k]])) as FillQuote;
 }
 
-export function parseFillReply(raw: unknown, source: FillSource): FillRow[] {
+export function parseFillReply(raw: unknown, source: FillSource, projection?: FillProjection): FillRow[] {
+  if (projection) {
+    const data = raw as { version?: number; projection?: unknown; rows?: Record<string, unknown>[] }, fields = sourceProjection(projection);
+    if (data?.version !== 1 || JSON.stringify(data.projection) !== JSON.stringify(fields) || !Array.isArray(data.rows) || data.rows.length > 8192) throw new FillSourceDataError();
+    const rowKeys = ["pid", "heartbeatAt", "savedAt", "observedAt", "schema", "halfLife", "adjustmentInterval", "adjustmentProgress", "weightedHits", "weightedExposureSeconds", "baseTheoreticalEma", "theoreticalEma", "actualEma", "ca", "logCa", "target"];
+    const quoteKeys = ["at", "exportedAt", "baseTarget", "beforeNormalize", "afterNormalize", "pmax", "normalizationScale", "logAfterNormalize", "ca", "logCa", "referencePrice", "currentCaProbability", "baseAtReferenceProbability", "p1BeforePrice", "p1AfterPrice", "postOnlyAfterPrice", "p2AfterPrice", "finalPrice", "p1BeforeProbability", "p1AfterProbability", "postOnlyAfterProbability", "p2AfterProbability", "finalProbability", "disabledMask", "normalizationEnabled", "underflow", "quoted", "guardReason"];
+    const rows = data.rows.map(row => {
+      if (!row || fields.row.some(k => !Object.hasOwn(row, k)) || !Object.hasOwn(row, "quote")) throw new FillSourceDataError();
+      const q = row.quote as Record<string, unknown> | null;
+      if (q !== null && (!q || fields.quote.some(k => !Object.hasOwn(q, k)))) throw new FillSourceDataError();
+      return { ...Object.fromEntries(rowKeys.map(k => [k, null])), ...Object.fromEntries(fields.row.map(k => [k, row[k]])),
+        quote: q === null ? null : { ...Object.fromEntries(quoteKeys.map(k => [k, null])), p1State: "unknown", postOnlyState: "unknown", p2State: "unknown", ...Object.fromEntries(fields.quote.map(k => [k, q[k]])) } };
+    });
+    return parseFillReply({ version: 1, rows }, source);
+  }
   const data = raw as { version?: number; rows?: Record<string, unknown>[] };
   if (data?.version !== 1 || !Array.isArray(data.rows) || data.rows.length > 8192) throw new Error("Invalid fill reply");
   const strings = ["id", "producer", "strategy", "instance", "account", "exchange", "market", "symbol"] as const;
@@ -78,17 +99,18 @@ export function parseFillReply(raw: unknown, source: FillSource): FillRow[] {
 
 // Bounded request diagnostics, separate from business facts and observation clocks.
 export type FillSourceTiming = {
-  totalMs: number; prepareMs?: number; execMs?: number; decodeMs?: number; stdoutBytes?: number;
+  totalMs: number; prepareMs?: number; execMs?: number; decodeMs?: number; stdoutBytes?: number; wireBytes?: number; decodedBytes?: number;
 };
 export type FillSnapshotTiming = {
   cache: "hit" | "pending" | "new"; batchId: string; ageMs: number | null; sources: FillSourceTiming[];
 };
-export async function readFillSource(source: FillSource, observe?: (timing: FillSourceTiming) => void): Promise<FillRow[]> {
+export async function readFillSource(source: FillSource, observe?: (timing: FillSourceTiming) => void, projection?: FillProjection): Promise<FillRow[]> {
   const started = performance.now(), timing: FillSourceTiming = { totalMs: 0 };
   try {
     const script = await fs.readFile(path.join(process.cwd(), "server/fill-probability-probe.py"), "utf8");
-    const request = JSON.stringify({ id: source.id, strategies: source.strategies });
-    let stdout: string;
+    const request = JSON.stringify({ id: source.id, strategies: source.strategies, ...(projection ? { projection: sourceProjection(projection), wire_gzip: true } : {}) });
+    const options = { cwd: os.homedir(), timeout: 12_000, maxBuffer: projection ? 2*1024*1024 : 4*1024*1024, ...(projection ? { encoding: "buffer" as const } : {}) };
+    let stdout: string | Buffer;
     if (source.host) {
       const { hosts } = await loadServerRegistry();
       if (!hosts.some(h => h.alias === source.host && h.active && h.group === "online")) throw new Error("Fill source unavailable");
@@ -96,18 +118,26 @@ export async function readFillSource(source: FillSource, observe?: (timing: Fill
       const args = [...await sshTransportOptions(source.host), "-o", "ConnectTimeout=3", source.host, command];
       timing.prepareMs = performance.now() - started;
       const executing = performance.now();
-      try { ({ stdout } = await exec("ssh", args, { cwd: os.homedir(), timeout: 12_000, maxBuffer: 4*1024*1024 })); }
+      try { ({ stdout } = await exec("ssh", args, options)); }
       finally { timing.execMs = performance.now() - executing; }
     } else {
       timing.prepareMs = performance.now() - started;
       const executing = performance.now();
-      try { ({ stdout } = await exec(source.python || "python3", ["-c", script, request], { cwd: os.homedir(), timeout: 12_000, maxBuffer: 4*1024*1024 })); }
+      try { ({ stdout } = await exec(source.python || "python3", ["-c", script, request], options)); }
       finally { timing.execMs = performance.now() - executing; }
     }
-    timing.stdoutBytes = Buffer.byteLength(stdout, "utf8");
-    const decoding = performance.now(), raw = JSON.parse(stdout), rows = parseFillReply(raw, source);
-    timing.decodeMs = performance.now() - decoding;
-    return rows;
+    timing.wireBytes = Buffer.byteLength(stdout);
+    const decoding = performance.now();
+    try {
+      if (projection && (!Buffer.isBuffer(stdout) || stdout.byteLength > 2*1024*1024)) throw new FillSourceDataError();
+      const decoded = projection ? await decompress(stdout, { maxOutputLength: 4*1024*1024 }) : Buffer.from(stdout);
+      if (decoded.byteLength > 4*1024*1024) throw new FillSourceDataError();
+      // stdoutBytes retains its original decoded-JSON meaning; wireBytes is transport bytes.
+      timing.stdoutBytes = timing.decodedBytes = decoded.byteLength;
+      const rows = parseFillReply(JSON.parse(decoded.toString("utf8")), source, projection);
+      timing.decodeMs = performance.now() - decoding;
+      return rows;
+    } catch { throw new FillSourceDataError(); }
   } finally { timing.totalMs = performance.now() - started; observe?.(timing); }
 }
 
@@ -115,19 +145,20 @@ export function createFillReader(read = readFillSource, now = Date.now) {
   const fresh = () => ({ sampledAt: null as number | null, values: new Map<string, FillRow[]>(), failures: new Set<string>(), pending: null as Promise<void> | null,
     batch: { id: randomUUID(), sources: [] as FillSourceTiming[] } });
   let signature = "", state = fresh();
-  return async (sources: FillSource[], observe?: (timing: FillSnapshotTiming) => void): Promise<FillSnapshot> => {
-    const next = JSON.stringify(sources);
+  return async (sources: FillSource[], observe?: (timing: FillSnapshotTiming) => void, projection?: FillProjection): Promise<FillSnapshot> => {
+    const next = JSON.stringify([sources, projection ? sourceProjection(projection) : null]);
     if (next !== signature) { signature = next; state = fresh(); }
     const current = state;
-    const cache = current.pending ? "pending" : current.sampledAt === null || now() - current.sampledAt >= FILL_REFRESH_MS ? "new" : "hit";
+    const cache = current.pending ? "pending" : current.sampledAt === null || current.failures.size > 0 || now() - current.sampledAt >= FILL_REFRESH_MS ? "new" : "hit";
     if (cache === "new") {
       current.batch = { id: randomUUID(), sources: [] };
+      let invalid = false;
       current.pending = Promise.all(sources.map(async (source, index) => {
         const started = performance.now();
-        try { current.values.set(source.id, await read(source, timing => { current.batch.sources[index] = timing; })); current.failures.delete(source.id); }
-        catch { current.failures.add(source.id); current.values.set(source.id, (current.values.get(source.id) || []).map(r => ({ ...r, error: true }))); }
+        try { current.values.set(source.id, await read(source, timing => { current.batch.sources[index] = timing; }, projection)); current.failures.delete(source.id); }
+        catch (error) { invalid ||= error instanceof FillSourceDataError; current.failures.add(source.id); current.values.set(source.id, (current.values.get(source.id) || []).map(r => ({ ...r, error: true }))); }
         finally { current.batch.sources[index] ??= { totalMs: performance.now() - started }; }
-      })).then(() => { current.sampledAt = now(); }).finally(() => { current.pending = null; });
+      })).then(() => { if (invalid) throw new FillSourceDataError(); if (!current.failures.size) current.sampledAt = now(); }).finally(() => { current.pending = null; });
     }
     const batch = current.batch;
     if (current.pending) await current.pending;
@@ -137,14 +168,14 @@ export function createFillReader(read = readFillSource, now = Date.now) {
       sourceErrors: current.failures.size, rows };
   };
 }
-const read = createFillReader();
-export async function getFillSnapshot(observe?: (timing: FillSnapshotTiming) => void): Promise<FillSnapshot> {
-  const file = path.join(resolveStateDir(), "claw3d/fill-probability.json");
+const read = createFillReader(), readTable = createFillReader();
+export async function getFillSnapshot(observe?: (timing: FillSnapshotTiming) => void, projection?: FillProjection): Promise<FillSnapshot> {
+  const file = path.join(resolveStateDir(), "claw3d/fill-probability.json"), reader = projection ? readTable : read;
   try {
     if ((await fs.stat(file)).size > 64*1024) throw new Error("Invalid fill configuration");
-    return read(parseFillSources(JSON.parse(await fs.readFile(file, "utf8"))), observe);
+    return reader(parseFillSources(JSON.parse(await fs.readFile(file, "utf8"))), observe, projection);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return read([], observe);
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return reader([], observe, projection);
     throw error;
   }
 }

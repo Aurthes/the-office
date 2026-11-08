@@ -97,10 +97,10 @@ No Redis or exchange writes, keys or credential URLs reach the browser.
 `Cache-Control: no-store`. One shared ten-second cache coalesces concurrent
 readers. The browser polls every ten seconds while visible, aborts on hide/close,
 and ages evidence independently of stalled requests. Export/heartbeat ages over
-30 seconds cannot remain green. Transport is bounded to twelve seconds and four
+30 seconds cannot remain green. Subprocess transport is bounded to twelve seconds; legacy stdout is capped at four
 MiB; configuration accepts at most four sources with sixteen strategies each.
 
-The current UI requests the same endpoint with `view=record`. This opt-in view
+The compatible record protocol uses the same endpoint with `view=record`. This opt-in view
 returns the original `configured`, `serverTime`, `sampledAt` and `sourceErrors`,
 an ordered `records` index (`id`, `strategy`, `exchange`, `account`, `symbol`,
 `side`), and one complete original `row` or null. Optional `recordId` is the
@@ -114,7 +114,7 @@ a truncated matching prefix. Selection URLs are bounded to 64 KiB.
 Switching to a record whose details are not held waits for one read request.
 The selection and filters update immediately; another record's old values are
 never shown under the pending selection. Only the latest selection response is
-accepted. The 20-second request limit, ten-second polling and original evidence
+accepted. The current UI request policy is described below; ten-second polling and original evidence
 aging remain in effect. No numbers, precision, state or quote fields are removed
 from the selected row. Without `view=record`, the endpoint keeps its full `rows`
 response for older clients; the UI also accepts that response after rollback.
@@ -191,7 +191,7 @@ The normal control-room view shows one row per producer / instance / strategy / 
 
 Internal descending order is `abs(bid.currentCaProbability - bid.baseTarget) + abs(ask.currentCaProbability - ask.baseTarget)`. Both quotes must be current and both original probabilities/targets valid; otherwise the entire row sorts last. Real zero is valid. The score is not displayed or a selectable column. Side filtering only hides a side, and hiding after-C_A keeps its sorting dependencies. Ties use the complete identity tuple. The existing one-second aging tick can move expired rows to the end without refreshing source times.
 
-`GET /api/monitoring/fill-probability?view=table&columns=model,actual,ca,base-reference,ca-probability` opts into a selected-field table projection of one existing shared snapshot. Omitted columns means the five defaults; empty columns means identity only. Unknown/duplicate columns or parameters fail before reading sources. Original full and record responses remain compatible. All table rows share the original ten-second pending/cache; selecting columns never reads a symbol separately. Filters are local. JSON/gzip/no-store/private-error behavior and the original 20-second client timeout remain.
+`GET /api/monitoring/fill-probability?view=table&columns=model,actual,ca,base-reference,ca-probability` opts into a selected-field table projection of one existing shared snapshot. Omitted columns means the five defaults; empty columns means identity only. Unknown/duplicate columns or parameters fail before reading sources. Original full and record responses remain compatible. All table rows share the original ten-second pending/cache; selecting columns never reads a symbol separately. Filters are local. JSON/gzip/no-store and private-error behavior remain; the client request policy is described below.
 
 Each accepted response retains its own pre-fetch `performance.now()` anchor. Freshness includes the total request elapsed time as a conservative upper bound; slow reads can turn gray sooner. Column changes, failed reads, filters, hiding/resuming and sorting do not reset old observation epochs. Only the latest column request can install a response. Complete old full responses can be projected locally during a server rollback; incomplete record-only responses cannot represent a table.
 
@@ -201,8 +201,49 @@ Choosing every optional metric naturally transfers more facts. Offline body-size
 ### One-request timing (read only)
 The normal route includes a server-generated `X-Fill-Request-Id` and bounded `Server-Timing` diagnostics; the business JSON and source/schema/observation clocks are unchanged. `fill_snapshot` includes configuration and shared-reader waiting; `fill_cache` is `new`, `pending`, or `hit`, and `fill_batch` identifies the shared snapshot generation. Cache hits expose age and batch, **not the previous generation's source durations**. Pending requests refer to the same in-flight batch, not an extra source read.
 
-For an actual read, `srcN_prepareMs`, `execMs`, and `decodeMs` cover script/registered transport preparation, whole subprocess/SSH stdout completion, and JSON/row validation. `stdoutBytes` is the complete UTF-8 stdout size. No remote script or database instrumentation is added. These are Mac monotonic durations. SSH execution includes interpreter startup, AWS collection/serialization, transport and local scheduling; it is **not pure network RTT or disk-read time**. No credentials, configuration paths, remote exceptions or business values enter diagnostics.
+For an actual read, `srcN_prepareMs`, `execMs`, and `decodeMs` cover script/registered transport preparation, whole subprocess/SSH stdout completion, and JSON/row validation. `stdoutBytes` retains its original decoded JSON byte meaning. `decodedBytes` names that meaning explicitly; `wireBytes` is the actual subprocess stdout size, compressed for table reads. No database instrumentation is added. These are Mac monotonic durations. SSH execution includes interpreter startup, AWS collection/serialization, transport and local scheduling; it is **not pure network RTT or disk-read time**. No credentials, configuration paths, remote exceptions or business values enter diagnostics.
 
 `fill_project`, `fill_json`, `fill_gzip`, decoded/encoded byte counts and `fill_ready` describe the same route. `fill_ready` stops before returning `Response`; it is **not a socket-finish event**. A same-request passive local framing receipt, when available, provides the separate completion boundary; otherwise that boundary stays unmeasured.
 
-The component uses fixed-size local `fill:*` performance marks for real fetch start, response availability, read-JSON completion, validation, submit, DOM commit (`useLayoutEffect`) and a two-rAF display opportunity. Detail contains only a local sequence and validated response request ID. Only the latest mark per stage is retained; an in-memory task observer may capture a bounded sample. JSON-read includes decoding/parse/scheduling; commit/display opportunity does not claim GPU pixels finished. No global fetch/JSON hook, new request, cache bypass, timeout/freshness change or user-visible metric is introduced.
+The component uses fixed-size local `fill:*` performance marks for real fetch start, response availability, read-JSON completion, validation, submit, DOM commit (`useLayoutEffect`) and a two-rAF display opportunity. Detail contains only a local sequence and validated response request ID. Only the latest mark per stage is retained; an in-memory task observer may capture a bounded sample. JSON-read includes decoding/parse/scheduling; commit/display opportunity does not claim GPU pixels finished. No global fetch/JSON hook, new request, cache bypass or user-visible metric is introduced.
+
+## Selected-column source transport and read attempts
+
+For table reads, the existing model field-dependency map also determines the remote
+exit projection. The probe first performs its original state/quote decoding and
+identity checks, then returns only requested facts plus all identity, independent
+freshness and both-side sorting dependencies. Hidden after-C_A or a side filter
+cannot remove the internal sort inputs. No original probability, epoch, precision,
+NULL or real zero is changed. All 17 columns and an empty selection are supported.
+Missing requested fields fail validation; deliberately unrequested fields are
+restored as unknown internal values before the original validators and table
+projection. A partial reply can never satisfy a full/record request.
+
+Table stdout uses standard binary gzip, without base64. Node collects a Buffer,
+checks a 2 MiB compressed cap, and validates gzip/CRC with a 4 MiB decoded cap.
+The server constructs a bounded allowlist from fixed column dependencies; the
+Python exit rejects arbitrary fields before I/O. Full/record/legacy reads keep
+their existing source and JSON shapes. The browser table JSON/gzip is unchanged.
+
+Full and table readers retain separate bounded in-memory snapshots. The table
+reader keeps one current canonical field profile, with ten-second successful
+cache/pending coalescing. Equivalent profiles can share a read; different profiles
+cannot reuse partial data. A failed collection does not advance the last successful
+sampledAt and is eligible for a real next read, while old values/epochs remain
+unverified. There is no per-row request, prefetch, backend retry or producer write.
+
+Each visible UI round has at most three attempts including the first, each bounded
+by 30 seconds, with two seconds between recoverable failures. Network/body failures,
+408, 429, 5xx and source-unavailable responses may retry. Authentication/permanent
+4xx, malformed JSON or invalid schema stop without blind retries. Invalid source
+data returns a sanitized non-retryable 502; temporary source errors are not accepted
+as successful samples. Waiting/retry messages show n/3 in the existing languages.
+
+Only one UI request can be in flight. Healthy ten-second polling cannot interrupt
+a retry round. Exhaustion stops automatic reads until manual Refresh; an explicit
+column change starts a new generation. Hiding, unmounting and superseding a query
+cancel intentionally and cannot install old results or consume a retry opportunity.
+Returning to visibility does not revive an exhausted round. Old values continue
+aging with their original epochs; each successful attempt uses its own pre-fetch
+monotonic anchor. A 30-second request budget does not extend the independent
+30-second evidence freshness threshold.

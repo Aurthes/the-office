@@ -101,8 +101,8 @@ export type FillTableRow = Pick<FillRow, typeof tableIdentity[number]> & { id: s
 export type FillTableSnapshot = Omit<FillSnapshot, "rows"> & { view: "table"; columns: FillColumn[]; rows: FillTableRow[] };
 export const fillTableId = (row: Pick<FillRow, typeof tableIdentity[number]>) => JSON.stringify(tableIdentity.map(key => row[key]));
 
-// A scalar projection of one existing shared snapshot, also used for full-server rollback.
-export function projectFillTable(snapshot: FillSnapshot, columns: FillColumn[]): FillTableSnapshot {
+// Shared column dependencies for the source transfer and the original table projection.
+export function fillTableFields(columns: FillColumn[]) {
   const rowFields: (keyof FillRow)[] = [...sideFields];
   const quoteFields = new Set<keyof FillQuote>(["available", "at", "exportedAt", "baseTarget", "currentCaProbability"]);
   const dependencies: Partial<Record<FillColumn, (keyof FillQuote)[]>> = {
@@ -119,6 +119,12 @@ export function projectFillTable(snapshot: FillSnapshot, columns: FillColumn[]):
     if (column === "actual") rowFields.push("actualEma");
     for (const field of dependencies[column] || []) quoteFields.add(field);
   }
+  return { row: [...new Set(rowFields)], quote: [...quoteFields] };
+}
+
+// A scalar projection of one existing shared snapshot, also used for full-server rollback.
+export function projectFillTable(snapshot: FillSnapshot, columns: FillColumn[]): FillTableSnapshot {
+  const { row: rowFields, quote: quoteFields } = fillTableFields(columns);
   const groups = new Map<string, FillTableRow>();
   for (const row of snapshot.rows) {
     const id = fillTableId(row);
