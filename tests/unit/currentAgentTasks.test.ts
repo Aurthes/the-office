@@ -62,3 +62,35 @@ it("retains assignments through phase transitions, pauses, disconnects and read 
   act(() => onEvent?.({ event: "todos.updated" }));
   await waitFor(() => expect(result.current.tasks.size).toBe(0));
 });
+
+it("invalidates fieldwork immediately and never publishes a list response older than a task event", async () => {
+  let receive!: (event: { event: string }) => void;
+  const resolve: Array<(v: unknown) => void> = [];
+  const call = vi.fn(() => new Promise(done => resolve.push(done)));
+  const client = { call, onEvent: (fn: typeof receive) => { receive = fn; return vi.fn(); } } as unknown as Pick<GatewayClient, "call" | "onEvent">;
+  const hook = renderHook(() => useCurrentAgentTasks(client, true, "gateway"));
+  const task = { id: "A", title: "Teaser", status: "running", archived: false, assigneeId: "one", handlingAgentId: "one" };
+  act(() => receive({ event: "todos.updated" }));
+  await act(async () => resolve[0]({ todos: [task], total: 1 }));
+  expect(hook.result.current.fieldworkSummaries).toBeNull();
+  expect(hook.result.current.tasks.has("one")).toBe(false);
+  await act(async () => resolve[1]({ todos: [{ ...task, id: "B", title: "机房" }], total: 1 }));
+  expect(hook.result.current.fieldworkSummaries?.[0].id).toBe("B");
+  act(() => receive({ event: "todos.updated" }));
+  expect(hook.result.current.fieldworkSummaries).toBeNull();
+  expect(hook.result.current.tasks.get("one")?.[0].id).toBe("B"); // Directory UI retains existing rows.
+});
+
+it("ignores an old gateway's in-flight response and subscription after switching", async () => {
+  const receives: Array<(event: { event: string }) => void> = [], resolve: Array<(v: unknown) => void> = [];
+  const call = vi.fn(() => new Promise(done => resolve.push(done)));
+  const client = { call, onEvent: (fn: (event: { event: string }) => void) => { receives.push(fn); return vi.fn(); } } as unknown as Pick<GatewayClient, "call" | "onEvent">;
+  const hook = renderHook(({ gateway }) => useCurrentAgentTasks(client, true, gateway), { initialProps: { gateway: "first" } });
+  hook.rerender({ gateway: "second" });
+  const task = { id: "B", title: "Teaser", status: "running", archived: false, assigneeId: "one", handlingAgentId: "one" };
+  await act(async () => resolve[1]({ todos: [task], total: 1 }));
+  await act(async () => resolve[0]({ todos: [{ ...task, id: "old" }], total: 1 }));
+  act(() => receives[0]({ event: "todos.updated" }));
+  expect(hook.result.current.fieldworkSummaries?.[0].id).toBe("B");
+  expect(call).toHaveBeenCalledTimes(2);
+});

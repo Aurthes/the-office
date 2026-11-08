@@ -3140,13 +3140,14 @@ export function OfficeScreen({
 
   const { readById } = useCompletionReadState(sessionView && chatOpen && focusedChatAgent?.status === "idle" && focusedChatAgent.completedResult
     ? { id: focusedChatAgent.agentId, key: focusedChatAgent.completedResult.key } : null);
-  const fieldwork = useFieldworkTasks(client, state.agents, companyRoster, sessionView && status === "connected", gatewayUrl);
+  const currentTasks = useCurrentAgentTasks(client, sessionView && status === "connected", gatewayUrl);
+  const fieldwork = useFieldworkTasks(client, state.agents, companyRoster, sessionView && status === "connected", gatewayUrl, currentTasks.fieldworkSummaries);
   const allVisibleAgents = useMemo(
     () => {
       const results = new Map(state.agents.map(agent => [agent.agentId, agent]));
       return [...officeAgents.map(agent => sessionView ? { ...agent,
         title: organization.people.find(person => person.id === agent.id)?.title,
-        constructionWorker: fieldwork.workers.has(agent.id), siteTask: results.get(agent.id)?.status === "running" ? fieldwork.tasks[agent.id] ?? results.get(agent.id)?.lastUserMessage : null,
+        constructionWorker: fieldwork.workers.has(agent.id), siteTask: results.get(agent.id)?.status === "running" ? fieldwork.tasks[agent.id] ?? null : null,
         needsReview: agent.status === "idle" && Boolean(results.get(agent.id)?.completedResult?.unread && readById[agent.id] !== results.get(agent.id)?.completedResult?.key),
         needsInput: Boolean(results.get(agent.id)?.needsInput),
         turnStatus: results.get(agent.id)?.turnStatus,
@@ -3169,7 +3170,6 @@ export function OfficeScreen({
     }));
   }, [allVisibleAgents, state.agents, companyRoster]);
   const chatRosterGroups = useMemo(() => organizeChatRoster(chatRosterEntries, "activity"), [chatRosterEntries]);
-  const currentTasks = useCurrentAgentTasks(client, sessionView && (chatOpen || departmentPanel.open) && status === "connected", gatewayUrl);
   const directoryAgents = useMemo<DirectoryAgent[]>(() => {
     const agents = new Map(allVisibleAgents.map(agent => [agent.id, agent]));
     return chatRosterEntries.map(entry => ({ ...entry, color: agents.get(entry.id)!.color, avatarProfile: agents.get(entry.id)?.avatarProfile, tasks: currentTasks.tasks.get(entry.id) }));

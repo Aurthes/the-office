@@ -1,3 +1,4 @@
+import type { FieldworkTaskSummary } from "@/lib/office/fieldworkTask";
 import type { AgentAvatarProfile } from "@/lib/avatars/profile";
 import { CEO_ID, type OrganizationPerson } from "@/lib/office/organization";
 import type { ChatRosterEntry } from "./chatRoster";
@@ -5,7 +6,7 @@ import type { ChatRosterEntry } from "./chatRoster";
 export type AgentDirectoryView = "project" | "activity" | "organization";
 export type CurrentAgentTask = { id: string; title: string; code: string; roles?: ("Owner" | "Assignee")[] };
 export type DirectoryAgent = ChatRosterEntry & { color: string; avatarProfile?: AgentAvatarProfile | null; tasks?: CurrentAgentTask[] };
-export type DirectoryTaskSummary = { id: string; code?: string; title: string; assigneeId: string | null; assigneeName?: string | null; ownerId?: string | null; ownerName?: string | null; departmentId?: string | null; reviewerId?: string | null; status: string; archived: boolean };
+export type DirectoryTaskSummary = FieldworkTaskSummary & { id: string; code?: string; title: string; assigneeId: string | null; assigneeName?: string | null; ownerId?: string | null; ownerName?: string | null; departmentId?: string | null; reviewerId?: string | null; status: string; archived: boolean };
 export const needsFollowUp = (task: DirectoryTaskSummary) => !task.archived && task.status !== "done";
 
 // Assignment lasts until completion, archive or reassignment, including pauses.
