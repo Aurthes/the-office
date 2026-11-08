@@ -272,3 +272,80 @@ it("changes local legacy dispatch identity without adding another context inject
   f.todos.recordTurn({ ...context, taskId: task.id, turnId: secondTurn }); f.todos.finishTurn(f.owner, "completed", secondTurn);
   expect(f.todos.raw(task.id).status).toBe("paused");
 });
+
+it.each([
+  ["phase", "legacy", false], ["legacy", "phase", false],
+  ["phase", "legacy", true], ["legacy", "phase", true],
+  ["phase", "phase", true], ["legacy", "legacy", true],
+] as const)("restores actual %s → %s activity consistently after restart (last paused=%s)", async (firstMode, lastMode, pauseLast) => {
+  const f = await fixture();
+  const start = async (mode: "phase" | "legacy", name: string) => {
+    const task = f.todos.create({ requestId: name, title: name, actorId: f.owner, assigneeId: f.owner, ...(mode === "phase" ? { executionMode: "phases" } : {}), phases: [{ title: name, assigneeId: f.owner }] }).todo;
+    f.todos.startForAgent(f.owner, task.id, mode === "phase" ? task.phases[0].id : undefined, name + "-dispatch");
+    await f.store.call("turn/start", { threadId: f.owner, input: [] });
+    return { task, phaseId: mode === "phase" ? task.phases[0].id : undefined };
+  };
+  const first = await start(firstMode, "first");
+  f.advance(10); f.todos.change({ id: first.task.id, revision: f.todos.raw(first.task.id).revision, actorId: f.owner, phaseId: first.phaseId }, "pause");
+  f.advance(100); const last = await start(lastMode, "last");
+  if (pauseLast) f.todos.change({ id: last.task.id, revision: f.todos.raw(last.task.id).revision, actorId: f.owner, phaseId: last.phaseId }, "pause");
+  // Later ordinary edits/assignment metadata on another task cannot steal focus.
+  f.advance(1000); f.todos.change({ id: first.task.id, revision: f.todos.raw(first.task.id).revision, documentation: "Later metadata edit", ownerId: f.owner }, "edit");
+  const assertScope = (todos: InstanceType<typeof OfficeTodos>) => {
+    expect(todos.context(f.owner).todoId).toBe(last.task.id); expect(todos.bound(f.owner)?.id).toBe(last.task.id);
+    expect(todos.phaseScope(f.owner)?.phase.id).toBe(last.phaseId);
+    expect(todos.context(f.owner).runningPhaseId).toBe(last.phaseId);
+    expect(todos.context(f.owner).activityRole).toBe(lastMode === "phase" ? "self" : "legacy");
+  };
+  assertScope(f.todos); f.todos.checkpoint();
+  const times = f.todos.raw(last.task.id).phases.map((p: { elapsedMs: number }) => p.elapsedMs);
+  const restored = new OfficeTodos(path.join(f.root, "office"), f.deps); assertScope(restored);
+  expect(restored.raw(last.task.id).phases.map((p: { elapsedMs: number }) => p.elapsedMs)).toEqual(times);
+  expect(restored.raw(last.task.id).phases.every((p: { startedAt: number | null }) => p.startedAt == null)).toBe(true);
+  assertScope(new OfficeTodos(path.join(f.root, "office"), f.deps));
+  const activity = lastMode === "phase" ? restored.raw(last.task.id).phases[0].activity : restored.raw(last.task.id).activity;
+  restored.finishTurn(f.owner, "completed", firstMode === "phase" ? f.todos.raw(first.task.id).phases[0].activity.turnId : f.todos.raw(first.task.id).activity.turnId);
+  expect(restored.context(f.owner).activityId).toBe(activity.requestId);
+});
+it.each(["legacy", "phase"] as const)("keeps equal-time phase/%s ambiguity unknown after restart, unless an exact explicit binding exists", async mode => {
+  const f = await fixture(); await f.runtime.run(f.input(f.pc)); f.todos.change(f.input(f.pc), "pause");
+  const other = f.todos.create({ requestId: "same-tick", title: "Same tick", actorId: f.owner, assigneeId: f.owner, ...(mode === "phase" ? { executionMode: "phases" } : {}), phases: [{ title: "Same tick", assigneeId: f.owner }] }).todo;
+  const phaseId = mode === "phase" ? other.phases[0].id : undefined;
+  f.todos.startForAgent(f.owner, other.id, phaseId, "second-tick"); await f.store.call("turn/start", { threadId: f.owner, input: [] });
+  f.todos.change({ id: other.id, revision: f.todos.raw(other.id).revision, phaseId }, "pause");
+  expect(f.todos.context(f.owner).todoId).toBe(other.id);
+  const restored = new OfficeTodos(path.join(f.root, "office"), f.deps);
+  // Even a newer unstarted legacy assignment must not break the actual tie.
+  f.advance(100); restored.create({ requestId: "unstarted", actorId: f.owner, assigneeId: f.owner, title: "New metadata", phases: [{ title: "Plan" }] });
+  const unknown = () => { expect(restored.context(f.owner).todoId).toBeNull(); expect(restored.bound(f.owner)).toBeNull(); expect(restored.phaseScope(f.owner)).toBeNull(); };
+  unknown();
+  restored.bindings.set(f.owner, { taskId: f.task.id, phaseId: f.pc, activityId: "wrong" }); unknown();
+  restored.bindings.set(f.owner, { taskId: f.task.id, phaseId: f.pc, activityId: f.phase(f.pc).activity.requestId });
+  expect(restored.context(f.owner)).toMatchObject({ todoId: f.task.id, runningPhaseId: f.pc }); expect(restored.bound(f.owner).id).toBe(f.task.id);
+});
+it("preserves old legacy-only resolution without activity, and leaves historical timing ties unknown", async () => {
+  const f = await fixture();
+  const create = (name: string) => f.todos.create({ requestId: name, title: name, actorId: f.owner, assigneeId: f.owner, phases: [{ title: "Execute" }] }).todo;
+  const a = create("old-a"); expect(f.todos.bound(f.owner).id).toBe(a.id);
+  const b = create("old-b"); expect(f.todos.bound(f.owner)).toBeNull();
+  f.todos.startForAgent(f.owner, a.id); f.todos.change({ id: a.id, revision: f.todos.raw(a.id).revision }, "pause");
+  f.advance(100); f.todos.startForAgent(f.owner, b.id); f.todos.change({ id: b.id, revision: f.todos.raw(b.id).revision }, "pause");
+  for (const task of [a, b]) { const row = f.todos.raw(task.id); delete row.activity; f.todos.save(row); }
+  f.advance(1000); f.todos.change({ id: a.id, revision: f.todos.raw(a.id).revision, documentation: "Recent edit isn't work" }, "edit");
+  const restored = new OfficeTodos(path.join(f.root, "office"), f.deps);
+  expect(restored.context(f.owner).todoId).toBe(b.id); expect(restored.bound(f.owner).id).toBe(b.id); expect(restored.phaseScope(f.owner)).toBeNull();
+  const row = restored.raw(a.id); row.lastStartedAt = restored.raw(b.id).lastStartedAt; restored.save(row);
+  expect(new OfficeTodos(path.join(f.root, "office"), f.deps).bound(f.owner)).toBeNull();
+});
+it("does not date an older legacy activity from doc/timer metadata; missing actual dates remain ambiguous", async () => {
+  const f = await fixture(), legacy = f.todos.create({ requestId: "legacy-date", title: "Legacy", actorId: f.owner, assigneeId: f.owner, phases: [{ title: "Work" }] }).todo;
+  f.todos.startForAgent(f.owner, legacy.id); await f.store.call("turn/start", { threadId: f.owner, input: [] });
+  const at = f.todos.raw(legacy.id).activity.startedAt;
+  f.advance(100); f.todos.change({ id: legacy.id, revision: f.todos.raw(legacy.id).revision, documentation: "Edit while clock runs" }, "edit");
+  expect(f.todos.raw(legacy.id).activity.startedAt).toBe(at); expect(f.todos.raw(legacy.id).lastStartedAt).toBeGreaterThan(at);
+  f.todos.change({ id: legacy.id, revision: f.todos.raw(legacy.id).revision }, "pause");
+  f.advance(100); await f.runtime.run(f.input(f.pc)); f.todos.change(f.input(f.pc), "pause");
+  const old = f.todos.raw(legacy.id); delete old.activity.startedAt; f.todos.save(old);
+  const restored = new OfficeTodos(path.join(f.root, "office"), f.deps);
+  expect(restored.bound(f.owner)).toBeNull(); expect(restored.context(f.owner).todoId).toBeNull(); expect(restored.phaseScope(f.owner)).toBeNull();
+});

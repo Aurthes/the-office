@@ -312,7 +312,8 @@ it("recovers only provable legacy pending-review attribution and persists it onc
   f.available.set(f.manager, false);
   await f.runtime.submit(f.input(task.id, f.worker, { report: "Persistent artifact" })); await f.settle();
   const file = path.join(f.root, "office/todos", task.id + ".json"), old = JSON.parse(readFileSync(file, "utf8"));
-  delete old.acceptanceManagerId; old.assigneeId = f.manager; old.assigneeName = "Manager"; writeFileSync(file, JSON.stringify(old));
+  // This pre-activity legacy format had neither field.
+  delete old.activity; delete old.acceptanceManagerId; old.assigneeId = f.manager; old.assigneeName = "Manager"; writeFileSync(file, JSON.stringify(old));
   const restored = new OfficeTodos(path.join(f.root, "office"), f.deps);
   const current = restored.get({ id: task.id }).todo;
   expect(current).toMatchObject({ assigneeId: f.worker, handlingAgentId: f.manager, reviewerId: f.manager, acceptanceManagerId: CEO });
@@ -327,7 +328,8 @@ it("leaves completed legacy assignment history unchanged", async () => {
   await f.runtime.review(f.input(task.id, f.manager, { accept: true, notes: "Verified" }));
   for (const phase of task.phases) f.todos.change(f.input(task.id, f.manager, { phaseId: phase.id }), "complete");
   const file = path.join(f.root, "office/todos", task.id + ".json"), old = JSON.parse(readFileSync(file, "utf8"));
-  delete old.acceptanceManagerId; old.assigneeId = f.manager; old.assigneeName = "Manager"; writeFileSync(file, JSON.stringify(old));
+  // This pre-activity legacy format had neither field.
+  delete old.activity; delete old.acceptanceManagerId; old.assigneeId = f.manager; old.assigneeName = "Manager"; writeFileSync(file, JSON.stringify(old));
   new OfficeTodos(path.join(f.root, "office"), f.deps);
   expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(old);
 });

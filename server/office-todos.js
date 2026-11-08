@@ -221,6 +221,7 @@ class OfficeTodos {
       const a = phase.activity;
       if (phase.startedAt != null && !a) throw new Error("Running phase needs its execution identity");
       if (a && (typeof a.agentId !== "string" || !["worker", "reviewer", "self"].includes(a.role) || typeof a.requestId !== "string" || (a.turnId != null && typeof a.turnId !== "string") || (a.handoffId != null && !(row.delegations || []).some(e => e.id === a.handoffId && e.phaseId === phase.id)))) throw new Error("Invalid phase activity");
+      if (a?.startedAt !== undefined && !Number.isFinite(a.startedAt)) throw new Error("Invalid activity start time");
       if (a && (a.role === "self" ? a.handoffId != null : entry?.id !== a.handoffId || a.agentId !== (a.role === "worker" ? entry?.workerId : entry?.managerId))) throw new Error("Invalid phase activity handoff");
     }
     if ((row.delegations || []).some(e => e.phaseId ? !row.phases.some(p => p.id === e.phaseId) : !["accepted", "recalled"].includes(e.state))) throw new Error("Invalid phase handoff scope");
@@ -310,7 +311,7 @@ class OfficeTodos {
       if (!agentId) throw new Error("Assign an Owner before starting");
       this.assertPhaseAvailable(agentId, row.id, phase.id);
       this.stopClock(row, this.now(), phase.id); phase.startedAt = this.now(); phase.lastStartedAt = this.now(); phase.status = "running";
-      phase.activity = { agentId, role: entry ? entry.state === "review" ? "reviewer" : "worker" : "self", handoffId: entry?.id || null, requestId: input.activityId || uuid(), turnId: null };
+      phase.activity = { agentId, role: entry ? entry.state === "review" ? "reviewer" : "worker" : "self", handoffId: entry?.id || null, requestId: input.activityId || uuid(), turnId: null, startedAt: phase.lastStartedAt };
       message = `Started phase: ${phase.title}`;
     } else if (action === "pause") {
       if (input.activityId && phase.activity?.requestId !== input.activityId) return this.get(input);
@@ -345,23 +346,50 @@ class OfficeTodos {
     const legacy = [...this.rows.values()].find(r => !isPhaseTask(r) && !r.archived && r.status === "running" && handlingAgentId(r) === agentId);
     if (legacy && phaseId) throw new Error("This agent is already working on another task");
   }
-  phaseScope(agentId) {
-    const preferred = this.bindings.get(agentId);
-    if (typeof preferred === "string") { const row = this.rows.get(preferred); if (row && !row.archived && row.status !== "done" && handlingAgentId(row) === agentId) return null; }
-    if (preferred && typeof preferred === "object") {
-      const row = this.rows.get(preferred.taskId), phase = row?.phases.find(p => p.id === preferred.phaseId);
-      if (row && !row.archived && phase?.completedAt == null && phase?.activity?.requestId === preferred.activityId && phase.activity.agentId === agentId && handlingAgentId(row, phase.id) === agentId) return { row, phase };
+  executionScope(agentId) {
+    const eligible = row => row && !row.archived && row.status !== "done";
+    const activityScope = (row, phase = null) => {
+      if (!eligible(row) || phase?.completedAt != null || isPhaseTask(row) !== !!phase) return null;
+      const activity = phase ? phase.activity : row.activity;
+      if (!activity || activity.agentId !== agentId || !activity.requestId || handlingAgentId(row, phase?.id) !== agentId
+        || (phase ? !["self", "worker", "reviewer"].includes(activity.role) : activity.role !== "legacy")) return null;
+      // Phase lastStartedAt has always represented an explicit start. Legacy
+      // lastStartedAt also changes on plan edits, so it cannot date an activity.
+      const at = Number.isFinite(activity.startedAt) ? activity.startedAt : phase && Number.isFinite(phase.lastStartedAt) ? phase.lastStartedAt : null;
+      return { row, phase, at };
+    };
+    const binding = this.bindings.get(agentId);
+    if (typeof binding === "string") {
+      const row = this.rows.get(binding), scope = activityScope(row);
+      if (scope) return scope;
+      if (eligible(row) && !isPhaseTask(row) && !row.activity && handlingAgentId(row) === agentId) return { row, phase: null };
+    } else if (binding) {
+      const row = this.rows.get(binding.taskId), phase = row?.phases.find(p => p.id === binding.phaseId), scope = phase && activityScope(row, phase);
+      if (scope && phase.activity.requestId === binding.activityId) return scope;
     }
     const candidates = [];
-    for (const row of this.rows.values()) if (isPhaseTask(row) && !row.archived && row.status !== "done") for (const phase of row.phases) {
-      if (phase.activity?.agentId === agentId && handlingAgentId(row, phase.id) === agentId && phase.completedAt == null) candidates.push({ row, phase });
+    for (const row of this.rows.values()) if (eligible(row)) {
+      if (isPhaseTask(row)) { for (const phase of row.phases) { const scope = activityScope(row, phase); if (scope) candidates.push(scope); } }
+      else { const scope = activityScope(row); if (scope) candidates.push(scope); }
     }
-    candidates.sort((a, b) => Number(b.phase.startedAt != null) - Number(a.phase.startedAt != null) || (b.phase.lastStartedAt || 0) - (a.phase.lastStartedAt || 0));
-    if (candidates.length > 1 && (candidates[0].phase.startedAt != null) === (candidates[1].phase.startedAt != null) && candidates[0].phase.lastStartedAt === candidates[1].phase.lastStartedAt) return null;
-    return candidates[0] || null;
+    const latest = scopes => {
+      if (scopes.length === 1) return scopes[0];
+      if (!scopes.length || scopes.some(s => !Number.isFinite(s.at))) return null;
+      const at = scopes.reduce((max, s) => Math.max(max, s.at), -Infinity), matches = scopes.filter(s => s.at === at);
+      return matches.length === 1 ? matches[0] : null;
+    };
+    if (candidates.length) return latest(candidates);
+    // Old unmarked tasks without activity retain their legacy timing fallback.
+    // Neither current assignment nor documentation recency breaks a tie.
+    return latest([...this.rows.values()].filter(row => eligible(row) && !isPhaseTask(row) && !row.activity && handlingAgentId(row) === agentId)
+      .map(row => ({ row, phase: null, at: Number.isFinite(row.lastStartedAt) ? row.lastStartedAt : 0 })));
+  }
+  phaseScope(agentId) {
+    const scope = this.executionScope(agentId);
+    return scope?.phase ? { row: scope.row, phase: scope.phase } : null;
   }
   context(agentId) {
-    const scope = this.phaseScope(agentId), row = scope?.row || this.bound(agentId), phase = scope?.phase, entry = row && activeDelegation(row, phase?.id);
+    const scope = this.executionScope(agentId), row = scope?.row, phase = scope?.phase, entry = row && activeDelegation(row, phase?.id);
     return { protocol: 6, agentId, todoId: row?.id || null, assigneeId: phase ? phase.assigneeId ?? null : row?.assigneeId || null,
       handlingAgentId: row ? handlingAgentId(row, phase?.id) : null, reviewerId: entry?.state === "review" ? entry.managerId : null,
       ...(phase ? { runningPhaseId: phase.id, phaseTitle: phase.title, handoffId: entry?.id || null, activityId: phase.activity?.requestId, activityRole: phase.activity?.role } : row?.activity ? { activityId: row.activity.requestId, activityRole: "legacy", handoffId: entry?.id || null } : {}), delegatedTasks: this.delegated(agentId) };
@@ -475,7 +503,7 @@ class OfficeTodos {
     const handler = handlingAgentId(row);
     if (row.status === "running" && handler) {
       this.assertPhaseAvailable(handler, row.id, null);
-      if (!row.activity || row.activity.agentId !== handler || previous.status !== "running" || action === "start" || input.activityId && row.activity.requestId !== input.activityId) row.activity = { agentId: handler, role: "legacy", handoffId: activeDelegation(row)?.id || null, requestId: input.activityId || uuid(), turnId: null };
+      if (!row.activity || row.activity.agentId !== handler || previous.status !== "running" || action === "start" || input.activityId && row.activity.requestId !== input.activityId) row.activity = { agentId: handler, role: "legacy", handoffId: activeDelegation(row)?.id || null, requestId: input.activityId || uuid(), turnId: null, startedAt: row.lastStartedAt };
       for (const other of this.rows.values()) if (!isPhaseTask(other) && other.id !== row.id && handlingAgentId(other) === handler && other.status === "running") this.change({ id: other.id, revision: other.revision, source: "system", reason: "Agent switched to another to-do" }, "pause");
     }
     row.revision++; row.updatedAt = this.now(); this.event(row, message, actor); this.save(row);
@@ -502,12 +530,7 @@ class OfficeTodos {
   assertCanArchiveAgent(agentId) {
     if (this.delegated(agentId).length) throw new Error("Review or recall this agent's open delegations before archiving the conversation");
   }
-  bound(agentId) {
-    const scoped = this.phaseScope(agentId); if (scoped) return scoped.row;
-    const binding = this.bindings.get(agentId), preferred = typeof binding === "string" ? this.rows.get(binding) : null;
-    if (preferred && !isPhaseTask(preferred) && !preferred.archived && preferred.status !== "done" && handlingAgentId(preferred) === agentId) return preferred;
-    return [...this.rows.values()].filter(r => !isPhaseTask(r) && !r.archived && handlingAgentId(r) === agentId && r.status !== "done").sort((a, b) => (b.lastStartedAt || 0) - (a.lastStartedAt || 0) || b.updatedAt - a.updatedAt)[0] || null;
-  }
+  bound(agentId) { return this.executionScope(agentId)?.row || null; }
   startForAgent(agentId, id, phaseId, activityId) {
     const row = this.raw(id);
     if (isPhaseTask(row)) {
@@ -523,18 +546,18 @@ class OfficeTodos {
     const requestId = activityId || uuid();
     if (row.status !== "running" || activeDelegation(row)?.state === "working" && row.assigneeId !== agentId) this.change({ id, revision: row.revision, activityId: requestId, source: "system", execute: true }, "start");
     if (this.raw(id).activity?.requestId !== requestId) {
-      const next = structuredClone(this.raw(id)); next.activity = { agentId, role: "legacy", handoffId: activeDelegation(next)?.id || null, requestId, turnId: null }; this.save(next);
+      const next = structuredClone(this.raw(id)); next.activity = { agentId, role: "legacy", handoffId: activeDelegation(next)?.id || null, requestId, turnId: null, startedAt: this.now() }; this.save(next);
     }
     this.bindings.set(agentId, id); return this.raw(id);
   }
   finishTurn(agentId, status, turnId) {
-    const scope = this.phaseScope(agentId);
-    if (scope) {
+    const scope = this.executionScope(agentId);
+    if (scope?.phase) {
       const { row, phase } = scope;
       if (turnId && phase.activity?.turnId === turnId && phase.startedAt != null) this.change({ id: row.id, revision: row.revision, phaseId: phase.id, activityId: phase.activity.requestId, source: "system", reason: `Agent turn ${status}; phase timer paused` }, "pause");
       return;
     }
-    const row = this.bound(agentId);
+    const row = scope?.row;
     if (turnId && row?.activity && (row.activity.agentId !== agentId || row.activity.turnId !== turnId)) return;
     if (row?.status === "running") this.change({ id: row.id, revision: row.revision, source: "system", reason: status === "completed" ? "Agent turn ended; waiting for follow-up or a phase update" : `Agent turn ${status}; timer paused` }, "pause");
   }
