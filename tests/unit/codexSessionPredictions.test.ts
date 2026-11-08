@@ -2,12 +2,12 @@ import { createRequire } from "node:module";
 import { afterEach, expect, it, vi } from "vitest";
 const { CodexSessionPredictions } = createRequire(import.meta.url)("../../server/codex-session-predictions.js");
 afterEach(() => vi.unstubAllEnvs());
-function fixture() {
+function fixture(telemetry: { sample?: (value: unknown) => unknown; unavailable?: () => unknown } = {}) {
   vi.stubEnv("OPENAI_API_KEY", "");
   const state = { lastTurnId: "turn-1", activeTurnId: null as string | null, turnStatus: "completed" };
   const store = { get: vi.fn(() => ({ codexThreadId: "native-thread" })), isBusy: vi.fn(() => false), call: vi.fn(async () => ({ text: "  检查报告链接  ", sourceTurnId: "turn-1" })) };
   const controls = { attach: vi.fn(async () => {}), refreshTurn: vi.fn(async () => {}), state: vi.fn(() => state) };
-  return { state, store, controls, predictions: new CodexSessionPredictions(store, controls) };
+  return { state, store, controls, predictions: new CodexSessionPredictions(store, controls, telemetry) };
 }
 it("uses the logged-in Codex sampler on the last completed Office turn, with no API key or new turn", async () => {
   const f = fixture();
@@ -55,4 +55,30 @@ it.each([{text:null,sourceTurnId:"turn-1"},{text:" ",sourceTurnId:"turn-1"},{tex
 it("contains sampler errors and does not repeatedly bill the same failed suggestion", async () => {
   const f=fixture();f.store.call.mockRejectedValueOnce(new Error("Not supported by provider"));
   expect(await f.predictions.suggest("office-thread")).toBeNull();expect(await f.predictions.suggest("office-thread")).toBeNull();expect(f.store.call).toHaveBeenCalledOnce();
+});
+it("meters one native cache miss before empty/stale filtering, without suggestion text or duplicate waiters", async () => {
+  const sample = vi.fn(), f = fixture({ sample });
+  const value = { text: null, responseId: "resp", sourceTurnId: "turn-1", inputTokens: 100, cachedInputTokens: 60, outputTokens: 10 };
+  let resolve!: (result: typeof value) => void;
+  f.store.call.mockImplementationOnce(() => new Promise<typeof value>(r => { resolve = r; }) as never);
+  const a = f.predictions.suggest("office-thread"), b = f.predictions.suggest("office-thread");
+  await vi.waitFor(() => expect(f.store.call).toHaveBeenCalledOnce()); f.state.activeTurnId = "new"; resolve(value);
+  expect(await Promise.all([a, b])).toEqual([null, null]); expect(sample).toHaveBeenCalledExactlyOnceWith({ officeAgentId: "office-thread", contextNativeThreadId: "native-thread", responseId: "resp", sourceTurnId: "turn-1", inputTokens: 100, cachedInputTokens: 60, outputTokens: 10 });
+  f.state.activeTurnId = null; await f.predictions.suggest("office-thread"); expect(sample).toHaveBeenCalledOnce();
+});
+it("contains thrown/rejected/slow metering callbacks and records native error gaps once without retry", async () => {
+  for (const sample of [() => { throw new Error("meter"); }, () => Promise.reject(new Error("meter")), () => new Promise(() => {})]) {
+    const f = fixture({ sample }); expect(await f.predictions.suggest("id")).toMatchObject({ text: "检查报告链接" });
+  }
+  const unavailable = vi.fn(() => { throw new Error("meter"); }), f = fixture({ unavailable });
+  f.store.call.mockRejectedValueOnce(new Error("source changed after sample"));
+  expect(await f.predictions.suggest("id")).toBeNull(); expect(await f.predictions.suggest("id")).toBeNull(); expect(unavailable).toHaveBeenCalledOnce(); expect(f.store.call).toHaveBeenCalledOnce();
+});
+it("records new sampler response IDs after cache restart, even for the same source turn", async () => {
+  const sample = vi.fn(), f = fixture({ sample });
+  f.store.call.mockResolvedValueOnce({ text: "one", sourceTurnId: "turn-1", responseId: "resp-one", inputTokens: 10, cachedInputTokens: 0, outputTokens: 1 } as never);
+  await f.predictions.suggest("id");
+  const restarted = new CodexSessionPredictions(f.store, f.controls, { sample });
+  f.store.call.mockResolvedValueOnce({ text: "two", sourceTurnId: "turn-1", responseId: "resp-two", inputTokens: 10, cachedInputTokens: 0, outputTokens: 1 } as never);
+  await restarted.suggest("id"); expect(sample.mock.calls.map(([value]) => value.responseId)).toEqual(["resp-one", "resp-two"]);
 });

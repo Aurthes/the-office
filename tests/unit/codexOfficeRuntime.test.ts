@@ -28,6 +28,16 @@ async function session(f: ReturnType<typeof fixture>) {
   return (await f.store.createSession({ name: "Own chat", projectId: project.id, requestId: "session" })).threadId;
 }
 describe("independent Office runtime", () => {
+  it("keeps purpose metadata outside native requests and tags both start and steer acknowledgements", async () => {
+    const f = fixture(), id = await session(f), capture = vi.fn(); f.store.onTurnDispatch = capture;
+    await f.store.call("turn/start", { threadId: id, input: [] }, { purpose: "automation", trigger: "schedule", originId: "run" });
+    expect(capture).toHaveBeenLastCalledWith(expect.objectContaining({ mode: "start", usage: { purpose: "automation", trigger: "schedule", originId: "run" } }));
+    f.client.call.mockResolvedValueOnce({ turnId: "turn-1" });
+    await f.store.call("turn/steer", { threadId: id, expectedTurnId: "turn-1", input: [] }, { purpose: "chat_work" });
+    expect(capture).toHaveBeenLastCalledWith(expect.objectContaining({ mode: "steer", turnId: "turn-1", usage: { purpose: "chat_work" } }));
+    expect(JSON.stringify(f.client.call.mock.calls)).not.toMatch(/automation|chat_work|originId/);
+    expect(f.client.call.mock.calls.every(call => call.length === 2)).toBe(true);
+  });
   it("captures immutable dispatch IDs for optional telemetry without adding a native request or blocking chat", async () => {
     const f = fixture(), id = await session(f);
     let task = "original-task"; const answering = ["q-original"];

@@ -65,7 +65,7 @@ it.each([true, false])("dispatches to the resolved worker through the existing s
   const result = await dispatchFirefighter({ call }, firefighterAlerts(row())[2], "click-id");
   expect(result).toEqual({ threadId: "worker", created });
   expect(call).toHaveBeenNthCalledWith(1, "session.firefighter", {});
-  expect(call).toHaveBeenNthCalledWith(2, "session.send", { threadId: "worker", message: expect.stringContaining("medium risk"), requestId: "click-id" });
+  expect(call).toHaveBeenNthCalledWith(2, "session.send", { threadId: "worker", message: expect.stringContaining("medium risk"), requestId: "click-id", sourcePurpose: "firefighter" });
 });
 
 it("shows buttons only beside red metrics and does not dispatch until clicked", async () => {

@@ -241,8 +241,9 @@ class CodexSessionControls {
     }
     finally { state.pendingSends--; }
   }
-  async sendInput(id, text, requestId, attachments = [], { resumeInterrupted = false, onlyIfIdle = false, automaticRetry = null, references = [], replyContext = null } = {}) {
+  async sendInput(id, text, requestId, attachments = [], { resumeInterrupted = false, onlyIfIdle = false, automaticRetry = null, references = [], replyContext = null, usage = null } = {}) {
     this.requireReady();
+    const usageEntry = usage ? { ...usage, entryAt: Date.now(), entryId: requestId } : null;
     if (!automaticRetry) this.cancelRetry(id);
     const prepared = this.options.composer ? await this.options.composer.prepare(id, text, references) : { text, items: [] };
     const input = [...await messageInput(prepared.text, attachments, id), ...prepared.items];
@@ -285,7 +286,11 @@ class CodexSessionControls {
     current.turnStateKnown = false;
     try {
       entry.dispatched = true;
-      result = await this.client.call(active ? "turn/steer" : "turn/start", { threadId: id, input, clientUserMessageId: requestId, ...(active ? { expectedTurnId: active } : this.options.settings?.overrides(id) || {}) });
+      const metadata = automaticRetry || resumeInterrupted ? { trigger: automaticRetry ? "automaticRetry" : "continue", inheritTurnId: automaticRetry?.turnId || previousTurnId, entryId: requestId, entryAt: submittedAt } : usageEntry;
+      const params = { threadId: id, input, clientUserMessageId: requestId, ...(active ? { expectedTurnId: active } : this.options.settings?.overrides(id) || {}) };
+      // The third argument belongs only to the local Office store. It is never
+      // a native RPC parameter (or native client's timeout argument).
+      result = await this.client.call(active ? "turn/steer" : "turn/start", params, ...(this.options.usageMetadata && metadata ? [metadata] : []));
     } catch (error) {
       current.turnStateKnown = false; throw error;
     } finally { if (current.autoStarting === automaticRetry) current.autoStarting = null; }
@@ -394,7 +399,7 @@ class CodexSessionControls {
       this.options.history?.reverted?.(id);
       this.resetHistory(id, prepared.turnId);
       try {
-        const result = await this.sendInput(id, message, requestId, [], { onlyIfIdle: true });
+        const result = await this.sendInput(id, message, requestId, [], { onlyIfIdle: true, usage: { purpose: "chat_work", trigger: "edit" } });
         if (result.status === "busy") throw new Error("A new turn is already running");
         return { ...result, status: "edited", historyEpoch: state.historyEpoch };
       } catch (error) {

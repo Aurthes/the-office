@@ -41,10 +41,11 @@ describe("native whole-turn edit", () => {
   it("rechecks the tip, then reverts and starts exactly one edited input with a fresh identity", async () => {
     const { client, controls, history } = nativeFixture();
     const edit = await controls.prepareEdit("id"); client.call.mockClear();
+    controls.options.usageMetadata = true;
     expect(await controls.commitEdit("id", { token: edit.token, message: "Edited text", requestId: "fresh-edit" })).toMatchObject({ status: "edited" });
     expect(client.call.mock.calls.map(([m]) => m)).toEqual(["thread/turns/list", "thread/timeline/list", "thread/revert", "thread/turns/list", "turn/start"]);
     expect(client.call).toHaveBeenCalledWith("thread/revert", { threadId: "id", beforeTurnId: "stopped" });
-    expect(client.call).toHaveBeenCalledWith("turn/start", expect.objectContaining({ clientUserMessageId: "fresh-edit", input: [{ type: "text", text: "Edited text" }] }));
+    expect(client.call).toHaveBeenCalledWith("turn/start", expect.objectContaining({ clientUserMessageId: "fresh-edit", input: [{ type: "text", text: "Edited text" }] }), expect.objectContaining({ purpose: "chat_work", trigger: "edit" }));
     expect(history.reset).toHaveBeenCalledTimes(2);
     expect(controls.snapshot("id").historyEpoch).not.toBe("0");
     // Late native notifications cannot revive the removed turn or its retry.

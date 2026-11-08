@@ -4,11 +4,12 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { PURPOSES, userUsage, sampleUsageOf, isSample, purposeOf, purposeSummary, totalsOf } = require("./office-usage-purpose");
 const yieldLoop = () => new Promise(resolve => setImmediate(resolve));
 const VERSION = "0.166.0", FORMAT = 1, DAY = 86400000;
 const id = value => typeof value === "string" && /^[a-zA-Z0-9_.:-]{1,160}$/.test(value) && !["__proto__", "constructor", "prototype"].includes(value) ? value : null;
 const label = value => typeof value === "string" && /^[a-zA-Z0-9_.:/-]{1,120}$/.test(value) ? value : null;
-const keyOf = row => `${row.nativeThreadId}:${row.responseId}`;
+const keyOf = row => `${row.nativeThreadId || "sample"}:${row.responseId}`;
 const utcDay = time => new Date(time).toISOString().slice(0, 10);
 const dateShift = (date, days) => utcDay(Date.parse(date + "T12:00:00Z") + days * DAY);
 const formatters = new Map();
@@ -57,16 +58,18 @@ function usageOf(value) {
   return { ...result, uncachedInput: result.input - result.cachedInput, otherOutput: result.output - result.reasoningOutput };
 }
 function parameters(p, now) {
-  if (!p || typeof p !== "object" || Array.isArray(p) || Object.keys(p).some(k => !["date", "timeZone", "sort", "order", "agentId", "configuredModel", "taskId", "cursor", "limit", "refresh"].includes(k))) throw new Error("Invalid usage query");
+  if (!p || typeof p !== "object" || Array.isArray(p) || Object.keys(p).some(k => !["date", "timeZone", "sort", "order", "agentId", "configuredModel", "taskId", "cursor", "snapshot", "purpose", "includeRecords", "limit", "refresh"].includes(k))) throw new Error("Invalid usage query");
   if (typeof p.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(p.date) || !Number.isFinite(Date.parse(p.date + "T00:00:00Z")) || utcDay(Date.parse(p.date + "T00:00:00Z")) !== p.date) throw new Error("Invalid date");
   if (typeof p.timeZone !== "string" || p.timeZone.length > 80 || !/^[A-Za-z_+\-/0-9]+$/.test(p.timeZone)) throw new Error("Invalid time zone");
   try { localDay(now, p.timeZone); } catch { throw new Error("Invalid time zone"); }
   const sort = p.sort ?? "total", order = p.order ?? "desc", limit = p.limit ?? 50;
   if (!["total", "input", "uncachedInput", "output", "time"].includes(sort) || !["asc", "desc"].includes(order) || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("Invalid usage ordering or page size");
   for (const field of ["agentId", "configuredModel", "taskId"]) if (p[field] !== undefined && !(field === "configuredModel" ? label(p[field]) : id(p[field]))) throw new Error("Invalid usage filter");
-  if (p.cursor !== undefined && (typeof p.cursor !== "string" || p.cursor.length > 512)) throw new Error("Invalid usage cursor");
+  for (const field of ["cursor", "snapshot"]) if (p[field] !== undefined && (typeof p[field] !== "string" || p[field].length > 512)) throw new Error("Invalid usage cursor");
+  if (p.purpose !== undefined && !PURPOSES.includes(p.purpose)) throw new Error("Invalid usage purpose");
+  if (p.includeRecords !== undefined && typeof p.includeRecords !== "boolean") throw new Error("Invalid record selection");
   if (p.refresh !== undefined && typeof p.refresh !== "boolean") throw new Error("Invalid refresh");
-  return { date: p.date, timeZone: p.timeZone, sort, order, limit, agentId: p.agentId ?? null, configuredModel: p.configuredModel ?? null, taskId: p.taskId ?? null };
+  return { date: p.date, timeZone: p.timeZone, sort, order, limit, agentId: p.agentId ?? null, configuredModel: p.configuredModel ?? null, taskId: p.taskId ?? null, purpose: p.purpose ?? null, includeRecords: p.includeRecords !== false };
 }
 
 class OfficeTokenUsage {
@@ -76,6 +79,7 @@ class OfficeTokenUsage {
     this.maxBytes = maxBytes; this.reserve = Math.min(2 * 1024 * 1024, Math.floor(maxBytes / 4));
     this.chunkBytes = chunkBytes; this.lineBytes = lineBytes;
     this.rows = new Map(); this.sources = {}; this.bindings = {}; this.shards = new Map(); this.pending = new Map(); this.deleted = new Set();
+    this.responses = new Map(); this.bindingQueue = []; this.sampleQueue = []; this.bindingCount = 0; this.purposesRecordedFrom = new Date(now()).toISOString();
     this.dayBytes = new Map(); this.pendingBytes = 0;
     this.queue = new Set(); this.snapshots = new Map(); this.secret = crypto.randomBytes(32);
     this.bytes = 0; this.gaps = {}; this.floor = ""; this.closed = false; this.running = null;
@@ -95,8 +99,10 @@ class OfficeTokenUsage {
     let state;
     try { state = await this.readJson("state.json", this.reserve); } catch (error) { if (error.code !== "ENOENT") this.gap("stateRecovery"); }
     if (state?.format === FORMAT) {
-      this.sources = state.sources || {}; this.bindings = { ...state.bindings, ...this.bindings }; this.gaps = { ...this.gaps, ...state.gaps }; this.floor = state.floor || "";
+      this.sources = state.sources || {}; this.bindings = { ...state.bindings, ...this.bindings }; this.gaps = { ...state.gaps, ...this.gaps }; this.floor = state.floor || "";
+      this.purposesRecordedFrom = state.purposesRecordedFrom || this.purposesRecordedFrom;
     } else if (state) this.gap("unsupportedIndex");
+    this.bindingCount = Object.keys(this.bindings).length;
     const files = (await fs.readdir(this.directory)).filter(name => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(name)).sort();
     for (const file of files) {
       try {
@@ -113,6 +119,7 @@ class OfficeTokenUsage {
       const stat = await handle.stat(); if (!stat.isFile() || stat.size + this.bytes > this.maxBytes - this.reserve) throw new Error("Index limit");
       let position = 0, complete = 0, carry = Buffer.alloc(0), lines = 0;
       const buffer = Buffer.alloc(64 * 1024), day = file.slice(0, 10);
+      if (!this.shards.has(day)) this.shards.set(day, new Set());
       while (position < stat.size) {
         const { bytesRead } = await handle.read(buffer, 0, buffer.length, position); if (!bytesRead) break;
         position += bytesRead; carry = Buffer.concat([carry, buffer.subarray(0, bytesRead)]);
@@ -120,12 +127,20 @@ class OfficeTokenUsage {
         for (let i = 0; i < carry.length; i++) if (carry[i] === 10) {
           try {
             const row = JSON.parse(carry.subarray(begin, i).toString("utf8"));
-            const usage = usageOf({ input_tokens: row.usage?.input, cached_input_tokens: row.usage?.cachedInput, cache_write_input_tokens: row.usage?.cacheWriteInput, output_tokens: row.usage?.output, reasoning_output_tokens: row.usage?.reasoningOutput, total_tokens: row.usage?.total });
-            if (!id(row.nativeThreadId) || !id(row.responseId) || !id(row.turnId) || !Number.isFinite(Date.parse(row.observedAt)) || utcDay(row.observedAt) !== day || row.source?.version !== VERSION || !usage) throw new Error("Invalid row");
+            const sample = row.source?.kind === "threadSample";
+            const usage = sample ? sampleUsageOf({ inputTokens: row.usage?.input, cachedInputTokens: row.usage?.cachedInput, outputTokens: row.usage?.output })
+              : usageOf({ input_tokens: row.usage?.input, cached_input_tokens: row.usage?.cachedInput, cache_write_input_tokens: row.usage?.cacheWriteInput, output_tokens: row.usage?.output, reasoning_output_tokens: row.usage?.reasoningOutput, total_tokens: row.usage?.total });
+            if (!id(row.responseId) || !id(row.officeAgentId) || !Number.isFinite(Date.parse(row.observedAt)) || utcDay(row.observedAt) !== day || row.source?.version !== VERSION || !usage
+              || (sample ? row.nativeThreadId !== null || row.turnId !== null || !id(row.contextNativeThreadId) || !id(row.sourceTurnId)
+                : !id(row.nativeThreadId) || !id(row.turnId) || ![undefined, "nativeRollout"].includes(row.source?.kind))) throw new Error("Invalid row");
             row.usage = usage;
-            const key = keyOf(row), prior = this.rows.get(key);
-            if (!prior) { this.rows.set(key, row); if (!this.shards.has(day)) this.shards.set(day, new Set()); this.shards.get(day).add(key); }
-            else if (row.conflict || JSON.stringify(prior.usage) !== JSON.stringify(row.usage)) prior.conflict = true;
+            row.sourceKinds = Array.isArray(row.sourceKinds) ? [...new Set(row.sourceKinds.filter(kind => ["nativeRollout", "threadSample"].includes(kind)))] : [row.source?.kind || "nativeRollout"];
+            row.totalBasis = sample ? "derivedInputOutput" : "reported";
+            row.configuredModel = label(row.configuredModel); row.configuredEffort = label(row.configuredEffort);
+            row.modelBasis = row.modelBasis === "turnContext" ? "turnContext" : "unknown"; row.conflict = Boolean(row.conflict);
+            const key = this.existingKey(row), prior = this.rows.get(key);
+            if (!prior) { this.rows.set(key, row); this.responses.set(row.responseId, key); this.shards.get(day).add(key); }
+            else this.rows.set(key, this.combined(prior, row));
           } catch { this.gap("invalidIndexRow"); }
           complete = position - carry.length + i + 1; begin = i + 1;
           if (++lines % 256 === 0) await yieldLoop();
@@ -138,18 +153,32 @@ class OfficeTokenUsage {
       this.dayBytes.set(day, complete); this.bytes += complete;
     } finally { await handle.close(); }
   }
+  existingKey(row) {
+    const nativeKey = keyOf(row), candidate = this.responses.get(row.responseId), prior = this.rows.get(candidate);
+    // Global response IDs reconcile sample/rollout within this Office scope;
+    // native-only origin keys keep their existing strict semantics.
+    return prior && (isSample(prior) || isSample(row)) ? candidate : nativeKey;
+  }
+  combined(prior, row) {
+    const cross = isSample(prior) || isSample(row);
+    const compatible = Object.keys(prior.usage).every(field => prior.usage[field] == null || row.usage[field] == null || prior.usage[field] === row.usage[field]);
+    const identity = prior.officeAgentId === row.officeAgentId && (cross || prior.turnId === row.turnId && prior.observedAt === row.observedAt);
+    if (!compatible || !identity) { this.gap("conflictingResponse"); return { ...prior, conflict: true }; }
+    const kinds = [...new Set([...(prior.sourceKinds || [prior.source?.kind || "nativeRollout"]), ...(row.sourceKinds || [row.source?.kind || "nativeRollout"])])];
+    const usage = prior.source?.kind === "threadSample" ? sampleUsageOf({ inputTokens: prior.usage.input ?? row.usage.input, cachedInputTokens: prior.usage.cachedInput ?? row.usage.cachedInput, outputTokens: prior.usage.output ?? row.usage.output }) : prior.usage;
+    return { ...prior, usage, sourceKinds: kinds, contextNativeThreadId: prior.contextNativeThreadId || row.contextNativeThreadId || null,
+      sourceTurnId: prior.sourceTurnId || row.sourceTurnId || null, conflict: prior.conflict || row.conflict };
+  }
   async readJson(name, limit) {
     const handle = await fs.open(path.join(this.directory, name), require("node:fs").constants.O_RDONLY | require("node:fs").constants.O_NOFOLLOW);
     try { const stat = await handle.stat(); if (!stat.isFile() || stat.size > limit) throw new Error("Index limit"); return JSON.parse(await handle.readFile("utf8")); }
     finally { await handle.close(); }
   }
   add(row) {
-    const key = keyOf(row), prior = this.rows.get(key);
+    const key = this.existingKey(row), prior = this.rows.get(key);
     if (prior) {
-      if (JSON.stringify(prior.usage) !== JSON.stringify(row.usage) || prior.turnId !== row.turnId || prior.observedAt !== row.observedAt) {
-        if (!prior.conflict) { prior.conflict = true; if (this.append(prior) === false) return false; }
-        this.gap("conflictingResponse");
-      }
+      const next = this.combined(prior, row);
+      if (JSON.stringify(next) !== JSON.stringify(prior)) { if (this.append(next) === false) return false; this.rows.set(key, next); }
       return true;
     }
     const day = utcDay(row.observedAt);
@@ -159,6 +188,7 @@ class OfficeTokenUsage {
     if (appended === null) return true;
     if (!appended) return false;
     this.rows.set(key, row);
+    this.responses.set(row.responseId, key);
     if (!this.shards.has(day)) this.shards.set(day, new Set());
     this.shards.get(day).add(key);
     return true;
@@ -177,7 +207,7 @@ class OfficeTokenUsage {
     return true;
   }
   evict(day) {
-    for (const key of this.shards.get(day) || []) this.rows.delete(key);
+    for (const key of this.shards.get(day) || []) { const row = this.rows.get(key); if (this.responses.get(row?.responseId) === key) this.responses.delete(row.responseId); this.rows.delete(key); }
     this.bytes -= this.dayBytes.get(day) || 0; this.dayBytes.delete(day);
     for (const text of this.pending.get(day) || []) this.pendingBytes -= Buffer.byteLength(text);
     this.pending.delete(day); this.shards.delete(day); this.deleted.add(day);
@@ -188,6 +218,7 @@ class OfficeTokenUsage {
     const cutoff = dateShift(utcDay(this.now()), -15);
     for (const day of this.shards.keys()) if (day < cutoff) this.evict(day);
     for (const [key, binding] of Object.entries(this.bindings)) if (binding.at < this.now() - 16 * DAY) delete this.bindings[key];
+    this.bindingCount = Object.keys(this.bindings).length;
     await this.flush();
   }
   async atomic(name, value) {
@@ -203,7 +234,7 @@ class OfficeTokenUsage {
       try { await handle.writeFile(lines.join("")); await handle.sync(); } finally { await handle.close(); }
     }
     this.pending.clear(); this.pendingBytes = 0;
-    const state = { format: FORMAT, sources: this.sources, bindings: this.bindings, gaps: this.gaps, floor: this.floor };
+    const state = { format: FORMAT, sources: this.sources, bindings: this.bindings, gaps: this.gaps, floor: this.floor, purposesRecordedFrom: this.purposesRecordedFrom };
     if (Buffer.byteLength(JSON.stringify(state)) > this.reserve) { this.storageLimit = true; this.gap("metadataLimit"); return; }
     await this.atomic("state.json", state);
     // Retention floor is durable before removing old shards. A crash never
@@ -212,20 +243,23 @@ class OfficeTokenUsage {
     this.deleted.clear();
   }
   hint(nativeThreadId) {
-    if (this.closed || this.unavailable || !this.known().has(nativeThreadId)) return;
-    if (!this.sources[nativeThreadId] && Object.keys(this.sources).length + this.queue.size >= 2048) { this.gap("sourceLimit"); return; }
+    if (this.closed || this.unavailable || !id(nativeThreadId)) return;
+    if (!this.queue.has(nativeThreadId) && this.queue.size >= 2048) { this.gap("sourceLimit"); return; }
     this.queue.add(nativeThreadId);
     this.kick();
   }
   refresh() { if (this.closed || this.unavailable) return; for (const nativeId of [...this.known().keys()].slice(0, 2048)) this.queue.add(nativeId); if (this.known().size > 2048) this.gap("sourceLimit"); this.kick(); }
   kick() {
-    if (this.running || this.closed || this.unavailable || this.storageLimit || !this.queue.size) return;
+    if (this.running || this.closed || this.unavailable || this.storageLimit || !(this.queue.size || this.bindingQueue.length || this.sampleQueue.length || this.gapPending)) return;
     this.running = this.run().finally(() => { this.running = null; this.kick(); });
   }
   async run() {
     await this.init(); if (this.unavailable) return;
     try {
-      while (this.queue.size && !this.closed && !this.storageLimit) {
+      while ((this.queue.size || this.bindingQueue.length || this.sampleQueue.length || this.gapPending) && !this.closed && !this.storageLimit) {
+        this.gapPending = false;
+        await this.drainMetadata();
+        if (!this.queue.size) { await this.flush(); continue; }
         const nativeId = this.queue.values().next().value; this.queue.delete(nativeId);
         try { await this.collect(nativeId); } catch { this.gap("readerFailure"); this.unavailable = true; break; }
         await yieldLoop();
@@ -251,6 +285,7 @@ class OfficeTokenUsage {
   }
   async collect(nativeId) {
     if (!this.known().has(nativeId)) return;
+    if (!this.sources[nativeId] && Object.keys(this.sources).length >= 2048) { this.gap("sourceLimit"); return; }
     const state = this.sources[nativeId] ||= { offset: 0, gaps: {} };
     let source;
     try { source = await this.sourceFile(nativeId, state); } catch { state.status = "unavailable"; this.gap("sourceUnavailable", state); return; }
@@ -333,16 +368,59 @@ class OfficeTokenUsage {
     const context = state.context?.turnId === turnId ? state.context : null;
     return this.add({ nativeThreadId: origin, officeAgentId: owner.id, responseId, turnId, rootTurnId: id(p.root_turn_id), observedAt: new Date(time).toISOString(), usage,
       configuredModel: context?.model || null, configuredEffort: context?.effort || null, modelBasis: context?.model ? "turnContext" : "unknown",
-      source: { relativeFile: state.file, offset, ordinal: event.ordinal, version: VERSION }, conflict: false });
+      source: { relativeFile: state.file, offset, ordinal: event.ordinal, version: VERSION, kind: "nativeRollout" }, totalBasis: "reported", conflict: false });
   }
-  bindTurn({ nativeThreadId, turnId, taskId, phaseId, questionIds }) {
-    if (this.unavailable || !this.known().has(nativeThreadId) || !id(turnId)) return;
-    // Capture IDs at dispatch, never read a current task to backfill old records.
-    const binding = { taskId: id(taskId), phaseId: id(phaseId), questionIds: Array.isArray(questionIds) ? questionIds.filter(id).slice(0, 32) : [], at: this.now() };
-    const key = `${nativeThreadId}:${turnId}`;
-    if (!this.bindings[key] && Object.keys(this.bindings).length >= 8192) { this.gap("bindingLimit"); return; }
-    if (!this.bindings[key]) this.bindings[key] = binding;
-    this.hint(nativeThreadId);
+  bindTurn(value) {
+    if (this.closed || this.unavailable || this.storageLimit || !id(value.nativeThreadId) || !id(value.turnId)) return;
+    if (this.bindingQueue.length >= 8192) { this.gap("bindingBackpressure"); return; }
+    // O(1) local metadata only. Source validation, inheritance and persistence
+    // happen on the existing async reader, never in send's acknowledgement path.
+    const u = value.usage;
+    this.bindingQueue.push({ nativeThreadId: value.nativeThreadId, turnId: value.turnId, taskId: id(value.taskId), phaseId: id(value.phaseId),
+      questionIds: Array.isArray(value.questionIds) ? value.questionIds.slice(0, 32).filter(id) : [], mode: value.mode === "steer" ? "steer" : "start",
+      usage: u ? { purpose: PURPOSES.includes(u.purpose) && u.purpose !== "suggestion" ? u.purpose : "unknown",
+        trigger: ["userMessage", "questionReply", "edit", "continue", "automaticRetry", "schedule", "delegate", "managerReview", "returned", "todoRun", "firefighter"].includes(u.trigger) ? u.trigger : "unknown",
+        entryId: id(u.entryId), originId: id(u.originId), deliveryId: id(u.deliveryId), inheritTurnId: id(u.inheritTurnId), entryAt: Number.isSafeInteger(u.entryAt) ? u.entryAt : this.now() } : null });
+    this.kick();
+  }
+  recordSample(value) {
+    if (this.closed || this.unavailable || this.storageLimit) return;
+    if (this.sampleQueue.length >= 1024) { this.gap("sampleBackpressure"); return; }
+    const counter = v => v == null ? null : typeof v === "number" ? v : NaN;
+    this.sampleQueue.push({ officeAgentId: id(value.officeAgentId), contextNativeThreadId: id(value.contextNativeThreadId), responseId: id(value.responseId), sourceTurnId: id(value.sourceTurnId),
+      inputTokens: counter(value.inputTokens), cachedInputTokens: counter(value.cachedInputTokens), outputTokens: counter(value.outputTokens), observedAt: new Date(this.now()).toISOString() });
+    this.kick();
+  }
+  sampleUnavailable() { if (this.closed || this.unavailable) return; this.gap("sampleUsageUnavailable"); this.gapPending = true; this.kick(); }
+  async drainMetadata() {
+    const known = this.known();
+    let count = 0;
+    for (const value of this.bindingQueue.splice(0)) {
+      if (!known.has(value.nativeThreadId)) continue;
+      const key = `${value.nativeThreadId}:${value.turnId}`, previous = this.bindings[key];
+      if (!previous && this.bindingCount >= 8192) { this.gap("bindingLimit"); continue; }
+      const u = value.usage, inherited = u?.inheritTurnId ? this.bindings[`${value.nativeThreadId}:${u.inheritTurnId}`]?.purpose : null;
+      let purpose = { id: u?.inheritTurnId ? inherited?.id || "unknown" : u?.purpose || "unknown", basis: u?.inheritTurnId ? "inherited" : u ? "businessEntry" : "unknown",
+        trigger: u?.trigger || "unknown", entryId: u?.entryId || null, originId: u?.originId || null, deliveryId: u?.deliveryId || null, inheritedFromTurnId: u?.inheritTurnId || null, at: u?.entryAt || this.now() };
+      if (previous) {
+        const previousPurpose = previous.purpose?.id || "unknown";
+        if (previousPurpose !== purpose.id) purpose = { ...purpose, id: "mixed", basis: "mixedEntries" };
+        else if (previous.purpose) purpose = { ...previous.purpose, trigger: purpose.trigger };
+      } else if (value.mode === "steer" && purpose.id !== "unknown") purpose = { ...purpose, id: "mixed", basis: "mixedEntries" };
+      // Replace objects so already-issued snapshots never change attribution.
+      this.bindings[key] = { ...(previous || { taskId: value.taskId, phaseId: value.phaseId, questionIds: value.questionIds, at: this.now() }), purpose };
+      if (!previous) this.bindingCount++;
+      if (value.mode !== "steer") this.queue.add(value.nativeThreadId);
+      if (++count % 256 === 0) await yieldLoop();
+    }
+    for (const value of this.sampleQueue.splice(0)) {
+      const owner = known.get(value.contextNativeThreadId), usage = sampleUsageOf(value);
+      if (!owner || owner.id !== value.officeAgentId || !value.responseId || !value.sourceTurnId || !usage) { this.gap("invalidSampleUsage"); continue; }
+      if (!this.add({ nativeThreadId: null, turnId: null, rootTurnId: null, officeAgentId: owner.id, contextNativeThreadId: value.contextNativeThreadId, sourceTurnId: value.sourceTurnId,
+        responseId: value.responseId, observedAt: value.observedAt, usage, configuredModel: null, configuredEffort: "low", modelBasis: "unknown", totalBasis: "derivedInputOutput",
+        source: { kind: "threadSample", version: VERSION }, conflict: false })) { this.gap("sampleStorageLimit"); break; }
+      if (++count % 256 === 0) await yieldLoop();
+    }
   }
   retention(timeZone) {
     const nominal = dateShift(localDay(this.now(), timeZone), -13);
@@ -366,77 +444,90 @@ class OfficeTokenUsage {
       ...this.retention(timeZone),
       firstObservedAt, indexedThrough, knownGaps: gaps };
   }
-  cursor(snapshot, offset) {
-    const payload = Buffer.from(`${snapshot}:${offset}`).toString("base64url");
+  cursor(snapshot, offset, fingerprint = "base") {
+    const query = crypto.createHash("sha256").update(fingerprint).digest("hex").slice(0, 16);
+    const payload = Buffer.from(`${snapshot}:${offset}:${query}`).toString("base64url");
     return payload + "." + crypto.createHmac("sha256", this.secret).update(payload).digest("base64url");
+  }
+  decodeCursor(value) {
+    const [payload, signature] = value.split(".");
+    const expected = crypto.createHmac("sha256", this.secret).update(payload).digest("base64url");
+    if (signature !== expected) throw new Error("Invalid usage cursor");
+    const match = /^([a-f0-9]{32}):(\d+):([a-f0-9]{16})$/.exec(Buffer.from(payload, "base64url").toString());
+    if (!match || !Number.isSafeInteger(Number(match[2]))) throw new Error("Invalid usage cursor");
+    return { id: match[1], offset: Number(match[2]), query: match[3] };
   }
   async detail(p) {
     const query = parameters(p, this.now()); await this.init();
-    if (p.refresh && !p.cursor) this.refresh();
-    const fingerprint = JSON.stringify(query);
+    if (p.refresh && !p.cursor && !p.snapshot) this.refresh();
+    const fingerprint = JSON.stringify(query), baseFingerprint = JSON.stringify({ date: query.date, timeZone: query.timeZone, agentId: query.agentId, configuredModel: query.configuredModel, taskId: query.taskId });
     for (const [key, value] of this.snapshots) if (value.expires < this.now()) this.snapshots.delete(key);
     let snapshot, snapshotId, offset = 0;
-    if (p.cursor) {
-      const [payload, signature] = p.cursor.split(".");
-      const expected = crypto.createHmac("sha256", this.secret).update(payload).digest("base64url");
-      if (signature !== expected) throw new Error("Invalid usage cursor");
-      const decoded = Buffer.from(payload, "base64url").toString().split(":"); snapshotId = decoded[0]; offset = Number(decoded[1]); snapshot = this.snapshots.get(snapshotId);
-      if (!snapshot || snapshot.fingerprint !== fingerprint || !Number.isSafeInteger(offset) || offset < 0) throw new Error("Usage page expired or filters changed. Refresh the detail.");
+    if (p.cursor || p.snapshot) {
+      const decoded = this.decodeCursor(p.cursor || p.snapshot);
+      snapshotId = decoded.id; snapshot = this.snapshots.get(snapshotId); offset = p.cursor ? decoded.offset : 0;
+      const hash = crypto.createHash("sha256").update(p.cursor ? fingerprint : "base").digest("hex").slice(0, 16);
+      if (!snapshot || snapshot.baseFingerprint !== baseFingerprint || decoded.query !== hash) throw new Error("Usage page expired or filters changed. Refresh the detail.");
     } else {
       const earliest = this.retention(query.timeZone).retainedFrom, latest = localDay(this.now(), query.timeZone);
       const rows = [], observed = [...this.rows.values()], turns = new Map(), bindings = { ...this.bindings };
       const known = this.known(); let checked = 0;
-      // This captured set is the snapshot's high-water mark, even when a yield
-      // allows a collector to append more rows during query construction.
       for (const row of observed) {
         if (++checked % 1000 === 0) await yieldLoop();
-        if (!known.has(row.nativeThreadId)) continue;
+        if (!known.has(row.nativeThreadId || row.contextNativeThreadId)) continue;
         const turnKey = `${row.nativeThreadId}:${row.turnId}`;
-        if (!turns.has(turnKey)) turns.set(turnKey, []);
-        turns.get(turnKey).push(row);
+        if (!isSample(row)) { if (!turns.has(turnKey)) turns.set(turnKey, []); turns.get(turnKey).push(row); }
         if (query.date < earliest || query.date > latest || localDay(row.observedAt, query.timeZone) !== query.date) continue;
-        const binding = bindings[turnKey];
+        const binding = isSample(row) ? null : bindings[turnKey];
         if (query.agentId && query.agentId !== row.officeAgentId || query.configuredModel && query.configuredModel !== row.configuredModel || query.taskId && (query.taskId === "unattributed" ? Boolean(binding?.taskId) : query.taskId !== binding?.taskId)) continue;
-        rows.push(row);
+        rows.push({ ...row, purpose: purposeOf(row, bindings) });
       }
-      const value = row => query.sort === "time" ? row.observedAt : row.usage[query.sort];
-      rows.sort((a, b) => { const av = value(a), bv = value(b); return (av < bv ? -1 : av > bv ? 1 : 0) * (query.order === "desc" ? -1 : 1) || a.observedAt.localeCompare(b.observedAt) || keyOf(a).localeCompare(keyOf(b)); });
       for (const siblings of turns.values()) siblings.sort((a, b) => a.observedAt.localeCompare(b.observedAt) || a.source.ordinal - b.source.ordinal);
-      let totals = rows.length ? Object.fromEntries(Object.keys(rows[0].usage).map(k => [k, rows.reduce((sum, row) => sum + row.usage[k], 0)])) : null;
-      const overflow = totals && Object.values(totals).some(value => !Number.isSafeInteger(value));
-      if (overflow) totals = null;
-      snapshot = { fingerprint, rows, totals, turns, bindings, overflow, expires: this.now() + 300000 };
+      snapshot = { baseFingerprint, rows, turns, bindings, summary: purposeSummary(rows, this.purposesRecordedFrom), expires: this.now() + 300000 };
       snapshotId = crypto.randomBytes(16).toString("hex"); this.snapshots.set(snapshotId, snapshot);
       while (this.snapshots.size > 8) this.snapshots.delete(this.snapshots.keys().next().value);
     }
+    const rows = snapshot.rows.filter(row => !query.purpose || row.purpose === query.purpose);
+    const value = row => query.sort === "time" ? row.observedAt : row.usage[query.sort];
+    rows.sort((a, b) => { const av = value(a), bv = value(b); return av == null && bv != null ? 1 : bv == null && av != null ? -1
+      : (av < bv ? -1 : av > bv ? 1 : 0) * (query.order === "desc" ? -1 : 1) || a.observedAt.localeCompare(b.observedAt) || keyOf(a).localeCompare(keyOf(b)); });
     const coverage = this.coverage(query.timeZone);
-    if (snapshot.overflow) coverage.knownGaps.aggregateOverflow = 1;
-    // Resolve presentation metadata only for real stored bindings. This is an
-    // O(1) in-memory lookup, never a current-task inference or history/RPC read.
+    if (snapshot.summary.measuredResponses && snapshot.summary.denominatorTokens === null) coverage.knownGaps.aggregateOverflow = 1;
     const taskRows = this.tasks(), taskLabels = new Map();
-    for (const binding of Object.values(this.bindings)) if (binding.taskId && !taskLabels.has(binding.taskId)) {
+    for (const binding of Object.values(snapshot.bindings)) if (binding.taskId && !taskLabels.has(binding.taskId)) {
       const row = taskRows.get(binding.taskId);
       taskLabels.set(binding.taskId, { id: binding.taskId, code: typeof row?.code === "string" && /^T[1-9]\d{0,17}$/.test(row.code) ? row.code : null,
         title: typeof row?.title === "string" ? row.title.trim().slice(0, 200) || null : null });
     }
-    const publicRows = snapshot.rows.slice(offset, offset + query.limit).map(row => {
-      const turnKey = `${row.nativeThreadId}:${row.turnId}`, binding = snapshot.bindings[turnKey];
-      const siblings = snapshot.turns.get(turnKey);
-      const index = siblings.indexOf(row), previous = siblings[index - 1];
+    const publicRows = (query.includeRecords ? rows.slice(offset, offset + query.limit) : []).map(row => {
+      const sample = isSample(row), turnKey = `${row.nativeThreadId}:${row.turnId}`, binding = sample ? null : snapshot.bindings[turnKey];
+      const siblings = sample ? [] : snapshot.turns.get(turnKey) || [];
+      const index = siblings.findIndex(s => keyOf(s) === keyOf(row)), previous = siblings[index - 1];
       return { id: keyOf(row), nativeThreadId: row.nativeThreadId, officeAgentId: row.officeAgentId,
-        agentName: this.known().get(row.nativeThreadId)?.name || row.officeAgentId,
+        agentName: this.known().get(row.nativeThreadId || row.contextNativeThreadId)?.name || row.officeAgentId,
         responseId: row.responseId, turnId: row.turnId, rootTurnId: row.rootTurnId, observedAt: row.observedAt, usage: row.usage,
+        sourceKind: row.source?.kind || "nativeRollout", sourceKinds: row.sourceKinds || [row.source?.kind || "nativeRollout"],
+        contextNativeThreadId: row.contextNativeThreadId || null, sourceTurnId: row.sourceTurnId || null, totalBasis: row.totalBasis || "reported",
+        purpose: row.purpose, purposeBasis: sample ? "sampleResponse" : binding?.purpose?.basis || "unknown", trigger: sample ? "threadSample" : binding?.purpose?.trigger || "unknown",
         configuredModel: row.configuredModel, configuredEffort: row.configuredEffort, modelBasis: row.modelBasis,
         actualModel: null, status: "unknown", taskId: binding?.taskId || null, task: binding?.taskId ? taskLabels.get(binding.taskId) || null : null,
         phaseId: binding?.phaseId || null, questionIds: binding?.questionIds || [], attributionBasis: binding ? "turnDispatch" : "unknown",
-        conflict: row.conflict, sameTurnResponses: siblings.length,
+        conflict: row.conflict, sameTurnResponses: sample ? null : siblings.length,
         previousObservedInput: previous && previous.configuredModel === row.configuredModel && row.configuredModel && !previous.conflict && !row.conflict ? { responseId: previous.responseId, input: previous.usage.input, change: row.usage.input - previous.usage.input, basis: "adjacentObservedSameTurnConfiguredModel" } : null };
     });
-    return { date: query.date, timeZone: query.timeZone, rows: publicRows, count: snapshot.rows.length, totals: snapshot.totals,
-      nextCursor: offset + query.limit < snapshot.rows.length ? this.cursor(snapshotId, offset + query.limit) : null,
+    return { date: query.date, timeZone: query.timeZone, rows: publicRows, count: rows.length, totals: totalsOf(rows),
+      snapshot: this.cursor(snapshotId, 0), purposeSummary: snapshot.summary, selectedPurpose: query.purpose,
+      nextCursor: query.includeRecords && offset + query.limit < rows.length ? this.cursor(snapshotId, offset + query.limit, fingerprint) : null,
       coverage, scope: "Office observed subset", outsideRetention: query.date < coverage.retainedFrom || query.date > localDay(this.now(), query.timeZone),
       filters: { agents: [...this.known().values()].map(s => ({ id: s.id, name: s.name || s.id })), configuredModels: [...new Set([...this.rows.values()].map(r => r.configuredModel).filter(Boolean))].sort(), taskIds: [...taskLabels.keys()].sort(), tasks: [...taskLabels.values()].sort((a, b) => a.id.localeCompare(b.id)) } };
   }
-  async close() { this.closed = true; if (this.running) await this.running; }
+  async close() {
+    this.closed = true; if (this.running) await this.running;
+    // The sampler has no replayable rollout. Preserve already-returned numeric
+    // results on a graceful stop without making its UI await persistence.
+    if (!this.unavailable && (this.bindingQueue.length || this.sampleQueue.length || this.gapPending)) {
+      try { await this.init(); await this.drainMetadata(); await this.prune(); } catch { this.gap("shutdownMeteringFailure"); }
+    }
+  }
 }
-module.exports = { OfficeTokenUsage, usageOf, parameters, localDay };
+module.exports = { OfficeTokenUsage, usageOf, sampleUsageOf, parameters, localDay, userUsage };
