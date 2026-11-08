@@ -92,7 +92,8 @@ describe("independent Office runtime", () => {
     expect(text.endsWith("\n" + DEPARTMENT_HEAD_GUIDELINE)).toBe(true);
     expect(text.split(DEPARTMENT_HEAD_GUIDELINE)).toHaveLength(2);
     expect(text).toContain("inactive for other roles or unavailable role data");
-    expect(DEPARTMENT_HEAD_GUIDELINE.split(/\s+/)).toHaveLength(90);
+    expect(text).toContain("replaces earlier Head role definitions");
+    expect(DEPARTMENT_HEAD_GUIDELINE.split(/\s+/)).toHaveLength(107);
     expect(f.store.companyContext).toHaveBeenCalledExactlyOnceWith(id);
     expect(f.client.call.mock.calls.map(([method]) => method)).toEqual(["thread/start", "thread/inject_items", "turn/start"]);
   });
