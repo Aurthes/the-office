@@ -16,7 +16,7 @@ export function TeaserDashboard({ onClose, agents = [], onOpenSession }: {
   const t = useUiText(), dialog = useRef<HTMLDialogElement>(null);
   const [portal, setPortal] = useState<HTMLElement | null>(null);
   const [teasers, setTeasers] = useState<Teaser[]>([]);
-  const [filter, setFilter] = useState<"all" | TeaserStatus>("all");
+  const [filter, setFilter] = useState<"all" | "unfinished" | TeaserStatus>("unfinished");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [request, setRequest] = useState(0);
@@ -58,7 +58,11 @@ export function TeaserDashboard({ onClose, agents = [], onOpenSession }: {
   }, [request]);
   if (!portal) return null;
   const finished = teasers.filter(row => row.status === "finished").length;
-  const rows = filter === "all" ? teasers : teasers.filter(row => row.status === filter);
+  const unfinished = teasers.filter(row => row.status === "in_progress" || row.status === "open");
+  const rows = filter === "all" ? teasers : filter === "unfinished" ? unfinished : teasers.filter(row => row.status === filter);
+  if (filter !== "all" && filter !== "finished") rows.sort((a, b) =>
+    (a.status === "in_progress" ? 0 : 1) - (b.status === "in_progress" ? 0 : 1) ||
+    Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id));
   const matches = agents.filter(agent => agent.name.trim().toLowerCase() === "teaser");
   const target = matches.length === 1 ? matches[0] : undefined;
   const chatAvailable = !!target && !!onOpenSession;
@@ -92,8 +96,8 @@ export function TeaserDashboard({ onClose, agents = [], onOpenSession }: {
           <div className="teaser-progress" aria-label={t("Teasers finished")}><CheckCircle2 size={20} /><strong>{finished}<span> / {teasers.length}</span></strong><small>{t("Finished")}</small></div>
         </div>
         <div className="teaser-filters" role="group" aria-label={t("Teaser status")}>
-          {(["all", "open", "in_progress", "finished"] as const).map(status => <button type="button" key={status} aria-pressed={filter === status} onClick={() => setFilter(status)}>
-            {t(status === "all" ? "All" : TEASER_STATUS_LABELS[status])}{" "}<span>{status === "all" ? teasers.length : teasers.filter(row => row.status === status).length}</span>
+          {(["unfinished", "all", "open", "in_progress", "finished"] as const).map(status => <button type="button" key={status} aria-pressed={filter === status} onClick={() => setFilter(status)}>
+            {t(status === "all" ? "All" : status === "unfinished" ? "Unfinished" : TEASER_STATUS_LABELS[status])}{" "}<span>{status === "all" ? teasers.length : status === "unfinished" ? unfinished.length : teasers.filter(row => row.status === status).length}</span>
           </button>)}
         </div>
         {error ? <p role="alert" className="schedules-error">{t(error)} {t("Use Refresh to try again.")}</p> : null}
