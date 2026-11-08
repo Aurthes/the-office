@@ -1,6 +1,7 @@
 import { gzip } from "node:zlib";
 import { promisify } from "node:util";
-import { getFillSnapshot } from "@/lib/fill-probability/source";
+import { randomUUID } from "node:crypto";
+import { getFillSnapshot, type FillSnapshotTiming } from "@/lib/fill-probability/source";
 import { FILL_COLUMNS, FILL_DEFAULT_COLUMNS, projectFillTable, type FillColumn, type FillRecordSnapshot, type FillTableSnapshot } from "@/lib/fill-probability/model";
 
 export const runtime = "nodejs";
@@ -8,7 +9,12 @@ export const dynamic = "force-dynamic";
 const compress = promisify(gzip);
 
 export async function GET(request: Request) {
-  const headers = { "Cache-Control": "no-store", "Vary": "Accept-Encoding" };
+  const started = performance.now(), requestId = randomUUID();
+  const timings: string[] = [];
+  const duration = (name: string, ms: number) => { if (Number.isFinite(ms) && ms >= 0) timings.push(`${name};dur=${ms.toFixed(3)}`); };
+  const count = (name: string, value: number) => { if (Number.isFinite(value) && value >= 0) timings.push(`${name};desc="${Math.round(value)}"`); };
+  const headers = { "Cache-Control": "no-store", "Vary": "Accept-Encoding", "X-Fill-Request-Id": requestId };
+  const diagnosticHeaders = () => ({ ...headers, "Server-Timing": timings.join(", ") });
   const url = new URL(request.url), params = url.searchParams;
   const recordView = params.get("view") === "record";
   const tableView = params.get("view") === "table";
@@ -28,7 +34,21 @@ export async function GET(request: Request) {
       return Response.json({ error: "Invalid fill probability selection" }, { status: 400, headers });
   }
   try {
-    const snapshot = await getFillSnapshot();
+    let sourceTiming: FillSnapshotTiming | undefined;
+    const snapshotStarted = performance.now();
+    const snapshot = await getFillSnapshot(value => { sourceTiming = value; });
+    duration("fill_snapshot", performance.now() - snapshotStarted);
+    if (sourceTiming) {
+      timings.push(`fill_cache;desc="${sourceTiming.cache}"`, `fill_batch;desc="${sourceTiming.batchId}"`);
+      if (sourceTiming.ageMs !== null) duration("fill_age", sourceTiming.ageMs);
+      for (const [index, source] of sourceTiming.sources.slice(0, 4).entries()) {
+        for (const key of ["totalMs", "prepareMs", "execMs", "decodeMs"] as const)
+          if (source[key] !== undefined) duration(`src${index}_${key}`, source[key]!);
+        for (const key of ["stdoutBytes"] as const)
+          if (source[key] !== undefined) count(`src${index}_${key}`, source[key]!);
+      }
+    }
+    const projectionStarted = performance.now();
     let reply: typeof snapshot | FillRecordSnapshot | FillTableSnapshot = snapshot;
     if (tableView) reply = projectFillTable(snapshot, columns);
     if (recordView) {
@@ -45,14 +65,23 @@ export async function GET(request: Request) {
         row: filtered.find(row => row.id === params.get("recordId")) || filtered[0] || null,
       };
     }
-    const body = JSON.stringify(reply);
+    duration("fill_project", performance.now() - projectionStarted);
+    const jsonStarted = performance.now(), body = JSON.stringify(reply);
+    duration("fill_json", performance.now() - jsonStarted);
+    count("fill_decodedBytes", Buffer.byteLength(body, "utf8"));
+    count("fill_rows", "rows" in reply ? reply.rows.length : reply.records.length);
     const preference = request.headers.get("accept-encoding")?.split(",").find(value => /^gzip(?:\s*;|$)/i.test(value.trim()));
     const useGzip = body.length >= 1024 && preference !== undefined && !/;\s*q=0(?:\.0*)?(?:\s*;|\s*$)/i.test(preference);
     // Compress before the tunnel, as the existing account dashboard does.
+    const gzipStarted = performance.now();
     const bytes = useGzip ? new Uint8Array(await compress(body)) : body;
+    duration("fill_gzip", performance.now() - gzipStarted);
+    count("fill_encodedBytes", typeof bytes === "string" ? Buffer.byteLength(bytes, "utf8") : bytes.byteLength);
+    // Response-ready is not a socket-finish measurement.
+    duration("fill_ready", performance.now() - started);
     return new Response(bytes, { headers: {
-      ...headers, "Content-Type": "application/json",
+      ...diagnosticHeaders(), "Content-Type": "application/json",
       ...(useGzip ? { "Content-Encoding": "gzip" } : {}),
     } });
-  } catch { return Response.json({ error: "Fill probability data is unavailable" }, { status: 503, headers }); }
+  } catch { duration("fill_ready", performance.now() - started); return Response.json({ error: "Fill probability data is unavailable" }, { status: 503, headers: diagnosticHeaders() }); }
 }

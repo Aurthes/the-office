@@ -62,3 +62,21 @@ it("accepts compiled C++ cold-exporter scalars exactly for both sides", () => {
     expect(parseFillReply({ version: 1, rows: [row] }, source)).toEqual([row]);
   }
 });
+
+
+it("attributes new/pending/hit diagnostics to the same batch without rereading or retiming facts", async () => {
+  let now = FILL_NOW, finish!: (rows: ReturnType<typeof fillRow>[]) => void;
+  const wait = new Promise<ReturnType<typeof fillRow>[]>(resolve => { finish = resolve; });
+  const read = createFillReader(vi.fn(() => wait), () => now);
+  const traces: import("@/lib/fill-probability/source").FillSnapshotTiming[] = [];
+  const a = read([source], t => traces.push(t)), b = read([source], t => traces.push(t));
+  finish([fillRow()]); const results = await Promise.all([a,b]);
+  expect(traces.map(t => t.cache)).toEqual(["new", "pending"]);
+  expect(traces[0].batchId).toBe(traces[1].batchId);
+  expect(traces[0].sources).toHaveLength(1); expect(results[0]).toEqual(results[1]);
+  now += 3000; const hit = await read([source], t => traces.push(t));
+  expect(traces[2]).toMatchObject({cache:"hit", ageMs:3000, batchId:traces[0].batchId, sources:[]});
+  expect(hit.rows[0].observedAt).toBe(results[0].rows[0].observedAt);
+  now += 7000; await read([source], t => traces.push(t));
+  expect(traces[3].cache).toBe("new"); expect(traces[3].batchId).not.toBe(traces[0].batchId);
+});

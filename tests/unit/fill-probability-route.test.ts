@@ -148,3 +148,25 @@ it("coalesces table selections with full and record on one original ten-second r
   await Promise.all([get(""),get("?view=record"),get("?view=table"),get("?view=table&columns=actual")]);expect(read).toHaveBeenCalledTimes(1);
   now+=9999;await get("?view=table&columns=");expect(read).toHaveBeenCalledTimes(1);now++;await get("?view=table");expect(read).toHaveBeenCalledTimes(2);
 });
+
+
+it("adds bounded numeric same-request timing without altering the complete business body", async () => {
+  const snapshot=fillSnapshot([fillRow({quote:fillQuote()})]);
+  mocks.read.mockImplementation(async (observe: (t: unknown) => void) => {
+    observe({cache:"new",batchId:"123e4567-e89b-12d3-a456-426614174000",ageMs:0,sources:[{totalMs:20,prepareMs:2,execMs:15,decodeMs:3,stdoutBytes:1234}]});return snapshot;
+  });
+  const response=await GET(new Request("https://office.test/api/monitoring/fill-probability?view=table",{headers:{"Accept-Encoding":"gzip"}}));
+  const id=response.headers.get("x-fill-request-id")!;expect(id).toMatch(/^[a-f0-9-]{36}$/);
+  const h=response.headers.get("server-timing")!;
+  for(const name of ["fill_snapshot","fill_cache","fill_batch","fill_age","src0_execMs","src0_decodeMs","fill_project","fill_json","fill_gzip","fill_ready","fill_encodedBytes","fill_decodedBytes"])expect(h).toContain(name+";");
+  expect(h).toContain('fill_cache;desc="new"');expect(h).toContain('src0_stdoutBytes;desc="1234"');expect(h.length).toBeLessThan(3000);
+  const bytes=new Uint8Array(await response.arrayBuffer()),decoded=gunzipSync(bytes);
+  expect(h).toContain(`fill_encodedBytes;desc="${bytes.length}"`);expect(h).toContain(`fill_decodedBytes;desc="${decoded.length}"`);
+  const {projectFillTable,FILL_DEFAULT_COLUMNS}=await import("@/lib/fill-probability/model");expect(JSON.parse(decoded.toString())).toEqual(projectFillTable(snapshot,FILL_DEFAULT_COLUMNS));
+});
+it("labels cache hits without repeating a previous read's source timings, with unique request IDs", async () => {
+  mocks.read.mockImplementation(async (observe: (t: unknown) => void) => {observe({cache:"hit",batchId:"123e4567-e89b-12d3-a456-426614174000",ageMs:5000,sources:[]});return fillSnapshot([fillRow()]);});
+  const get=()=>GET(new Request("https://office.test/api/monitoring/fill-probability?view=table"));
+  const a=await get(),b=await get();expect(a.headers.get("x-fill-request-id")).not.toBe(b.headers.get("x-fill-request-id"));
+  expect(a.headers.get("server-timing")).toContain('fill_cache;desc="hit"');expect(a.headers.get("server-timing")).not.toContain("src0_");
+});
