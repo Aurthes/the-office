@@ -1,8 +1,8 @@
 import { gzip } from "node:zlib";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
-import { getFillSnapshot, type FillSnapshotTiming } from "@/lib/fill-probability/source";
-import { FILL_COLUMNS, FILL_DEFAULT_COLUMNS, projectFillTable, type FillColumn, type FillRecordSnapshot, type FillTableSnapshot } from "@/lib/fill-probability/model";
+import { getFillSnapshot, FillSourceDataError, type FillSnapshotTiming } from "@/lib/fill-probability/source";
+import { FILL_COLUMNS, FILL_DEFAULT_COLUMNS, fillTableFields, projectFillTable, type FillColumn, type FillRecordSnapshot, type FillTableSnapshot } from "@/lib/fill-probability/model";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,7 +36,7 @@ export async function GET(request: Request) {
   try {
     let sourceTiming: FillSnapshotTiming | undefined;
     const snapshotStarted = performance.now();
-    const snapshot = await getFillSnapshot(value => { sourceTiming = value; });
+    const snapshot = await getFillSnapshot(value => { sourceTiming = value; }, tableView ? fillTableFields(columns) : undefined);
     duration("fill_snapshot", performance.now() - snapshotStarted);
     if (sourceTiming) {
       timings.push(`fill_cache;desc="${sourceTiming.cache}"`, `fill_batch;desc="${sourceTiming.batchId}"`);
@@ -44,13 +44,13 @@ export async function GET(request: Request) {
       for (const [index, source] of sourceTiming.sources.slice(0, 4).entries()) {
         for (const key of ["totalMs", "prepareMs", "execMs", "decodeMs"] as const)
           if (source[key] !== undefined) duration(`src${index}_${key}`, source[key]!);
-        for (const key of ["stdoutBytes"] as const)
+        for (const key of ["stdoutBytes", "wireBytes", "decodedBytes"] as const)
           if (source[key] !== undefined) count(`src${index}_${key}`, source[key]!);
       }
     }
     const projectionStarted = performance.now();
     let reply: typeof snapshot | FillRecordSnapshot | FillTableSnapshot = snapshot;
-    if (tableView) reply = projectFillTable(snapshot, columns);
+    if (tableView) { try { reply = projectFillTable(snapshot, columns); } catch { throw new FillSourceDataError(); } }
     if (recordView) {
       const filtered = snapshot.rows.filter(row =>
         (!params.get("strategy") || row.strategy === params.get("strategy")) &&
@@ -83,5 +83,5 @@ export async function GET(request: Request) {
       ...diagnosticHeaders(), "Content-Type": "application/json",
       ...(useGzip ? { "Content-Encoding": "gzip" } : {}),
     } });
-  } catch { duration("fill_ready", performance.now() - started); return Response.json({ error: "Fill probability data is unavailable" }, { status: 503, headers: diagnosticHeaders() }); }
+  } catch (error) { duration("fill_ready", performance.now() - started); return Response.json(error instanceof FillSourceDataError ? { error: "Fill probability data is invalid", retryable: false } : { error: "Fill probability data is unavailable" }, { status: error instanceof FillSourceDataError ? 502 : 503, headers: diagnosticHeaders() }); }
 }

@@ -80,3 +80,40 @@ it("attributes new/pending/hit diagnostics to the same batch without rereading o
   now += 7000; await read([source], t => traces.push(t));
   expect(traces[3].cache).toBe("new"); expect(traces[3].batchId).not.toBe(traces[0].batchId);
 });
+
+
+it("isolates partial profiles and full snapshots, while retaining pending coalescing for an identical projection",async()=>{
+  const {fillTableFields}=await import("@/lib/fill-probability/model");let now=FILL_NOW;const load=vi.fn(async()=>[fillRow()]);const reader=createFillReader(load,()=>now);const a=fillTableFields(["actual"]),b=fillTableFields(["actual","final"]);
+  await Promise.all([reader([source],undefined,a),reader([source],undefined,a)]);expect(load).toHaveBeenCalledTimes(1);
+  await reader([source],undefined,b);expect(load).toHaveBeenCalledTimes(2);await reader([source]);expect(load).toHaveBeenCalledTimes(3);
+  now+=9999;await reader([source]);expect(load).toHaveBeenCalledTimes(3);
+});
+it("does not promote failed collection to a fresh cache or hide real retry reads behind a failure cache",async()=>{
+  let now=FILL_NOW;const load=vi.fn(async()=>[fillRow()]),reader=createFillReader(load,()=>now);const good=await reader([source]);now+=10000;load.mockRejectedValue(new Error("private transport failure"));
+  for(let i=0;i<3;i++){const bad=await reader([source]);expect(bad.sampledAt).toBe(good.sampledAt);expect(bad.rows[0].savedAt).toBe(good.rows[0].savedAt);expect(bad.sourceErrors).toBe(1);expect(bad.rows[0].error).toBe(true);}
+  expect(load).toHaveBeenCalledTimes(4);
+});
+it("projects requested fields exactly, retains hidden ordering and zero, and refuses missing requested fields or wrong profiles",async()=>{
+  const {FILL_COLUMNS,fillTableFields,projectFillTable}=await import("@/lib/fill-probability/model");const row=fillRow({actualEma:0,quote:fillQuote({currentCaProbability:0})});
+  for(const columns of [[],["actual"] as const,[...FILL_COLUMNS]]){
+    const fields=fillTableFields([...columns]),projection={row:[...new Set(["id","producer","strategy","instance","account","exchange","market","symbol","side",...fields.row])].sort(),quote:[...fields.quote].sort()};
+    const partial={...Object.fromEntries(projection.row.map(k=>[k,row[k as keyof typeof row]])),quote:Object.fromEntries(projection.quote.map(k=>[k,row.quote![k]]))};
+    const raw={version:1,projection,rows:[partial]};const restored=parseFillReply(raw,source,fields);
+    expect(projectFillTable({configured:true,serverTime:FILL_NOW,sampledAt:FILL_NOW,sourceErrors:0,rows:restored},[...columns])).toEqual(projectFillTable({configured:true,serverTime:FILL_NOW,sampledAt:FILL_NOW,sourceErrors:0,rows:[row]},[...columns]));
+    const missing=structuredClone(raw);delete (missing.rows[0] as Record<string,unknown>).observedAt;expect(()=>parseFillReply(missing,source,fields)).toThrow();expect(()=>parseFillReply({...raw,projection:{row:[],quote:[]}},source,fields)).toThrow();
+  }
+});
+
+it("accepts only exact v10 seconds scope and retains v8/v9 contracts", async () => {
+  const scoped: FillSource = { ...source, strategies: [{ ...source.strategies[0], feedbackVersion: 10 }] };
+  const row = fillRow({schema:10,pricingMode:"per_symbol_tif",baseToken:"coin",tif:"rpi"});
+  expect(parseFillSources({version:1,sources:[scoped]})).toEqual([scoped]);
+  expect(parseFillReply({version:1,rows:[row]},scoped)).toEqual([row]);
+  const {fillTableFields}=await import("@/lib/fill-probability/model"),fields=fillTableFields(["actual"]);
+  const projection={row:[...new Set(["id","producer","strategy","instance","account","exchange","market","symbol","side",...fields.row])].sort(),quote:[...fields.quote].sort()};
+  const partial={...Object.fromEntries(projection.row.map(k=>[k,row[k as keyof typeof row]])),quote:null};
+  expect(parseFillReply({version:1,rows:[partial],projection},scoped,fields)[0]).toMatchObject({schema:10,pricingMode:row.pricingMode,baseToken:row.baseToken,tif:row.tif,actualEma:row.actualEma});
+  delete (partial as Record<string,unknown>).tif;expect(()=>parseFillReply({version:1,rows:[partial],projection},scoped,fields)).toThrow();
+  for (const bad of [{...row,tif:""},{...row,pricingMode:undefined},{...row,baseToken:{}},{...row,clock:"trials"},{...row,schema:8}])
+    expect(()=>parseFillReply({version:1,rows:[bad]},scoped)).toThrow();
+});

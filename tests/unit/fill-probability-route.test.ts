@@ -3,7 +3,7 @@ import { gunzipSync } from "node:zlib";
 import { beforeEach, expect, it, vi } from "vitest";
 import { fillRow, fillQuote, fillSnapshot, FILL_NOW } from "../fixtures/fill-probability";
 const mocks = vi.hoisted(() => ({ read: vi.fn() }));
-vi.mock("@/lib/fill-probability/source", () => ({ getFillSnapshot: mocks.read }));
+vi.mock("@/lib/fill-probability/source", async importOriginal => ({ ...await importOriginal<typeof import("@/lib/fill-probability/source")>(), getFillSnapshot: mocks.read }));
 import { GET } from "@/app/api/monitoring/fill-probability/route";
 beforeEach(() => { mocks.read.mockReset(); });
 it("serves same-origin read-only facts with no-store", async () => {
@@ -137,7 +137,7 @@ it("preserves table compression, refusal and private 503, including duplicate-si
   const get=(encoding:string)=>GET(new Request("https://office.test/api/monitoring/fill-probability?view=table",{headers:{"Accept-Encoding":encoding}}));
   const plain=await get("gzip;q=0"),packed=await get("gzip");expect(packed.headers.get("content-encoding")).toBe("gzip");
   expect(JSON.parse(gunzipSync(new Uint8Array(await packed.arrayBuffer())).toString())).toEqual(await plain.json());expect(packed.headers.get("cache-control")).toBe("no-store");
-  mocks.read.mockResolvedValueOnce(fillSnapshot([fillRow(),fillRow()]));expect((await get("gzip")).status).toBe(503);
+  mocks.read.mockResolvedValueOnce(fillSnapshot([fillRow(),fillRow()]));expect((await get("gzip")).status).toBe(502);
   mocks.read.mockRejectedValueOnce(new Error("private-password"));const failed=await get("gzip");expect(failed.status).toBe(503);expect(await failed.text()).not.toContain("password");
 });
 it("coalesces table selections with full and record on one original ten-second read",async()=>{
@@ -169,4 +169,12 @@ it("labels cache hits without repeating a previous read's source timings, with u
   const get=()=>GET(new Request("https://office.test/api/monitoring/fill-probability?view=table"));
   const a=await get(),b=await get();expect(a.headers.get("x-fill-request-id")).not.toBe(b.headers.get("x-fill-request-id"));
   expect(a.headers.get("server-timing")).toContain('fill_cache;desc="hit"');expect(a.headers.get("server-timing")).not.toContain("src0_");
+});
+
+
+it("passes the canonical table projection to the source, keeps legacy full, and makes invalid source schema nonretryable",async()=>{
+  const {fillTableFields,FILL_DEFAULT_COLUMNS}=await import("@/lib/fill-probability/model");const {FillSourceDataError}=await import("@/lib/fill-probability/source");mocks.read.mockResolvedValue(fillSnapshot([fillRow()]));
+  await GET(new Request("https://office.test/api/monitoring/fill-probability?view=table"));expect(mocks.read.mock.calls.at(-1)?.[1]).toEqual(fillTableFields(FILL_DEFAULT_COLUMNS));
+  await GET(new Request("https://office.test/api/monitoring/fill-probability?view=record"));expect(mocks.read.mock.calls.at(-1)?.[1]).toBeUndefined();
+  mocks.read.mockRejectedValueOnce(new FillSourceDataError());const bad=await GET(new Request("https://office.test/api/monitoring/fill-probability?view=table"));expect(bad.status).toBe(502);expect(await bad.json()).toEqual({error:"Fill probability data is invalid",retryable:false});
 });

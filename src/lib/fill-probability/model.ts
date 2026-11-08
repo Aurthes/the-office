@@ -29,6 +29,7 @@ export type FillRow = {
   ca: number | null; logCa: number | null; target: number | null;
   ready: boolean | null; skipReason: string | null; quote: FillQuote | null;
   reason: string | null; error: boolean;
+  pricingMode?: "per_symbol_tif"; baseToken?: string; tif?: string;
 };
 export type FillSnapshot = {
   configured: boolean; serverTime: number; sampledAt: number | null;
@@ -48,7 +49,7 @@ export function fillState(row: Pick<FillRow, "error" | "enabled" | "sourceSha" |
   if (readFailed || row.error) return "stale";
   if (row.enabled === false) return "disabled";
   if (row.enabled !== true || !row.sourceSha || !/^[0-9a-f]{40}$/i.test(row.sourceSha) ||
-      !((row.schema === 8 && row.clock === "exposure_seconds") || (row.schema === 9 && row.clock === "trials")) ||
+      !(([8, 10].includes(row.schema ?? 0) && row.clock === "exposure_seconds") || (row.schema === 9 && row.clock === "trials")) ||
       !finite(row.heartbeatAt) || !finite(row.savedAt)) return "unknown";
   if (!fresh(row.heartbeatAt, now) || !fresh(row.savedAt, now)) return "stale";
   if (!finite(row.weightedExposureSeconds)) return "unknown";
@@ -93,7 +94,7 @@ export const FILL_COLUMNS = ["target", "base", "model", "actual", "ca", "logca",
 export type FillColumn = typeof FILL_COLUMNS[number];
 export const FILL_DEFAULT_COLUMNS: FillColumn[] = ["model", "actual", "ca", "base-reference", "ca-probability"];
 const tableIdentity = ["producer", "instance", "strategy", "exchange", "market", "account", "symbol"] as const;
-const sideFields = ["id", "sourceSha", "pid", "heartbeatAt", "savedAt", "observedAt", "schema", "clock", "enabled", "weightedExposureSeconds", "ready", "error", "reason", "skipReason", "target"] as const;
+const sideFields = ["id", "sourceSha", "pid", "heartbeatAt", "savedAt", "observedAt", "schema", "clock", "enabled", "weightedExposureSeconds", "ready", "error", "reason", "skipReason", "target", "pricingMode", "baseToken", "tif"] as const;
 export type FillTableSide = Pick<FillRow, typeof sideFields[number]> & Partial<Pick<FillRow, "baseTheoreticalEma" | "theoreticalEma" | "actualEma">> & {
   quote: Pick<FillQuote, "available" | "at" | "exportedAt" | "baseTarget" | "currentCaProbability"> & Partial<FillQuote> | null;
 };
@@ -101,8 +102,8 @@ export type FillTableRow = Pick<FillRow, typeof tableIdentity[number]> & { id: s
 export type FillTableSnapshot = Omit<FillSnapshot, "rows"> & { view: "table"; columns: FillColumn[]; rows: FillTableRow[] };
 export const fillTableId = (row: Pick<FillRow, typeof tableIdentity[number]>) => JSON.stringify(tableIdentity.map(key => row[key]));
 
-// A scalar projection of one existing shared snapshot, also used for full-server rollback.
-export function projectFillTable(snapshot: FillSnapshot, columns: FillColumn[]): FillTableSnapshot {
+// Shared column dependencies for the source transfer and the original table projection.
+export function fillTableFields(columns: FillColumn[]) {
   const rowFields: (keyof FillRow)[] = [...sideFields];
   const quoteFields = new Set<keyof FillQuote>(["available", "at", "exportedAt", "baseTarget", "currentCaProbability"]);
   const dependencies: Partial<Record<FillColumn, (keyof FillQuote)[]>> = {
@@ -119,6 +120,12 @@ export function projectFillTable(snapshot: FillSnapshot, columns: FillColumn[]):
     if (column === "actual") rowFields.push("actualEma");
     for (const field of dependencies[column] || []) quoteFields.add(field);
   }
+  return { row: [...new Set(rowFields)], quote: [...quoteFields] };
+}
+
+// A scalar projection of one existing shared snapshot, also used for full-server rollback.
+export function projectFillTable(snapshot: FillSnapshot, columns: FillColumn[]): FillTableSnapshot {
+  const { row: rowFields, quote: quoteFields } = fillTableFields(columns);
   const groups = new Map<string, FillTableRow>();
   for (const row of snapshot.rows) {
     const id = fillTableId(row);
