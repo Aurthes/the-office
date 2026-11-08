@@ -83,7 +83,7 @@ it("attributes new/pending/hit diagnostics to the same batch without rereading o
 
 it("accepts only exact v10 seconds scope and retains v8/v9 contracts", () => {
   const scoped: FillSource = { ...source, strategies: [{ ...source.strategies[0], feedbackVersion: 10 }] };
-  const row = fillRow({schema:10,pricingMode:"per_symbol_tif",baseToken:"coin",tif:"RPI"});
+  const row = fillRow({schema:10,pricingMode:"per_symbol_tif",baseToken:"coin",tif:"rpi"});
   expect(parseFillSources({version:1,sources:[scoped]})).toEqual([scoped]);
   expect(parseFillReply({version:1,rows:[row]},scoped)).toEqual([row]);
   for (const bad of [{...row,tif:""},{...row,pricingMode:undefined},{...row,baseToken:{}},{...row,clock:"trials"},{...row,schema:8}])
