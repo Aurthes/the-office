@@ -16,7 +16,7 @@ export function TeaserDashboard({ onClose, agents = [], onOpenSession }: {
   const t = useUiText(), dialog = useRef<HTMLDialogElement>(null);
   const [portal, setPortal] = useState<HTMLElement | null>(null);
   const [teasers, setTeasers] = useState<Teaser[]>([]);
-  const [filter, setFilter] = useState<"all" | TeaserStatus>("all");
+  const [filter, setFilter] = useState<"all" | TeaserStatus>("open");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [request, setRequest] = useState(0);
@@ -59,6 +59,7 @@ export function TeaserDashboard({ onClose, agents = [], onOpenSession }: {
   if (!portal) return null;
   const finished = teasers.filter(row => row.status === "finished").length;
   const rows = filter === "all" ? teasers : teasers.filter(row => row.status === filter);
+  if (filter === "open") rows.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id));
   const matches = agents.filter(agent => agent.name.trim().toLowerCase() === "teaser");
   const target = matches.length === 1 ? matches[0] : undefined;
   const chatAvailable = !!target && !!onOpenSession;

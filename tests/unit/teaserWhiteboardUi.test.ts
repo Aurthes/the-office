@@ -32,7 +32,9 @@ const open = async (title = "First") => {
 };
 
 it("opens without chat availability and keeps two notes, exact text and empty saves after remount/reopen", async () => {
-  const f = fixture(), props = { onClose: vi.fn() };
+  const f = fixture([
+    question(b, "Second"), { ...question(a, "First"), createdAt: "2026-11-06T00:00:00Z", updatedAt: "2026-11-08T00:00:00Z" },
+  ]), props = { onClose: vi.fn() };
   let view = render(h(TeaserDashboard, props));
   const input = await open();
   expect(screen.getByRole("button", { name: "First" })).toBeVisible();
@@ -43,6 +45,7 @@ it("opens without chat availability and keeps two notes, exact text and empty sa
   fireEvent.change(input, { target: { value: text } }); fireEvent.click(screen.getByRole("button", { name: "Save whiteboard" }));
   await screen.findByText("Whiteboard saved."); expect(f.notes.get(a)?.text).toBe(text); expect(document.querySelector("script")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Back to teasers" }));
+  expect(screen.getAllByRole("article").map(card => card.getAttribute("data-teaser-id"))).toEqual([a, b]);
   const second = await open("Second"); expect(second).toHaveValue("");
   fireEvent.change(second, { target: { value: "Second note" } }); fireEvent.click(screen.getByRole("button", { name: "Save whiteboard" })); await screen.findByText("Whiteboard saved.");
   view.unmount(); view = render(h(TeaserDashboard, props));
@@ -135,7 +138,8 @@ it("shows the full selected question and math beside notes, with finished-only i
   expect(screen.getByRole("article").querySelector(".katex")).not.toBeNull();
   expect(screen.queryByText("Unfinished secret")).toBeNull(); expect(screen.queryByText("Unfinished summary")).toBeNull();
   expect(screen.queryByText("View answer & key idea")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Back to teasers" })); const input = await open("Second");
+  fireEvent.click(screen.getByRole("button", { name: "Back to teasers" }));
+  fireEvent.click(screen.getByRole("button", { name: "Finished 1" })); const input = await open("Second");
   const card = screen.getByRole("article"); expect(within(card).getByRole("button", { name: "Second" })).toBeVisible();
   expect(screen.getByText("Published answer")).not.toBeVisible(); fireEvent.click(screen.getByText("View answer & key idea"));
   expect(screen.getByText("Published answer")).toBeVisible(); expect(screen.getByText("Published key idea")).toBeVisible();
