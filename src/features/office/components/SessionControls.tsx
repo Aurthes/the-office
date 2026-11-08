@@ -15,6 +15,7 @@ import { useSessionComposer } from "./useSessionComposer";
 import { Mention, MentionsInput } from "react-mentions-ts";
 import { ComposerTextarea } from "./ComposerTextarea";
 import { useSessionCapture } from "./useSessionCapture";
+import { sendSessionMessage } from "./sessionSend";
 import { prepareComposerMessage, referenceSerializer } from "./inlineReferences";
 
 export type SessionAsset = { source: string; name: string; kind: "image" | "markdown" | "html" | "file"; url: string; inline?: boolean; attached?: boolean };
@@ -323,12 +324,9 @@ export function SessionControls({ client, threadId, active = true, onItems, capt
     actionBusy.current = true;
     setBusy(true); setError(""); setNotice(method === "session.edit.commit" ? "Rewinding the turn and waiting for receipt…" : "");
     const send = method === "session.send" ? params as { requestId: string; message: string } : null;
-    const local: LiveSessionItem | null = send ? { id: `local-send:${send.requestId}`, clientId: send.requestId, role: "user", content: send.message,
-      timestamp: Date.now(), historyEpoch: historyEpoch.current, delivery: "sending", attachmentNames: uploadsRef.current.map(file => file.name) } : null;
-    if (local) onSendState?.(threadId, local);
     try {
-      const result = await client.call(method, { threadId, ...params });
-      if (local) onSendState?.(threadId, { ...local, delivery: "accepted" });
+      const result = send ? await sendSessionMessage(client, threadId, send, { historyEpoch: historyEpoch.current,
+        attachmentNames: uploadsRef.current.map(file => file.name), onSendState, onHistorySync }) : await client.call(method, { threadId, ...params });
       if (method === "session.edit.commit") {
         setNotice("");
         const outcome = result as { status: string; message?: string; historyEpoch?: string };
@@ -349,7 +347,7 @@ export function SessionControls({ client, threadId, active = true, onItems, capt
       if (method === "session.new" || method === "session.fork") { setText(""); await onOpenThread?.((result as { threadId: string }).threadId); }
       if (method === "session.continue") setNotice("Submitted to the session");
       // Reconcile accepted input even if its native item notification was missed.
-      if (method === "session.send" || method === "session.continue") onHistorySync?.();
+      if (method === "session.continue") onHistorySync?.();
       if (method === "session.stop") setNotice("Stop request submitted");
       if (method === "session.approval.reply") setNotice("Approval reply submitted; waiting for confirmation");
       if (!client.onEvent) await refresh.current?.();
@@ -357,18 +355,9 @@ export function SessionControls({ client, threadId, active = true, onItems, capt
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Action failed. Check the session before retrying.";
       if (method === "session.edit.commit" && edit) { setEdit({ ...edit, outcome: "unknown" }); setNotice(""); }
-      if (local) {
-        // Transport failures (including generic server errors) cannot prove that
-        // native input was rejected. Only explicit validation/auth refusals can.
-        const code = cause && typeof cause === "object" && "code" in cause ? String(cause.code) : "";
-        const rejected = ["INVALID_REQUEST", "INVALID_PARAMS", "UNAUTHORIZED", "FORBIDDEN"].includes(code)
-          || /^(A previous rewind is still unconfirmed|An edit is being committed|Sign in to Codex for Office before sending|请发送不超过|每次最多 8 个附件|请先输入消息或添加附件|附件引用无效|附件不属于此会话|Message text must be a string|Invalid composer reference)/.test(message);
-        onSendState?.(threadId, { ...local, delivery: rejected ? "failed" : "unknown", deliveryError: message });
-        if (!rejected) onHistorySync?.(); // Read only; never replay an uncertain send.
-      }
       // The timeline owns this send's feedback and removes it on exact receipt.
       // Other actions and standalone composers still use their existing alert.
-      setError(local && onSendState ? "" : method === "session.edit.commit" ? `Edit outcome is unknown. Text kept; check the conversation before sending again. ${message}` : message);
+      setError(send && onSendState ? "" : method === "session.edit.commit" ? `Edit outcome is unknown. Text kept; check the conversation before sending again. ${message}` : message);
     }
     finally { actionBusy.current = false; setBusy(false); }
   };

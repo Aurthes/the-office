@@ -36,6 +36,7 @@ afterEach(() => { cleanups.splice(0).forEach(close => close()); vi.useRealTimers
 describe("backend-owned automatic recovery", () => {
   it("waits the full 15 seconds, continues once in the same session, and clears the stale error", async () => {
     const f = fixture(), failedStartedAt = f.controls.snapshot("id").activeTurnStartedAt;
+    f.controls.options.usageMetadata = true;
     f.emit("failed");
     expect(f.controls.snapshot("id").activeTurnStartedAt).toBeNull();
     const retryAt = f.controls.snapshot("id").retryAt;
@@ -46,6 +47,7 @@ describe("backend-owned automatic recovery", () => {
     await vi.advanceTimersByTimeAsync(1); expect(f.starts()).toHaveLength(1);
     expect(f.controls.snapshot("id").activeTurnStartedAt).toBe(failedStartedAt + 15000);
     expect(f.starts()[0][1]).toMatchObject({ threadId: "id", input: [{ type: "text", text: "Continue where you left off." }] });
+    expect((f.starts()[0] as unknown[])[2]).toMatchObject({ trigger: "automaticRetry", inheritTurnId: "failed" });
     expect(f.controls.snapshot("id")).toMatchObject({ activeTurnId: "retry-1", error: null, retryAt: null });
     f.emit("completed"); await vi.advanceTimersByTimeAsync(60000); expect(f.starts()).toHaveLength(1);
   });

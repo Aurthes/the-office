@@ -143,7 +143,7 @@ class OfficeSchedules {
         run.status = "dispatching"; run.startedAt = this.now(); this.save();
         try {
           const message = `[Scheduled task: ${run.name}]\nScheduled occurrence: ${new Date(run.scheduledAt).toISOString()}\nActual dispatch: ${new Date(this.now()).toISOString()}\n${run.manual ? "Manual run." : "Use the scheduled occurrence when determining the report window. Late delivery does not change that window."}\n\n${run.prompt}`;
-          const result = await this.send(run.threadId, message, `schedule-${run.id}`);
+          const result = await this.send(run.threadId, message, `schedule-${run.id}`, { purpose: "automation", trigger: "schedule", originId: run.id });
           if (result.status === "busy") { run.status = "waiting"; run.startedAt = null; this.save(); continue; }
           if (result.status !== "started" || !result.turnId) throw new Error("Scheduled message acceptance could not be confirmed");
           run.status = "running"; run.turnId = result.turnId;

@@ -2,7 +2,8 @@
 
 The break room has a clickable **Teaser board**. Selecting the room also offers
 an **Open teaser board** button, including on small screens. The dashboard shows
-all teasers, or filters to Open, In progress and Finished, with completion counts.
+Unfinished by default: In progress first, then Open, with the oldest question
+first in each group. It also offers All, Open, In progress and Finished filters.
 Finished cards keep the question visible and reveal their answer and **Key idea**
 only when expanded. Questions, answers and explanations support Markdown and math.
 
@@ -83,10 +84,10 @@ every 15 seconds and when the page regains focus; closing it stops those request
 
 ## Per-question whiteboards
 
-Each card has a separate Whiteboard button, available even when teaser chat is
+Select a card's title to open its whiteboard, even when teaser chat is
 unavailable. The selected question stays visible beside the plain text editor on
 wide screens; narrow screens stack the question above the editor. The question
-keeps its title-to-chat link and finished-only solution disclosure. Leaving for
+keeps its finished-only solution disclosure. Leaving for
 chat follows the same unsaved-change confirmation and saving guard as closing.
 Save keeps the editor open; reopening
 or reloading reads the saved text from the server. Empty text clears the notes.
@@ -110,3 +111,31 @@ writer is forcibly killed, verify it is gone before removing its leftover lease.
 
 The editor follows the existing Office theme, treats all text as text, and uses
 16px input text on narrow screens. Dashboard refreshes do not replace its draft.
+
+**Save and send solution** first saves the current text with its revision, then
+sends that exact text with the question ID and title to the configured Teaser
+agent. It never sends the official answer or chat attachments/references. Empty
+solutions or messages exceeding 32,000 UTF-8 bytes cannot be sent; notes remain
+editable without truncation. A failed, conflicting or unconfirmed save sends
+nothing. Sending keeps the whiteboard open and shows whether the normal chat
+request started work or steered its running task. **Open Teaser chat** opens that
+same agent, with the usual unsaved-change guard. Existing chat drafts are kept.
+
+Unconfirmed delivery is shown explicitly and is never automatically retried.
+This Office page retains the attempt and request ID across closing/reopening
+the board, and a matching chat receipt can confirm it. This is in-memory state:
+after reloading Office, check the conversation before sending the same text again.
+
+## Agent interface presets
+
+In a session's **More → Interface preset**, choose **Teaser** and save to give
+that agent a **Teaser board** header action (inside More on narrow panels).
+**Standard** has no special action. These are finite UI presets, not execution
+permissions or loadable plugins. The saved preset takes effect after confirmation.
+
+Presets live in private Studio settings at
+`office[gatewayKey].agentInterfaces[agentUUID]`. Renaming an agent preserves its
+preset; a new agent with the same name does not inherit it. Sending requires one
+configured Teaser agent in the complete active Office roster. Missing, multiple,
+archived or unavailable targets disable sending while the whiteboard stays usable.
+Preset changes do not create agents or sessions or alter model/network permissions.

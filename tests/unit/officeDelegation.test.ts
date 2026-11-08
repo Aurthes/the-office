@@ -34,6 +34,15 @@ async function fixture() {
   return { root, store, client, company, manager, worker, peer, graph, saveGraph, settingsFile, todos, deps, runtime, available, canSend, send, create, input, delegate, settle };
 }
 describe("real-session Office delegation", () => {
+  it("tags delivery, manager review and returned execution once, without an accepted-review model call", async () => {
+    const f = await fixture(), task = f.create(); await f.delegate(task.id);
+    const usage = () => (f.send.mock.calls as unknown[][]).at(-1)?.[4];
+    expect(usage()).toMatchObject({ purpose: "collaboration_mixed", trigger: "delegate", originId: activeDelegation(f.todos.raw(task.id)).id });
+    await f.runtime.submit(f.input(task.id, f.worker, { report: "Ready" })); await f.settle(); expect(usage()).toMatchObject({ trigger: "managerReview" });
+    await f.runtime.review(f.input(task.id, f.manager, { accept: false, notes: "Fix it" })); expect(usage()).toMatchObject({ trigger: "returned" });
+    await f.runtime.submit(f.input(task.id, f.worker, { report: "Fixed" })); await f.settle(); const count = f.send.mock.calls.length;
+    await f.runtime.review(f.input(task.id, f.manager, { accept: true, notes: "Verified" })); expect(f.send.mock.calls.length).toBe(count);
+  });
   it("delivers only the new handoff input or report with a usable revision", async () => {
     const f = await fixture(), task = f.create();
     f.todos.change(f.input(task.id, f.manager, { documentation: "Current scope; frozen inputs. Artifact: result.json" }), "edit");

@@ -26,7 +26,7 @@ function fixture(rows = [question(a, "First"), question(b, "Second")]) {
   return { notes, fetcher, replaceRows: (next: Teaser[]) => { rows = next; }, updateRows: () => { rows = rows.map(row => ({ ...row, title: row.title + " updated" })); } };
 }
 const open = async (title = "First") => {
-  fireEvent.click(await screen.findByRole("button", { name: `Open whiteboard: ${title}` }));
+  fireEvent.click(await screen.findByRole("button", { name: title }));
   const input = screen.getByRole("textbox", { name: "Your notes" });
   await waitFor(() => expect(input).toBeEnabled()); return input;
 };
@@ -38,7 +38,7 @@ it("opens without chat availability and keeps two notes, exact text and empty sa
   let view = render(h(TeaserDashboard, props));
   const input = await open();
   expect(screen.getByRole("button", { name: "First" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "First" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "First" })).toBeEnabled();
   expect(screen.getByText("Synthetic question")).toBeVisible();
   expect(screen.getAllByRole("article")).toHaveLength(1);
   const text = "\n  <script>not executable</script>\t\n";
@@ -63,7 +63,7 @@ it("keeps dirty text on Back, close, Escape/cancel and outside dismissal until d
   const dialog = screen.getByRole("dialog"); fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true })); fireEvent.click(dialog);
   expect(input).toHaveValue("Unsent"); expect(close).not.toHaveBeenCalled(); expect(confirm).toHaveBeenCalledTimes(4);
   confirm.mockReturnValue(true); fireEvent.click(screen.getByRole("button", { name: "Back to teasers" }));
-  expect(await screen.findByRole("button", { name: "Open whiteboard: First" })).toBeEnabled(); expect(close).not.toHaveBeenCalled();
+  expect(await screen.findByRole("button", { name: "First" })).toBeEnabled(); expect(close).not.toHaveBeenCalled();
   expect(await open()).toHaveValue("");
 });
 
@@ -84,7 +84,7 @@ it("recovers failed loads and retains text after failed saves", async () => {
     if (init?.method === "PUT" && failSave) throw Error("Offline");
     return original(url, init);
   });
-  render(h(TeaserDashboard, { onClose: vi.fn() })); fireEvent.click(await screen.findByRole("button", { name: "Open whiteboard: First" }));
+  render(h(TeaserDashboard, { onClose: vi.fn() })); fireEvent.click(await screen.findByRole("button", { name: "First" }));
   await screen.findByRole("alert"); expect(screen.getByRole("textbox", { name: "Your notes" })).toBeDisabled();
   failLoad = false; fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   const input = screen.getByRole("textbox", { name: "Your notes" }); await waitFor(() => expect(input).toBeEnabled());
@@ -115,7 +115,7 @@ it("blocks all dismissal and duplicate submission while saving", async () => {
     return original(url, init);
   });
   const close = vi.fn(), openSession = vi.fn(), confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-  render(h(TeaserDashboard, { onClose: close, agents: [{ id: "existing-teaser", name: "teaser" }], onOpenSession: openSession })); const input = await open(); fireEvent.change(input, { target: { value: "Saving draft" } });
+  render(h(TeaserDashboard, { onClose: close, onOpenSession: openSession })); const input = await open(); fireEvent.change(input, { target: { value: "Saving draft" } });
   fireEvent.click(screen.getByRole("button", { name: "Save whiteboard" }));
   expect(screen.getByRole("button", { name: "Back to teasers" })).toBeDisabled(); expect(screen.getByRole("button", { name: "Close teaser board" })).toBeDisabled(); expect(input).toBeDisabled();
   const dialog = screen.getByRole("dialog"); fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true })); fireEvent.click(dialog);
@@ -124,7 +124,7 @@ it("blocks all dismissal and duplicate submission while saving", async () => {
   finish(); await screen.findByText("Whiteboard saved.");
   expect(f.fetcher.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1);
   expect(title).toBeEnabled(); fireEvent.click(title);
-  expect(close).toHaveBeenCalledOnce(); expect(openSession).toHaveBeenCalledExactlyOnceWith("existing-teaser"); expect(confirm).not.toHaveBeenCalled();
+  expect(close).not.toHaveBeenCalled(); expect(openSession).not.toHaveBeenCalled(); expect(confirm).not.toHaveBeenCalled();
 });
 
 
@@ -132,7 +132,7 @@ it("shows the full selected question and math beside notes, with finished-only i
   const first = { ...question(a, "First"), prompt: "Complete opening paragraph.\n\n\\[x^2 + y^2 = z^2\\]\n\nFinal question paragraph.", answer: "Unfinished secret", summary: "Unfinished summary" };
   const finished: Teaser = { ...question(b, "Second"), status: "finished", answer: "Published answer", summary: "Published key idea" };
   const f = fixture([first, finished]), close = vi.fn(), openSession = vi.fn();
-  render(h(TeaserDashboard, { onClose: close, agents: [{ id: "existing-teaser", name: "teaser" }], onOpenSession: openSession }));
+  render(h(TeaserDashboard, { onClose: close, onOpenSession: openSession }));
   await open();
   expect(screen.getByText("Complete opening paragraph.")).toBeVisible(); expect(screen.getByText("Final question paragraph.")).toBeVisible();
   expect(screen.getByRole("article").querySelector(".katex")).not.toBeNull();
@@ -151,13 +151,13 @@ it("shows the full selected question and math beside notes, with finished-only i
   expect(screen.getByRole("textbox", { name: "Your notes" })).toBe(input); expect(input).toHaveValue("Keep this draft");
 });
 
-it("guards title-to-chat navigation with the existing dirty confirmation and close-before-open order", async () => {
+it("treats the current title as a no-op without discarding notes or opening chat", async () => {
   fixture(); const events: string[] = [], confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-  render(h(TeaserDashboard, { onClose: () => events.push("close"), agents: [{ id: "current-teaser", name: " TeAsEr " }], onOpenSession: id => events.push(id) }));
+  render(h(TeaserDashboard, { onClose: () => events.push("close"), onOpenSession: id => events.push(id) }));
   const input = await open(); fireEvent.change(input, { target: { value: "Keep if cancelled" } });
   const title = screen.getByRole("button", { name: "First" }); fireEvent.click(title);
-  expect(confirm).toHaveBeenCalledOnce(); expect(events).toEqual([]); expect(input).toHaveValue("Keep if cancelled");
+  expect(confirm).not.toHaveBeenCalled(); expect(events).toEqual([]); expect(input).toHaveValue("Keep if cancelled");
   expect(screen.getByRole("textbox", { name: "Your notes" })).toBe(input); expect(title).toBeVisible();
   confirm.mockReturnValue(true); fireEvent.click(title);
-  expect(confirm).toHaveBeenCalledTimes(2); expect(events).toEqual(["close", "current-teaser"]);
+  expect(confirm).not.toHaveBeenCalled(); expect(events).toEqual([]); expect(input).toHaveValue("Keep if cancelled");
 });

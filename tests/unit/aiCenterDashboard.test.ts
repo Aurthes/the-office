@@ -4,6 +4,9 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AiCenterDashboard } from "@/features/ring-ship/AiCenterDashboard";
 import type { AiCenterSnapshot, AiProviderSnapshot } from "@/features/ring-ship/ai-center";
 import { UI_LANGUAGE_KEY } from "@/lib/i18n/ui-language";
+// Account-control regressions stay focused here; purpose-preview integration
+// and the complete three-level navigation are exercised in aiUsageDetail.
+vi.mock("@/features/ring-ship/AiPurposeSummary", async importOriginal => ({ ...await importOriginal<typeof import("@/features/ring-ship/AiPurposeSummary")>(), AiPurposePreview: () => null }));
 
 const provider: AiProviderSnapshot = {
   id: "openai", name: "OpenAI", accountLabel: "ChatGPT / Codex", links: { limits: "https://platform.openai.com/settings/organization/limits", usage: "https://platform.openai.com/usage" },

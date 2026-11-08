@@ -177,7 +177,7 @@ describe("Office scheduled conversation tasks", () => {
     expect(task.nextRunAt).toBe(f.config.firstRunAt + 3 * 3600000);
     await f.scheduler.tick(); expect(f.deps.send).toHaveBeenCalledTimes(1);
     f.advance(3600000); await f.scheduler.tick();
-    expect(f.deps.send).toHaveBeenLastCalledWith("other", expect.stringContaining(f.config.prompt), expect.any(String));
+    expect(f.deps.send).toHaveBeenLastCalledWith("other", expect.stringContaining(f.config.prompt), expect.any(String), { purpose: "automation", trigger: "schedule", originId: task.runs[1].id });
     expect(task.runs[0]).toEqual(originalRun);
     expect(task.runs[1]).toMatchObject({ threadId: "other", status: "running" });
   });

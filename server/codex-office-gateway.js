@@ -16,7 +16,7 @@ const { loadSessionHistoryPage } = require("./codex-session-history");
 const { createOfficeDictation } = require("./office-model-services");
 const { CodexSessionPredictions } = require("./codex-session-predictions");
 const { readAiCenter } = require("./ai-center");
-const { OfficeTokenUsage } = require("./office-token-usage");
+const { OfficeTokenUsage, userUsage } = require("./office-token-usage");
 const { consumeOpenAiResetCredit } = require("./ai-center-openai");
 const { questionReplyMessage } = require("./codex-session-questions");
 const { OfficeTodos, activeDelegation, handlingAgentId } = require("./office-todos");
@@ -72,7 +72,7 @@ tokenUsage = new OfficeTokenUsage({ directory, home: native.home, sessions: () =
   resolveSource: async threadId => (await native.call("thread/read", { threadId, includeTurns: false })).thread?.path,
 });
 store.onTurnDispatch = value => tokenUsage.bindTurn(value);
-controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features, replyContext,
+controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features, replyContext, usageMetadata: true,
   changed: id => { stream?.changed(id); changed(); },
   editBlocked: id => voice?.active?.threadId === id || store.starting.has(id),
   history: {
@@ -97,7 +97,7 @@ controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { s
 stream = new CodexSessionStream(controls);
 const capture = new OfficeCapture({ stream, store, controls, directory });
 features.capture = true;
-const predictions = new CodexSessionPredictions(store, controls);
+const predictions = new CodexSessionPredictions(store, controls, { sample: value => tokenUsage.recordSample(value), unavailable: () => tokenUsage.sampleUnavailable() });
 workspace = new CodexSessionWorkspace(native, { commandExec: true, policy: id => store.overrides(id).sandboxPolicy, roots: row => store.sessionFolders(row) });
 composer = new CodexSessionComposer(store, workspace); controls.options.composer = composer;
 const messageSearch = new CodexMessageSearch(store, replyContext);
@@ -125,7 +125,7 @@ schedules = new OfficeSchedules(directory, {
     if (store.isBusy(id) || controls.approvalCount(id) || controls.questions(id).some(q => !q.submitted)) return false;
     return (await account()).loggedIn;
   },
-  send: (id, message, requestId) => controls.send(id, message, requestId, [], { onlyIfIdle: true }),
+  send: (id, message, requestId, usage) => controls.send(id, message, requestId, [], { onlyIfIdle: true, usage }),
 });
 todos = new OfficeTodos(directory, { projects: () => store.projects(), agents, replyContext: id => controls.state(id).activeTurnId ? replyContext.forTask(id, controls.state(id).activeTurnId) : null, changed: id => broadcast("todos.updated", { id }) });
 composer.todos = todos;
@@ -151,7 +151,7 @@ delegation = new OfficeDelegation({ store, todos, company, stopping: () => stopp
     return !store.isBusy(id) && !store.starting.has(id) && !controls.state(id).retry && !controls.state(id).recovery.stopped
       && !store.pendingQuestions(id).length && !controls.approvalCount(id) && !controls.questions(id).some(q => !q.submitted) && (await account()).loggedIn;
   },
-  send: (id, message, requestId, context) => controls.send(id, message, requestId, [], { onlyIfIdle: true, replyContext: context }),
+  send: (id, message, requestId, context, usage) => controls.send(id, message, requestId, [], { onlyIfIdle: true, replyContext: context, usage }),
 });
 const methods = {
   "question.context": p => { store.get(p.actorId); return replyContext.context(p.actorId, p); },
@@ -183,7 +183,7 @@ const methods = {
     if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "sending");
     todos.startForAgent(recipient, row.id);
     try {
-      const result = await controls.send(recipient, taskNotification(todos.raw(row.id)), p.requestId, [], { onlyIfIdle: true, replyContext: entry?.replyContext || taskReplyContext(row) });
+      const result = await controls.send(recipient, taskNotification(todos.raw(row.id)), p.requestId, [], { onlyIfIdle: true, replyContext: entry?.replyContext || taskReplyContext(row), usage: { purpose: "collaboration_mixed", trigger: "todoRun", originId: entry?.id || row.id } });
       if (result.status === "busy") throw new Error("Agent became busy; the task was not sent");
       if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "sent");
       return { id: row.id, threadId: recipient };
@@ -243,7 +243,7 @@ const methods = {
   "session.capture.ack": (p, ws) => capture.ack(ws, p),
   "session.subscribe": (p, ws) => { store.get(p.threadId); return stream.subscribe(ws, p.threadId, p.subscriptionId); },
   "session.unsubscribe": (p, ws) => stream.unsubscribe(ws, p.subscriptionId),
-  "session.send": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, p.message, p.requestId, p.attachments, { references: p.references || [] }); store.clearQuestions(p.threadId, pending); return result; },
+  "session.send": async p => { const usage = userUsage(p.sourcePurpose); store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, p.message, p.requestId, p.attachments, { references: p.references || [], usage }); store.clearQuestions(p.threadId, pending); return result; },
   "session.edit.prepare": p => { store.get(p.threadId); return controls.prepareEdit(p.threadId); },
   "session.edit.commit": async p => {
     store.get(p.threadId);
@@ -265,7 +265,7 @@ const methods = {
     const request = store.pendingQuestions(p.threadId).find(q => q.requestId === p.promptId);
     if (!request) { const result = controls.replyQuestions(p.threadId, p.promptId, p.answers); changed(); return result; }
     if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before answering");
-    const result = await controls.send(p.threadId, questionReplyMessage(request, p.answers), p.requestId);
+    const result = await controls.send(p.threadId, questionReplyMessage(request, p.answers), p.requestId, [], { usage: { purpose: "chat_work", trigger: "questionReply" } });
     store.clearQuestions(p.threadId, [request.requestId]); return result;
   },
   "session.approval.reply": p => { store.get(p.threadId); const result = controls.reply(p.threadId, p.requestId, p.decision); changed(); return result; },
