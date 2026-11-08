@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const require = createRequire(import.meta.url);
 const { OfficeTodos, activeDelegation } = require("../../server/office-todos");
 const { CodexOfficeStore } = require("../../server/codex-office-store");
+const { CodexSessionControls } = require("../../server/codex-session-controls");
 const { OfficeCompany } = require("../../server/office-company");
 const { OfficeDelegation } = require("../../server/office-delegation");
 const { ceo: CEO } = require("../../src/lib/office/identities.json");
@@ -26,7 +27,15 @@ async function fixture() {
   const deps = { projects: () => store.projects(), agents: () => store.list(), now: () => now };
   const todos = new OfficeTodos(path.join(root, "office"), deps);
   store.todoContext = (id: string) => todos.context(id); store.companyContext = (id: string) => company.forTurn(id);
-  store.onTurnDispatch = (value: unknown) => todos.recordTurn(value);
+  const controls = new CodexSessionControls(store);
+  store.onTurnDispatch = (value: { agentId: string; turnId: string }) => {
+    const state = controls.state(value.agentId); todos.recordTurn(value, state.lastTurnId === value.turnId ? state : store.get(value.agentId));
+  };
+  const nativeFrame = (method: string, agentId: string, turnId: string, status = "completed") => {
+    const mapped = store.handle({ method, params: { threadId: store.get(agentId).codexThreadId, turn: { id: turnId, status } } });
+    controls.handle(mapped);
+    if (method === "turn/completed") todos.finishTurn(mapped.params.threadId, mapped.params.turn.status, mapped.params.turn.id);
+  };
   const available = new Map<string, boolean>();
   const send = vi.fn(async (id: string, message: string, requestId: string, context: unknown, usage: unknown) => {
     const result = await store.call("turn/start", { threadId: id, input: [{ type: "text", text: message }] }, usage);
@@ -42,7 +51,7 @@ async function fixture() {
   const submit = (phaseId: string, actorId: string) => runtime.submit(input(phaseId, actorId, { handoffId: entry(phaseId).id, report: `Evidence for ${phaseId}` }));
   const review = (phaseId: string, actorId = owner, accept = true) => runtime.review(input(phaseId, actorId, { handoffId: entry(phaseId).id, accept, notes: "Verified evidence" }));
   const settle = async () => { await new Promise(resolve => setImmediate(resolve)); };
-  return { root, store, client, company, todos, deps, runtime, owner, a, b, c, task, pa, pb, pc, input, delegate, entry, phase, submit, review, available, send, settle, advance: (ms: number) => { now += ms; } };
+  return { root, store, client, company, todos, deps, runtime, nativeFrame, owner, a, b, c, task, pa, pb, pc, input, delegate, entry, phase, submit, review, available, send, settle, advance: (ms: number) => { now += ms; } };
 }
 describe("independent phase execution through actual dispatch callbacks", () => {
   it("delivers A and B concurrently to real fixture sessions, preserves B when A pauses/accepts, and never starts C", async () => {
@@ -192,4 +201,74 @@ it("preserves the original acceptance manager when explicitly converting a pause
   expect(() => f.todos.change({ id: old.id, revision: f.todos.raw(old.id).revision, actorId: f.a, phaseId: old.phases[0].id }, "complete")).toThrow(/manager/);
   f.todos.change({ id: old.id, revision: f.todos.raw(old.id).revision, actorId: f.owner, phaseId: old.phases[0].id }, "complete");
   expect(f.todos.raw(old.id).archived).toBe(true);
+});
+
+it("lets an Owner run legacy work while its report executes a phase, at both legacy switching entry points", async () => {
+  const f = await fixture(); await f.delegate(f.pa, f.a); const worker = structuredClone(f.phase(f.pa));
+  const legacy = (name: string, agentId = f.owner) => f.todos.create({ requestId: name, title: name, actorId: agentId, assigneeId: agentId, phases: [{ title: "Execute" }] }).todo;
+  const b = legacy("Legacy B"); f.todos.startForAgent(f.owner, b.id);
+  expect(f.todos.raw(b.id).status).toBe("running"); expect(f.phase(f.pa)).toEqual(worker);
+  const c = legacy("Legacy C"); f.todos.change({ id: c.id, revision: c.revision, actorId: f.owner }, "start");
+  expect(f.todos.raw(c.id).status).toBe("running"); expect(f.todos.raw(b.id).status).toBe("paused"); expect(f.phase(f.pa)).toEqual(worker);
+  const a = legacy("Legacy A", f.a);
+  expect(() => f.todos.startForAgent(f.a, a.id)).toThrow(/already working on another phase/);
+  expect(() => f.todos.change({ id: a.id, revision: a.revision, actorId: f.a }, "start")).toThrow(/already working on another phase/);
+  expect(f.phase(f.pa)).toEqual(worker);
+});
+it.each(["before ACK", "after ACK"])("ignores an old phase completion %s of a later legacy dispatch through actual store callbacks", async order => {
+  const f = await fixture(); await f.runtime.run(f.input(f.pc)); const oldTurn = f.phase(f.pc).activity.turnId;
+  f.todos.change(f.input(f.pc), "pause");
+  const legacy = f.todos.create({ requestId: "legacy-new", title: "Legacy", actorId: f.owner, assigneeId: f.owner, phases: [{ title: "Execute" }] }).todo;
+  const complete = (turnId: string) => f.nativeFrame("turn/completed", f.owner, turnId);
+  f.todos.startForAgent(f.owner, legacy.id, undefined, "legacy-dispatch");
+  const original = f.client.call.getMockImplementation()!;
+  f.client.call.mockImplementation(async method => {
+    const result = await original(method);
+    if (method === "turn/start") { f.nativeFrame("turn/started", f.owner, (result as { turn: { id: string } }).turn.id, "inProgress"); if (order === "before ACK") complete(oldTurn); }
+    return result;
+  });
+  const result = await f.store.call("turn/start", { threadId: f.owner, input: [] });
+  if (order === "after ACK") complete(oldTurn);
+  expect(f.todos.context(f.owner).todoId).toBe(legacy.id); expect(f.todos.raw(legacy.id).status).toBe("running");
+  expect(f.todos.raw(legacy.id).activity.turnId).toBe(result.turn.id);
+  complete(result.turn.id); expect(f.todos.raw(legacy.id).status).toBe("paused"); expect(f.phase(f.pc).startedAt).toBeNull();
+  expect(f.todos.context(f.owner).todoId).toBe(legacy.id);
+});
+it("records legacy completion before ACK, then rejects its old dispatch failure after another legacy switch", async () => {
+  const f = await fixture(); await f.delegate(f.pa, f.a); const worker = structuredClone(f.phase(f.pa));
+  await f.runtime.run(f.input(f.pc)); const oldPhaseTurn = f.phase(f.pc).activity.turnId; f.todos.change(f.input(f.pc), "pause");
+  const create = (name: string) => f.todos.create({ requestId: name, title: name, actorId: f.owner, assigneeId: f.owner, phases: [{ title: "Execute" }] }).todo;
+  const legacy = create("fast-legacy"), original = f.client.call.getMockImplementation()!;
+  f.todos.startForAgent(f.owner, legacy.id, undefined, "fast-request");
+  f.client.call.mockImplementation(async method => {
+    const result = await original(method);
+    if (method === "turn/start") {
+      const turnId = (result as { turn: { id: string } }).turn.id;
+      f.nativeFrame("turn/started", f.owner, turnId, "inProgress"); f.nativeFrame("turn/completed", f.owner, turnId);
+      f.nativeFrame("turn/completed", f.owner, oldPhaseTurn);
+    }
+    return result;
+  });
+  await f.store.call("turn/start", { threadId: f.owner, input: [] });
+  expect(f.todos.raw(legacy.id).status).toBe("paused"); expect(f.phase(f.pa)).toEqual(worker);
+  const newer = create("newer-legacy"); f.todos.startForAgent(f.owner, newer.id, undefined, "new-request");
+  f.runtime.pauseAttempt(legacy.id, undefined, f.owner, "fast-request", "Late old dispatch failure");
+  expect(f.todos.raw(newer.id).status).toBe("running"); expect(f.phase(f.pa)).toEqual(worker);
+});
+it("changes local legacy dispatch identity without adding another context injection", async () => {
+  const f = await fixture(), task = f.todos.create({ requestId: "legacy-context", title: "Legacy", actorId: f.owner, assigneeId: f.owner, phases: [{ title: "Execute" }] }).todo;
+  f.todos.startForAgent(f.owner, task.id, undefined, "first-request");
+  await f.store.call("turn/start", { threadId: f.owner, input: [] });
+  const first = f.todos.raw(task.id).activity.turnId;
+  f.todos.finishTurn(f.owner, "completed", first);
+  f.todos.startForAgent(f.owner, task.id, undefined, "second-request");
+  await f.store.call("turn/start", { threadId: f.owner, input: [] });
+  expect(f.todos.raw(task.id).activity).toMatchObject({ requestId: "second-request" }); expect(f.todos.raw(task.id).activity.turnId).not.toBe(first);
+  expect(f.client.call.mock.calls.map(c => c[0])).toEqual(["thread/start", "thread/inject_items", "turn/start", "turn/start"]);
+  expect(JSON.stringify(f.client.call.mock.calls)).not.toContain("first-request"); expect(JSON.stringify(f.client.call.mock.calls)).not.toContain("second-request");
+  const secondTurn = f.todos.raw(task.id).activity.turnId;
+  f.todos.change({ id: task.id, revision: f.todos.raw(task.id).revision, actorId: f.owner }, "start");
+  const context = f.todos.context(f.owner); expect(context.activityId).not.toBe("second-request");
+  f.todos.recordTurn({ ...context, taskId: task.id, turnId: secondTurn }); f.todos.finishTurn(f.owner, "completed", secondTurn);
+  expect(f.todos.raw(task.id).status).toBe("paused");
 });

@@ -230,7 +230,8 @@ class CodexOfficeStore {
       const dispatchBinding = starting ? { taskId: dispatchTasks?.todoId, phaseId: dispatchTasks?.runningPhaseId,
         handoffId: dispatchTasks?.handoffId, activityId: dispatchTasks?.activityId, activityRole: dispatchTasks?.activityRole,
         questionIds: Array.isArray(dispatchQuestions?.answering) ? [...dispatchQuestions.answering] : [] } : null;
-      const context = starting ? JSON.stringify({ project: row.projectId == null ? "Open Workspace" : this.project(row.projectId).name, workingDirectory: row.workspace, folders: this.sessionFolders(row), ...(dispatchTasks ? { tasks: dispatchTasks } : {}), ...(this.companyContext ? { company: dispatchCompany } : {}) }) : null;
+      // Dispatch identity stays local; nonce changes must not churn model context.
+      const context = starting ? JSON.stringify({ project: row.projectId == null ? "Open Workspace" : this.project(row.projectId).name, workingDirectory: row.workspace, folders: this.sessionFolders(row), ...(dispatchTasks ? { tasks: { ...dispatchTasks, activityId: undefined, activityRole: undefined } } : {}), ...(this.companyContext ? { company: dispatchCompany } : {}) }) : null;
       const questions = dispatchQuestions ? JSON.stringify({ questions: dispatchQuestions }) : null;
       const overrides = starting ? this.overrides(row.id) : null;
       const voiceSettings = voiceStarting ? { cwd: row.workspace, sandbox: ACCESS[row.settings.accessMode].sandbox, approvalPolicy: overrides.approvalPolicy,

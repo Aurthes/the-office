@@ -71,9 +71,9 @@ tokenUsage = new OfficeTokenUsage({ directory, home: native.home, sessions: () =
   resolveSource: async threadId => (await native.call("thread/read", { threadId, includeTurns: false })).thread?.path,
 });
 store.onTurnDispatch = value => {
-  tokenUsage.bindTurn(value); todos?.recordTurn(value);
-  const session = store.get(value.agentId);
-  if (session.lastTurnId === value.turnId && ["completed", "failed", "interrupted"].includes(session.turnStatus)) todos?.finishTurn(value.agentId, session.turnStatus, value.turnId);
+  tokenUsage.bindTurn(value);
+  const state = controls?.state(value.agentId);
+  todos?.recordTurn(value, state?.lastTurnId === value.turnId ? state : store.get(value.agentId));
 };
 controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features, replyContext, usageMetadata: true,
   changed: id => { stream?.changed(id); changed(); },
@@ -171,11 +171,11 @@ const methods = {
   },
   ...Object.fromEntries(["edit", "start", "pause", "complete", "reopen", "archive", "restore"].map(action => [`todo.${action}`, p => {
     const result = todos.change(p, action);
-    if (action === "start" && p.actorId && isPhaseTask(result.todo)) {
+    if (p.actorId && result.todo.status === "running" && (action === "start" || !isPhaseTask(result.todo))) {
       const context = todos.context(p.actorId), turnId = controls.state(p.actorId).activeTurnId;
-      if (context.todoId === result.todo.id && context.runningPhaseId === p.phaseId && turnId) {
-        todos.recordTurn({ agentId: p.actorId, taskId: result.todo.id, phaseId: p.phaseId, ...context, activityRole: context.activityRole, turnId });
-        replyContext.bindTask(p.actorId, result.todo, turnId, p.phaseId);
+      if (context.todoId === result.todo.id && (!isPhaseTask(result.todo) || context.runningPhaseId === p.phaseId) && turnId) {
+        todos.recordTurn({ agentId: p.actorId, taskId: result.todo.id, phaseId: isPhaseTask(result.todo) ? p.phaseId : undefined, ...context, activityRole: context.activityRole, turnId });
+        if (action === "start") replyContext.bindTask(p.actorId, result.todo, turnId, isPhaseTask(result.todo) ? p.phaseId : undefined);
       }
     }
     return result;
@@ -192,13 +192,13 @@ const methods = {
     if (todos.raw(p.id).revision !== p.revision) throw new Error("This to-do changed. Refresh it before starting");
     const delivery = activeDelegation(row)?.delivery;
     if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "sending");
-    todos.startForAgent(recipient, row.id);
+    todos.startForAgent(recipient, row.id, undefined, p.requestId);
     try {
       const result = await controls.send(recipient, taskNotification(todos.raw(row.id)), p.requestId, [], { onlyIfIdle: true, replyContext: entry?.replyContext || taskReplyContext(row), usage: { purpose: "collaboration_mixed", trigger: "todoRun", originId: entry?.id || row.id } });
       if (result.status === "busy") throw new Error("Agent became busy; the task was not sent");
       if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "sent");
       return { id: row.id, threadId: recipient };
-    } catch (error) { if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "uncertain", error.message); todos.finishTurn(recipient, "failed to start"); throw error; }
+    } catch (error) { if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "uncertain", error.message); delegation.pauseAttempt(row.id, undefined, recipient, p.requestId, "failed to start"); throw error; }
   }),
   "office.account": account,
   "office.usage": () => readAiCenter(native),

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeft, Check, ClipboardList, List, ListTree, MessageSquare, Pause, Play, Plus, RefreshCw, X } from "lucide-react";
+import { GatewayResponseError } from "@/lib/gateway/errors";
 import type { GatewayClient } from "@/lib/gateway/GatewayClient";
 import { useUiText } from "@/lib/i18n/ui-language";
 import "./task-board.css";
@@ -93,7 +94,10 @@ export function TaskBoard({ open, departmentId, taskId, onClose, onOpenSession, 
     if (!client || !connected || mutation.current.has(scopeKey)) return null;
     const key = JSON.stringify({ method, params: { ...params, revision: undefined } });
     const previous = request.current.get(scopeKey);
-    if (previous && previous.key !== key) { setError(t("Delivery outcome uncertain. Check the conversation before retrying.")); return null; }
+    if (previous && previous.key !== key) {
+      const message = t("Delivery outcome uncertain. Check the conversation before retrying.");
+      if (params.phaseId) setPhaseErrors(old => ({ ...old, [scopeKey]: message })); else setError(message); return null;
+    }
     const operation = previous || { key, id: crypto.randomUUID(), params }; request.current.set(scopeKey, operation);
     mutation.current.add(scopeKey);
     if (params.phaseId) { setPhaseBusy(new Set(mutation.current)); setPhaseErrors(old => ({ ...old, [scopeKey]: "" })); }
@@ -105,7 +109,10 @@ export function TaskBoard({ open, departmentId, taskId, onClose, onOpenSession, 
       return result;
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Could not save task. Refresh before retrying.";
-      if (/busy|Sign in|Assign an agent|changed|Choose an unfinished|Choose an explicit/.test(message)) request.current.delete(scopeKey);
+      const uncertain = /timed?\s*out|timeout|disconnect|connection (?:closed|lost)|unknown|uncertain|operation (?:was submitted|ID conflict)/i.test(message);
+      const refused = cause instanceof GatewayResponseError && cause.code === "INVALID_REQUEST"
+        || /busy|Sign in|Assign (?:an agent|an Owner)|changed|Choose (?:an unfinished|an explicit|this agent)|Delegate only to an existing direct report|Only (?:the |this phase's )/.test(message);
+      if (!uncertain && refused) request.current.delete(scopeKey);
       if (active.current) { if (params.phaseId) setPhaseErrors(old => ({ ...old, [scopeKey]: message })); else setError(message); setPulse(value => value + 1); } return null;
     } finally { mutation.current.delete(scopeKey); if (params.phaseId) setPhaseBusy(new Set(mutation.current)); else setSaving(false); }
   };

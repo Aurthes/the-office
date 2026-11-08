@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { GatewayResponseError } from "@/lib/gateway/errors";
 import type { GatewayClient } from "@/lib/gateway/GatewayClient";
 import { TaskBoard, type OfficeTodo } from "@/features/ring-ship/TaskBoard";
 import { setUiLanguage } from "@/lib/i18n/ui-language";
@@ -250,4 +251,47 @@ it("keeps phase dispatch unavailable without an Owner and only offers conversion
   expect(f.call.mock.calls.every(([method]) => method !== "todo.run")).toBe(true);
   cleanup(); fixture(undefined, {}, "todo"); fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
   expect(screen.getByRole("button", { name: "Assign phases independently" })).toBeDisabled();
+});
+it("allows correcting a phase assignee after a definitive non-direct-report refusal", async () => {
+  const f = phaseFixture(), original = f.call.getMockImplementation()!;
+  f.call.mockImplementation(async (method, params) => {
+    const p = params as { phases?: { id: string; assigneeId?: string | null }[] };
+    if (method === "todo.run" && f.todo.phases[0].assigneeId === "bob") throw new GatewayResponseError({ code: "UNAVAILABLE", message: "Delegate only to an existing direct report" });
+    if (method === "todo.edit") { f.todo.phases = f.todo.phases.map(phase => ({ ...phase, ...(p.phases?.find(item => item.id === phase.id)?.assigneeId !== undefined ? { assigneeId: p.phases!.find(item => item.id === phase.id)!.assigneeId } : {}) })); f.todo.revision++; }
+    const result = await original(method, params) as object;
+    return method === "todo.list" ? { ...result, agents: [{ id: "alice", name: "Alice" }, { id: "bob", name: "Bob" }] } : result;
+  });
+  const select = await screen.findByRole("combobox", { name: "Assignee: Teaser" });
+  const refresh = screen.getByRole("button", { name: "Refresh task board" });
+  await waitFor(() => expect(refresh).not.toBeDisabled()); fireEvent.click(refresh);
+  await within(select).findByRole("option", { name: "Bob" });
+  fireEvent.change(select, { target: { value: "bob" } });
+  await waitFor(() => expect(select).toHaveValue("bob")); await waitFor(() => expect(select).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: "Start with agent: Teaser" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Delegate only to an existing direct report");
+  await waitFor(() => expect(select).not.toBeDisabled()); fireEvent.change(select, { target: { value: "alice" } });
+  await waitFor(() => expect(f.call.mock.calls.filter(([method]) => method === "todo.edit")).toHaveLength(2));
+  await waitFor(() => expect(select).toHaveValue("alice")); await waitFor(() => expect(select).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: "Start with agent: Teaser" }));
+  await waitFor(() => expect(f.call.mock.calls.filter(([method]) => method === "todo.run")).toHaveLength(2));
+  const sends = f.call.mock.calls.filter(([method]) => method === "todo.run").map(([, p]) => p as { requestId: string });
+  expect(sends[1].requestId).not.toBe(sends[0].requestId); expect(screen.queryByText(/Delivery outcome uncertain/)).toBeNull();
+});
+it.each([
+  new Error("Request timed out; delivery unknown"),
+  new Error("Gateway connection closed"),
+  new GatewayResponseError({ code: "UNAVAILABLE", message: "This agent is busy; dispatch outcome uncertain" }),
+  new GatewayResponseError({ code: "INVALID_REQUEST", message: "Unknown dispatch outcome" }),
+])("keeps the original intent/ID after uncertainty: %s", async failure => {
+  const f = phaseFixture(); await screen.findByRole("button", { name: "Start with agent: Teaser" });
+  const original = f.call.getMockImplementation()!; let first = true;
+  f.call.mockImplementation(async (method, params) => { if (method === "todo.run" && first) { first = false; throw failure; } return original(method, params); });
+  fireEvent.click(screen.getByRole("button", { name: "Start with agent: Teaser" })); await screen.findByRole("alert");
+  const select = screen.getByRole("combobox", { name: "Assignee: Teaser" }); await waitFor(() => expect(select).not.toBeDisabled());
+  fireEvent.change(select, { target: { value: "" } });
+  expect(f.call.mock.calls.filter(([method]) => method === "todo.edit")).toHaveLength(0);
+  fireEvent.click(screen.getByRole("button", { name: "Start with agent: Teaser" }));
+  await waitFor(() => expect(f.call.mock.calls.filter(([method]) => method === "todo.run")).toHaveLength(2));
+  const calls = f.call.mock.calls.filter(([method]) => method === "todo.run"); expect(calls[1][1]).toEqual(calls[0][1]);
+  await waitFor(() => expect(screen.queryByText(/Delivery outcome uncertain/)).toBeNull());
 });

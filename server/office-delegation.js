@@ -98,17 +98,16 @@ class OfficeDelegation {
   }
   pauseAttempt(id, phaseId, recipient, requestId, reason) {
     const row = this.todos.raw(id);
-    if (!isPhaseTask(row)) return this.todos.finishTurn(recipient, reason);
+    if (!isPhaseTask(row)) {
+      if (row.activity?.agentId !== recipient || row.activity.requestId !== requestId || this.todos.bound(recipient)?.id !== row.id) return;
+      return this.todos.change({ id, revision: row.revision, source: "system", reason }, "pause");
+    }
     if (row.phases.find(p => p.id === phaseId)?.activity?.requestId !== requestId) return;
     this.todos.change({ id, phaseId, activityId: requestId, revision: row.revision, source: "system", reason }, "pause");
   }
   bindResult(id, phaseId, recipient, requestId, result) {
     const row = this.todos.raw(id), a = row.phases.find(p => p.id === phaseId)?.activity;
-    if (a) {
-      this.todos.recordTurn({ agentId: recipient, taskId: id, phaseId, activityId: requestId, activityRole: a.role, handoffId: a.handoffId, turnId: result.turnId });
-      const session = this.store.get(recipient);
-      if (session.lastTurnId === result.turnId && ["completed", "failed", "interrupted"].includes(session.turnStatus)) this.todos.finishTurn(recipient, session.turnStatus, result.turnId);
-    }
+    if (a) this.todos.recordTurn({ agentId: recipient, taskId: id, phaseId, activityId: requestId, activityRole: a.role, handoffId: a.handoffId, turnId: result.turnId }, this.store.get(recipient));
   }
   async run(input) {
     if (Object.hasOwn(this.store.data.requests, input.requestId || "")) return this.store.once(input, () => {});
