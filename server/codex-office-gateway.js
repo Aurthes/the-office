@@ -8,7 +8,6 @@ const { CodexOfficeClient, officeEnvironment } = require("./codex-office-client"
 const { CodexOfficeAccount } = require("./codex-office-account");
 const { CodexOfficeStore } = require("./codex-office-store");
 const { CodexSessionControls } = require("./codex-session-controls");
-const { OfficeCapture } = require("./office-capture");
 const { CodexSessionStream } = require("./codex-session-stream");
 const { CodexSessionWorkspace } = require("./codex-session-workspace");
 const { CodexOfficeVoice } = require("./codex-office-voice");
@@ -95,8 +94,6 @@ controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { s
     && (await account()).loggedIn,
 });
 stream = new CodexSessionStream(controls);
-const capture = new OfficeCapture({ stream, store, controls, directory });
-features.capture = true;
 const predictions = new CodexSessionPredictions(store, controls, { sample: value => tokenUsage.recordSample(value), unavailable: () => tokenUsage.sampleUnavailable() });
 workspace = new CodexSessionWorkspace(native, { commandExec: true, policy: id => store.overrides(id).sandboxPolicy, roots: row => store.sessionFolders(row) });
 composer = new CodexSessionComposer(store, workspace); controls.options.composer = composer;
@@ -238,9 +235,6 @@ const methods = {
   "session.messageContext": p => messageSearch.context(p),
   "session.inspect": async p => { store.get(p.threadId); return { ...store.list().find(row => row.id === p.threadId), historyEpoch: controls.state(p.threadId).historyEpoch, statusSource: "Office Codex runtime", runtime: "office", terminalAvailable: true, readOnly: false, controlsAvailable: native.ready, ...(p.includeHistory === false ? {} : await history(p.threadId)) }; },
   "session.attach": async p => { store.get(p.threadId); await controls.attach(p.threadId); return controls.snapshot(p.threadId); },
-  "session.capture.bind": (p, ws) => capture.bind(ws, p),
-  "session.capture.resume": (p, ws) => capture.resume(ws, p),
-  "session.capture.ack": (p, ws) => capture.ack(ws, p),
   "session.subscribe": (p, ws) => { store.get(p.threadId); return stream.subscribe(ws, p.threadId, p.subscriptionId); },
   "session.unsubscribe": (p, ws) => stream.unsubscribe(ws, p.subscriptionId),
   "session.send": async p => { const usage = userUsage(p.sourcePurpose); store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, p.message, p.requestId, p.attachments, { references: p.references || [], usage }); store.clearQuestions(p.threadId, pending); return result; },
@@ -297,7 +291,6 @@ dictate = createOfficeDictation({ token, findThread: id => store.get(id), home: 
   },
 });
 const server = http.createServer((req, res) => {
-  if (req.url?.startsWith("/capture/")) return void capture.http(req, res);
   if (req.method === "POST" && req.url?.split("?")[0] === "/dictation") return void dictate(req, res);
   const { rules, defaults, warnings } = native.profile;
   res.writeHead(native.ready ? 200 : 503, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: native.ready, runtime: "Office-owned Codex", agents: store.list().length, readOnly: false, features, configuration: { rules, defaults, extraSkillRoots: native.profile.skillRoots.length, warnings } }));
@@ -317,7 +310,7 @@ wss.on("connection", ws => {
         if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) throw new Error("Invalid gateway token");
         if (!native.ready) throw new Error("Office Codex is starting");
         connected = true; clients.add(ws);
-        result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "office-codex-1", connId: crypto.randomUUID() }, features: { methods: Object.keys(methods), events: ["tick", "session.stream", "session.historyReset", "session.capture.prepare", "session.capture.ready", "session.capture.failed", "session.capture.unbound", "session.terminal", "session.voice", "roster.updated", "project.updated", "office.account", "session.prediction", "schedules.updated", "todos.updated"] }, snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: store.list()[0]?.id }, sessionDefaults: { mainKey: "main" } }, auth: { role: "operator", scopes: ["operator.read", "operator.write", "operator.approvals"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
+        result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "office-codex-1", connId: crypto.randomUUID() }, features: { methods: Object.keys(methods), events: ["tick", "session.stream", "session.historyReset", "session.terminal", "session.voice", "roster.updated", "project.updated", "office.account", "session.prediction", "schedules.updated", "todos.updated"] }, snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: store.list()[0]?.id }, sessionDefaults: { mainKey: "main" } }, auth: { role: "operator", scopes: ["operator.read", "operator.write", "operator.approvals"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
       } else {
         if (!connected) throw new Error("Connect first");
         if (!Object.hasOwn(methods, frame.method)) throw new Error("This feature is not available in Office");
@@ -327,12 +320,12 @@ wss.on("connection", ws => {
       send({ type: "res", id: frame.id, ok: true, payload: result });
     } catch (error) { send({ type: "res", id: frame.id, ok: false, error: { code: "UNAVAILABLE", message: error.message } }); }
   });
-  ws.on("close", () => { clients.delete(ws); capture.disconnected(ws); voice.disconnected(ws); stream.disconnected(ws); workspace.disconnected(ws); }); ws.on("error", () => { clients.delete(ws); capture.disconnected(ws); voice.disconnected(ws); stream.disconnected(ws); workspace.disconnected(ws); });
+  ws.on("close", () => { clients.delete(ws); voice.disconnected(ws); stream.disconnected(ws); workspace.disconnected(ws); }); ws.on("error", () => { clients.delete(ws); voice.disconnected(ws); stream.disconnected(ws); workspace.disconnected(ws); });
 });
 const checkpoint = setInterval(() => { try { todos.checkpoint(); } catch (error) { console.error("Could not save task timer:", error.message); } }, 15000); checkpoint.unref();
 const tick = setInterval(() => broadcast("tick", { ts: Date.now() }), 30000); tick.unref();
 async function close(code = 0) {
-  if (stopping) return; stopping = true; clearInterval(tick); clearInterval(checkpoint); todos?.close(); clearTimeout(rosterTimer); dictate.close(); schedules.close(); controls.close(); capture.close();
+  if (stopping) return; stopping = true; clearInterval(tick); clearInterval(checkpoint); todos?.close(); clearTimeout(rosterTimer); dictate.close(); schedules.close(); controls.close();
   for (const ws of clients) { stream.disconnected(ws); ws.close(1001, "Office stopping"); }
   wss.close(); server.close(); await tokenUsage.close(); await workspace.close(); await native.close(); process.exitCode = code;
 }
@@ -356,7 +349,6 @@ native.initialize().then(() => {
   void account().catch(() => {});
   restoredSessionStates = restoreSessionStates();
   server.listen(Number(process.env.CODEX_ADAPTER_PORT || 18790), "127.0.0.1", () => {
-    capture.configure(server.address().port);
     schedules.start();
     console.log(`[office-codex] Configuration discovered: ${native.profile.rules.filter(r => r.status === "shared").length} shared rule files, ${native.profile.defaults.length} inherited defaults`);
     for (const warning of native.profile.warnings) console.warn(`[office-codex] ${warning}`);

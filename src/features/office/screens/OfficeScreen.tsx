@@ -885,7 +885,6 @@ export function OfficeScreen({
   } };
   const [companyCreationAvailable, setCompanyCreationAvailable] = useState(false);
   const OfficeScene = sessionView ? RingShipOffice : RetroOffice3D;
-  const [captureExplicitChat, setCaptureExplicitChat] = useState<string | null>(null);
   const [selectedChatAgentId, setSelectedChatAgentId] = useState<string | null>(
     null,
   );
@@ -1125,7 +1124,6 @@ export function OfficeScreen({
       agentId: string,
       options?: { openChat?: boolean; persistFloorId?: FloorId; selectStore?: boolean },
     ) => {
-      setCaptureExplicitChat(agentId);
       setSelectedChatAgentId(agentId);
       if (options?.openChat !== false) {
         openSpecificChat();
@@ -1144,7 +1142,7 @@ export function OfficeScreen({
         };
       });
     },
-    [dispatch, setChatOpen, openSpecificChat, setCaptureExplicitChat],
+    [dispatch, setChatOpen, openSpecificChat],
   );
   const handleSelectFloor = useCallback(
     async (floorId: FloorId) => {
@@ -1233,14 +1231,13 @@ export function OfficeScreen({
   );
   const focusChatTarget = useCallback(
     (agentId: string) => {
-      setCaptureExplicitChat(agentId);
       setSelectedChatAgentId(agentId);
       openSpecificChat();
       setChatOpen(true);
 
         dispatch({ type: "selectAgent", agentId });
     },
-    [dispatch, setChatOpen, openSpecificChat, setCaptureExplicitChat],
+    [dispatch, setChatOpen, openSpecificChat],
   );
   const openAgentEditor = useCallback(
     (agentId: string, initialSection: AgentEditorSection = "avatar") => {
@@ -3912,7 +3909,7 @@ export function OfficeScreen({
                 renderPanel={(id, cached) => {
                   const agent = state.agents.find(item => item.agentId === id);
                   if (!agent) return null;
-                  return <ExistingSessionPanel captureEligible={captureExplicitChat === id} onCaptureAdopt={() => setCaptureExplicitChat(id)} onOpenWorkspace={openSessionWorkspace} active={cached.active} focusMode={cached.focusMode} onToggleFocus={cached.onToggleFocus} client={client} threadId={agent.agentId}
+                  return <ExistingSessionPanel onOpenWorkspace={openSessionWorkspace} active={cached.active} focusMode={cached.focusMode} onToggleFocus={cached.onToggleFocus} client={client} threadId={agent.agentId}
                   interfacePreset={resolveAgentInterface(agentInterfaces.interfaces[agent.agentId]).preset}
                   onOpenTeaserBoard={() => setTeaserBoardOpen(true)}
                   onSaveInterfacePreset={agentInterfaces.loaded && interfaceRoster.some(item => item.id === agent.agentId) ? preset => agentInterfaces.save(agent.agentId, preset) : undefined}

@@ -37,11 +37,9 @@ function reconcileLocalSends(messages: Message[]) {
   return messages.filter(message => !message.delivery || !received.has(message.clientId));
 }
 
-export function ExistingSessionPanel({ client, threadId, active = true, captureEligible = false, onCaptureAdopt, focusMode = false, onToggleFocus, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, onOpenThread, onFork, forkDisabled, headerStart, headerEnd, projects = [], voice, organization, messageTarget, onCloseMessage, interfacePreset = "standard", onSaveInterfacePreset, onOpenTeaserBoard, externalSends, onExternalReceipt }: {
+export function ExistingSessionPanel({ client, threadId, active = true, focusMode = false, onToggleFocus, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, onOpenThread, onFork, forkDisabled, headerStart, headerEnd, projects = [], voice, organization, messageTarget, onCloseMessage, interfacePreset = "standard", onSaveInterfacePreset, onOpenTeaserBoard, externalSends, onExternalReceipt }: {
   client: SessionClient;
   active?: boolean;
-  captureEligible?: boolean;
-  onCaptureAdopt?: () => void;
   focusMode?: boolean;
   onToggleFocus?: () => void;
   voice?: SessionVoiceController;
@@ -382,7 +380,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, captureE
     }} className="absolute bottom-3 left-1/2 z-10 min-h-10 -translate-x-1/2 rounded-full border border-white/20 bg-[#243346] px-4 text-xs text-white shadow-xl hover:bg-[#30445c]">{t("↓ Latest messages")}</button> : null}
     </div>
     {data?.runtime === "office" ? <OfficeCodexAccount client={client} quiet /> : null}
-    {data?.id === threadId && data.controlsAvailable ? <SessionControls captureEligible={captureEligible} onCaptureAdopt={onCaptureAdopt} key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onHistoryReset={onHistoryReset} onActiveTurnChange={setActiveTurnId} onSendState={onSendState} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
+    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onHistoryReset={onHistoryReset} onActiveTurnChange={setActiveTurnId} onSendState={onSendState} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
     </div>
     {workspaceOpen ? <SessionWorkspace key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
       assets={[...new Map(messages.flatMap(message => message.assets || []).map(asset => [asset.url, asset])).values()].slice(-40)}

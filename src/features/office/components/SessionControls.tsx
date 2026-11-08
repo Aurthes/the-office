@@ -14,7 +14,6 @@ import { SessionRunTimer } from "./SessionRunTimer";
 import { useSessionComposer } from "./useSessionComposer";
 import { Mention, MentionsInput } from "react-mentions-ts";
 import { ComposerTextarea } from "./ComposerTextarea";
-import { useSessionCapture } from "./useSessionCapture";
 import { sendSessionMessage } from "./sessionSend";
 import { prepareComposerMessage, referenceSerializer } from "./inlineReferences";
 
@@ -31,7 +30,7 @@ export type SessionClient = {
   onGap?: (handler: (gap: { expected: number; received: number }) => void) => () => void;
 };
 type Approval = { requestId: string; method: string; params: Record<string, unknown>; details?: string; decisions: string[]; supported: boolean; submitted?: boolean };
-type Snapshot = { historyEpoch?: string; connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; activeTurnStartedAt?: number | null; turnStatus?: string; error?: string | null; retryAt?: number | null; retrying?: boolean; retryExhausted?: boolean; settings?: ChatSettings; features?: { dictation: boolean; dictationHTTP?: boolean; dictationReason?: string | null; dictationRetryAt?: number | null; voice: boolean; prediction: boolean; accountVersion?: number; capture?: boolean; composer?: boolean; chatReferences?: boolean }; tokenUsage?: { last: { inputTokens: number; outputTokens: number }; modelContextWindow?: number | null }; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number; questions?: SessionQuestionRequest[] };
+type Snapshot = { historyEpoch?: string; connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; activeTurnStartedAt?: number | null; turnStatus?: string; error?: string | null; retryAt?: number | null; retrying?: boolean; retryExhausted?: boolean; settings?: ChatSettings; features?: { dictation: boolean; dictationHTTP?: boolean; dictationReason?: string | null; dictationRetryAt?: number | null; voice: boolean; prediction: boolean; accountVersion?: number; composer?: boolean; chatReferences?: boolean }; tokenUsage?: { last: { inputTokens: number; outputTokens: number }; modelContextWindow?: number | null }; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number; questions?: SessionQuestionRequest[] };
 type StreamSnapshot = Omit<Snapshot, "items"> & { threadId: string; subscriptionId: string;
   items: (LiveSessionItem | (Omit<LiveSessionItem, "content"> & { append: string; baseVersion: number }))[] };
 type Upload = { id: string; name: string; size: number; ref?: string; error?: string };
@@ -41,11 +40,9 @@ const attachmentDrafts = new Map<string, Upload[]>();
 type TurnEdit = { token: string; turnId: string; inputCount: number; originalText: string; originalUploads: Upload[]; outcome?: string };
 const turnEditDrafts = new Map<string, TurnEdit>();
 
-export function SessionControls({ client, threadId, active = true, onItems, captureEligible = false, onCaptureAdopt, onHistorySync, onHistoryReset, onActiveTurnChange, onSendState, voice: sharedVoice, onOpenThread, onRenamed, onFork }: {
+export function SessionControls({ client, threadId, active = true, onItems, onHistorySync, onHistoryReset, onActiveTurnChange, onSendState, voice: sharedVoice, onOpenThread, onRenamed, onFork }: {
   client: SessionClient;
   active?: boolean;
-  captureEligible?: boolean;
-  onCaptureAdopt?: () => void;
   threadId: string; onItems: (items: LiveSessionItem[]) => void;
   onHistorySync?: () => void;
   onHistoryReset?: (epoch: string) => void;
@@ -86,8 +83,6 @@ export function SessionControls({ client, threadId, active = true, onItems, capt
   const [commandResult, setCommandResult] = useState("");
   const [settingsPanel, setSettingsPanel] = useState<{ kind: "model" | "permissions"; nonce: string }>();
   const refresh = useRef<(() => Promise<void>) | null>(null);
-  const captureSubscription = useRef<string | null>(null);
-  const captureEnabled = useRef(false);
   const subscribedThread = useRef<string | null>(null);
   const actionBusy = useRef(false);
   const [uploads, setUploads] = useState<Upload[]>(() => attachmentDrafts.get(threadId) || []);
@@ -214,9 +209,7 @@ export function SessionControls({ client, threadId, active = true, onItems, capt
       } finally { uploadRequests.current.delete(id); }
     }));
   };
-  const capture = useSessionCapture({ client, threadId, subscription: captureSubscription, enabled: captureEnabled.current, active, eligible: captureEligible,
-    blocked: Boolean(edit || busy || settingsBusy || dictation.busy || voice.status !== "off"), uploads: uploadsRef, updateUploads, onError: setError, onAdopt: onCaptureAdopt });
-  const removeFile = (id: string) => { capture.cancel(id); uploadRequests.current.get(id)?.abort(); updateUploads(uploadsRef.current.filter(item => item.id !== id)); };
+  const removeFile = (id: string) => { uploadRequests.current.get(id)?.abort(); updateUploads(uploadsRef.current.filter(item => item.id !== id)); };
   const canContinue = Boolean(!edit && state?.turnStatus === "interrupted" && !state.activeTurnId && !text.trim() && !uploads.length && !composer.references.length && !dictation.busy && voice.status === "off");
   const showStop = Boolean(!edit && (state?.activeTurnId || state?.retryAt) && !dictation.busy && !text.trim() && !uploads.length && !composer.references.length);
   const readyToSend = !edit?.outcome && (canContinue || Boolean((recording || text.trim() || suggestedText || uploads.length || composer.references.length) && uploads.every(file => file.ref) && dictation.phase !== "transcribing"));
@@ -261,7 +254,6 @@ export function SessionControls({ client, threadId, active = true, onItems, capt
       }
       for (const item of changed) items.set(item.id, item);
       while (items.size > 128) items.delete(items.keys().next().value!);
-      if (result.features?.capture) captureEnabled.current = true;
       version = result.version; setState({ ...result, items: changed }); setConnectionError("");
       // The initial stream is a bounded cache, not a page in timeline order.
       // A history owner reads canonical order after attachment; subsequent
@@ -279,7 +271,7 @@ export function SessionControls({ client, threadId, active = true, onItems, capt
       pending = true; retry = false; version = -1; bootstrapping = true; bootstrapHasItems = false; items.clear();
       setConnectionError("");
       resuming = subscribedThread.current === threadId; subscribedThread.current = threadId;
-      const id = crypto.randomUUID(); subscriptionId = id; captureSubscription.current = id;
+      const id = crypto.randomUUID(); subscriptionId = id;
       try {
         if (client.onEvent) await client.call("session.subscribe", { threadId, subscriptionId: id });
         else {
@@ -305,7 +297,7 @@ export function SessionControls({ client, threadId, active = true, onItems, capt
     const unsubscribeStatus = client.onStatus?.(status => {
       connected = status === "connected";
       if (connected) void subscribe();
-      else { subscriptionId = null; captureSubscription.current = null; setState(null); }
+      else { subscriptionId = null; setState(null); }
     });
     const unsubscribeGap = client.onGap?.(() => { void subscribe(); });
     const onVisible = () => { if (document.visibilityState === "visible") void subscribe(); };
@@ -313,7 +305,7 @@ export function SessionControls({ client, threadId, active = true, onItems, capt
     if (!pending && !subscriptionId) void subscribe();
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      stopped = true; captureSubscription.current = null; refresh.current = null;
+      stopped = true; refresh.current = null;
       unsubscribeEvent?.(); unsubscribeStatus?.(); unsubscribeGap?.();
       document.removeEventListener("visibilitychange", onVisible);
       if (client.onEvent && subscriptionId) void client.call("session.unsubscribe", { threadId, subscriptionId }).catch(() => {});
@@ -420,7 +412,6 @@ export function SessionControls({ client, threadId, active = true, onItems, capt
       <span className="min-w-0 flex-1">{t("Editing the whole interrupted turn ({count} inputs). Resend rewinds its conversation history. File and code changes remain.", { count: edit.inputCount })}</span>
       <button type="button" disabled={busy} className="shrink-0 underline disabled:opacity-40" onClick={cancelEdit}>{t(edit.outcome ? "Discard edit" : "Cancel edit")}</button>
     </div> : state?.connected && !state.activeTurnId && state.turnStatus === "interrupted" ? <button type="button" disabled={busy || settingsBusy || dictation.busy || voice.status !== "off"} onClick={() => void beginEdit()} className="mb-2 flex min-h-9 items-center gap-1 text-cyan-200 disabled:opacity-40"><PencilLine size={14} />{t("Edit interrupted turn")}</button> : null}
-    {active && state?.features?.capture && typeof navigator !== "undefined" && /Mac/.test(navigator.platform) && navigator.maxTouchPoints < 2 ? <button type="button" disabled={capture.busy || capture.bound || busy || !state.connected} onClick={() => void capture.bind()} className="mb-2 min-h-8 text-xs text-cyan-200 disabled:text-white/40">{t(capture.bound ? "Mac screenshots use this page" : capture.conflict ? "Replace screenshot recipient with this page" : "Use this page for Mac screenshots")}</button> : null}
     <input ref={picker} type="file" multiple className="hidden" aria-label={t("Choose attachments")} onChange={event => { void addFiles(Array.from(event.target.files || [])); event.target.value = ""; }} />
     {uploads.length ? <div className="mb-2 flex max-h-24 flex-wrap gap-2 overflow-y-auto" aria-label={t("Pending attachments")}>{uploads.map(file => <div key={file.id} className="flex max-w-full items-center gap-2 rounded-lg border border-white/15 bg-white/5 py-1 pl-2">
       <span className="min-w-0 truncate" title={file.name}>{file.name}</span><span className={file.error ? "text-rose-200" : "shrink-0 text-white/40"}>{file.error ? t(file.error) : (!file.ref ? t("Uploading…") : Math.max(1, Math.ceil(file.size / 1024)) + " KB")}</span>
