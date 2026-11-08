@@ -2046,6 +2046,7 @@ export const ZH_CN: Record<string, string> = {
   "Could not sample this background task.": "暂时无法读取这个后台任务的状态。",
   "{0} unread": "{0} 条未读",
   "Teaser board": "趣题看板",
+  "Unfinished": "未完成",
   "Whiteboard": "白板",
   "Question whiteboard": "题目白板",
   "Open whiteboard: {title}": "打开白板：{title}",

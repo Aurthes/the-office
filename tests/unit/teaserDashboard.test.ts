@@ -16,8 +16,8 @@ it("filters completion status and reveals only finished answers and key ideas", 
   const close = vi.fn(), openSession = vi.fn(); render(h(TeaserDashboard, { onClose: close, agents: [{ id: "existing-teaser", name: "teaser" }], onOpenSession: openSession }));
   const dialog = await screen.findByRole("dialog", { name: "Teaser board" });
   await within(dialog).findByRole("heading", { name: "open question" });
-  expect(within(dialog).getByRole("button", { name: "Open 1" })).toHaveAttribute("aria-pressed", "true");
-  expect(within(dialog).getAllByRole("article")).toHaveLength(1);
+  expect(within(dialog).getByRole("button", { name: "Unfinished 2" })).toHaveAttribute("aria-pressed", "true");
+  expect(within(dialog).getAllByRole("article")).toHaveLength(2);
   fireEvent.click(within(dialog).getByRole("button", { name: "All 3" }));
   expect(within(dialog).getAllByRole("article")).toHaveLength(3);
   expect(within(dialog).getByLabelText("Teasers finished")).toHaveTextContent("1 / 3");
@@ -107,26 +107,29 @@ it("uses refreshed employee identity and disables navigation when the host canno
 });
 
 
-it("defaults to Open, sorts by actual creation instants with stable ID ties, and preserves other filters' input order", async () => {
+it("defaults to Unfinished with in-progress first, actual creation time within groups, stable ties, and unchanged All/Finished order", async () => {
   const oldest = { ...row("open", "oldest"), createdAt: "2026-11-07T10:00:00+08:00", updatedAt: "2026-11-08T12:00:00Z" };
   const tieA = { ...row("open", "tie-a"), createdAt: "2026-11-07T03:00:00Z", updatedAt: "2026-11-07T03:00:00Z" };
   const tieB = { ...row("open", "tie-b"), createdAt: "2026-11-07T11:00:00+08:00", updatedAt: "2026-11-08T10:00:00Z" };
   const newest = { ...row("open", "newest"), createdAt: "2026-11-07T04:00:00Z", updatedAt: "2026-11-07T04:00:00Z" };
-  const records = [newest, row("finished", "done-z"), tieB, row("in_progress", "work-z"), oldest, tieA, row("finished", "done-a"), row("in_progress", "work-a")];
+  const workZ = { ...row("in_progress", "work-z"), createdAt: "2026-11-09T00:00:00Z", updatedAt: "2026-11-09T00:00:00Z" };
+  const workA = { ...row("in_progress", "work-a"), createdAt: "2026-11-08T00:00:00Z", updatedAt: "2026-11-10T00:00:00Z" };
+  const records = [newest, row("finished", "done-z"), tieB, workZ, oldest, tieA, row("finished", "done-a"), workA];
   records.forEach(Object.freeze); Object.freeze(records);
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ teasers: records }) })));
   render(h(TeaserDashboard, { onClose: vi.fn() }));
   const ids = () => screen.getAllByRole("article").map(card => card.getAttribute("data-teaser-id"));
-  await screen.findByRole("button", { name: "Open 4" });
-  expect(screen.getByRole("button", { name: "Open 4" })).toHaveAttribute("aria-pressed", "true");
-  expect(ids()).toEqual(["oldest", "tie-a", "tie-b", "newest"]);
+  await screen.findByRole("button", { name: "Unfinished 6" });
+  expect(screen.getByRole("button", { name: "Unfinished 6" })).toHaveAttribute("aria-pressed", "true");
+  expect(ids()).toEqual(["work-a", "work-z", "oldest", "tie-a", "tie-b", "newest"]);
   fireEvent.click(screen.getByRole("button", { name: "All 8" })); expect(ids()).toEqual(records.map(record => record.id));
   fireEvent.click(screen.getByRole("button", { name: "Finished 2" })); expect(ids()).toEqual(["done-z", "done-a"]);
-  fireEvent.click(screen.getByRole("button", { name: "In progress 2" })); expect(ids()).toEqual(["work-z", "work-a"]);
+  fireEvent.click(screen.getByRole("button", { name: "In progress 2" })); expect(ids()).toEqual(["work-a", "work-z"]);
   fireEvent.click(screen.getByRole("button", { name: "Open 4" })); expect(ids()).toEqual(["oldest", "tie-a", "tie-b", "newest"]);
+  fireEvent.click(screen.getByRole("button", { name: "Unfinished 6" })); expect(ids()).toEqual(["work-a", "work-z", "oldest", "tie-a", "tie-b", "newest"]);
 });
 
-it("keeps creation order through polling and status changes, then resets to Open after a real close/reopen", async () => {
+it("moves polled status changes between groups and resets to Unfinished after a real close/reopen", async () => {
   vi.spyOn(document, "hidden", "get").mockReturnValue(false);
   const interval = vi.spyOn(globalThis, "setInterval");
   const old = { ...row("open", "old"), createdAt: "2026-11-05T00:00:00Z", updatedAt: "2026-11-08T00:00:00Z" };
@@ -139,20 +142,23 @@ it("keeps creation order through polling and status changes, then resets to Open
     return open ? h(TeaserDashboard, { onClose: () => setOpen(false) }) : h("button", { onClick: () => setOpen(true) }, "Reopen board");
   }
   render(h(Host)); const ids = () => screen.getAllByRole("article").map(card => card.getAttribute("data-teaser-id"));
-  await screen.findByRole("button", { name: "Open 2" }); expect(ids()).toEqual(["old", "recent"]);
+  await screen.findByRole("button", { name: "Unfinished 2" }); expect(ids()).toEqual(["old", "recent"]);
   const poll = interval.mock.calls.find(([, delay]) => delay === 15000)![0] as () => void;
-  const middle = { ...row("open", "middle"), createdAt: "2026-11-06T00:00:00Z", updatedAt: "2026-11-09T00:00:00Z" };
+  const middle = { ...row("in_progress", "middle"), createdAt: "2026-11-06T00:00:00Z", updatedAt: "2026-11-09T00:00:00Z" };
   records = [middle, { ...recent, updatedAt: "2026-11-10T00:00:00Z" }, { ...old, updatedAt: "2026-11-11T00:00:00Z" }];
+  await act(async () => poll());
+  await waitFor(() => expect(ids()).toEqual(["middle", "old", "recent"]));
+  records = [{ ...old, status: "in_progress" }, middle, recent];
   await act(async () => poll());
   await waitFor(() => expect(ids()).toEqual(["old", "middle", "recent"]));
   records = [{ ...old, status: "finished" }, middle, recent];
   await act(async () => poll());
   await waitFor(() => expect(ids()).toEqual(["middle", "recent"]));
-  expect(screen.getByRole("button", { name: "Open 2" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Unfinished 2" })).toHaveAttribute("aria-pressed", "true");
   fireEvent.click(screen.getByRole("button", { name: "All 3" })); expect(ids()).toEqual(["old", "middle", "recent"]);
   fireEvent.click(screen.getByRole("button", { name: "Close teaser board" })); expect(screen.queryByRole("dialog")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Reopen board" }));
-  await screen.findByRole("button", { name: "Open 2" });
-  expect(screen.getByRole("button", { name: "Open 2" })).toHaveAttribute("aria-pressed", "true"); expect(ids()).toEqual(["middle", "recent"]);
-  expect(fetcher.mock.calls.length).toBe(4);
+  await screen.findByRole("button", { name: "Unfinished 2" });
+  expect(screen.getByRole("button", { name: "Unfinished 2" })).toHaveAttribute("aria-pressed", "true"); expect(ids()).toEqual(["middle", "recent"]);
+  expect(fetcher.mock.calls.length).toBe(5);
 });
