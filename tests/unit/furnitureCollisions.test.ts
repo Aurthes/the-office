@@ -12,7 +12,7 @@ import { BREAK_ROOM, breakSeatKey, breakSeatPose } from "@/features/ring-ship/br
 import { freeBreakSeat } from "@/features/ring-ship/breakRoomMotion";
 import { advanceCeo, ceoBody, createCeoState } from "@/features/ring-ship/ceoMotion";
 import { companionBody, createCompanionState, advanceCompanion } from "@/features/ring-ship/companionMotion";
-import { siteJourney } from "@/features/ring-ship/fieldwork";
+import { siteJourney, insideSite } from "@/features/ring-ship/fieldwork";
 
 let models: ModelTemplates;
 const cleanup: Array<() => void> = [];
@@ -128,4 +128,16 @@ describe("rendered ship furniture collisions", () => {
     a.status = "working"; until(() => !a.hibernation && a.interactionTarget === "desk");
     expect(distance(worldPoint(a), a.home)).toBeLessThan(.001);
   }, 15000);
+});
+
+it.each(["修复Teaser看板", "更新依赖", "修复克隆舱"])("reaches a safe construction camp with rendered furniture: %s", task => {
+  const { layout } = fixture();
+  const a = syncCrew([{ id: "worker", name: "Worker", status: "working", color: "#abc", item: "", constructionWorker: true, siteTask: task }], layout, new Map(), 0)[0];
+  for (let i = 0; i < 6000 && !a.fieldwork?.geared; i++) {
+    const before = worldPoint(a); advanceCrew([a], layout, i * 50, .05);
+    expect(distance(before, worldPoint(a))).toBeLessThanOrEqual(.05 * 1.05 * 2.15 + 1e-5);
+    expect(isWalkable(worldPoint(a), layout, .4, a.deck, { id: a.id })).toBe(true);
+  }
+  expect(a.fieldwork?.geared, JSON.stringify({ task, phase: a.fieldwork?.phase, point: worldPoint(a), next: a.route[a.routeIndex], camp: a.fieldwork?.camp })).toBe(true);
+  expect(insideSite(layout, a.worksite!, a.fieldwork!.camp)).toBe(true);
 });

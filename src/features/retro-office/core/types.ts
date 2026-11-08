@@ -1,3 +1,4 @@
+import type { SiteTask } from "@/lib/office/fieldworkTask";
 import type { AgentAvatarProfile } from "@/lib/avatars/profile";
 import type { OfficeInteractionTargetId } from "@/lib/office/places";
 
@@ -7,7 +8,7 @@ export type OfficeAgent = {
   subtitle?: string | null;
   title?: string;
   constructionWorker?: boolean;
-  siteTask?: string | null;
+  siteTask?: SiteTask | null;
   lastActivityAt?: number;
   needsReview?: boolean;
   needsInput?: boolean;

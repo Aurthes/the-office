@@ -33,7 +33,7 @@ function setup() {
     }
     if (method === "session.send") {
       change(p.threadId, [{ ...message(p.message!, "user"), clientId: p.requestId }], "working");
-      return { status: "started" };
+      return { status: "started", turnId: "working" };
     }
     return {};
   });

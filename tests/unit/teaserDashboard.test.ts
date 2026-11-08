@@ -13,7 +13,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const row = (status: Teaser["status"], id: string): Teaser => ({ id, revision: 1, status, author: "teaser", title: `${status} question`, prompt: "Find the invariant.", answer: "The answer is 42.", summary: "Pair the terms; each pair has the same sum.", createdAt: "2026-11-07T10:00:00Z", updatedAt: "2026-11-07T10:00:00Z", completedAt: status === "finished" ? "2026-11-07T10:00:00Z" : null });
 it("filters completion status and reveals only finished answers and key ideas", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ teasers: [row("open", "a"), row("in_progress", "b"), row("finished", "c")] }) })));
-  const close = vi.fn(), openSession = vi.fn(); render(h(TeaserDashboard, { onClose: close, agents: [{ id: "existing-teaser", name: "teaser" }], onOpenSession: openSession }));
+  const close = vi.fn(), openSession = vi.fn(); render(h(TeaserDashboard, { onClose: close, onOpenSession: openSession }));
   const dialog = await screen.findByRole("dialog", { name: "Teaser board" });
   await within(dialog).findByRole("heading", { name: "open question" });
   expect(within(dialog).getByRole("button", { name: "Unfinished 2" })).toHaveAttribute("aria-pressed", "true");
@@ -55,57 +55,39 @@ it("keeps existing cards on refresh failure, then accepts the next real update",
   view.unmount(); expect(signal.aborted).toBe(true);
 });
 
-it("closes the board before opening the unique current teaser employee without sending anything", async () => {
-  const fetcher = vi.fn(async () => ({ ok: true, json: async () => ({ teasers: [row("open", "a")] }) }));
-  vi.stubGlobal("fetch", fetcher);
-  const events: string[] = [];
-  function Board() {
-    const [open, setOpen] = useState(true);
-    return open ? h(TeaserDashboard, {
-      agents: [{ id: "unrelated", name: "teaser clone" }, { id: "current-session", name: " TeAsEr " }],
-      onClose: () => { events.push("close"); setOpen(false); },
-      onOpenSession: id => events.push(id),
-    }) : h("p", null, "Board closed");
-  }
-  render(h(Board));
-  const title = await screen.findByRole("button", { name: "open question" });
-  expect(title).toBeEnabled();
-  fireEvent.click(title);
-  expect(events).toEqual(["close", "current-session"]);
-  expect(screen.queryByRole("dialog")).toBeNull();
-  expect(fetcher).toHaveBeenCalledOnce();
-  expect(fetcher).toHaveBeenCalledWith("/api/office/teasers", { cache: "no-store", credentials: "same-origin", signal: expect.any(AbortSignal) });
-});
-
-it.each([
-  ["missing", []],
-  ["duplicate", [{ id: "one", name: "teaser" }, { id: "two", name: "TEASER" }]],
-])("disables title navigation for a %s teaser target while keeping answers available", async (_reason, agents) => {
-  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ teasers: [row("finished", "a")] }) })));
-  const close = vi.fn(), openSession = vi.fn();
-  render(h(TeaserDashboard, { onClose: close, onOpenSession: openSession, agents: agents as { id: string; name: string }[] }));
-  fireEvent.click(await screen.findByRole("button", { name: "Finished 1" }));
-  const title = screen.getByRole("button", { name: "finished question" });
-  expect(title).toBeDisabled();
-  expect(title).toHaveAccessibleDescription("Teaser chat is unavailable.");
-  fireEvent.click(title);
-  fireEvent.click(screen.getByText("View answer & key idea"));
-  expect(screen.getByText("The answer is 42.")).toBeVisible();
+it("opens a title's whiteboard without a Teaser target and removes the duplicate button", async () => {
+  const fetcher = vi.fn(async (url: string) => ({ ok: true, json: async () => url.endsWith("/whiteboard") ? { whiteboard: { id: "a", text: "Saved notes", revision: 1, updatedAt: "2026-11-08T00:00:00Z" } } : { teasers: [row("open", "a")] } }));
+  vi.stubGlobal("fetch", fetcher); const close = vi.fn(), openSession = vi.fn();
+  render(h(TeaserDashboard, { onClose: close, onOpenSession: openSession }));
+  fireEvent.click(await screen.findByRole("button", { name: "open question" }));
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "Your notes" })).toHaveValue("Saved notes"));
+  expect(screen.queryByRole("button", { name: /^Open whiteboard:/ })).toBeNull();
+  expect(screen.getByRole("button", { name: "Save and send solution" })).toBeDisabled();
   expect(close).not.toHaveBeenCalled(); expect(openSession).not.toHaveBeenCalled();
 });
 
-it("uses refreshed employee identity and disables navigation when the host cannot open chats", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ teasers: [row("open", "a")] }) })));
+it.each(["No target is configured", "More than one configured target"])("keeps title and finished solution usable when sending is unavailable: %s", async reason => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url.endsWith("/whiteboard") ? { whiteboard: { id: "a", text: "", revision: 0, updatedAt: null } } : { teasers: [row("finished", "a")] } })));
   const close = vi.fn(), openSession = vi.fn();
-  const view = render(h(TeaserDashboard, { onClose: close, agents: [{ id: "old", name: "teaser" }], onOpenSession: openSession }));
-  const title = await screen.findByRole("button", { name: "open question" });
-  view.rerender(h(TeaserDashboard, { onClose: close, agents: [{ id: "new", name: "teaser" }], onOpenSession: openSession }));
-  fireEvent.click(title);
-  expect(openSession).toHaveBeenCalledExactlyOnceWith("new");
-  view.rerender(h(TeaserDashboard, { onClose: close, agents: [{ id: "new", name: "teaser" }] }));
-  expect(title).toBeDisabled();
+  render(h(TeaserDashboard, { onClose: close, onOpenSession: openSession, unavailableReason: reason }));
+  fireEvent.click(await screen.findByRole("button", { name: "Finished 1" }));
+  fireEvent.click(screen.getByRole("button", { name: "finished question" }));
+  await screen.findByRole("textbox", { name: "Your notes" }); expect(screen.getByText(reason)).toBeVisible();
+  fireEvent.click(screen.getByText("View answer & key idea")); expect(screen.getByText("The answer is 42.")).toBeVisible();
+  expect(close).not.toHaveBeenCalled(); expect(openSession).not.toHaveBeenCalled();
 });
 
+it("does not reset selected notes or navigate when its title is clicked again or target changes", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url.endsWith("/whiteboard") ? { whiteboard: { id: "a", text: "", revision: 0, updatedAt: null } } : { teasers: [row("open", "a")] } })));
+  const close = vi.fn(), openSession = vi.fn(), props = { onClose: close, onOpenSession: openSession };
+  const view = render(h(TeaserDashboard, props)); fireEvent.click(await screen.findByRole("button", { name: "open question" }));
+  const input = screen.getByRole("textbox", { name: "Your notes" }); await waitFor(() => expect(input).toBeEnabled());
+  fireEvent.change(input, { target: { value: "Keep my notes" } });
+  view.rerender(h(TeaserDashboard, { ...props, target: { id: "another", name: "renamed", status: "idle" } }));
+  fireEvent.click(screen.getByRole("button", { name: "open question" }));
+  expect(screen.getByRole("textbox", { name: "Your notes" })).toBe(input); expect(input).toHaveValue("Keep my notes");
+  expect(close).not.toHaveBeenCalled(); expect(openSession).not.toHaveBeenCalled();
+});
 
 it("defaults to Unfinished with in-progress first, actual creation time within groups, stable ties, and unchanged All/Finished order", async () => {
   const oldest = { ...row("open", "oldest"), createdAt: "2026-11-07T10:00:00+08:00", updatedAt: "2026-11-08T12:00:00Z" };

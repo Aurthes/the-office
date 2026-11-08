@@ -3,8 +3,8 @@ import { CANVAS_W, CANVAS_H, SCALE } from "@/features/retro-office/core/constant
 import { SHIP_WORKSTATION } from "./geometry";
 import { routeBetweenCabins, shipPoint, type DeckIndex, type ShipCabin, type ShipLayout, type ShipPoint } from "./layout";
 import { walkableWaypoint, crewRadius, moveCharacter, occupiedWaypoint, separateCharacter, walkCharacter, type CharacterBody, type CharacterRecovery } from "./characterCollision";
-import { resolveWorksite, siteJourney, sitePoint, type FieldworkState } from "./fieldwork";
-import { footingRadius, walkableSegment } from "./walkableSurface";
+import { resolveWorksite, siteJourney, sitePoint, insideSite, type FieldworkState } from "./fieldwork";
+import { footingRadius, isWalkable, walkableSegment } from "./walkableSurface";
 import { BREAK_ACTIONS, breakSeatKey, breakSeatPose, type BreakVisit } from "./breakRoomLayout";
 import { freeBreakSeat, hasBreakPartner, routeToBreakSeat } from "./breakRoomMotion";
 import { HIBERNATION_CAPACITY, HIBERNATION_IDLE_MS, hibernationPod } from "./hibernationLayout";
@@ -39,7 +39,8 @@ export function syncCrew(agents: OfficeAgent[], layout: ShipLayout, previousById
       home: { x: seat.x, z: seat.z }, route: keepRoute ? previous.route : [], routeIndex: keepRoute ? previous.routeIndex : 0,
       visiting: keepRoute ? previous.visiting : false, pauseUntil: keepRoute ? previous.pauseUntil : now + 7000 + hash(agent.id) % 18000,
       homeDeck: seat.deck,
-      worksite: agent.constructionWorker ? resolveWorksite(agent.siteTask, layout, seat.deck) : undefined,
+      // undefined means no confirmed snapshot yet, not a confirmed unknown goal.
+      worksite: agent.constructionWorker ? agent.siteTask === undefined ? unchanged ? previous.worksite : undefined : resolveWorksite(agent.siteTask, layout, seat.deck) : undefined,
       deck: unchanged ? previous.deck ?? seat.deck : seat.deck, deckY: unchanged ? previous.deckY : undefined, fieldwork: unchanged ? previous.fieldwork : undefined,
       kirbyPose: unchanged ? previous.kirbyPose : undefined, breakVisit: unchanged ? previous.breakVisit : undefined,
       idleSince: previous?.idleSince, idleActivityAt: previous?.idleActivityAt,
@@ -144,20 +145,25 @@ function advanceFieldwork(a: MovingAgent, layout: ShipLayout, now: number, dt: n
   const plan = (id: string | null) => {
     const destination = layout.cabins.find(c => c.id === (id || seat.cabinId));
     if (!destination) return;
-    field.cabinId = destination.id; field.camp = id ? sitePoint(layout, destination, seed) : a.home;
+    const camp = id ? sitePoint(layout, destination, seed, 0, body, point => !occupiedWaypoint({ ...body, deck: destination.deck }, point, others)) : a.home;
+    if (!camp) { a.route = []; a.routeIndex = 0; a.state = "standing"; return false; }
+    field.cabinId = destination.id; field.camp = camp;
     field.afterTravel = id ? "changing" : "home"; field.time = 0;
     field.legs = siteJourney(layout, worldPoint(a), a.deck, destination, field.camp, body);
     a.route = field.legs.shift()!.points; a.routeIndex = 0; a.visiting = false; leaveBreakSeat(a, layout); body.reservedSeat = departureKey(a);
     field.phase = id ? "travelling" : "returning";
+    return true;
   };
-  if (!field.cabinId) plan(desired!.id);
+  if (!field.cabinId && !desired) { a.fieldwork = undefined; return false; }
+  if (!field.cabinId && !plan(desired!.id)) return true;
   if ((desired?.id || null) !== field.nextId) {
     field.nextId = desired?.id || null;
     if (field.phase !== "lift") {
       if (field.geared) { field.phase = "packing"; field.time = 0; a.route = []; }
-      else plan(field.nextId);
+      else if (!plan(field.nextId)) return true;
     }
   }
+  if (field.phase !== "lift" && field.phase !== "packing" && field.cabinId !== (field.nextId || seat.cabinId) && !plan(field.nextId)) return true;
   a.interactionTarget = undefined; field.time += dt;
   if (field.phase === "lift") {
     const next = field.legs[0];
@@ -195,6 +201,11 @@ function advanceFieldwork(a: MovingAgent, layout: ShipLayout, now: number, dt: n
       a.fieldwork = undefined; a.deckY = undefined; a.state = "standing"; a.pauseUntil = now + 6000;
       return false;
     }
+    const cabin = layout.cabins.find(c => c.id === field.cabinId)!;
+    if (!insideSite(layout, cabin, worldPoint(a)) || !isWalkable(field.camp, layout, .4, cabin.deck, body)
+      || (field.phase !== "patrol" && Math.hypot(worldPoint(a).x - field.camp.x, worldPoint(a).z - field.camp.z) > .1)) {
+      plan(field.nextId); return true;
+    }
     if (field.phase !== "patrol") field.phase = field.geared ? "blueprint" : "changing";
     else field.phase = SITE_ROUTINE[field.cycle++ % (SITE_ROUTINE.length - 1)];
   }
@@ -205,8 +216,8 @@ function advanceFieldwork(a: MovingAgent, layout: ShipLayout, now: number, dt: n
     field.phase = SITE_ROUTINE[field.cycle++ % SITE_ROUTINE.length]; field.time = 0;
     if (field.phase === "patrol") {
       const cabin = layout.cabins.find(c => c.id === field.cabinId)!;
-      const point = sitePoint(layout, cabin, seed, field.cycle);
-      if (walkableSegment(worldPoint(a), point, layout, footingRadius(body.radius), a.deck)) { a.route = [point]; a.routeIndex = 0; }
+      const point = sitePoint(layout, cabin, seed, field.cycle, body, point => !occupiedWaypoint(body, point, others));
+      if (point && walkableSegment(worldPoint(a), point, layout, footingRadius(body.radius), a.deck)) { a.route = [point]; a.routeIndex = 0; }
     }
   }
   return true;

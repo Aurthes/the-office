@@ -156,4 +156,14 @@ describe("studio settings route", () => {
       }),
     );
   });
+  it("round-trips finite per-agent interface patches in an isolated settings directory", async () => {
+    tempDir = makeTempDir("studio-agent-interface"); process.env.OPENCLAW_STATE_DIR = tempDir;
+    const a = "00000000-0000-4000-8000-000000000001", b = "00000000-0000-4000-8000-000000000002", key = "ws://fixture";
+    const put = async (preference: unknown) => PUT(new Request("http://localhost/api/studio", { method: "PUT", body: JSON.stringify({ office: { [key]: preference } }) }));
+    expect((await put({ companyName: "Keep", agentInterfaces: { [a]: "teaser", bad: "teaser" } })).status).toBe(200);
+    await put({ agentInterfaces: { [b]: "teaser" } }); await put({ agentInterfaces: { [a]: null } });
+    const data = await (await GET()).json(); expect(data.settings.office[key].agentInterfaces).toEqual({ [b]: "teaser" }); expect(data.settings.office[key].companyName).toBe("Keep");
+    await put({ agentInterfaces: { [b]: "arbitrary-code" } }); expect((await (await GET()).json()).settings.office[key].agentInterfaces).toEqual({});
+  });
+
 });

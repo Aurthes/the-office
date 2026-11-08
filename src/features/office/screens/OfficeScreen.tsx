@@ -5,6 +5,7 @@ import {
   type CSSProperties,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -19,6 +20,10 @@ import { OfficeConnectionScreen } from "@/features/office/components/OfficeConne
 import { AgentDirectory } from "@/features/office/components/AgentDirectory";
 import { useCurrentAgentTasks } from "@/features/office/hooks/useCurrentAgentTasks";
 import type { AgentDirectoryView, DirectoryAgent } from "@/features/office/operations/agentDirectory";
+import { TeaserDashboard } from "@/features/ring-ship/TeaserDashboard";
+import { useAgentInterfaces } from "@/features/office/hooks/useAgentInterfaces";
+import { useTeaserSolutions } from "@/features/office/hooks/useTeaserSolutions";
+import { resolveAgentInterface, resolveTeaserTarget, type InterfaceAgent } from "@/lib/office/agent-interface";
 import { TaskBoard } from "@/features/ring-ship/TaskBoard";
 import { SessionTaskContext } from "@/features/office/components/SessionTaskContext";
 import { ExistingSessionPanel } from "@/features/office/components/ExistingSessionPanel";
@@ -835,6 +840,7 @@ export function OfficeScreen({
     });
   };
   const [directoryView, setDirectoryView] = useState<AgentDirectoryView>("organization");
+  const [teaserBoardOpen, setTeaserBoardOpen] = useState(false);
   const [taskBoardRequest, setTaskBoardRequest] = useState<{ id?: string } | null>(null);
   const openTaskDetails = useCallback((id: string) => setTaskBoardRequest({ id }), [setTaskBoardRequest]);
   const [messageSelection, setMessageSelection] = useState<{ gateway: string; target: MessageSearchTarget } | null>(null);
@@ -856,6 +862,17 @@ export function OfficeScreen({
   const [companyRoster, setCompanyRoster] = useState<CompanyRoster | null>(null);
   const organizationNames = useMemo(() => new Map(state.agents.map(agent => [agent.agentId, agent.name || agent.agentId])), [state.agents]);
   const organizationState = useOfficeOrganization({ roster: companyRoster, names: organizationNames, coordinator: settingsCoordinator, gatewayUrl, enabled: sessionView && status === "connected" });
+  const agentInterfaces = useAgentInterfaces(settingsCoordinator, gatewayUrl, sessionView && status === "connected");
+  const interfaceRoster = useMemo<InterfaceAgent[]>(() => (companyRoster?.members || []).flatMap(member => {
+    const agent = state.agents.find(item => item.agentId === member.id);
+    return agent ? [{ id: member.id, name: agent.name || member.id, status: agent.status, needsInput: agent.needsInput }] : [];
+  }), [companyRoster, state.agents]);
+  const teaserResolution = resolveTeaserTarget(interfaceRoster, agentInterfaces.interfaces, agentInterfaces.loaded && agentsLoaded && !!companyRoster);
+  const teaserTarget = status === "connected" ? teaserResolution.target : null;
+  const teaserTargetOwner = useRef({ gateway: gatewayUrl, target: teaserTarget });
+  useLayoutEffect(() => { teaserTargetOwner.current = { gateway: gatewayUrl, target: teaserTarget }; }, [gatewayUrl, teaserTarget]);
+  const getTeaserTarget = useCallback(() => teaserTargetOwner.current.gateway === gatewayUrl ? teaserTargetOwner.current.target : null, [gatewayUrl]);
+  const teaserSolutions = useTeaserSolutions(client, gatewayUrl, getTeaserTarget);
   const [organizationFocus, setOrganizationFocus] = useState<{ id: string; request: number } | null>(null);
   const [departmentPanel, setDepartmentPanel] = useState<DepartmentPanelState>({ open: false, selectedId: null, tabs: [] });
   const openDepartment = (id?: string) => {
@@ -3140,13 +3157,14 @@ export function OfficeScreen({
 
   const { readById } = useCompletionReadState(sessionView && chatOpen && focusedChatAgent?.status === "idle" && focusedChatAgent.completedResult
     ? { id: focusedChatAgent.agentId, key: focusedChatAgent.completedResult.key } : null);
-  const fieldwork = useFieldworkTasks(client, state.agents, companyRoster, sessionView && status === "connected", gatewayUrl);
+  const currentTasks = useCurrentAgentTasks(client, sessionView && status === "connected", gatewayUrl);
+  const fieldwork = useFieldworkTasks(client, state.agents, companyRoster, sessionView && status === "connected", gatewayUrl, currentTasks.fieldworkSummaries, currentTasks.fieldworkFresh);
   const allVisibleAgents = useMemo(
     () => {
       const results = new Map(state.agents.map(agent => [agent.agentId, agent]));
       return [...officeAgents.map(agent => sessionView ? { ...agent,
         title: organization.people.find(person => person.id === agent.id)?.title,
-        constructionWorker: fieldwork.workers.has(agent.id), siteTask: results.get(agent.id)?.status === "running" ? fieldwork.tasks[agent.id] ?? results.get(agent.id)?.lastUserMessage : null,
+        constructionWorker: fieldwork.workers.has(agent.id), siteTask: results.get(agent.id)?.status === "running" ? fieldwork.tasks[agent.id] : null,
         needsReview: agent.status === "idle" && Boolean(results.get(agent.id)?.completedResult?.unread && readById[agent.id] !== results.get(agent.id)?.completedResult?.key),
         needsInput: Boolean(results.get(agent.id)?.needsInput),
         turnStatus: results.get(agent.id)?.turnStatus,
@@ -3169,7 +3187,6 @@ export function OfficeScreen({
     }));
   }, [allVisibleAgents, state.agents, companyRoster]);
   const chatRosterGroups = useMemo(() => organizeChatRoster(chatRosterEntries, "activity"), [chatRosterEntries]);
-  const currentTasks = useCurrentAgentTasks(client, sessionView && (chatOpen || departmentPanel.open) && status === "connected", gatewayUrl);
   const directoryAgents = useMemo<DirectoryAgent[]>(() => {
     const agents = new Map(allVisibleAgents.map(agent => [agent.id, agent]));
     return chatRosterEntries.map(entry => ({ ...entry, color: agents.get(entry.id)!.color, avatarProfile: agents.get(entry.id)?.avatarProfile, tasks: currentTasks.tasks.get(entry.id) }));
@@ -3462,6 +3479,9 @@ export function OfficeScreen({
           onOpenAgentDirectory={sessionView ? () => { changeDirectoryView("organization"); setSessionSearch(""); setChatOpen(true); } : undefined}
           onOpenTaskBoard={sessionView ? () => setTaskBoardRequest({}) : undefined}
           taskBoardOpen={sessionView && !!taskBoardRequest}
+          onOpenTeaserBoard={sessionView ? () => setTeaserBoardOpen(true) : undefined}
+          teaserBoardOpen={sessionView ? teaserBoardOpen : undefined}
+          onCloseTeaserBoard={sessionView ? () => setTeaserBoardOpen(false) : undefined}
           returnRequest={returnRequest}
           onArchiveSession={sessionView ? archiveSession : undefined}
           onReturnFinished={returnFinished}
@@ -3756,6 +3776,7 @@ export function OfficeScreen({
       ) : null}
 
       {sessionView ? <DepartmentPanel key={gatewayUrl} organization={organization} state={departmentPanel} onSelect={openDepartment} onClose={() => setDepartmentPanel(previous => ({ ...previous, open: false }))} tasks={{ ...currentTasks, error: status === "connected" ? currentTasks.error : "Current tasks are unavailable." }} onOpenTask={id => setTaskBoardRequest({ id })} /> : null}
+      {sessionView && teaserBoardOpen ? <TeaserDashboard onClose={() => setTeaserBoardOpen(false)} target={teaserTarget} unavailableReason={status === "connected" ? teaserResolution.reason : "Connection unavailable. Please reconnect before sending."} solutionSender={teaserSolutions} onOpenSession={handleOpenAgentChat} /> : null}
       {sessionView ? <TaskBoard open={!!taskBoardRequest} taskId={taskBoardRequest?.id} onClose={() => setTaskBoardRequest(null)} onOpenSession={handleOpenAgentChat} client={client} connected={status === "connected"} /> : null}
       {sessionView && chatOpen ? <button type="button" aria-label={t("Click the office to close chat")} className="fixed inset-0 z-40 cursor-default bg-transparent" onClick={() => setChatOpen(false)} /> : null}
       <div
@@ -3892,6 +3913,10 @@ export function OfficeScreen({
                   const agent = state.agents.find(item => item.agentId === id);
                   if (!agent) return null;
                   return <ExistingSessionPanel captureEligible={captureExplicitChat === id} onCaptureAdopt={() => setCaptureExplicitChat(id)} onOpenWorkspace={openSessionWorkspace} active={cached.active} focusMode={cached.focusMode} onToggleFocus={cached.onToggleFocus} client={client} threadId={agent.agentId}
+                  interfacePreset={resolveAgentInterface(agentInterfaces.interfaces[agent.agentId]).preset}
+                  onOpenTeaserBoard={() => setTeaserBoardOpen(true)}
+                  onSaveInterfacePreset={agentInterfaces.loaded && interfaceRoster.some(item => item.id === agent.agentId) ? preset => agentInterfaces.save(agent.agentId, preset) : undefined}
+                  externalSends={teaserSolutions.forThread(agent.agentId)} onExternalReceipt={teaserSolutions.reconcile}
                   messageTarget={messageTarget?.threadId === agent.agentId && !messageTarget.archived ? messageTarget : null} onCloseMessage={() => setMessageSelection(null)}
                   headerStart={sessionListToggle} headerEnd={sessionWindowActions} voice={voice} onOpenThread={acceptCreatedSession}
                   forkDisabled={!!cloneRequest || !!returnRequest || status !== "connected"}

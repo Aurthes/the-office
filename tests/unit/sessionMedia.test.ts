@@ -35,7 +35,7 @@ describe("web composer media", () => {
     expect(stopTrack).toHaveBeenCalledTimes(recover ? 0 : 1);
   });
   it("keeps a per-conversation draft and uploaded attachments across closing and reopening", async () => {
-    const call = vi.fn(async () => snapshot), client = { call }, onItems = vi.fn();
+    const call = vi.fn(async (method: string) => method === "session.send" ? { status: "started", turnId: "fixture-turn" } : snapshot), client = { call }, onItems = vi.fn();
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ ref: "kept-ref" }) })));
     const first = render(React.createElement(SessionControls, { client, threadId: "draft-camera", onItems }));
     const input = screen.getByLabelText("Send to session"); await waitFor(() => expect(input).not.toBeDisabled());

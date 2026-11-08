@@ -316,3 +316,6 @@
 .session-workspace-tabs button[role=tab] { min-width: 0; flex: 1; padding-inline: 6px; }
 .session-workspace-tabs button[role=tab] span { overflow: hidden; text-overflow: ellipsis; }
 .session-workspace-tabs button svg { flex-shrink: 0; }
+
+.session-interface-overflow{display:none}.session-interface-preset{padding:10px;display:grid;gap:8px;font-size:11px;color:#bdd5d6}.session-interface-preset label{display:grid;gap:6px}.session-interface-preset select,.session-interface-preset button{min-height:36px;border:1px solid #ffffff26;border-radius:6px;background:#172330;color:inherit;padding:6px}.session-interface-preset p{color:#efc3bb}.session-interface-preset :disabled{opacity:.5}
+@container(max-width:440px){.session-interface-inline{display:none}.session-interface-overflow{display:flex}}

@@ -1,3 +1,4 @@
+import { normalizeAgentInterfaces, mergeAgentInterfaces, type AgentInterfaces, type AgentInterfacePatch } from "@/lib/office/agent-interface";
 import { CEO_ID, LEGACY_CEO_ID, normalizeOrganization, mergeOrganization, type OfficeOrganization, type OfficePosition } from "@/lib/office/organization";
 import { normalizeDepartmentDescriptions, mergeDepartmentDescriptions, type DepartmentDescriptions } from "@/lib/office/departments";
 
@@ -104,6 +105,7 @@ export type StudioAnalyticsPreferencePatch = {
 };
 
 export type StudioOfficePreference = {
+  agentInterfaces?: AgentInterfaces;
   departmentDescriptions?: DepartmentDescriptions;
   organization?: OfficeOrganization;
   title: string;
@@ -118,6 +120,7 @@ export type StudioOfficePreference = {
 };
 
 export type StudioOfficePreferencePublic = {
+  agentInterfaces?: AgentInterfaces;
   departmentDescriptions?: DepartmentDescriptions;
   organization?: OfficeOrganization;
   title: string;
@@ -132,6 +135,7 @@ export type StudioOfficePreferencePublic = {
 };
 
 export type StudioOfficePreferencePatch = {
+  agentInterfaces?: AgentInterfacePatch;
   departmentDescriptions?: Record<string, string | null> | null;
   organization?: Record<string, OfficePosition | null> | null;
   title?: string | null;
@@ -402,6 +406,7 @@ export const sanitizeStudioOfficePreference = (
   value: StudioOfficePreference
 ): StudioOfficePreferencePublic => ({
   title: value.title,
+  ...(value.agentInterfaces ? { agentInterfaces: normalizeAgentInterfaces(value.agentInterfaces) } : {}),
   ...(value.organization ? { organization: value.organization } : {}),
   ...(value.departmentDescriptions ? { departmentDescriptions: normalizeDepartmentDescriptions(value.departmentDescriptions) } : {}),
 
@@ -753,6 +758,7 @@ const normalizeOfficePreference = (
   if (!isRecord(value)) return fallback;
   return {
     title: normalizeOfficeTitle(value.title, fallback.title),
+    ...(value.agentInterfaces !== undefined ? { agentInterfaces: normalizeAgentInterfaces(value.agentInterfaces) } : fallback.agentInterfaces ? { agentInterfaces: fallback.agentInterfaces } : {}),
     ...(value.organization !== undefined ? { organization: normalizeOrganization(value.organization) } : fallback.organization ? { organization: fallback.organization } : {}),
     ...(value.departmentDescriptions !== undefined ? { departmentDescriptions: normalizeDepartmentDescriptions(value.departmentDescriptions) } : fallback.departmentDescriptions ? { departmentDescriptions: fallback.departmentDescriptions } : {}),
 
@@ -1048,6 +1054,7 @@ export const mergeStudioSettings = (
         {
           ...fallback,
           ...officePatch,
+          ...(officePatch.agentInterfaces !== undefined ? { agentInterfaces: mergeAgentInterfaces(fallback.agentInterfaces, officePatch.agentInterfaces) } : {}),
           ...(officePatch.organization !== undefined ? { organization: mergeOrganization(fallback.organization, officePatch.organization) } : {}),
           ...(officePatch.departmentDescriptions !== undefined ? { departmentDescriptions: mergeDepartmentDescriptions(fallback.departmentDescriptions, officePatch.departmentDescriptions) } : {}),
         },

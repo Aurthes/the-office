@@ -26,7 +26,7 @@ describe("shared-session composer", () => {
   it.each([false, true])("only autofocuses desktop composers on open and after sending (touch=%s)", async touch => {
     vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: coarse)" && touch }));
     try {
-      const call = vi.fn(async () => ({ ...snapshot, activeTurnId: null }));
+      const call = vi.fn(async (method: string) => method === "session.send" ? { status: "started", turnId: "sent-turn" } : { ...snapshot, activeTurnId: null });
       render(React.createElement(SessionControls, { client: { call }, threadId: `device-focus-${touch}`, onItems: vi.fn() }));
       const input = screen.getByRole("textbox", { name: "Send to session" });
       await waitFor(() => expect(input).toBeEnabled());
@@ -169,7 +169,7 @@ describe("shared-session composer", () => {
     expect(screen.queryByText("Interrupted")).toBeNull();
   });
   it("keeps Send when an interrupted task has a typed follow-up", async () => {
-    const call = vi.fn<(method: string) => Promise<unknown>>(async () => ({ ...snapshot, activeTurnId: null, turnStatus: "interrupted" }));
+    const call = vi.fn<(method: string) => Promise<unknown>>(async method => method === "session.send" ? { status: "started", turnId: "sent-turn" } : { ...snapshot, activeTurnId: null, turnStatus: "interrupted" });
     render(React.createElement(SessionControls, { client: { call }, threadId: "interrupted-draft", onItems: vi.fn() }));
     await screen.findByRole("button", { name: "Continue interrupted task" });
     fireEvent.change(screen.getByLabelText("Send to session"), { target: { value: "Use this new direction" } });
@@ -285,7 +285,7 @@ describe("shared-session composer", () => {
     fireEvent.click(button); fireEvent.click(button);
     expect(call.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(1);
     expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ threadId: "original", message: "hello", requestId: expect.any(String) }));
-    await act(async () => resolve({ status: "steered" }));
+    await act(async () => resolve({ status: "steered", turnId: "turn" }));
     expect((input as HTMLTextAreaElement).value).toBe("");
     expect(input).toHaveFocus();
   });
