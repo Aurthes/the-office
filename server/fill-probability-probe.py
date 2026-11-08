@@ -74,7 +74,7 @@ def decode_bindings(value, name, instance, pid, now, started):
         fields = ("account", "symbol", "base_token", "tif")
         if (not isinstance(binding, dict) or binding.get("mode") != "per_symbol_tif" or
                 any(not isinstance(binding.get(k), str) or not binding[k] or len(binding[k]) > 256 for k in fields) or
-                binding["tif"] not in ("RPI", "GTX", "GTC", "IOC", "FOK")):
+                binding["tif"] not in ("rpi", "gtx", "gtc", "ioc", "fok")):
             raise ValueError("scope identity")
         key = (binding["account"], binding["symbol"])
         if key in result:

@@ -106,7 +106,7 @@ it("projects requested fields exactly, retains hidden ordering and zero, and ref
 
 it("accepts only exact v10 seconds scope and retains v8/v9 contracts", async () => {
   const scoped: FillSource = { ...source, strategies: [{ ...source.strategies[0], feedbackVersion: 10 }] };
-  const row = fillRow({schema:10,pricingMode:"per_symbol_tif",baseToken:"coin",tif:"RPI"});
+  const row = fillRow({schema:10,pricingMode:"per_symbol_tif",baseToken:"coin",tif:"rpi"});
   expect(parseFillSources({version:1,sources:[scoped]})).toEqual([scoped]);
   expect(parseFillReply({version:1,rows:[row]},scoped)).toEqual([row]);
   const {fillTableFields}=await import("@/lib/fill-probability/model"),fields=fillTableFields(["actual"]);

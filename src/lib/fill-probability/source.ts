@@ -94,7 +94,7 @@ export function parseFillReply(raw: unknown, source: FillSource, projection?: Fi
         r.reason !== null && !["no-exposure", "cache-not-exported", "invalid-cache", "live-identity-unverified"].includes(String(r.reason)) || ids.has(String(r.id))) throw new Error("Invalid fill row");
     if ((r.schema === 10 || r.pricingMode !== undefined) && (r.pricingMode !== "per_symbol_tif" ||
         typeof r.baseToken !== "string" || !r.baseToken || r.baseToken.length > 256 ||
-        !["RPI", "GTX", "GTC", "IOC", "FOK"].includes(String(r.tif)))) throw new Error("Invalid scoped fill row");
+        !["rpi", "gtx", "gtc", "ioc", "fok"].includes(String(r.tif)))) throw new Error("Invalid scoped fill row");
     ids.add(String(r.id));
     return { ...Object.fromEntries([...strings, ...numbers, "sourceSha", "side", "clock", "enabled", "error", "reason", "ready", "skipReason"].map(k => [k, r[k]])), quote: parseFillQuote(r.quote),
       ...(r.pricingMode === "per_symbol_tif" ? { pricingMode: r.pricingMode, baseToken: r.baseToken, tif: r.tif } : {}) } as FillRow;
