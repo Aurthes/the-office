@@ -138,3 +138,20 @@ it("opens the normal built-in table in the control room on demand",async()=>{
   fireEvent.click(await screen.findByRole("button",{name:"Open monitor: Fill probability"}));await screen.findByRole("table",{name:"Fill probability symbols"});expect(open).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button",{name:"Back to monitors"}));expect(screen.queryByRole("region",{name:"Fill probability"})).toBeNull();
 });
+
+
+it("correlates local fetch/JSON/commit marks to response ID without changing business rows",async()=>{
+  const marks:{name:string;options:PerformanceMarkOptions}[]=[];
+  const mark=vi.fn((name:string,options:PerformanceMarkOptions = {})=>{marks.push({name,options:structuredClone(options)});return {} as PerformanceMark;});
+  vi.stubGlobal("requestAnimationFrame",vi.fn(()=>1));vi.stubGlobal("cancelAnimationFrame",vi.fn());
+  vi.spyOn(performance,"mark").mockImplementation(mark);const clear=vi.spyOn(performance,"clearMarks");
+  const id="123e4567-e89b-12d3-a456-426614174000";
+  vi.stubGlobal("fetch",vi.fn(async()=>Response.json(fillSnapshot(pair()),{headers:{"X-Fill-Request-Id":id}})));
+  render(createElement(FillProbabilityDashboard));await screen.findByRole("table",{name:"Fill probability symbols"});
+  for(const stage of ["fetch-start","headers","json-read","validated","submit","commit","settled"]){const m=marks.find(v=>v.name===`fill:${stage}`);expect(m).toBeDefined();expect(m!.options.detail.sequence).toBe(1);if(stage!=="fetch-start")expect(m!.options.detail.requestId).toBe(id);}
+  expect(clear).toHaveBeenCalledWith("fill:fetch-start");expect(order()).toEqual(["venue.perp.a_usdt"]);expect(document.body.textContent).not.toContain(id);
+});
+it("diagnostic mark failures do not fail normal reads or create additional fetches",async()=>{
+  vi.spyOn(performance,"mark").mockImplementation(()=>{throw new Error("unsupported diagnostics");});
+  const {fetcher}=await load();expect(fetcher).toHaveBeenCalledTimes(1);expect(screen.queryByRole("alert")).toBeNull();expect(order()).toEqual(["venue.perp.a_usdt"]);
+});

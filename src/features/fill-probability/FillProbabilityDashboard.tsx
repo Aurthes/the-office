@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { FILL_REFRESH_MS, FILL_COLUMNS, FILL_DEFAULT_COLUMNS, fillState, quoteState, probabilityGap, projectFillTable, fillTableId, fillTableOrder,
@@ -110,18 +110,35 @@ function SymbolRow({ row, columns, availableColumns, sideFilter, now, failed }: 
   </tr>;
 }
 
+type FillRequestTiming = { sequence: number; requestId: string | null };
+// Fixed names keep only one entry per stage; a task-local observer can retain the finite sample.
+function markFillRequest(stage: string, timing: FillRequestTiming, at = performance.now()) {
+  try {
+    performance.clearMarks?.(`fill:${stage}`);
+    performance.mark?.(`fill:${stage}`, { startTime: at, detail: timing });
+  } catch { /* Unsupported diagnostics must not alter normal reads/rendering. */ }
+}
+
 export function FillProbabilityDashboard() {
   const t = useUiText();
-  const [sample, setSample] = useState<{ data: FillTableSnapshot; requestStartedAt: number } | null>(null);
+  const [sample, setSample] = useState<{ data: FillTableSnapshot; requestStartedAt: number; timing: FillRequestTiming } | null>(null);
   const [clock, setClock] = useState(0), [failed, setFailed] = useState(false), [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [columns, setColumns] = useState<FillColumn[]>([...FILL_DEFAULT_COLUMNS]);
+  const requestSequence = useRef(0);
   const selection = useRef({ columns: [...FILL_DEFAULT_COLUMNS], version: 0 });
   const refresh = useRef<(selectionChanged?: boolean) => void>(() => undefined);
   const changeColumn = (column: FillColumn, checked: boolean) => {
     const next = FILL_COLUMNS.filter(key => key === column ? checked : selection.current.columns.includes(key));
     selection.current = { columns: next, version: selection.current.version + 1 }; setColumns(next); refresh.current(true);
   };
+  useLayoutEffect(() => {
+    if (!sample) return;
+    markFillRequest("commit", sample.timing);
+    let second = 0;
+    const first = requestAnimationFrame(() => { second = requestAnimationFrame(() => markFillRequest("display-opportunity", sample.timing)); });
+    return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); };
+  }, [sample]);
   useEffect(() => {
     let stopped = false, busy = false, controller: AbortController | null = null, queued = false;
     const load = async (replace = false) => {
@@ -129,17 +146,27 @@ export function FillProbabilityDashboard() {
       if (busy) { if (replace) { queued = true; controller?.abort(); } return; }
       queued = false; busy = true; setLoading(true); controller = new AbortController();
       const request = controller, spec = selection.current, requestStartedAt = performance.now();
+      const timing: FillRequestTiming = { sequence: ++requestSequence.current, requestId: null };
+      markFillRequest("fetch-start", timing, requestStartedAt);
       const timeout = setTimeout(() => request.abort(), 20_000);
       try {
         const params = new URLSearchParams({ view: "table", columns: spec.columns.join(",") });
         const response = await fetch(`/api/monitoring/fill-probability?${params}`, { cache: "no-store", signal: request.signal });
+        const id = response.headers.get("x-fill-request-id");
+        timing.requestId = id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : null;
+        markFillRequest("headers", timing);
         if (!response.ok) throw new Error();
-        const data = tableReply(await response.json(), spec.columns);
+        const raw = await response.json();
+        markFillRequest("json-read", timing);
+        const data = tableReply(raw, spec.columns);
+        markFillRequest("validated", timing);
         if (!stopped && !request.signal.aborted && spec.version === selection.current.version) {
-          setSample({ data, requestStartedAt }); setClock(performance.now()); setFailed(false);
+          markFillRequest("submit", timing);
+          setSample({ data, requestStartedAt, timing }); setClock(performance.now()); setFailed(false);
         }
       } catch { if (!stopped && !queued && spec.version === selection.current.version) setFailed(true); }
       finally {
+        markFillRequest("settled", timing);
         clearTimeout(timeout); busy = false;
         if (!stopped) { if (queued && !document.hidden) { void load(); } else setLoading(false); }
       }

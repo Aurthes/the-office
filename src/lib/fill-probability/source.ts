@@ -3,6 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { randomUUID } from "node:crypto";
 import { resolveStateDir } from "@/lib/clawdbot/paths";
 import { loadServerRegistry, sshTransportOptions } from "../../../server/server-registry";
 import { FILL_REFRESH_MS, type FillRow, type FillSnapshot, type FillQuote } from "./model";
@@ -75,48 +76,75 @@ export function parseFillReply(raw: unknown, source: FillSource): FillRow[] {
   });
 }
 
-export async function readFillSource(source: FillSource): Promise<FillRow[]> {
-  const script = await fs.readFile(path.join(process.cwd(), "server/fill-probability-probe.py"), "utf8");
-  const request = JSON.stringify({ id: source.id, strategies: source.strategies });
-  let stdout: string;
-  if (source.host) {
-    const { hosts } = await loadServerRegistry();
-    if (!hosts.some(h => h.alias === source.host && h.active && h.group === "online")) throw new Error("Fill source unavailable");
-    const command = `timeout 10s ${quote(source.python || "python3")} -c ${quote(script)} ${quote(request)}`;
-    ({ stdout } = await exec("ssh", [...await sshTransportOptions(source.host), "-o", "ConnectTimeout=3", source.host, command], { cwd: os.homedir(), timeout: 12_000, maxBuffer: 4*1024*1024 }));
-  } else {
-    ({ stdout } = await exec(source.python || "python3", ["-c", script, request], { cwd: os.homedir(), timeout: 12_000, maxBuffer: 4*1024*1024 }));
-  }
-  return parseFillReply(JSON.parse(stdout), source);
+// Bounded request diagnostics, separate from business facts and observation clocks.
+export type FillSourceTiming = {
+  totalMs: number; prepareMs?: number; execMs?: number; decodeMs?: number; stdoutBytes?: number;
+};
+export type FillSnapshotTiming = {
+  cache: "hit" | "pending" | "new"; batchId: string; ageMs: number | null; sources: FillSourceTiming[];
+};
+export async function readFillSource(source: FillSource, observe?: (timing: FillSourceTiming) => void): Promise<FillRow[]> {
+  const started = performance.now(), timing: FillSourceTiming = { totalMs: 0 };
+  try {
+    const script = await fs.readFile(path.join(process.cwd(), "server/fill-probability-probe.py"), "utf8");
+    const request = JSON.stringify({ id: source.id, strategies: source.strategies });
+    let stdout: string;
+    if (source.host) {
+      const { hosts } = await loadServerRegistry();
+      if (!hosts.some(h => h.alias === source.host && h.active && h.group === "online")) throw new Error("Fill source unavailable");
+      const command = `timeout 10s ${quote(source.python || "python3")} -c ${quote(script)} ${quote(request)}`;
+      const args = [...await sshTransportOptions(source.host), "-o", "ConnectTimeout=3", source.host, command];
+      timing.prepareMs = performance.now() - started;
+      const executing = performance.now();
+      try { ({ stdout } = await exec("ssh", args, { cwd: os.homedir(), timeout: 12_000, maxBuffer: 4*1024*1024 })); }
+      finally { timing.execMs = performance.now() - executing; }
+    } else {
+      timing.prepareMs = performance.now() - started;
+      const executing = performance.now();
+      try { ({ stdout } = await exec(source.python || "python3", ["-c", script, request], { cwd: os.homedir(), timeout: 12_000, maxBuffer: 4*1024*1024 })); }
+      finally { timing.execMs = performance.now() - executing; }
+    }
+    timing.stdoutBytes = Buffer.byteLength(stdout, "utf8");
+    const decoding = performance.now(), raw = JSON.parse(stdout), rows = parseFillReply(raw, source);
+    timing.decodeMs = performance.now() - decoding;
+    return rows;
+  } finally { timing.totalMs = performance.now() - started; observe?.(timing); }
 }
 
 export function createFillReader(read = readFillSource, now = Date.now) {
-  const fresh = () => ({ sampledAt: null as number | null, values: new Map<string, FillRow[]>(), failures: new Set<string>(), pending: null as Promise<void> | null });
+  const fresh = () => ({ sampledAt: null as number | null, values: new Map<string, FillRow[]>(), failures: new Set<string>(), pending: null as Promise<void> | null,
+    batch: { id: randomUUID(), sources: [] as FillSourceTiming[] } });
   let signature = "", state = fresh();
-  return async (sources: FillSource[]): Promise<FillSnapshot> => {
+  return async (sources: FillSource[], observe?: (timing: FillSnapshotTiming) => void): Promise<FillSnapshot> => {
     const next = JSON.stringify(sources);
     if (next !== signature) { signature = next; state = fresh(); }
     const current = state;
-    if (!current.pending && (current.sampledAt === null || now() - current.sampledAt >= FILL_REFRESH_MS)) {
-      current.pending = Promise.all(sources.map(async source => {
-        try { current.values.set(source.id, await read(source)); current.failures.delete(source.id); }
+    const cache = current.pending ? "pending" : current.sampledAt === null || now() - current.sampledAt >= FILL_REFRESH_MS ? "new" : "hit";
+    if (cache === "new") {
+      current.batch = { id: randomUUID(), sources: [] };
+      current.pending = Promise.all(sources.map(async (source, index) => {
+        const started = performance.now();
+        try { current.values.set(source.id, await read(source, timing => { current.batch.sources[index] = timing; })); current.failures.delete(source.id); }
         catch { current.failures.add(source.id); current.values.set(source.id, (current.values.get(source.id) || []).map(r => ({ ...r, error: true }))); }
+        finally { current.batch.sources[index] ??= { totalMs: performance.now() - started }; }
       })).then(() => { current.sampledAt = now(); }).finally(() => { current.pending = null; });
     }
+    const batch = current.batch;
     if (current.pending) await current.pending;
-    const rows = [...current.values.values()].flat();
-    return { configured: sources.length > 0, serverTime: now(), sampledAt: current.sampledAt,
+    const rows = [...current.values.values()].flat(), serverTime = now();
+    observe?.({ cache, batchId: batch.id, ageMs: current.sampledAt === null ? null : Math.max(0, serverTime - current.sampledAt), sources: cache === "hit" ? [] : batch.sources });
+    return { configured: sources.length > 0, serverTime, sampledAt: current.sampledAt,
       sourceErrors: current.failures.size, rows };
   };
 }
 const read = createFillReader();
-export async function getFillSnapshot(): Promise<FillSnapshot> {
+export async function getFillSnapshot(observe?: (timing: FillSnapshotTiming) => void): Promise<FillSnapshot> {
   const file = path.join(resolveStateDir(), "claw3d/fill-probability.json");
   try {
     if ((await fs.stat(file)).size > 64*1024) throw new Error("Invalid fill configuration");
-    return read(parseFillSources(JSON.parse(await fs.readFile(file, "utf8"))));
+    return read(parseFillSources(JSON.parse(await fs.readFile(file, "utf8"))), observe);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return read([]);
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return read([], observe);
     throw error;
   }
 }
