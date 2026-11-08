@@ -68,7 +68,7 @@ it.each(["before", "after"])("shows immediately and reconciles canonical arrivin
 
 it("reconciles a missing live notification through history after ACK", async () => {
   const f = await fixture(); f.send(); f.history.push(f.canonical(0));
-  await act(async () => f.sends[0].gate.resolve({ status: "steered" }));
+  await act(async () => f.sends[0].gate.resolve({ status: "steered", turnId: "turn" }));
   await waitFor(() => expect(screen.queryByText(/Waiting for message history/)).toBeNull());
   expect(screen.getAllByText("Same message", { selector: "p" })).toHaveLength(1);
 });
@@ -77,20 +77,20 @@ it("keeps one canonical message when history catches up before the send ACK", as
   const f = await fixture(); f.send(); f.history.push(f.canonical(0));
   await f.reconnect();
   await waitFor(() => expect(screen.queryByText("Waiting for receipt…")).toBeNull());
-  await act(async () => f.sends[0].gate.resolve({ status: "steered" }));
+  await act(async () => f.sends[0].gate.resolve({ status: "steered", turnId: "turn" }));
   expect(screen.getAllByText("Same message", { selector: "p" })).toHaveLength(1);
   expect(screen.queryByText(/Waiting for message history/)).toBeNull();
 });
 
 it("keeps consecutive identical sends distinct and never matches someone else's identical input", async () => {
   const f = await fixture(); f.send();
-  await act(async () => f.sends[0].gate.resolve({ status: "steered" }));
+  await act(async () => f.sends[0].gate.resolve({ status: "steered", turnId: "turn" }));
   f.send();
   expect(f.sends[0].params.requestId).not.toBe(f.sends[1].params.requestId);
   await f.push([{ id: "external", clientId: "other-client", role: "user", turnId: "turn", content: "Same message" }, { id: "legacy", role: "user", content: "Same message" }]);
   expect(screen.getAllByText("Same message", { selector: "p" })).toHaveLength(4);
   await f.push([f.canonical(1), f.canonical(0)]);
-  await act(async () => f.sends[1].gate.resolve({ status: "steered" }));
+  await act(async () => f.sends[1].gate.resolve({ status: "steered", turnId: "turn" }));
   expect(screen.getAllByText("Same message", { selector: "p" })).toHaveLength(4);
   expect(screen.queryByText(/Waiting for receipt|Waiting for message history/)).toBeNull();
 });
@@ -156,7 +156,7 @@ it("keeps pending input across a concurrent first history read and cached hidden
   await act(async () => read.resolve({ threadId: f.threadId, messages: f.history, nextCursor: null }));
   expect(screen.getByText("Same message", { selector: "p" })).toBeInTheDocument();
   f.view.rerender(React.createElement(ExistingSessionPanel, { ...f.props, active: false }));
-  await act(async () => f.sends[0].gate.resolve({ status: "steered" }));
+  await act(async () => f.sends[0].gate.resolve({ status: "steered", turnId: "turn" }));
   expect(screen.getByText(/Accepted · Waiting for message history/)).toBeInTheDocument();
   f.history.push(f.canonical(0));
   f.view.rerender(React.createElement(ExistingSessionPanel, f.props));
@@ -168,6 +168,6 @@ it("keeps pending input across a concurrent first history read and cached hidden
 it("does not let an old send callback inject its message into another thread", async () => {
   const f = await fixture(); f.send("Old thread message");
   f.view.rerender(React.createElement(ExistingSessionPanel, { ...f.props, threadId: "different-thread" }));
-  await act(async () => f.sends[0].gate.resolve({ status: "steered" }));
+  await act(async () => f.sends[0].gate.resolve({ status: "steered", turnId: "turn" }));
   expect(screen.queryByText("Old thread message", { selector: "p" })).toBeNull();
 });

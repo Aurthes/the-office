@@ -1907,6 +1907,9 @@ export function RetroOffice3D({
   onOpenAgentDirectory?: () => void;
   onOpenTaskBoard?: () => void;
   taskBoardOpen?: boolean;
+  onOpenTeaserBoard?: () => void;
+  onCloseTeaserBoard?: () => void;
+  teaserBoardOpen?: boolean;
   activeChatAgentId?: string | null;
   chatExpanded?: boolean;
   returnRequest?: { agentId: string; requestId: string } | null;

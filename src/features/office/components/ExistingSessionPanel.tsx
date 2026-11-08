@@ -15,6 +15,8 @@ import { SessionTranscript } from "./SessionTranscript";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { OfficeCodexAccount } from "./OfficeCodexAccount";
 import { SessionMessageLocation } from "./SessionMessageLocation";
+import { AgentInterfaceActions, AgentInterfacePresetEditor } from "./AgentInterfaceActions";
+import type { AgentInterfacePreset } from "@/lib/office/agent-interface";
 import type { MessageSearchTarget } from "./MessageSearchResults";
 
 export type SessionInspection = {
@@ -35,7 +37,7 @@ function reconcileLocalSends(messages: Message[]) {
   return messages.filter(message => !message.delivery || !received.has(message.clientId));
 }
 
-export function ExistingSessionPanel({ client, threadId, active = true, captureEligible = false, onCaptureAdopt, focusMode = false, onToggleFocus, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, onOpenThread, onFork, forkDisabled, headerStart, headerEnd, projects = [], voice, organization, messageTarget, onCloseMessage }: {
+export function ExistingSessionPanel({ client, threadId, active = true, captureEligible = false, onCaptureAdopt, focusMode = false, onToggleFocus, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, onOpenThread, onFork, forkDisabled, headerStart, headerEnd, projects = [], voice, organization, messageTarget, onCloseMessage, interfacePreset = "standard", onSaveInterfacePreset, onOpenTeaserBoard, externalSends, onExternalReceipt }: {
   client: SessionClient;
   active?: boolean;
   captureEligible?: boolean;
@@ -62,6 +64,11 @@ export function ExistingSessionPanel({ client, threadId, active = true, captureE
   organization?: OrganizationView;
   messageTarget?: MessageSearchTarget | null;
   onCloseMessage?: () => void;
+  interfacePreset?: AgentInterfacePreset;
+  onSaveInterfacePreset?: (preset: AgentInterfacePreset) => Promise<void>;
+  onOpenTeaserBoard?: () => void;
+  externalSends?: readonly LiveSessionItem[];
+  onExternalReceipt?: (threadId: string, clientId: string) => void;
 }) {
   const t = useUiText();
   const [questionTarget, setQuestionTarget] = useState<{ ownerId: string; target: MessageSearchTarget } | null>(null);
@@ -119,6 +126,9 @@ export function ExistingSessionPanel({ client, threadId, active = true, captureE
       return previous.map((message, i) => i === index ? item : message);
     });
   }, []);
+  useEffect(() => {
+    for (const message of messages) if (message.role === "user" && !message.delivery && message.clientId) onExternalReceipt?.(threadId, message.clientId);
+  }, [messages, onExternalReceipt, threadId]);
   const onLiveItems = useCallback((items: LiveSessionItem[]) => {
     for (const item of items) liveItems.current.set(item.id, item);
     while (liveItems.current.size > 128) liveItems.current.delete(liveItems.current.keys().next().value!);
@@ -268,6 +278,14 @@ export function ExistingSessionPanel({ client, threadId, active = true, captureE
     return () => { stopped = true; readVersion++; load.current = null; resetHistory.current = null; unsubscribeStatus?.(); unsubscribeRoster?.(); };
   }, [client, threadId]);
 
+  // Initialize the timeline before adding retained external sends, including
+  // when their target chat opens after the whiteboard RPC has already finished.
+  useEffect(() => {
+    if (!externalSends?.length) return;
+    for (const item of externalSends) onSendState(threadId, item);
+    if (externalSends.some(item => item.delivery === "accepted" || item.delivery === "unknown")) onHistorySync();
+  }, [client, externalSends, onHistorySync, onSendState, threadId]);
+
   const sessionName = agentName || data?.name || "";
   const rename = async (name: string) => {
     const result = await client.call("session.rename", { threadId, name, requestId: crypto.randomUUID() }) as { threadId: string; name: string };
@@ -297,6 +315,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, captureE
         {onToggleFocus ? <button type="button" aria-label={t("Focus mode")} aria-pressed={focusMode} onClick={onToggleFocus}
           title={t(focusMode ? "Focus on: keep this session until switched off" : "Keep this session open beyond the 15-minute cache")}
           className="session-action-back session-focus-toggle"><Focus size={15} /><span className="hidden sm:inline">{t("Focus")}</span></button> : null}
+        <AgentInterfaceActions preset={interfacePreset} onOpenBoard={onOpenTeaserBoard} placement="inline" />
         {characterOpen ? <button type="button" onClick={() => setCharacterMode("chat")} className="session-action-back"><ArrowLeft size={14} />{t("Back to chat")}</button> : null}
         {!characterOpen ? <button type="button" aria-label={t(workspaceOpen ? "Close workspace" : "Open workspace")} aria-expanded={workspaceOpen} title={t("Workspace")}
           disabled={!data?.controlsAvailable} className="session-action-back session-workspace-toggle" onClick={() => { setWorkspaceOpen(value => !value); if (!workspaceOpen) onOpenWorkspace?.(); }}><PanelRight size={15} /><span>{t("Workspace")}</span></button> : null}
@@ -304,6 +323,8 @@ export function ExistingSessionPanel({ client, threadId, active = true, captureE
           <summary aria-label={t("Session information")} className="session-actions-trigger"><MoreHorizontal size={18} aria-hidden="true" /></summary>
           <div className="session-actions-popover">
             <div className="session-actions-list">
+            <AgentInterfaceActions preset={interfacePreset} onOpenBoard={onOpenTeaserBoard} placement="menu" />
+            {onSaveInterfacePreset ? <AgentInterfacePresetEditor key={`${threadId}:${interfacePreset}`} preset={interfacePreset} onSave={onSaveInterfacePreset} /> : null}
             {onSaveCharacter ? <>
               <button type="button" disabled={!data} onClick={event => openCharacter(event, "view")} className="session-action session-action--view"><span className="session-action-icon"><UserRound size={16} aria-hidden="true" /></span><span className="session-action-label">{t("Character")}</span><ChevronRight className="session-action-chevron" size={14} aria-hidden="true" /></button>
               <button type="button" disabled={!data} onClick={event => openCharacter(event, "edit")} className="session-action session-action--edit"><span className="session-action-icon"><SlidersHorizontal size={16} aria-hidden="true" /></span><span className="session-action-label">{t("Edit character")}</span><ChevronRight className="session-action-chevron" size={14} aria-hidden="true" /></button>

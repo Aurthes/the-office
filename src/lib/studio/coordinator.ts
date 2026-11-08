@@ -138,6 +138,7 @@ const mergeOfficePatch = (
       merged[gatewayKey] = {
         ...existing,
         ...value,
+        ...(value.agentInterfaces && existing.agentInterfaces ? { agentInterfaces: { ...existing.agentInterfaces, ...value.agentInterfaces } } : {}),
         ...(value.organization && existing.organization ? { organization: { ...existing.organization, ...value.organization } } : {}),
         ...(value.departmentDescriptions && existing.departmentDescriptions ? { departmentDescriptions: { ...existing.departmentDescriptions, ...value.departmentDescriptions } } : {}),
       };

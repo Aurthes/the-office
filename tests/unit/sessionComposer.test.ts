@@ -11,6 +11,7 @@ function edit(input: HTMLElement, value: string, start = (input as HTMLTextAreaE
 function fixture(id: string, extra = {}, props: Partial<React.ComponentProps<typeof SessionControls>> = {}) {
   const call = vi.fn(async (method: string, params: unknown) => {
     const p = params as { kind?: string; query?: string };
+    if (method === "session.send") return { status: "started", turnId: "fixture-turn" };
     if (method === "session.composer.options") return { options: (p.kind === "command" ? [{ kind: "command", id: "compact", name: "/compact", description: "Compact context" }] : p.kind === "task" ? [37, 38].map(i => ({ kind: "task", id: `12345678-1234-4234-8234-${String(i).padStart(12, "0")}`, name: `T${i} Same title`, description: "Project" })) : [{ kind: "chat", id: "target", name: "Target worker", description: "Project" }]).filter(item => item.name.includes(p.query || "")) };
     return { ...snapshot, ...extra };
   });

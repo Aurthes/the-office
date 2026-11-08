@@ -351,3 +351,41 @@ describe("existing session history pagination", () => {
     expect(pages).toBe(3);
   });
 });
+
+it("uses a confirmed interface preset for shared header actions and keeps failed selections local", async () => {
+  const call = vi.fn(async (method: string) => method === "session.inspect" ? metadata() : { threadId: "original", messages: [], nextCursor: null });
+  const onOpen = vi.fn(), save = deferred(), onSave = vi.fn(async () => { await save.promise; });
+  const props = { client: { call }, threadId: "original", interfacePreset: "standard" as const, onOpenTeaserBoard: onOpen, onSaveInterfacePreset: onSave };
+  const view = render(React.createElement(ExistingSessionPanel, props)); await screen.findByRole("heading", { name: "Name original" });
+  fireEvent.click(screen.getByRole("group", { name: "Session information" }).querySelector("summary")!);
+  fireEvent.change(screen.getByRole("combobox", { name: "Interface preset" }), { target: { value: "teaser" } });
+  expect(screen.queryByRole("button", { name: "Teaser board" })).toBeNull(); fireEvent.click(screen.getByRole("button", { name: "Save interface preset" }));
+  expect(onSave).toHaveBeenCalledExactlyOnceWith("teaser"); expect(screen.getByRole("combobox", { name: "Interface preset" })).toBeDisabled();
+  await act(async () => save.resolve(undefined));
+  view.rerender(React.createElement(ExistingSessionPanel, { ...props, interfacePreset: "teaser" }));
+  const actions = screen.getAllByRole("button", { name: "Teaser board" }); expect(actions).toHaveLength(2); fireEvent.click(actions[0]); expect(onOpen).toHaveBeenCalledOnce();
+  expect(call.mock.calls.some(([method]) => method === "session.send")).toBe(false);
+});
+
+it("keeps a failed preset edit visible without granting header capability", async () => {
+  const call = vi.fn(async (method: string) => method === "session.inspect" ? metadata() : { threadId: "original", messages: [], nextCursor: null });
+  render(React.createElement(ExistingSessionPanel, { client: { call }, threadId: "original", interfacePreset: "standard", onSaveInterfacePreset: async () => { throw Error("offline"); } }));
+  await screen.findByRole("heading", { name: "Name original" }); fireEvent.click(screen.getByRole("group", { name: "Session information" }).querySelector("summary")!);
+  fireEvent.change(screen.getByRole("combobox", { name: "Interface preset" }), { target: { value: "teaser" } }); fireEvent.click(screen.getByRole("button", { name: "Save interface preset" }));
+  await screen.findByText("Interface preset could not be saved. Your selection is kept."); expect(screen.getByRole("combobox", { name: "Interface preset" })).toHaveValue("teaser"); expect(screen.queryByRole("button", { name: "Teaser board" })).toBeNull();
+});
+
+it("merges external echoes only on exact clientId and reports a matching native receipt once", async () => {
+  let history: { id: string; role: string; content: string; clientId?: string }[] = [];
+  const call = vi.fn(async (method: string) => method === "session.inspect" ? metadata() : { threadId: "original", messages: [...history], nextCursor: null });
+  const onReceipt = vi.fn(), sending = { id: "local-send:external-id", clientId: "external-id", role: "user", content: "External solution", delivery: "sending" as const };
+  const props = { client: { call }, threadId: "original", externalSends: [sending], onExternalReceipt: onReceipt };
+  const view = render(React.createElement(ExistingSessionPanel, props)); await screen.findByText("External solution");
+  history = [{ id: "other-id", role: "user", content: "External solution", clientId: "not-the-request" }];
+  view.rerender(React.createElement(ExistingSessionPanel, { ...props, externalSends: [{ ...sending, delivery: "unknown" }] }));
+  await waitFor(() => expect(screen.getAllByText("External solution")).toHaveLength(2)); expect(onReceipt).not.toHaveBeenCalledWith("original", "external-id");
+  history.push({ id: "native-id", role: "user", content: "External solution", clientId: "external-id" });
+  view.rerender(React.createElement(ExistingSessionPanel, { ...props, externalSends: [{ ...sending, delivery: "accepted" }] }));
+  await waitFor(() => expect(onReceipt).toHaveBeenCalledWith("original", "external-id"));
+  expect(screen.getAllByText("External solution")).toHaveLength(2); expect(screen.queryByText(/Delivery not confirmed/)).toBeNull();
+});

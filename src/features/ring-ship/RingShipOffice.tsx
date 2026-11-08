@@ -375,7 +375,7 @@ export function RingShipOffice(props: Props) {
   const [renderProbeEnabled] = useState(() => typeof window !== "undefined" && ["1", "shadows"].includes(new URLSearchParams(window.location.search).get("renderProbe") || ""));
   const [probeShadows, setProbeShadows] = useState(true);
   const t = useUiText();
-  const { agents, companyRoster, companyActions, gatewayStatus = "disconnected", officeTitle = "Orbital Headquarters", storageNamespace = "default", gatewayUrl = "", officeCenterSignal = 0, navigationPreview = true } = props;
+  const { agents, companyRoster, companyActions, onOpenTeaserBoard, onCloseTeaserBoard, gatewayStatus = "disconnected", officeTitle = "Orbital Headquarters", storageNamespace = "default", gatewayUrl = "", officeCenterSignal = 0, navigationPreview = true } = props;
   const roster = companyRoster || EMPTY_ROSTER;
   const layout = useShipLayout(companyRoster || null, `claw3d:ship:v1:${storageNamespace}:${gatewayUrl}`);
   const { state: navigation, dispatch: navigate } = useStarNavigation(`claw3d:star-system:${storageNamespace}`);
@@ -397,7 +397,8 @@ export function RingShipOffice(props: Props) {
   const serverHosts = useMemo(() => JSON.parse(serverHostKey) as PoolHost[], [serverHostKey]);
   const [tasksOpen, setTasksOpen] = useState(false);
   const [localTodoOpen, setLocalTodoOpen] = useState(false);
-  const [teasersOpen, setTeasersOpen] = useState(false);
+  const [localTeasersOpen, setLocalTeasersOpen] = useState(false);
+  const teasersOpen = props.teaserBoardOpen ?? localTeasersOpen;
   const todoOpen = props.taskBoardOpen ?? localTodoOpen;
   const [musicOpen, setMusicOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
@@ -411,7 +412,7 @@ export function RingShipOffice(props: Props) {
   const openServers = () => { closeObject(); setServersView("servers"); setServersOpen(true); };
   const openBackgroundProcesses = () => { closeObject(); setServersView("local"); setServersOpen(true); };
   const openTasks = () => { closeObject(); setTasksOpen(true); };
-  const openTeasers = useCallback(() => { closeObject(); setTeasersOpen(true); }, [closeObject]);
+  const openTeasers = useCallback(() => { closeObject(); if (onOpenTeaserBoard) onOpenTeaserBoard(); else setLocalTeasersOpen(true); }, [closeObject, onOpenTeaserBoard]);
   const openAiCenter = () => { closeObject(); setAiOpen(true); };
   const overlayRef = useRef<HTMLDivElement>(null);
   const pendingFocus = useRef("");
@@ -447,7 +448,7 @@ export function RingShipOffice(props: Props) {
       cloneResultRef.current={status:"pending"};setCloneState("synchronizing");setCloneError("");setClonedAgentId(null);
       setCloneFlight({requestId:cloneRequest.requestId,agentId:source.id,name:source.name,appearance:source.avatarProfile?.duck});
       setDeck(cloningCabin.deck);setWhole(false);setTrip(null);setLiftOpen(false);setInspectedObject(null);
-      setMonitorOpen(false);setServersOpen(false);setTerminalHost(null);setTasksOpen(false);setTeasersOpen(false);setMusicOpen(false);setAiOpen(false);setSettingsOpen(false);
+      setMonitorOpen(false);setServersOpen(false);setTerminalHost(null);setTasksOpen(false);setLocalTeasersOpen(false);onCloseTeaserBoard?.();setMusicOpen(false);setAiOpen(false);setSettingsOpen(false);
       setFocus(previous=>({id:cloningCabin.id,request:previous.request+1}));
       void onForkSession(source.id,cloneRequest.requestId,cloneRequest.name,cloneRequest.lastTurnId).then(threadId=>{
         cloneResultRef.current={status:"confirmed",threadId,at:performance.now()};
@@ -456,7 +457,7 @@ export function RingShipOffice(props: Props) {
       },cause=>{cloneResultRef.current={status:"failed",error:cause instanceof Error?cause.message:t("Cloning was not confirmed")};});
     });
     return()=>cancelAnimationFrame(frame);
-  },[cloneRequest,onForkSession,onCloneFinished,agents,layout,cloningCabin,t]);
+  },[cloneRequest,onForkSession,onCloneFinished,onCloseTeaserBoard,agents,layout,cloningCabin,t]);
   const cloneComplete=useCallback((points:ShipPoint[])=>{
     if(!cloneFlight)return;
     const result=cloneResultRef.current;
@@ -664,7 +665,7 @@ export function RingShipOffice(props: Props) {
     {navigationOpen && navigation.phase !== "warp" ? <NavigationOverlay state={navigation} onAction={navigate} /> : null}
     {navigationPreview && navigation.phase === "warp" && navigation.destination ? <WarpJourney destination={starSystem(navigation.destination)} onArrive={arriveSystem} onComplete={completeWarp} /> : null}
     <MonitorDashboard open={monitorOpen} onClose={() => setMonitorOpen(false)} />
-    {teasersOpen ? <TeaserDashboard onClose={() => setTeasersOpen(false)} agents={agents.filter(agent => roster.members.some(member => member.id === agent.id))} onOpenSession={!busy && onAgentChatSelect ? open : undefined} /> : null}
+    {!onOpenTeaserBoard && teasersOpen ? <TeaserDashboard onClose={() => setLocalTeasersOpen(false)} onOpenSession={!busy && onAgentChatSelect ? open : undefined} /> : null}
     {serversOpen ? <ServerRoomDashboard fleet={serverFleet} open initialView={serversView} onClose={() => setServersOpen(false)} onFirefight={props.onFirefight} /> : null}
     {terminalHost ? <ServerTerminal alias={terminalHost} onClose={() => setTerminalHost(null)} /> : null}
     {!props.onOpenTaskBoard ? <TaskBoard open={localTodoOpen} onClose={() => setLocalTodoOpen(false)} onOpenSession={open} client={props.atmAnalytics?.client} connected={gatewayStatus === "connected"} /> : null}
