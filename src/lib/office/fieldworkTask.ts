@@ -29,6 +29,11 @@ export function latestSiteTask(messages: readonly { role: string; content: strin
 export function taskSiteGoal(task: FieldworkTaskSummary): Exclude<SiteTask, string> {
   return { taskId: task.id, title: task.title, revision: task.revision, phase: task.phases?.find(p => p.completedAt == null)?.title };
 }
+// Documentation/review revisions do not change a work goal. A different task,
+// phase, title or start epoch does invalidate an accepted live directive.
+export function siteTaskKey(task: FieldworkTaskSummary) {
+  return JSON.stringify([task.id, task.title, task.phases?.find(p => p.completedAt == null)?.title, task.lastStartedAt]);
+}
 export function currentFieldworkTask(tasks: readonly FieldworkTaskSummary[], agentId: string) {
   const active = tasks.filter(t => !t.archived && t.status === "running" && t.handlingAgentId === agentId);
   return active.length === 1 ? active[0] : undefined;

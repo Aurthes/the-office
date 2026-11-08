@@ -4,7 +4,9 @@ import type { GatewayClient } from "@/lib/gateway/GatewayClient";
 import { currentTasksByAgent, type DirectoryTaskSummary } from "../operations/agentDirectory";
 
 export function useCurrentAgentTasks(client: Pick<GatewayClient, "call" | "onEvent">, enabled: boolean, gateway: string) {
-  const [snapshot, setSnapshot] = useState<{ gateway: string; tasks: DirectoryTaskSummary[]; error: string; loaded: boolean; fresh: boolean }>({ gateway, tasks: [], error: "", loaded: false, fresh: false });
+  // No accepted list is distinct from an accepted empty list. Refreshes retain
+  // the last list; fresh only controls acceptance of new free-text steering.
+  const [snapshot, setSnapshot] = useState<{ gateway: string; tasks: DirectoryTaskSummary[] | null; error: string; loaded: boolean; fresh: boolean }>({ gateway, tasks: null, error: "", loaded: false, fresh: false });
   useEffect(() => {
     if (!enabled) return;
     let stopped = false, loading = false, again = false, generation = 0;
@@ -25,7 +27,7 @@ export function useCurrentAgentTasks(client: Pick<GatewayClient, "call" | "onEve
         } while (tasks.length < total);
         if (!stopped && requested === generation) setSnapshot({ gateway, tasks, error: "", loaded: true, fresh: true });
       } catch {
-        if (!stopped && requested === generation) setSnapshot(previous => ({ gateway, tasks: previous.gateway === gateway ? previous.tasks : [], error: "Current tasks are unavailable.", loaded: true, fresh: false }));
+        if (!stopped && requested === generation) setSnapshot(previous => ({ gateway, tasks: previous.gateway === gateway ? previous.tasks : null, error: "Current tasks are unavailable.", loaded: true, fresh: false }));
       } finally {
         loading = false;
         if (again && !stopped) { again = false; void load(); }
@@ -43,6 +45,6 @@ export function useCurrentAgentTasks(client: Pick<GatewayClient, "call" | "onEve
     void load();
     return () => { stopped = true; off(); clearTimeout(timer); window.removeEventListener("focus", refresh); };
   }, [client, enabled, gateway]);
-  const summaries = snapshot.gateway === gateway ? snapshot.tasks : [];
-  return { tasks: currentTasksByAgent(summaries), summaries, fieldworkSummaries: enabled && snapshot.gateway === gateway && snapshot.fresh ? summaries : null, loading: enabled && (snapshot.gateway !== gateway || !snapshot.loaded), error: enabled && snapshot.gateway === gateway ? snapshot.error : "" };
+  const summaries = snapshot.gateway === gateway ? snapshot.tasks || [] : [];
+  return { tasks: currentTasksByAgent(summaries), summaries, fieldworkSummaries: enabled && snapshot.gateway === gateway ? snapshot.tasks : null, fieldworkFresh: enabled && snapshot.gateway === gateway && snapshot.fresh, loading: enabled && (snapshot.gateway !== gateway || !snapshot.loaded), error: enabled && snapshot.gateway === gateway ? snapshot.error : "" };
 }

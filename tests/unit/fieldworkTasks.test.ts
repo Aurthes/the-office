@@ -47,7 +47,7 @@ it("uses unique current handling task/phase, never the owner list or stale histo
   const title = "Teaser看板、会话入口与逐题白板";
   const task = { id: "A", title, status: "running", archived: false, handlingAgentId: "one", revision: 1, lastStartedAt: 100, phases: [{ title: "调整Teaser白板", completedAt: null }] };
   const hook = renderHook(({ tasks }) => useFieldworkTasks(client, agents, roster, true, "gateway", tasks), { initialProps: { tasks: null as typeof task[] | null } });
-  expect(hook.result.current.tasks.one).toBeNull();
+  expect(hook.result.current.tasks.one).toBeUndefined();
   hook.rerender({ tasks: [task] });
   expect(hook.result.current.tasks.one).toMatchObject({ taskId: "A", title });
   await act(async () => finish({ messages: [{ role: "user", content: "调整克隆舱" }] }));
@@ -63,7 +63,7 @@ it("uses unique current handling task/phase, never the owner list or stale histo
   hook.rerender({ tasks: [next, { ...task, id: "owner-only", handlingAgentId: "other", title: "克隆舱" }] });
   expect(hook.result.current.tasks.one).toMatchObject({ taskId: "B" });
 });
-it("allows only timestamped live positive steering for the exact known task revision", () => {
+it("keeps accepted steering through doc-only revisions but invalidates changed work goals", () => {
   let receive!: (e: { event: string; payload: unknown }) => void;
   const task = { id: "A", title: "Teaser board", status: "running", archived: false, handlingAgentId: "one", revision: 1, lastStartedAt: 100 };
   const client = { call: vi.fn(), onEvent: (fn: typeof receive) => { receive = fn; return vi.fn(); } };
@@ -71,6 +71,8 @@ it("allows only timestamped live positive steering for the exact known task revi
   act(() => receive({ event: "session.stream", payload: { threadId: "one", version: 1, items: [{ role: "user", content: "调整克隆舱", timestamp: 200 }] } }));
   expect(hook.result.current.tasks.one).toBe("调整克隆舱");
   hook.rerender({ tasks: [{ ...task, revision: 2 }] });
+  expect(hook.result.current.tasks.one).toBe("调整克隆舱");
+  hook.rerender({ tasks: [{ ...task, revision: 2, lastStartedAt: 300 }] });
   expect(hook.result.current.tasks.one).toMatchObject({ taskId: "A", revision: 2 });
   expect(client.call).not.toHaveBeenCalled();
 });
@@ -83,7 +85,7 @@ it("keeps unknown/ambiguous metadata safe and refuses unrelated controlled notif
   act(() => receive({ event: "session.stream", payload: { threadId: "one", items: [{ role: "user", content: "Work on delegated Office task 00000000-0000-4000-8000-000000000074: 克隆舱\nTask update: {}" }] } }));
   expect(hook.result.current.tasks.one).toBeNull();
   hook.rerender({ tasks: null });
-  expect(hook.result.current.tasks.one).toBeNull();
+  expect(hook.result.current.tasks.one).toBeUndefined();
   await act(async () => {});
 });
 it("ignores callbacks/history from a previous gateway and uses the new metadata directly", async () => {

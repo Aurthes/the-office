@@ -3,18 +3,20 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { SessionClient } from "../components/SessionControls";
 import type { AgentState } from "@/features/agents/state/store";
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
-import { currentFieldworkTask, isWorkDirective, latestSiteTask, taskSiteGoal, type FieldworkTaskSummary, type SiteTask } from "@/lib/office/fieldworkTask";
+import { currentFieldworkTask, isWorkDirective, latestSiteTask, taskSiteGoal, siteTaskKey, type FieldworkTaskSummary, type SiteTask } from "@/lib/office/fieldworkTask";
 
 type TaskEntry = { task: SiteTask; key: string; timestamp: number; live: boolean };
-const EMPTY_TASKS: Record<string, SiteTask | null> = {};
+const EMPTY_TASKS: Record<string, SiteTask | null | undefined> = {};
 
-export function useFieldworkTasks(client: SessionClient, agents: AgentState[], roster: CompanyRoster | null, enabled: boolean, gateway: string, summaries?: readonly FieldworkTaskSummary[] | null) {
+export function useFieldworkTasks(client: SessionClient, agents: AgentState[], roster: CompanyRoster | null, enabled: boolean, gateway: string, summaries?: readonly FieldworkTaskSummary[] | null, fresh = true) {
   const [state, setState] = useState<{ gateway: string; tasks: Record<string, TaskEntry> }>({ gateway, tasks: {} });
   const context = useRef(summaries);
-  useLayoutEffect(() => { context.current = summaries; }, [summaries]);
+  const accepting = useRef(fresh);
+  useLayoutEffect(() => { context.current = summaries; accepting.current = fresh; }, [summaries, fresh]);
   const publish = useCallback((id: string, task: SiteTask | null, timestamp = 0, live = false) => {
+    if (!accepting.current) return;
     const current = context.current && currentFieldworkTask(context.current, id);
-    const key = current ? `${current.id}:${current.revision}` : "";
+    const key = current ? siteTaskKey(current) : "";
     setState(previous => {
       const tasks = previous.gateway === gateway ? previous.tasks : {};
       if (!task) return { gateway, tasks: { ...tasks, [id]: { task: "", key, timestamp, live } } };
@@ -75,15 +77,15 @@ export function useFieldworkTasks(client: SessionClient, agents: AgentState[], r
     return () => { stopped = true; };
   }, [client, enabled, activeKey, gateway, publish]);
 
-  const tasks: Record<string, SiteTask | null> = {};
+  const tasks: Record<string, SiteTask | null | undefined> = {};
   for (const id of workers) {
-    if (!enabled || summaries === null) { tasks[id] = null; continue; }
+    if (!enabled || summaries === null) { tasks[id] = undefined; continue; }
     const current = summaries && currentFieldworkTask(summaries, id);
     const entry = state.gateway === gateway ? state.tasks[id] : undefined;
     if (current) {
-      // Only a timestamped live positive directive from this exact task revision
+      // Only a timestamped live positive directive from this exact work goal
       // may steer its goal. History/old subscription items cannot override it.
-      tasks[id] = entry?.live && entry.key === `${current.id}:${current.revision}` && typeof entry.task === "string" && current.lastStartedAt && entry.timestamp >= current.lastStartedAt && isWorkDirective(entry.task)
+      tasks[id] = entry?.live && entry.key === siteTaskKey(current) && typeof entry.task === "string" && current.lastStartedAt && entry.timestamp >= current.lastStartedAt && isWorkDirective(entry.task)
         ? entry.task : taskSiteGoal(current);
     } else if (entry && typeof entry.task !== "string" && summaries) {
       const notifiedId = entry.task.taskId;

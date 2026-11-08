@@ -39,7 +39,8 @@ export function syncCrew(agents: OfficeAgent[], layout: ShipLayout, previousById
       home: { x: seat.x, z: seat.z }, route: keepRoute ? previous.route : [], routeIndex: keepRoute ? previous.routeIndex : 0,
       visiting: keepRoute ? previous.visiting : false, pauseUntil: keepRoute ? previous.pauseUntil : now + 7000 + hash(agent.id) % 18000,
       homeDeck: seat.deck,
-      worksite: agent.constructionWorker ? resolveWorksite(agent.siteTask, layout, seat.deck) : undefined,
+      // undefined means no confirmed snapshot yet, not a confirmed unknown goal.
+      worksite: agent.constructionWorker ? agent.siteTask === undefined ? unchanged ? previous.worksite : undefined : resolveWorksite(agent.siteTask, layout, seat.deck) : undefined,
       deck: unchanged ? previous.deck ?? seat.deck : seat.deck, deckY: unchanged ? previous.deckY : undefined, fieldwork: unchanged ? previous.fieldwork : undefined,
       kirbyPose: unchanged ? previous.kirbyPose : undefined, breakVisit: unchanged ? previous.breakVisit : undefined,
       idleSince: previous?.idleSince, idleActivityAt: previous?.idleActivityAt,

@@ -77,7 +77,8 @@ it("invalidates fieldwork immediately and never publishes a list response older 
   await act(async () => resolve[1]({ todos: [{ ...task, id: "B", title: "机房" }], total: 1 }));
   expect(hook.result.current.fieldworkSummaries?.[0].id).toBe("B");
   act(() => receive({ event: "todos.updated" }));
-  expect(hook.result.current.fieldworkSummaries).toBeNull();
+  expect(hook.result.current.fieldworkFresh).toBe(false);
+  expect(hook.result.current.fieldworkSummaries?.[0].id).toBe("B");
   expect(hook.result.current.tasks.get("one")?.[0].id).toBe("B"); // Directory UI retains existing rows.
 });
 
