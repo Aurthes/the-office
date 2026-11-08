@@ -202,11 +202,10 @@ the operations console. The gateway schedules them independently of browser tabs
 
 ## AI usage response detail
 
-In **AI Center**, click a daily token bar (or focus it and press Enter/Space) to
-open that day's observed model responses. Sort by total or uncached input to
-find large consumers, filter by employee/configured model/Task, and expand a
-response for cached input, uncached input, reasoning output and other output.
-These four disjoint parts add to its total. Task labels use the existing short
+**AI Center** opens with today's usage by purpose. Daily token bars also open a
+purpose overview (click or Enter/Space), then a purpose's composition, then
+optional response records. Filter by employee/configured model/Task; records
+can be sorted by total or uncached input. Task labels use the existing short
 code/title only when a real stored dispatch binding exists; historical missing
 bindings remain unattributed. Configured model is not proof of the actual model.
 
@@ -233,6 +232,45 @@ earlier: the displayed start date moves forward, and a first local day cut by a
 UTC eviction boundary is marked partial. Dates outside the current retained
 range are identified explicitly. Original logs are never deleted by this index.
 Current-day saturation stops indexing with a visible coverage warning.
+
+Purpose tags come from existing business entry points, not message keywords or
+the latest Task/Owner. The exclusive measured categories are chat/user work,
+gray suggestions, scheduled work, firefighter work, collaboration-triggered
+work, mixed and unknown. Collaboration includes actual task execution; it is
+not a measurement of pure coordination overhead. Continue/recovery inherit the
+recorded original purpose; different-purpose steering makes that turn mixed.
+Uploads, references, edits and retries do not create a second copy of usage.
+The view reports when purpose recording began (`purposesRecordedFrom`); older
+untagged records stay unknown.
+
+For a date/timezone/employee/model/Task snapshot, **S** is the sum of all deduped
+observed responses with a known total, including mixed and unknown purposes.
+Each purpose's share and average use that full set, not the current record page
+or account-day bar. Choosing a purpose keeps the same S until refresh or a base
+filter change. Missing-usage results are disclosed and excluded from S; these
+shares are therefore not percentages of all actual account consumption.
+
+Gray suggestions additionally retain the existing `thread/sample` response's
+`responseId`, source context turn and reported input/cache/output counters,
+including empty or unused suggestions. Cache hits do not count again; a new
+native response after restart does. Input plus output derives the total. Sample
+reasoning/cache-write counts and actual child thread/turn are not provided and
+remain unknown, rather than zero or invented parent IDs. Native rollout records
+retain their stricter validation and complete four-part split. Across sources,
+a matching actual response ID is reconciled within this Office scope; conflicting
+counts are flagged and not added twice. Metering never starts another model
+request or waits for index I/O in the send/suggestion path.
+
+Source/question identification is embedded in main responses and cannot be
+separately apportioned. Compaction lacks reliable independent response linkage;
+dictation and voice-call audio tokens are not currently measured. Hidden native
+work and third-party AI tools are not fully observed. These appear as unknown
+or embedded cards outside S. Company planning's legacy route is statically
+unsupported by this backend; this view does not revive it or infer consumption.
+Ordinary history/config/account/file reads, uploads, screenshots, local music,
+monitoring and mock calls do not themselves create a model-token entry; any
+tool/context content consumed by a later model response stays in that response's
+input. Exact new-user/history/instruction/tool input token splits are unavailable.
 
 ## Optional speech and suggestions
 

@@ -12,6 +12,18 @@ function setup(active = false) {
   return { client, controls: new CodexSessionControls(client) };
 }
 describe("shared App session controls", () => {
+  it("passes business purpose only as local metadata, preserving source turn for Play and recovery", async () => {
+    const { client, controls } = setup(); controls.options.usageMetadata = true;
+    await controls.send("id", "scheduled work", "entry", [], { usage: { purpose: "automation", trigger: "schedule", originId: "run" } });
+    expect(client.call).toHaveBeenLastCalledWith("turn/start", expect.objectContaining({ threadId: "id" }), expect.objectContaining({ purpose: "automation", entryId: "entry", originId: "run" }));
+    await controls.send("id", "user steer", "steer", [], { usage: { purpose: "chat_work", trigger: "userMessage" } });
+    expect(client.call).toHaveBeenLastCalledWith("turn/steer", expect.objectContaining({ expectedTurnId: "new-turn" }), expect.objectContaining({ purpose: "chat_work" }));
+    controls.handle({ method: "turn/completed", params: { threadId: "id", turn: { id: "stopped", status: "interrupted" } } });
+    client.call.mockImplementation(async (method: string) => method === "thread/turns/list" ? { data: [{ id: "stopped", status: "interrupted" }] } : method === "turn/start" ? { turn: { id: "resumed" } } : {});
+    await controls.send("id", "continue", "play", [], { resumeInterrupted: true });
+    expect(client.call).toHaveBeenLastCalledWith("turn/start", expect.any(Object), expect.objectContaining({ trigger: "continue", inheritTurnId: "stopped" }));
+    controls.close();
+  });
   it("attaches once, then sends directly using native lifecycle state", async () => {
     const { client, controls } = setup();
     await controls.send("id", "first", "hot-1");

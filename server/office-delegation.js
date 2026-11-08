@@ -79,7 +79,8 @@ class OfficeDelegation {
       const started = this.todos.startForAgent(recipient, id);
       const message = taskNotification(started);
       try {
-        const result = await this.send(recipient, message, requestId, currentEntry.replyContext || taskReplyContext(current));
+        const usage = { purpose: "collaboration_mixed", trigger: currentEntry.state === "review" ? "managerReview" : currentEntry.review?.accepted === false ? "returned" : "delegate", originId: currentEntry.id, deliveryId: requestId };
+        const result = await this.send(recipient, message, requestId, currentEntry.replyContext || taskReplyContext(current), usage);
         if (result.status === "busy") { this.todos.delivery(id, requestId, "pending"); this.todos.finishTurn(recipient, "waiting for an available session"); }
         else this.todos.delivery(id, requestId, "sent");
       } catch (error) {

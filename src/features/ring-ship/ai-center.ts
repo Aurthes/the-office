@@ -15,17 +15,24 @@ export type AiProviderSnapshot = {
   api: { status: "not_configured" | "available" | "unavailable"; models: Array<{ model: string; rpm: number | null; tpm: number | null; rpd: number | null }> };
 };
 export type AiCenterSnapshot = { fetchedAt: string; providers: AiProviderSnapshot[] };
-export type ResponseUsage = { input: number; cachedInput: number; uncachedInput: number; cacheWriteInput: number; output: number; reasoningOutput: number; otherOutput: number; total: number };
+export type UsagePurpose = "chat_work" | "suggestion" | "automation" | "operational_task" | "collaboration_mixed" | "mixed" | "unknown";
+export type ResponseUsage = { input: number | null; cachedInput: number | null; uncachedInput: number | null; cacheWriteInput: number | null; output: number | null; reasoningOutput: number | null; otherOutput: number | null; total: number | null };
+export type UsageComponents = Record<keyof ResponseUsage, { knownSubtotal: number | null; reportedRows: number; unknownRows: number }>;
+export type PurposeBucket = { id: UsagePurpose; knownTokens: number | null; share: number | null; observedResponses: number; measuredResponses: number; meanTokens: number | null; unknownUsageResults: number; components: UsageComponents };
+export type PurposeSummary = { basis: string; denominatorTokens: number | null; observedResponses: number; measuredResponses: number; unknownPurposeResponses: number; unknownUsageResults: number; purposesRecordedFrom: string | null; components: UsageComponents; purposes: PurposeBucket[];
+  unmeasured: { id: string; status: string; tokens: null; share: null; measuredResponses: null }[] };
 export type UsageTaskLabel = { id: string; code: string | null; title: string | null };
 export type ObservedResponse = {
-  id: string; nativeThreadId: string; officeAgentId: string; agentName: string; responseId: string; turnId: string; rootTurnId: string | null;
+  id: string; nativeThreadId: string | null; officeAgentId: string; agentName: string; responseId: string; turnId: string | null; rootTurnId: string | null;
   observedAt: string; usage: ResponseUsage; configuredModel: string | null; configuredEffort: string | null; modelBasis: "turnContext" | "unknown";
   actualModel: null; status: "unknown"; taskId: string | null; task: UsageTaskLabel | null; phaseId: string | null; questionIds: string[]; attributionBasis: "turnDispatch" | "unknown";
-  conflict: boolean; sameTurnResponses: number;
+  sourceKind: "nativeRollout" | "threadSample"; sourceKinds: string[]; contextNativeThreadId: string | null; sourceTurnId: string | null; totalBasis: string;
+  purpose: UsagePurpose; purposeBasis: string; trigger: string; conflict: boolean; sameTurnResponses: number | null;
   previousObservedInput: { responseId: string; input: number; change: number; basis: string } | null;
 };
 export type UsageDetail = {
   date: string; timeZone: string; rows: ObservedResponse[]; count: number; totals: ResponseUsage | null; nextCursor: string | null;
+  snapshot: string; purposeSummary: PurposeSummary; selectedPurpose: UsagePurpose | null;
   outsideRetention: boolean; scope: string;
   coverage: { source: string; supportedVersion: string; apiStability: string; partial: boolean; indexing: boolean; unavailable: boolean; storageLimit: boolean;
     knownSources: number; scannedSources: number; readySources: number; unsupportedSources: number; partialLines: number;

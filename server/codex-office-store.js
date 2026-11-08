@@ -208,13 +208,14 @@ class CodexOfficeStore {
     })().finally(() => this.inflight.delete(row.id)));
     await this.inflight.get(row.id);
   }
-  async call(method, params = {}) {
+  async call(method, params = {}, usageMetadata = null) {
     if (!params.threadId) return this.client.call(method, params);
     const row = this.get(params.threadId);
     if (method === "thread/resume" && !row.codexThreadId) return this.emptyContext(row);
     if (["thread/turns/list", "thread/timeline/list"].includes(method) && !row.codexThreadId) return { data: [], nextCursor: null };
     const voiceStarting = method === "thread/realtime/start";
     const starting = method === "turn/start" || voiceStarting;
+    const usage = usageMetadata ? { ...usageMetadata } : null;
     if (starting && this.starting.has(row.id)) throw new Error("A turn is being started; wait before sending again");
     if (starting) this.starting.add(row.id);
     try {
@@ -273,10 +274,10 @@ class CodexOfficeStore {
       if (restoreQuestions) mapped.itemsView = "full";
       try {
         const result = await this.client.call(method, mapped);
-        if (method === "turn/start" && result.turn?.id) {
+        if (["turn/start", "turn/steer"].includes(method) && (result.turn?.id || result.turnId)) {
           // Optional numeric telemetry must never block or fail chat dispatch.
-          try { this.onTurnDispatch?.({ nativeThreadId: row.codexThreadId, turnId: result.turn.id,
-            ...dispatchBinding }); } catch { /* telemetry is best effort */ }
+          try { this.onTurnDispatch?.({ nativeThreadId: row.codexThreadId, turnId: result.turn?.id || result.turnId,
+            ...dispatchBinding, mode: method === "turn/steer" ? "steer" : "start", usage }); } catch { /* telemetry is best effort */ }
         }
         let updated = false;
         if (restoreQuestions && readEpoch === row.historyEpoch && !Array.isArray(row.pendingQuestions)) {

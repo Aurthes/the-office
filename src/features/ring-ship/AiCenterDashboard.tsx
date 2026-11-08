@@ -5,9 +5,10 @@ import { createPortal } from "react-dom";
 import { ArrowLeft, ArrowUpRight, BrainCircuit, CalendarClock, Cpu, KeyRound, RefreshCw, Ticket, X } from "lucide-react";
 import type { GatewayClient } from "@/lib/gateway/GatewayClient";
 import { useUiText } from "@/lib/i18n/ui-language";
-import type { AiCenterSnapshot, QuotaWindow, ResetCredit, ResetCreditResult } from "./ai-center";
+import type { AiCenterSnapshot, QuotaWindow, ResetCredit, ResetCreditResult, UsagePurpose } from "./ai-center";
 import "./ai-center.css";
 import { AiUsageDetail } from "./AiUsageDetail";
+import { AiPurposePreview } from "./AiPurposeSummary";
 
 const formatNumber = (value: number | null | undefined) => value == null ? "—" : new Intl.NumberFormat().format(value);
 
@@ -37,8 +38,9 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
   const [providerId, setProviderId] = useState("");
   const [error, setError] = useState(false), [refresh, setRefresh] = useState(0);
   const [detailDate, setDetailDate] = useState<string | null>(null);
+  const [purposeEntry, setPurposeEntry] = useState<{ purpose: UsagePurpose; snapshot: string } | null>(null);
   const dayButton = useRef<HTMLButtonElement | null>(null);
-  const close = () => { setDetailDate(null); onClose(); };
+  const close = () => { setDetailDate(null); setPurposeEntry(null); onClose(); };
   const resetAttempts = useRef(new Map<string, string>()), resetInFlight = useRef(false);
   const [pendingReset, setPendingReset] = useState<string | null>(null);
   const [resetFeedback, setResetFeedback] = useState<{ text: string; error: boolean } | null>(null);
@@ -106,12 +108,14 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
       </header>
       <div className="ai-content">
         {open && detailDate && client ? <AiUsageDetail key={detailDate} date={detailDate} accountTokens={daily?.find(day => day.date === detailDate)?.tokens ?? null} client={client}
-          onDateChange={setDetailDate} onBack={() => { setDetailDate(null); requestAnimationFrame(() => dayButton.current?.focus()); }} /> : null}
+          initialPurpose={purposeEntry?.purpose} initialSnapshot={purposeEntry?.snapshot}
+          onDateChange={date => { setDetailDate(date); setPurposeEntry(null); }} onBack={() => { setDetailDate(null); setPurposeEntry(null); requestAnimationFrame(() => purposeEntry ? dialog.current?.querySelector<HTMLButtonElement>(`[data-purpose="${purposeEntry.purpose}"]`)?.focus() : dayButton.current?.focus()); }} /> : null}
         <div hidden={!!detailDate}>
         <div className="ai-hero">
           <div><div className="ai-provider-picker"><span className="ai-eyebrow">{t("COMPUTATION CORE")}</span>{snapshot?.providers.length ? snapshot.providers.length > 1 ? <select aria-label={t("AI provider")} value={data?.id} onChange={event => setProviderId(event.target.value)}>{snapshot.providers.map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select> : <span className="ai-provider-name">{data?.name}</span> : null}</div><h1 id="ai-center-title">{t("Your AI, at a glance.")}</h1><p>{t("Subscriptions, tokens, and API capacity.")}</p></div>
           <div className="ai-core-art" aria-hidden="true"><div className="ai-art-orbit" /><div className="ai-art-orbit ai-art-orbit-two" /><div className="ai-art-crystal"><Cpu size={34} strokeWidth={1} /></div><div className="ai-art-plinth" /></div>
         </div>
+        {open && !detailDate && client && connected && (!data || data.id === "openai") ? <AiPurposePreview client={client} refresh={refresh} onSelect={(date, purpose, snapshot) => { setPurposeEntry({ purpose, snapshot }); setDetailDate(date); }} /> : null}
         {!client || !connected ? <p className="ai-notice" role="status">{t("Connect your AI gateway to view usage.")}</p> : null}
         {error ? <p className="ai-notice" role="alert">{t("Usage could not be refreshed. Try again or check the provider dashboard.")}</p> : null}
         <div className="ai-stats">
@@ -154,7 +158,7 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
             <p className="ai-card-caption">{t("Across the selected provider account")}</p>
             <div className="ai-token-peak"><span>{t("Peak daily tokens")}</span><strong>{formatNumber(data?.usage?.peakDailyTokens)}</strong></div>
             {daily?.length ? <>
-              <div className="ai-token-chart" aria-label={t("Recent daily token usage")}>{daily.map(day => <button key={day.date} type="button" aria-label={`${day.date}: ${formatNumber(day.tokens)} tokens`} onClick={event => { dayButton.current = event.currentTarget; setDetailDate(day.date); }}>
+              <div className="ai-token-chart" aria-label={t("Recent daily token usage")}>{daily.map(day => <button key={day.date} type="button" aria-label={`${day.date}: ${formatNumber(day.tokens)} tokens`} onClick={event => { dayButton.current = event.currentTarget; setPurposeEntry(null); setDetailDate(day.date); }}>
                 <span className="ai-token-tooltip" role="tooltip"><span>{day.date}</span><strong>{formatNumber(day.tokens)} tokens</strong></span><i style={{ height: `${day.tokens / peak * 100}%` }} />
               </button>)}</div>
               <div className="ai-chart-dates"><span>{daily[0].date}</span><span>{daily[daily.length - 1].date}</span></div>
