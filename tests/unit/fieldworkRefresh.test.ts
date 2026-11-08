@@ -107,3 +107,18 @@ it("does not start construction from initial loading/read failure; confirmed unk
   a = f.sync(); expect(a.worksite?.projectId).toBe("open-workspace");
   advanceCrew([a], f.layout, 100, .05); expect(a.fieldwork).toBeDefined();
 });
+
+it("does not repack A at the Teaser board when parallel B changes its phase under the same parent", async () => {
+  const f = fixture("Teaser board"); await waitFor(() => expect(f.hook.result.current.tasks.one).toMatchObject({ taskId: "A" }));
+  const shared = { ...task("Shared parent"), executionMode: "phases", handlingAgentId: "owner", phases: [
+    { id: "pa", title: "Implement Teaser board", handlingAgentId: "one", assigneeId: "one", status: "running", startedAt: 100, lastStartedAt: 100, completedAt: null },
+    { id: "pb", title: "修复克隆舱", handlingAgentId: "two", assigneeId: "two", status: "running", startedAt: 100, lastStartedAt: 100, completedAt: null },
+  ] };
+  f.emit("todos.updated"); await f.answer(0, [shared]);
+  await waitFor(() => expect(f.hook.result.current.tasks.one).toMatchObject({ phase: "Implement Teaser board" }));
+  const initial = f.settle(), field = initial.fieldwork, route = initial.route;
+  f.emit("todos.updated"); expect(f.sync().fieldwork).toBe(field);
+  await f.answer(1, [{ ...shared, revision: 2, phases: [shared.phases[0], { ...shared.phases[1], title: "Update cloning lab", lastStartedAt: 1000 }] }]);
+  const after = f.sync(); advanceCrew([after], f.layout, 15000, .01);
+  expect(after.fieldwork).toBe(field); expect(after.route).toBe(route); expect(after.worksite?.kind).toBe("break"); expect(after.fieldwork?.phase).not.toBe("packing");
+});

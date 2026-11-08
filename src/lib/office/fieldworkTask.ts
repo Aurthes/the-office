@@ -1,7 +1,8 @@
 export type SiteTask = string | { taskId: string; title: string; phase?: string; revision?: number };
 export type FieldworkTaskSummary = {
   id: string; title: string; status: string; archived: boolean; handlingAgentId?: string | null;
-  revision?: number; lastStartedAt?: number; phases?: { title: string; completedAt?: number | null }[];
+  executionMode?: "phases"; activePhaseId?: string;
+  revision?: number; lastStartedAt?: number; phases?: { id?: string; title: string; assigneeId?: string | null; handlingAgentId?: string | null; reviewerId?: string | null; status?: string; startedAt?: number | null; lastStartedAt?: number; completedAt?: number | null }[];
 };
 
 export function isTaskContinuation(text: string) {
@@ -14,7 +15,11 @@ export function isTaskContinuation(text: string) {
 export function siteTaskMessage(text: string): SiteTask | null {
   if (!text.trim() || isTaskContinuation(text)) return null;
   const match = /^(?:Work on delegated Office task|Work on Office task|Office delegation submitted for your acceptance\. Task|Finish manager acceptance for Office task) ([a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}): ([^\r\n]+)(?:\r?\n|$)/i.exec(text.trim());
-  if (match) return { taskId: match[1], title: match[2] };
+  if (match) {
+    let phase: string | undefined;
+    try { const update = JSON.parse(text.trim().split(/\r?\n/)[1]?.replace(/^Task update: /, "")); if (typeof update.phaseTitle === "string") phase = update.phaseTitle; } catch { /* Older notifications contain only the heading. */ }
+    return { taskId: match[1], title: match[2], ...(phase ? { phase } : {}) };
+  }
   if (/^(?:Work on (?:delegated )?Office task|Office delegation submitted|Finish manager acceptance)/i.test(text.trim())) return "";
   return isWorkDirective(text) ? text.slice(0, 12000) : "";
 }
@@ -32,10 +37,14 @@ export function taskSiteGoal(task: FieldworkTaskSummary): Exclude<SiteTask, stri
 // Documentation/review revisions do not change a work goal. A different task,
 // phase, title or start epoch does invalidate an accepted live directive.
 export function siteTaskKey(task: FieldworkTaskSummary) {
-  return JSON.stringify([task.id, task.title, task.phases?.find(p => p.completedAt == null)?.title, task.lastStartedAt]);
+  return JSON.stringify([task.id, task.activePhaseId, task.title, task.phases?.find(p => p.completedAt == null)?.title, task.lastStartedAt]);
 }
 export function currentFieldworkTask(tasks: readonly FieldworkTaskSummary[], agentId: string) {
-  const active = tasks.filter(t => !t.archived && t.status === "running" && t.handlingAgentId === agentId);
+  const active = tasks.flatMap(t => {
+    if (t.archived || t.status !== "running") return [];
+    if (t.executionMode !== "phases") return t.handlingAgentId === agentId ? [t] : [];
+    return (t.phases || []).filter(p => p.startedAt != null && p.handlingAgentId === agentId).map(p => ({ ...t, activePhaseId: p.id, handlingAgentId: agentId, phases: [p], lastStartedAt: p.lastStartedAt }));
+  });
   return active.length === 1 ? active[0] : undefined;
 }
 

@@ -87,10 +87,10 @@ class OfficeReplyContext {
     if (phaseId && !phase) throw new Error("Task phase is no longer available");
     return { taskId: task.id, taskTitle: task.title, ...(phase ? { phaseId: phase.id, phaseTitle: phase.title } : {}) };
   }
-  bindTask(id, row, turnId) {
+  bindTask(id, row, turnId, phaseId) {
     const data = this.read(id);
     if (!this.forTask(id, turnId)) return;
-    data.focus = { ...data.focus, taskId: row.id, taskTitle: row.title }; this.save(id);
+    data.focus = { ...data.focus, taskId: row.id, taskTitle: row.title, ...(phaseId ? this.taskBinding(row.id, phaseId) : {}) }; this.save(id);
   }
   sources(id) {
     const data = this.read(id), inputIds = data.inputs[data.turnId] || [];
@@ -225,12 +225,14 @@ class OfficeReplyContext {
   }
 }
 
-function taskReplyContext(row, candidate) {
+function taskReplyContext(row, candidate, phaseId) {
+  const phase = phaseId && row.phases.find(p => p.id === phaseId);
   const original = row.replyContext || {}, roots = new Set((original.questions || []).map(question => question.id));
   const relevant = candidate?.questions?.filter(question => candidate.taskId === row.id || roots.has(question.id) || question.parents?.some(parent => roots.has(parent.id))) || [];
   const questions = relevant.length ? relevant : original.questions || [];
   return { taskId: row.id, taskTitle: row.title, questions,
     ...(candidate?.taskId === row.id && candidate.phaseId ? { phaseId: candidate.phaseId, phaseTitle: candidate.phaseTitle } : {}),
+    ...(phase ? { phaseId: phase.id, phaseTitle: phase.title } : {}),
     ...(!questions.length ? { sources: uniqueSources(original.sources || []) } : {}) };
 }
 

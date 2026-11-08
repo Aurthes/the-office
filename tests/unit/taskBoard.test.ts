@@ -56,7 +56,7 @@ it("creates work with a selected follow-up owner and no executor", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "New to-do" }));
   fireEvent.change(screen.getByLabelText("Task title"), { target: { value: "Owned work" } });
   fireEvent.change(screen.getByLabelText("Owner"), { target: { value: "alice" } });
-  expect(screen.getByLabelText("Assignee")).toHaveValue("");
+  expect(screen.getByRole("combobox", { name: "Assignee: Plan" })).toHaveValue("");
   fireEvent.click(screen.getByRole("button", { name: "Save to-do" }));
   await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.create", expect.objectContaining({ ownerId: "alice", assigneeId: null })));
 });
@@ -206,4 +206,48 @@ it("shows the execution employee separately from the manager who receives review
   fireEvent.click(button);
   await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.run", expect.objectContaining({ id: "todo" })));
   expect(screen.getByRole("button", { name: "Open conversation" })).toBeDisabled();
+});
+
+function phaseFixture() {
+  return fixture(undefined, { executionMode: "phases", ownerId: "alice", ownerName: "Alice", assigneeId: null, assigneeName: null, status: "queued", phases: [
+    { id: "a", title: "Teaser", assigneeId: "alice", assigneeName: "Alice", assigneeAvailable: true, status: "queued", elapsedMs: 0, startedAt: null, completedAt: null },
+    { id: "b", title: "Clone", assigneeId: "alice", assigneeName: "Alice", assigneeAvailable: true, status: "queued", elapsedMs: 0, startedAt: null, completedAt: null },
+  ] });
+}
+it("puts execution controls on each phase, keeps them focusable and avoids nested buttons", async () => {
+  const f = phaseFixture(); await screen.findByRole("button", { name: "Start with agent: Teaser" }); const card = await screen.findByTestId("todo-card");
+  const a = within(card).getByRole("button", { name: "Start with agent: Teaser" }); a.focus(); expect(document.activeElement).toBe(a);
+  expect(card.querySelector("button button")).toBeNull(); expect(within(card).getByText(/Owner: Alice/)).toBeTruthy();
+  fireEvent.click(within(card).getByRole("button", { name: /Shared work|Release app/ }));
+  await screen.findByRole("heading", { name: "Release app" });
+  expect(screen.queryByRole("button", { name: "Start timer" })).toBeNull(); expect(screen.getByRole("combobox", { name: "Assignee: Clone" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Start with agent: Clone" }));
+  await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.run", expect.objectContaining({ id: "todo", revision: 4, phaseId: "b" })));
+});
+it("keeps B actionable while A awaits a result and reuses A's request ID after unrelated revision updates", async () => {
+  const f = phaseFixture(); await screen.findByRole("button", { name: "Start with agent: Teaser" });
+  const original = f.call.getMockImplementation()!; let rejectA: (error: Error) => void = () => {};
+  let aCalls = 0;
+  f.call.mockImplementation(async (method, params) => {
+    const p = params as { phaseId?: string };
+    if (method === "todo.run" && p.phaseId === "a" && ++aCalls === 1) return new Promise((_, reject) => { rejectA = reject; });
+    if (method === "todo.run" && p.phaseId === "b") f.todo.revision = 5;
+    return original(method, params);
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Start with agent: Teaser" }));
+  expect(screen.getByRole("button", { name: "Start with agent: Clone" })).not.toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Start with agent: Clone" }));
+  await waitFor(() => expect(f.call.mock.calls.filter(([m]) => m === "todo.run")).toHaveLength(2));
+  rejectA(new Error("Request timed out; delivery unknown"));
+  await screen.findByRole("alert"); fireEvent.click(screen.getByRole("button", { name: "Start with agent: Teaser" }));
+  await waitFor(() => expect(f.call.mock.calls.filter(([m, p]) => m === "todo.run" && (p as { phaseId?: string }).phaseId === "a")).toHaveLength(2));
+  const calls = f.call.mock.calls.filter(([m, p]) => m === "todo.run" && (p as { phaseId?: string }).phaseId === "a");
+  expect(calls[1][1]).toEqual(calls[0][1]);
+});
+it("keeps phase dispatch unavailable without an Owner and only offers conversion when legacy work is stopped", async () => {
+  const f = fixture(undefined, { executionMode: "phases", ownerId: null, assigneeId: null, status: "queued", phases: [{ id: "a", title: "Waiting", assigneeId: "alice", assigneeAvailable: true, status: "queued", elapsedMs: 0, startedAt: null, completedAt: null }] });
+  expect(await screen.findByRole("button", { name: "Start with agent: Waiting" })).toBeDisabled();
+  expect(f.call.mock.calls.every(([method]) => method !== "todo.run")).toBe(true);
+  cleanup(); fixture(undefined, {}, "todo"); fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+  expect(screen.getByRole("button", { name: "Assign phases independently" })).toBeDisabled();
 });

@@ -200,3 +200,16 @@ it("attaches semantic context to the first live delta and ignores late events fr
   await define(context, "head", "Later Q", { source: { threadId: "head", turnId: "t", itemId: "second" } });
   context.record("head", answer("late", "older-turn")); expect(context.decorate("head", [answer("late", "older-turn")])[0].replyContext).toEqual({ questions: [] });
 });
+
+it("binds explicit self phase context and overrides a different candidate phase without changing original Q provenance", async () => {
+  const { context } = fixture();
+  const row = { id: "shared", title: "Shared", phases: [{ id: "a", title: "Teaser" }, { id: "b", title: "Clone" }] };
+  context.options.task = (id: string) => id === row.id ? row : null;
+  context.record("head", user("phase-source", "Implement both phases"));
+  const selected = await context.context("head", { questions: [{ key: "q", summary: "Implement the shared goal" }], answering: ["q"], requestId: "phase-question" });
+  context.bindTask("head", row, "turn", "b");
+  expect(context.current("head")).toMatchObject({ taskId: "shared", phaseId: "b", phaseTitle: "Clone" });
+  const root = { ...row, replyContext: context.current("head") }, projected = taskReplyContext(root, context.current("head"), "a");
+  expect(projected).toMatchObject({ taskId: "shared", phaseId: "a", phaseTitle: "Teaser", questions: [{ id: selected.opened.q }] });
+  expect(projected.questions[0].sources).toEqual(context.current("head").questions[0].sources);
+});

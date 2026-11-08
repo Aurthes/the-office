@@ -39,3 +39,11 @@ Built on [Claw3D](https://github.com/iamlukethedev/Claw3D), originally by
 [Luke The Dev](https://github.com/iamlukethedev), and independently maintained by
 [Aurthes](https://github.com/Aurthes). Unofficial community project, not an OpenAI product.
 [MIT license](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md).
+
+### Independent task phases
+
+New Office tasks use independent phases: one Owner coordinates the goal, and each phase has its own assigned agent, timer, handoff and review. Use each phase row to start work, pause timing or open its conversation. Controls appear on hover or keyboard focus and remain visible on touch devices. Different agents can work in parallel; completing one phase does not start another. Displayed time is cumulative phase work, not elapsed wall time or an individual's hours.
+
+Phase-mode tool calls require an explicit `phaseId`; submissions, reviews and recalls also require the exact `handoffId` from the notification or task record. Managers retain acceptance through the actual reporting chain. The legitimately completed final phase archives the task once every phase is complete and no handoff remains open, without another parent approval step.
+
+Existing tasks keep their original whole-task workflow and recorded history. To configure future phases independently, finish old handoffs and pause the timer, then explicitly choose independent assignments. Existing completed phases keep their IDs and recorded time; missing historical assignees remain unknown. The Owner coordinates assignments without restricting ordinary member or user edits.

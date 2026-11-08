@@ -18,7 +18,7 @@ const { readAiCenter } = require("./ai-center");
 const { OfficeTokenUsage, userUsage } = require("./office-token-usage");
 const { consumeOpenAiResetCredit } = require("./ai-center-openai");
 const { questionReplyMessage } = require("./codex-session-questions");
-const { OfficeTodos, activeDelegation, handlingAgentId } = require("./office-todos");
+const { OfficeTodos, activeDelegation, handlingAgentId, isPhaseTask } = require("./office-todos");
 const { OfficeSchedules } = require("./office-schedules");
 const { CodexSessionComposer } = require("./codex-session-composer");
 const { CodexMessageSearch } = require("./codex-message-search");
@@ -57,7 +57,7 @@ const native = new CodexOfficeClient({
   controls?.handle(mapped); if (mapped.params?.threadId) stream?.changed(mapped.params.threadId);
   schedules?.handle(mapped);
   if (mapped.method === "turn/completed") {
-    todos?.finishTurn(mapped.params.threadId, mapped.params.turn?.status || "completed");
+    todos?.finishTurn(mapped.params.threadId, mapped.params.turn?.status || "completed", mapped.params.turn?.id);
     if (mapped.params.turn?.status === "completed") setImmediate(() => void delegation?.flush());
   }
   if (mapped.id !== undefined || ["serverRequest/resolved", "turn/completed"].includes(mapped.method)) changed();
@@ -70,7 +70,11 @@ tokenUsage = new OfficeTokenUsage({ directory, home: native.home, sessions: () =
   nativeVersion: process.env.CLAW3D_CODEX_BIN ? null : require("@openai/codex/package.json").version,
   resolveSource: async threadId => (await native.call("thread/read", { threadId, includeTurns: false })).thread?.path,
 });
-store.onTurnDispatch = value => tokenUsage.bindTurn(value);
+store.onTurnDispatch = value => {
+  tokenUsage.bindTurn(value); todos?.recordTurn(value);
+  const session = store.get(value.agentId);
+  if (session.lastTurnId === value.turnId && ["completed", "failed", "interrupted"].includes(session.turnStatus)) todos?.finishTurn(value.agentId, session.turnStatus, value.turnId);
+};
 controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features, replyContext, usageMetadata: true,
   changed: id => { stream?.changed(id); changed(); },
   editBlocked: id => voice?.active?.threadId === id || store.starting.has(id),
@@ -135,7 +139,7 @@ replyContext.options.source = async source => {
 store.questionContext = id => replyContext.forModel(id);
 const company = new OfficeCompany(store);
 store.companyContext = id => company.forTurn(id);
-store.todoContext = id => { const row = todos.bound(id); return { protocol: 5, agentId: id, todoId: row?.id || null, assigneeId: row?.assigneeId || null, handlingAgentId: row ? handlingAgentId(row) : null, reviewerId: activeDelegation(row || {})?.state === "review" ? activeDelegation(row).managerId : null, departmentId: store.get(id).projectId ?? null, delegatedTasks: todos.delegated(id) }; };
+store.todoContext = id => ({ ...todos.context(id), departmentId: store.get(id).projectId ?? null });
 delegation = new OfficeDelegation({ store, todos, company, stopping: () => stopping,
   canRecall: async id => {
     if (store.data.sessions.find(row => row.id === id)?.archived) return true;
@@ -165,8 +169,18 @@ const methods = {
     if (turnId) replyContext.bindTask(p.actorId, result.todo, turnId);
     return result;
   },
-  ...Object.fromEntries(["edit", "start", "pause", "complete", "reopen", "archive", "restore"].map(action => [`todo.${action}`, p => todos.change(p, action)])),
-  "todo.run": p => store.once(p, async () => {
+  ...Object.fromEntries(["edit", "start", "pause", "complete", "reopen", "archive", "restore"].map(action => [`todo.${action}`, p => {
+    const result = todos.change(p, action);
+    if (action === "start" && p.actorId && isPhaseTask(result.todo)) {
+      const context = todos.context(p.actorId), turnId = controls.state(p.actorId).activeTurnId;
+      if (context.todoId === result.todo.id && context.runningPhaseId === p.phaseId && turnId) {
+        todos.recordTurn({ agentId: p.actorId, taskId: result.todo.id, phaseId: p.phaseId, ...context, activityRole: context.activityRole, turnId });
+        replyContext.bindTask(p.actorId, result.todo, turnId, p.phaseId);
+      }
+    }
+    return result;
+  }])),
+  "todo.run": p => isPhaseTask(todos.raw(p.id)) ? delegation.run(p) : store.once(p, async () => {
     const row = todos.raw(p.id);
     if (row.revision !== p.revision) throw new Error("This to-do changed. Refresh it before starting");
     const recipient = handlingAgentId(row), entry = activeDelegation(row);

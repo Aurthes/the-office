@@ -228,6 +228,7 @@ class CodexOfficeStore {
       const dispatchCompany = starting && this.companyContext ? this.companyContext(row.id) : null;
       const dispatchIsHead = row.id !== CEO_ID && !dispatchCompany?.unavailable && typeof dispatchCompany?.title === "string" && isDepartmentManager(dispatchCompany);
       const dispatchBinding = starting ? { taskId: dispatchTasks?.todoId, phaseId: dispatchTasks?.runningPhaseId,
+        handoffId: dispatchTasks?.handoffId, activityId: dispatchTasks?.activityId, activityRole: dispatchTasks?.activityRole,
         questionIds: Array.isArray(dispatchQuestions?.answering) ? [...dispatchQuestions.answering] : [] } : null;
       const context = starting ? JSON.stringify({ project: row.projectId == null ? "Open Workspace" : this.project(row.projectId).name, workingDirectory: row.workspace, folders: this.sessionFolders(row), ...(dispatchTasks ? { tasks: dispatchTasks } : {}), ...(this.companyContext ? { company: dispatchCompany } : {}) }) : null;
       const questions = dispatchQuestions ? JSON.stringify({ questions: dispatchQuestions }) : null;
@@ -281,7 +282,7 @@ class CodexOfficeStore {
         const result = await this.client.call(method, mapped);
         if (["turn/start", "turn/steer"].includes(method) && (result.turn?.id || result.turnId)) {
           // Optional numeric telemetry must never block or fail chat dispatch.
-          try { this.onTurnDispatch?.({ nativeThreadId: row.codexThreadId, turnId: result.turn?.id || result.turnId,
+          try { this.onTurnDispatch?.({ agentId: row.id, nativeThreadId: row.codexThreadId, turnId: result.turn?.id || result.turnId,
             ...dispatchBinding, mode: method === "turn/steer" ? "steer" : "start", usage }); } catch { /* telemetry is best effort */ }
         }
         let updated = false;

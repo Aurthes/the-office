@@ -174,3 +174,14 @@ it.each(["project", "activity", "organization"] as const)("keeps department butt
   fireEvent.click(screen.getByRole("button", { name: "Open session: CEO" }));
   expect(onOpenChat).toHaveBeenCalledWith(CEO_ID);
 });
+
+it("deduplicates a phase-mode parent and displays only each employee's actual participation state", () => {
+  const task = { id: "shared", title: "Shared", status: "running", archived: false, executionMode: "phases" as const, ownerId: "head", assigneeId: "old-parent", phases: [
+    { id: "a", title: "Teaser", status: "running", assigneeId: "worker", handlingAgentId: "worker", completedAt: null },
+    { id: "b", title: "Clone", status: "done", assigneeId: "other", handlingAgentId: "head", completedAt: 1000 },
+  ], delegations: [{ phaseId: "a", managerId: "head", workerId: "retired-worker", state: "recalled" }] };
+  const index = currentTasksByAgent([task, task]);
+  expect(index.get("head")).toHaveLength(1); expect(index.get("worker")?.[0].phases).toEqual([{ id: "a", title: "Teaser", status: "running" }]);
+  expect(index.get("other")?.[0].phases?.[0].status).toBe("done"); expect(index.has("old-parent")).toBe(false);
+  expect(index.get("retired-worker")?.[0].phases?.[0].status).toBe("finished");
+});

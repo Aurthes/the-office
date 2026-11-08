@@ -74,7 +74,7 @@ describe("compact model-facing Office information", () => {
     const edited = (await call("todo_edit", { actorId: "alice", id: "T1", revision: read.revision, title: "Renamed" })).todo;
     expect(edited).toMatchObject({ id: created.id, code: "T1" }); expect(edited).not.toHaveProperty("documentation");
     expect((await call("todo_list", { query: "T1" })).todos[0]).toMatchObject({ id: created.id, code: "T1", title: "Renamed" });
-    const delegated = (await call("todo_delegate", { actorId: "alice", id: "T1", revision: edited.revision, assigneeId: "bob", instructions: "Implement", acceptanceCriteria: "Verify", requestId: "delegate-code" })).todo;
+    const delegated = (await call("todo_delegate", { actorId: "alice", id: "T1", revision: edited.revision, phaseId: created.phases[0].id, assigneeId: "bob", instructions: "Implement", acceptanceCriteria: "Verify", requestId: "delegate-code" })).todo;
     expect((await call("todo_edit", { actorId: "alice", id: "T1", revision: delegated.revision, title: "Shared edit" })).todo).toMatchObject({ id: created.id, code: "T1" });
   });
   it("completes nested handoffs using receipt revisions while keeping full evidence and UI records available", async () => {
@@ -95,13 +95,16 @@ describe("compact model-facing Office information", () => {
     const id = result.todo.id, phaseIds = result.todo.phases.map((p: { id: string }) => p.id);
     expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(Buffer.byteLength(JSON.stringify(fullReplies[0])) * 0.15);
     expect(result.todo).not.toHaveProperty("documentation"); expect(result.todo).not.toHaveProperty("events");
-    const change = async (action: string, actorId: string, extra = {}) => { result = await call("todo_" + action, { id, revision: result.todo.revision, actorId, ...extra }); return result; };
+    const change = async (action: string, actorId: string, extra = {}) => {
+      const active = result.todo.delegations?.findLast((e: { phaseId?: string; state: string }) => e.phaseId === phaseIds[0] && !["accepted", "recalled"].includes(e.state));
+      result = await call("todo_" + action, { id, revision: result.todo.revision, actorId, phaseId: phaseIds[0], ...(["submit", "review", "recall"].includes(action) ? { handoffId: active?.id } : {}), ...extra }); return result;
+    };
     const scope = { instructions: "Implement only; no deployment", acceptanceCriteria: "Verify behavior and retain artifacts" };
     await change("delegate", "alice", { assigneeId: "bob", ...scope });
     await change("delegate", "bob", { assigneeId: "carol", ...scope });
-    await change("complete", "carol", { phaseId: phaseIds[0] });
+    await expect(change("complete", "carol", { phaseId: phaseIds[0] })).rejects.toThrow(/acceptance/);
     await change("submit", "carol", { report: "Behavior verified; artifact: result.json" });
-    expect(result.todo).toMatchObject({ assigneeId: "carol", reviewerId: "bob" });
+    expect(result.todo.phases[0]).toMatchObject({ assigneeId: "carol", reviewerId: "bob" });
     const details = await call("todo_get", { id });
     expect(details.todo.documentation).toBe(documentation); expect(details.todo).not.toHaveProperty("events");
     expect(details.todo.phases[0].notes).toContain("Plan detail");
@@ -111,6 +114,7 @@ describe("compact model-facing Office information", () => {
     await change("review", "alice", { accept: true, notes: "Final behavior verified" });
     // A later round on the same route must not replay its earlier closed report.
     const oldDelegation = todos.get({ id }).todo.delegations[0];
+    await change("reopen", "alice", { phaseId: phaseIds[0] });
     await change("delegate", "alice", { assigneeId: "bob", ...scope, requestId: "second-round" });
     let compact = (await call("todo_get", { id })).todo;
     expect(compact.delegations[0]).toMatchObject({ id: oldDelegation.id, state: "accepted", detailsOmitted: true });
@@ -122,7 +126,8 @@ describe("compact model-facing Office information", () => {
     expect(compact.delegations[2]).toMatchObject({ report: "Latest verified report" });
     await change("review", "alice", { accept: true, notes: "Verified second round", requestId: "second-review" });
     await change("complete", "alice", { phaseId: phaseIds[1] });
-    expect(result.todo).toMatchObject({ status: "done", archived: true, assigneeId: "bob" });
+    expect(result.todo).toMatchObject({ status: "done", archived: true, assigneeId: "alice" });
+    expect(result.todo.phases[0].assigneeId).toBe("bob");
     await expect(call("todo_edit", { id, revision: 1, actorId: "alice", documentation: "Stale" })).rejects.toThrow(/changed/);
     const history = await call("todo_get", { id, includeHistory: true });
     expect(history).toEqual(todos.get({ id }));

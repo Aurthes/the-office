@@ -31,7 +31,7 @@ function AssignedTaskMenu({ name, tasks, onOpenTask }: { name: string; tasks: Cu
       onKeyDown={escape} onClick={() => setOpen(value => !value)}>{t("{count} tasks", { count: tasks.length })}<ChevronDown size={11} aria-hidden="true" /></button>
     {open ? <div id={id} className="directory-task-list" role="group" aria-label={t("Tasks for {name}", { name })} onKeyDown={escape}>
       {tasks.map(task => <button type="button" key={task.id} className="directory-task-link" aria-label={t("Open task: {name}", { name: task.title })}
-        onClick={() => { setOpen(false); onOpenTask(task.id); }}><span className="directory-task-code">{task.code}</span><span className="directory-task-title">{task.title}</span><TaskRoles task={task} /></button>)}
+        onClick={() => { setOpen(false); onOpenTask(task.id); }}><span className="directory-task-code">{task.code}</span><span className="directory-task-title">{task.title}</span><TaskRoles task={task} />{task.phases?.map(phase => <small key={phase.id}>{phase.title} · {t(phase.status === "done" ? "Completed" : phase.status === "finished" ? "Participation ended" : phase.status === "waiting" ? "Awaiting result" : phase.status === "running" ? "Running" : phase.status === "review" ? "Awaiting manager review" : phase.status === "paused" ? "Paused" : "Queued")}</small>)}</button>)}
     </div> : null}
   </>;
 }

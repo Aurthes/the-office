@@ -58,7 +58,7 @@ export function DepartmentPanel({ organization, state, onSelect, onClose, tasks,
 
 function DepartmentTasks({ departmentId, tasks, onOpenTask }: { departmentId: string; tasks: DepartmentTaskState; onOpenTask?: (id: string) => void }) {
   const t = useUiText(), id = departmentId === OPEN_DEPARTMENT_ID ? null : departmentId;
-  const rows = tasks.summaries.filter(task => needsFollowUp(task) && task.departmentId === id);
+  const rows = [...new Map(tasks.summaries.filter(task => needsFollowUp(task) && task.departmentId === id).map(task => [task.id, task])).values()];
   return <section className="department-tasks" aria-label={t("Needs follow-up")}>
     <h2>{t("Needs follow-up")} · {rows.length}</h2>
     {tasks.loading ? <p role="status">{t("Loading tasks…")}</p> : null}
@@ -66,7 +66,7 @@ function DepartmentTasks({ departmentId, tasks, onOpenTask }: { departmentId: st
     {!tasks.loading && !tasks.error && !rows.length ? <p>{t("No tasks need follow-up.")}</p> : null}
     <ul>{rows.map(task => <li key={task.id}><button type="button" disabled={!onOpenTask} onClick={() => onOpenTask?.(task.id)}>{task.code ? <><span className="font-mono">{task.code}</span> · </> : null}{task.title}</button>
       <small>{t(task.reviewerId ? "Awaiting manager review" : task.status === "running" ? "Running" : task.status === "paused" ? "Paused" : "Queued")}</small>
-      <p>{t("Owner")}: {task.ownerName || task.ownerId || t(task.ownerId === undefined ? "Not recorded" : "Unassigned")} · {t("Assignee")}: {task.assigneeName || task.assigneeId || t("Unassigned")}</p>
+      <p>{t("Owner")}: {task.ownerName || task.ownerId || t(task.ownerId === undefined ? "Not recorded" : "Unassigned")}{task.executionMode === "phases" ? ` · ${task.phases?.filter(p => p.completedAt != null).length || 0}/${task.phases?.length || 0} ${t("Phases")}` : <> · {t("Assignee")}: {task.assigneeName || task.assigneeId || t("Unassigned")}</>}</p>
     </li>)}</ul>
   </section>;
 }
