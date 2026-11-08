@@ -7,6 +7,8 @@ const require = createRequire(import.meta.url);
 const { officeEnvironment } = require("../../server/codex-office-client.js");
 const { CodexOfficeStore } = require("../../server/codex-office-store.js");
 const { CodexSessionControls } = require("../../server/codex-session-controls.js");
+const { DEPARTMENT_HEAD_GUIDELINE } = require("../../server/office-head-guideline.js");
+const { ceo: CEO_ID } = require("../../src/lib/office/identities.json");
 const roots: string[] = [];
 afterEach(() => { roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })); });
 function fixture() {
@@ -78,7 +80,78 @@ describe("independent Office runtime", () => {
     expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
   });
 
-  it("refreshes legacy cached context once with dynamic data only, then reuses it on subsequent turns", async () => {
+  it.each(["Head", "Manager", "主管", "经理", "部门经理"])("includes the shared guideline for the current %s role in the existing developer context", async title => {
+    const f = fixture(), id = await session(f);
+    const company = { agentId: id, title, canRecruit: false, directReports: [] };
+    f.store.companyContext = vi.fn(() => company);
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    const injection = f.client.call.mock.calls.find(([method]) => method === "thread/inject_items")![1] as { items: Array<{ role: string; content: Array<{ text: string }> }> };
+    expect(injection.items).toHaveLength(1); expect(injection.items[0].role).toBe("developer");
+    const text = injection.items[0].content[0].text;
+    expect(JSON.parse(text.split("\n")[1]).company).toEqual(company);
+    expect(text.endsWith("\n" + DEPARTMENT_HEAD_GUIDELINE)).toBe(true);
+    expect(text.split(DEPARTMENT_HEAD_GUIDELINE)).toHaveLength(2);
+    expect(text).toContain("inactive for other roles or unavailable role data");
+    expect(DEPARTMENT_HEAD_GUIDELINE.split(/\s+/)).toHaveLength(77);
+    expect(f.store.companyContext).toHaveBeenCalledExactlyOnceWith(id);
+    expect(f.client.call.mock.calls.map(([method]) => method)).toEqual(["thread/start", "thread/inject_items", "turn/start"]);
+  });
+
+  it.each([
+    { title: "Worker", canRecruit: true, directReports: [{ id: "report" }] },
+    { title: "CEO", canRecruit: true, directReports: [{ id: "report" }] },
+    { title: "Head", unavailable: true },
+    { canRecruit: true },
+    { title: null },
+    { title: 42 },
+    null,
+  ])("does not infer a Head role from unavailable or non-Head company data: %j", async company => {
+    const f = fixture(), id = await session(f); f.store.companyContext = () => company;
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    expect(JSON.stringify(f.client.call.mock.calls)).not.toContain(DEPARTMENT_HEAD_GUIDELINE);
+  });
+
+  it("excludes the CEO identity even if its reported title is Head", async () => {
+    const f = fixture(); f.store.ensureCeo();
+    f.store.companyContext = () => ({ agentId: CEO_ID, title: "Head" });
+    await f.store.call("turn/start", { threadId: CEO_ID, input: [] });
+    expect(JSON.stringify(f.client.call.mock.calls)).not.toContain(DEPARTMENT_HEAD_GUIDELINE);
+  });
+
+  it("reuses the Head context hash on the second turn and after a store restart", async () => {
+    const f = fixture(), id = await session(f);
+    const companyContext = vi.fn(() => ({ agentId: id, title: "Head" })); f.store.companyContext = companyContext;
+    const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    const hash = f.store.get(id).projectContext;
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = companyContext;
+    await restored.call("turn/start", { threadId: id, input: [] });
+    expect(injections()).toHaveLength(1); expect(restored.get(id).projectContext).toBe(hash);
+    expect(companyContext).toHaveBeenCalledTimes(3);
+    expect(f.client.call.mock.calls.map(([method]) => method)).toEqual(["thread/start", "thread/inject_items", "turn/start", "turn/start", "turn/start"]);
+  });
+
+  it("captures the Head role with company JSON before awaiting native startup, then removes it on demotion", async () => {
+    const f = fixture(), id = await session(f), company = { agentId: id, title: "Head" };
+    f.store.companyContext = vi.fn(() => company);
+    const original = f.client.call.getMockImplementation()!;
+    f.client.call.mockImplementation(async (method, params) => {
+      if (method === "thread/start") company.title = "Worker";
+      return original(method, params);
+    });
+    const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    const first = JSON.stringify(injections()[0]); expect(first).toContain(DEPARTMENT_HEAD_GUIDELINE); expect(first).not.toContain("Worker");
+    const headHash = f.store.get(id).projectContext;
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    expect(JSON.stringify(injections()[1])).toContain("Worker"); expect(JSON.stringify(injections()[1])).not.toContain(DEPARTMENT_HEAD_GUIDELINE);
+    expect(f.store.get(id).projectContext).not.toBe(headHash);
+    await f.store.call("turn/start", { threadId: id, input: [] }); expect(injections()).toHaveLength(2);
+    expect(f.store.companyContext).toHaveBeenCalledTimes(3);
+  });
+
+  it("refreshes legacy cached context once, then reuses it on subsequent turns", async () => {
     const f = fixture(), id = await session(f);
     f.store.companyContext = () => ({ agentId: id, title: "Head" });
     await f.store.call("turn/start", { threadId: id, input: [] });

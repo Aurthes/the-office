@@ -9,6 +9,7 @@ const { CodexOfficeStore } = require("../../server/codex-office-store");
 const { OfficeTodos, activeDelegation } = require("../../server/office-todos");
 const { OfficeCompany } = require("../../server/office-company");
 const { OfficeDelegation, taskNotification } = require("../../server/office-delegation");
+const { DEPARTMENT_HEAD_GUIDELINE } = require("../../server/office-head-guideline");
 const { ceo: CEO } = require("../../src/lib/office/identities.json");
 const directories: string[] = [];
 afterEach(() => directories.splice(0).forEach(directory => rmSync(directory, { recursive: true, force: true })));
@@ -117,6 +118,26 @@ describe("real-session Office delegation", () => {
     const injections = f.client.call.mock.calls.filter(([method]: [string]) => method === "thread/inject_items");
     expect(injections).toHaveLength(2); expect(JSON.stringify(injections[1])).toContain('directReports\\":[]');
   });
+  it("applies the guideline to current, newly appointed and promoted Heads through live role context", async () => {
+    const f = await fixture(); f.store.companyContext = vi.fn((id: string) => f.company.forTurn(id));
+    const injections = () => f.client.call.mock.calls.filter(([method]: [string]) => method === "thread/inject_items");
+    const start = (id: string) => f.store.call("turn/start", { threadId: id, input: [] });
+    await start(f.manager); expect(JSON.stringify(injections().at(-1))).toContain(DEPARTMENT_HEAD_GUIDELINE);
+    await start(f.worker); expect(JSON.stringify(injections().at(-1))).not.toContain(DEPARTMENT_HEAD_GUIDELINE);
+    f.graph[f.worker].title = "Head"; f.saveGraph();
+    await start(f.worker); expect(JSON.stringify(injections().at(-1))).toContain(DEPARTMENT_HEAD_GUIDELINE);
+    const newHead = (await f.store.createSession({ name: "New head", workspace: path.join(f.root, "workspace"), requestId: "new-head" })).threadId;
+    Object.assign(f.graph, { [newHead]: { title: "Head", reportsTo: [CEO] } }); f.saveGraph();
+    await start(newHead); expect(JSON.stringify(injections().at(-1))).toContain(DEPARTMENT_HEAD_GUIDELINE);
+    f.graph[f.manager].title = "Worker"; f.saveGraph();
+    expect(f.company.forTurn(f.manager)).toMatchObject({ title: "Worker", canRecruit: true, directReports: [{ id: f.worker }] });
+    await start(f.manager); expect(JSON.stringify(injections().at(-1))).not.toContain(DEPARTMENT_HEAD_GUIDELINE);
+    writeFileSync(f.settingsFile, "invalid JSON");
+    await start(f.worker); expect(JSON.stringify(injections().at(-1))).toContain("unavailable");
+    expect(JSON.stringify(injections().at(-1))).not.toContain(DEPARTMENT_HEAD_GUIDELINE);
+    expect(f.store.companyContext).toHaveBeenCalledTimes(6);
+  });
+
   it("sends once to the existing employee, retains one task and requires manager acceptance", async () => {
     const f = await fixture(), task = f.create(), beforeIds = f.store.list().map((row: { id: string }) => row.id);
     const request = f.input(task.id, f.manager, { assigneeId: f.worker, instructions: "Do not deploy", acceptanceCriteria: "Tests pass" });
