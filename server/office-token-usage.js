@@ -70,9 +70,9 @@ function parameters(p, now) {
 }
 
 class OfficeTokenUsage {
-  constructor({ directory, home, sessions, resolveSource, nativeVersion = VERSION, now = Date.now, maxBytes = 64 * 1024 * 1024, chunkBytes = 1024 * 1024, lineBytes = 64 * 1024 }) {
+  constructor({ directory, home, sessions, resolveSource, tasks = () => new Map(), nativeVersion = VERSION, now = Date.now, maxBytes = 64 * 1024 * 1024, chunkBytes = 1024 * 1024, lineBytes = 64 * 1024 }) {
     this.directory = path.join(directory, "token-usage"); this.home = path.resolve(home);
-    this.sessions = sessions; this.resolveSource = resolveSource; this.now = now;
+    this.sessions = sessions; this.resolveSource = resolveSource; this.tasks = tasks; this.now = now;
     this.maxBytes = maxBytes; this.reserve = Math.min(2 * 1024 * 1024, Math.floor(maxBytes / 4));
     this.chunkBytes = chunkBytes; this.lineBytes = lineBytes;
     this.rows = new Map(); this.sources = {}; this.bindings = {}; this.shards = new Map(); this.pending = new Map(); this.deleted = new Set();
@@ -344,6 +344,16 @@ class OfficeTokenUsage {
     if (!this.bindings[key]) this.bindings[key] = binding;
     this.hint(nativeThreadId);
   }
+  retention(timeZone) {
+    const nominal = dateShift(localDay(this.now(), timeZone), -13);
+    const retainedFromUtc = [this.floor, dateShift(utcDay(this.now()), -15)].sort().at(-1);
+    const boundary = Date.parse(retainedFromUtc + "T00:00:00Z"), boundaryDate = localDay(boundary, timeZone);
+    const retainedFrom = [nominal, boundaryDate].sort().at(-1);
+    // A UTC eviction boundary can cut through a local day. Comparing the
+    // previous instant also handles IANA days whose midnight is skipped by DST.
+    const retainedFromPartial = boundaryDate === retainedFrom && localDay(boundary - 1, timeZone) === boundaryDate;
+    return { retainedFrom, retainedFromUtc, retainedFromPartial, capacityLimited: Boolean(this.floor) && (retainedFrom > nominal || retainedFromPartial) };
+  }
   coverage(timeZone) {
     const known = this.known(), states = [...known.keys()].map(key => this.sources[key]).filter(Boolean), gaps = { ...this.gaps };
     for (const source of states) for (const [key, count] of Object.entries(source.gaps)) gaps[key] = (gaps[key] || 0) + count;
@@ -353,7 +363,7 @@ class OfficeTokenUsage {
       indexing: Boolean(this.running), unavailable: Boolean(this.unavailable), storageLimit: Boolean(this.storageLimit),
       knownSources: known.size, scannedSources: states.length, readySources: states.filter(s => s.status === "ready").length,
       unsupportedSources: states.filter(s => s.status === "unsupported").length, partialLines: states.filter(s => s.partialLine).length,
-      retainedFrom: dateShift(localDay(this.now(), timeZone), -13), retainedFromUtc: this.floor || dateShift(utcDay(this.now()), -15),
+      ...this.retention(timeZone),
       firstObservedAt, indexedThrough, knownGaps: gaps };
   }
   cursor(snapshot, offset) {
@@ -373,7 +383,7 @@ class OfficeTokenUsage {
       const decoded = Buffer.from(payload, "base64url").toString().split(":"); snapshotId = decoded[0]; offset = Number(decoded[1]); snapshot = this.snapshots.get(snapshotId);
       if (!snapshot || snapshot.fingerprint !== fingerprint || !Number.isSafeInteger(offset) || offset < 0) throw new Error("Usage page expired or filters changed. Refresh the detail.");
     } else {
-      const earliest = dateShift(localDay(this.now(), query.timeZone), -13), latest = localDay(this.now(), query.timeZone);
+      const earliest = this.retention(query.timeZone).retainedFrom, latest = localDay(this.now(), query.timeZone);
       const rows = [], observed = [...this.rows.values()], turns = new Map(), bindings = { ...this.bindings };
       const known = this.known(); let checked = 0;
       // This captured set is the snapshot's high-water mark, even when a yield
@@ -401,6 +411,14 @@ class OfficeTokenUsage {
     }
     const coverage = this.coverage(query.timeZone);
     if (snapshot.overflow) coverage.knownGaps.aggregateOverflow = 1;
+    // Resolve presentation metadata only for real stored bindings. This is an
+    // O(1) in-memory lookup, never a current-task inference or history/RPC read.
+    const taskRows = this.tasks(), taskLabels = new Map();
+    for (const binding of Object.values(this.bindings)) if (binding.taskId && !taskLabels.has(binding.taskId)) {
+      const row = taskRows.get(binding.taskId);
+      taskLabels.set(binding.taskId, { id: binding.taskId, code: typeof row?.code === "string" && /^T[1-9]\d{0,17}$/.test(row.code) ? row.code : null,
+        title: typeof row?.title === "string" ? row.title.trim().slice(0, 200) || null : null });
+    }
     const publicRows = snapshot.rows.slice(offset, offset + query.limit).map(row => {
       const turnKey = `${row.nativeThreadId}:${row.turnId}`, binding = snapshot.bindings[turnKey];
       const siblings = snapshot.turns.get(turnKey);
@@ -409,14 +427,15 @@ class OfficeTokenUsage {
         agentName: this.known().get(row.nativeThreadId)?.name || row.officeAgentId,
         responseId: row.responseId, turnId: row.turnId, rootTurnId: row.rootTurnId, observedAt: row.observedAt, usage: row.usage,
         configuredModel: row.configuredModel, configuredEffort: row.configuredEffort, modelBasis: row.modelBasis,
-        actualModel: null, status: "unknown", taskId: binding?.taskId || null, phaseId: binding?.phaseId || null, questionIds: binding?.questionIds || [], attributionBasis: binding ? "turnDispatch" : "unknown",
+        actualModel: null, status: "unknown", taskId: binding?.taskId || null, task: binding?.taskId ? taskLabels.get(binding.taskId) || null : null,
+        phaseId: binding?.phaseId || null, questionIds: binding?.questionIds || [], attributionBasis: binding ? "turnDispatch" : "unknown",
         conflict: row.conflict, sameTurnResponses: siblings.length,
         previousObservedInput: previous && previous.configuredModel === row.configuredModel && row.configuredModel && !previous.conflict && !row.conflict ? { responseId: previous.responseId, input: previous.usage.input, change: row.usage.input - previous.usage.input, basis: "adjacentObservedSameTurnConfiguredModel" } : null };
     });
     return { date: query.date, timeZone: query.timeZone, rows: publicRows, count: snapshot.rows.length, totals: snapshot.totals,
       nextCursor: offset + query.limit < snapshot.rows.length ? this.cursor(snapshotId, offset + query.limit) : null,
       coverage, scope: "Office observed subset", outsideRetention: query.date < coverage.retainedFrom || query.date > localDay(this.now(), query.timeZone),
-      filters: { agents: [...this.known().values()].map(s => ({ id: s.id, name: s.name || s.id })), configuredModels: [...new Set([...this.rows.values()].map(r => r.configuredModel).filter(Boolean))].sort(), taskIds: [...new Set(Object.values(this.bindings).map(b => b.taskId).filter(Boolean))].sort() } };
+      filters: { agents: [...this.known().values()].map(s => ({ id: s.id, name: s.name || s.id })), configuredModels: [...new Set([...this.rows.values()].map(r => r.configuredModel).filter(Boolean))].sort(), taskIds: [...taskLabels.keys()].sort(), tasks: [...taskLabels.values()].sort((a, b) => a.id.localeCompare(b.id)) } };
   }
   async close() { this.closed = true; if (this.running) await this.running; }
 }

@@ -16,10 +16,11 @@ export type AiProviderSnapshot = {
 };
 export type AiCenterSnapshot = { fetchedAt: string; providers: AiProviderSnapshot[] };
 export type ResponseUsage = { input: number; cachedInput: number; uncachedInput: number; cacheWriteInput: number; output: number; reasoningOutput: number; otherOutput: number; total: number };
+export type UsageTaskLabel = { id: string; code: string | null; title: string | null };
 export type ObservedResponse = {
   id: string; nativeThreadId: string; officeAgentId: string; agentName: string; responseId: string; turnId: string; rootTurnId: string | null;
   observedAt: string; usage: ResponseUsage; configuredModel: string | null; configuredEffort: string | null; modelBasis: "turnContext" | "unknown";
-  actualModel: null; status: "unknown"; taskId: string | null; phaseId: string | null; questionIds: string[]; attributionBasis: "turnDispatch" | "unknown";
+  actualModel: null; status: "unknown"; taskId: string | null; task: UsageTaskLabel | null; phaseId: string | null; questionIds: string[]; attributionBasis: "turnDispatch" | "unknown";
   conflict: boolean; sameTurnResponses: number;
   previousObservedInput: { responseId: string; input: number; change: number; basis: string } | null;
 };
@@ -28,8 +29,8 @@ export type UsageDetail = {
   outsideRetention: boolean; scope: string;
   coverage: { source: string; supportedVersion: string; apiStability: string; partial: boolean; indexing: boolean; unavailable: boolean; storageLimit: boolean;
     knownSources: number; scannedSources: number; readySources: number; unsupportedSources: number; partialLines: number;
-    retainedFrom: string; retainedFromUtc: string; firstObservedAt: string | null; indexedThrough: string | null; knownGaps: Record<string, number> };
-  filters: { agents: { id: string; name: string }[]; configuredModels: string[]; taskIds: string[] };
+    retainedFrom: string; retainedFromUtc: string; retainedFromPartial: boolean; capacityLimited: boolean; firstObservedAt: string | null; indexedThrough: string | null; knownGaps: Record<string, number> };
+  filters: { agents: { id: string; name: string }[]; configuredModels: string[]; taskIds: string[]; tasks: UsageTaskLabel[] };
 };
 
 export function expiringResetCredits(snapshot: AiCenterSnapshot | null, now: number): ResetCredit[] {

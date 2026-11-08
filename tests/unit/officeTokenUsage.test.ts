@@ -113,6 +113,25 @@ describe("observed response projection", () => {
     expect((await f.detail({ taskId: "unattributed" })).count).toBe(1);
     await f.collector.close(); const resumed = f.create(); expect((await f.detail({ taskId: "task-first" }, resumed)).count).toBe(1);
   });
+  it("resolves readable task labels only for real bindings using current in-memory metadata", async () => {
+    const tasks = new Map([
+      ["task-first", { id: "task-first", code: "T98", title: "Token profiling", documentation: "PRIVATE_TASK_BODY", events: ["PRIVATE_HISTORY"] }],
+      ["task-unbound", { id: "task-unbound", code: "T99", title: "Unrelated task" }],
+    ]);
+    let lookups = 0; const f = await fixture({ tasks: () => { lookups++; return tasks; } });
+    await writeFile(f.file, meta() + record("historical") + record("bound", { turn_id: "turn-two" }) + record("deleted", { turn_id: "turn-three" }));
+    f.collector.bindTurn({ nativeThreadId: "native-one", turnId: "turn-two", taskId: "task-first" });
+    f.collector.bindTurn({ nativeThreadId: "native-one", turnId: "turn-three", taskId: "task-deleted" });
+    await f.collector.running;
+    const result = await f.detail(); expect(lookups).toBe(1);
+    expect(result.rows.find(r => r.responseId === "historical")).toMatchObject({ taskId: null, task: null });
+    expect(result.rows.find(r => r.responseId === "bound")).toMatchObject({ taskId: "task-first", task: { id: "task-first", code: "T98", title: "Token profiling" } });
+    expect(result.rows.find(r => r.responseId === "deleted")?.task).toEqual({ id: "task-deleted", code: null, title: null });
+    expect(result.filters.tasks).toEqual([{ id: "task-deleted", code: null, title: null }, { id: "task-first", code: "T98", title: "Token profiling" }]);
+    expect(result.filters.taskIds).toEqual(["task-deleted", "task-first"]);
+    expect(JSON.stringify(result)).not.toMatch(/PRIVATE_|Unrelated task|task-unbound|documentation|events/);
+    const reads = f.reads(); expect((await f.detail({ taskId: "task-first" })).count).toBe(1); expect((await f.detail({ taskId: "T98" })).count).toBe(0); expect(f.reads()).toBe(reads);
+  });
 });
 
 describe("detail date, capacity and stable pagination", () => {
@@ -155,6 +174,23 @@ describe("detail date, capacity and stable pagination", () => {
     expect((await f.detail({ date: "2026-11-01" })).count).toBe(0);
     await f.collector.close(); const resumed = f.create(); const restored = await f.detail({}, resumed);
     expect(restored.count).toBe(10); expect(restored.coverage.retainedFromUtc).toBe("2026-11-02");
+    const evicted = await f.detail({ date: "2026-11-01" }, resumed);
+    expect(evicted.outsideRetention).toBe(true); expect(evicted.coverage).toMatchObject({ retainedFrom: "2026-11-02", retainedFromPartial: false, capacityLimited: true, storageLimit: false });
+  });
+  it("maps a capacity floor to the local first day, marking partial days and preserving it after restart", async () => {
+    const f = await fixture({ maxBytes: 12000 });
+    await writeFile(f.file, meta() + Array.from({ length: 10 }, (_, i) => record(`today-${i}`)).join("") + Array.from({ length: 20 }, (_, i) => record(`old-${i}`, {}, "2026-11-01T10:00:00Z")).join("") + record("before-floor", {}, "2026-11-01T20:00:00Z") + record("after-floor", {}, "2026-11-02T00:30:00Z"));
+    await f.collect();
+    for (const [timeZone, firstDate, previousDate] of [["UTC", "2026-11-02", "2026-11-01"], ["Asia/Shanghai", "2026-11-02", "2026-11-01"], ["America/New_York", "2026-11-01", "2026-10-31"]]) {
+      const result = await f.detail({ date: firstDate, timeZone });
+      expect(result.count).toBe(1); expect(result.rows[0].responseId).toBe("after-floor"); expect(result.outsideRetention).toBe(false);
+      expect(result.coverage).toMatchObject({ retainedFrom: firstDate, retainedFromUtc: "2026-11-02", retainedFromPartial: timeZone !== "UTC", capacityLimited: true });
+      expect((await f.detail({ date: previousDate, timeZone })).outsideRetention).toBe(true);
+    }
+    await f.collector.close(); const resumed = f.create();
+    const result = await f.detail({ date: "2026-11-02", timeZone: "Asia/Shanghai" }, resumed);
+    expect(result.count).toBe(1); expect(result.coverage).toMatchObject({ retainedFrom: "2026-11-02", retainedFromUtc: "2026-11-02", retainedFromPartial: true, capacityLimited: true });
+    expect((await f.detail({ date: "2026-11-01", timeZone: "Asia/Shanghai" }, resumed)).outsideRetention).toBe(true);
   });
   it("returns unknown totals on numeric overflow, and refuses unsupported runtime versions without source reads", async () => {
     const f = await fixture();

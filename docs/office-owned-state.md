@@ -200,6 +200,40 @@ the operations console. The gateway schedules them independently of browser tabs
 | Suggested prompts | Experimental Codex 0.166.0 `thread/sample` on the completed Office thread, using Office's ChatGPT login and loaded context. No API key or new turn. Real-account sampling, unchanged history and no tool execution verified; account availability and usage limits still apply. Not native App prediction reuse |
 | Live voice | Experimental Codex 0.166.0 WebRTC V3 on the selected Office thread, using Office's ChatGPT login. Browser audio travels directly to the voice service; tasks and approvals use the existing Office handlers. Real-account tests cover an empty chat, generated speech triggering a completed Codex task, received audio packets, and hangup. Physical microphone behavior and subjective voice quality still need manual testing |
 
+## AI usage response detail
+
+In **AI Center**, click a daily token bar (or focus it and press Enter/Space) to
+open that day's observed model responses. Sort by total or uncached input to
+find large consumers, filter by employee/configured model/Task, and expand a
+response for cached input, uncached input, reasoning output and other output.
+These four disjoint parts add to its total. Task labels use the existing short
+code/title only when a real stored dispatch binding exists; historical missing
+bindings remain unattributed. Configured model is not proof of the actual model.
+
+This feature is a read-only **Codex 0.166.0 internal-format compatibility
+adapter**, not a stable public billing or per-HTTP-request API. It reads only
+Office-owned, mapped `sessions`/`archived_sessions` rollout metadata and counts
+top-level `token_usage_record.usage` by origin thread plus response ID. It ignores
+cumulative turn/thread usage and inherited duplicates. It never reads native App
+data or stores prompt, tool-output or reasoning bodies. Unsupported runtime/source
+versions or schemas are reported explicitly; an unverified custom CLI override
+disables this reader. Ordinary account usage remains usable.
+
+Coverage is incomplete: missing usage, some failures/background calls, actual
+response status and historical task attribution may be unknown. No records does
+not mean zero consumption. The provider's account-day timezone is unspecified;
+Office detail uses the browser's explicit IANA timezone. The account total and
+Office's observed subtotal therefore cannot be directly reconciled.
+
+A private asynchronous derived index under `office-runtime/token-usage` avoids
+rescanning original logs on each query. Detail covers at most the latest **14
+local natural days**, with extra UTC shards for timezone/DST boundaries, and a
+**64 MiB** derived-storage budget. Capacity can evict older complete UTC days
+earlier: the displayed start date moves forward, and a first local day cut by a
+UTC eviction boundary is marked partial. Dates outside the current retained
+range are identified explicitly. Original logs are never deleted by this index.
+Current-day saturation stops indexing with a visible coverage warning.
+
 ## Optional speech and suggestions
 
 OpenClaw transcription and ElevenLabs reply playback have been removed. Office

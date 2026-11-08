@@ -67,6 +67,7 @@ const accountContext = new CodexOfficeAccount(native);
 store = new CodexOfficeStore(directory, native, changed, id => Boolean(voice?.active?.threadId === id || controls?.state(id).activeTurnId || workspace?.snapshot(id)?.running || workspace?.starts.has(id)));
 store.ensureCeo();
 tokenUsage = new OfficeTokenUsage({ directory, home: native.home, sessions: () => store.data.sessions,
+  tasks: () => todos?.rows || new Map(),
   nativeVersion: process.env.CLAW3D_CODEX_BIN ? null : require("@openai/codex/package.json").version,
   resolveSource: async threadId => (await native.call("thread/read", { threadId, includeTurns: false })).thread?.path,
 });
