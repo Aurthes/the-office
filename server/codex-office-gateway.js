@@ -16,6 +16,7 @@ const { loadSessionHistoryPage } = require("./codex-session-history");
 const { createOfficeDictation } = require("./office-model-services");
 const { CodexSessionPredictions } = require("./codex-session-predictions");
 const { readAiCenter } = require("./ai-center");
+const { OfficeTokenUsage } = require("./office-token-usage");
 const { consumeOpenAiResetCredit } = require("./ai-center-openai");
 const { questionReplyMessage } = require("./codex-session-questions");
 const { OfficeTodos, activeDelegation, handlingAgentId } = require("./office-todos");
@@ -30,7 +31,7 @@ const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
 const directory = officeEnvironment(path.resolve(process.env.CLAW3D_OFFICE_DATA_DIR || path.join(process.env.CLAW3D_DATA_DIR || path.join(os.homedir(), ".local/share/claw3d"), "office-runtime"))).home;
 const replyContext = new OfficeReplyContext(directory);
-const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer, todos, dictate, delegation;
+const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer, todos, dictate, delegation, tokenUsage;
 let restoredSessionStates = Promise.resolve();
 const features = { dictation: false, dictationHTTP: true, voice: true, prediction: true, terminal: true, schedules: true, todos: true, composer: true, accountVersion: 0 };
 const broadcast = (event, payload) => { const frame = JSON.stringify({ type: "event", event, seq: seq++, payload }); for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame); };
@@ -52,6 +53,7 @@ const native = new CodexOfficeClient({
   workspace?.handle(frame);
   if (composer?.handleToolCall(frame)) return;
   const mapped = store?.handle(frame); if (!mapped) return;
+  if (["thread/tokenUsage/updated", "turn/started", "turn/completed"].includes(frame.method)) tokenUsage?.hint(frame.params?.threadId);
   voice?.handle(mapped);
   controls?.handle(mapped); if (mapped.params?.threadId) stream?.changed(mapped.params.threadId);
   schedules?.handle(mapped);
@@ -64,6 +66,11 @@ const native = new CodexOfficeClient({
 const accountContext = new CodexOfficeAccount(native);
 store = new CodexOfficeStore(directory, native, changed, id => Boolean(voice?.active?.threadId === id || controls?.state(id).activeTurnId || workspace?.snapshot(id)?.running || workspace?.starts.has(id)));
 store.ensureCeo();
+tokenUsage = new OfficeTokenUsage({ directory, home: native.home, sessions: () => store.data.sessions,
+  nativeVersion: process.env.CLAW3D_CODEX_BIN ? null : require("@openai/codex/package.json").version,
+  resolveSource: async threadId => (await native.call("thread/read", { threadId, includeTurns: false })).thread?.path,
+});
+store.onTurnDispatch = value => tokenUsage.bindTurn(value);
 controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features, replyContext,
   changed: id => { stream?.changed(id); changed(); },
   editBlocked: id => voice?.active?.threadId === id || store.starting.has(id),
@@ -183,6 +190,7 @@ const methods = {
   }),
   "office.account": account,
   "office.usage": () => readAiCenter(native),
+  "office.usage.detail": p => tokenUsage.detail(p),
   "office.resetCredit.consume": p => consumeOpenAiResetCredit(native, p),
   "schedule.list": () => ({ ...schedules.list(), sessions: store.list().map(({ id, name, project }) => ({ id, name, project })) }),
   "schedule.create": p => store.once(p, () => ({ id: schedules.create(p).task.id })),
@@ -325,7 +333,7 @@ const tick = setInterval(() => broadcast("tick", { ts: Date.now() }), 30000); ti
 async function close(code = 0) {
   if (stopping) return; stopping = true; clearInterval(tick); clearInterval(checkpoint); todos?.close(); clearTimeout(rosterTimer); dictate.close(); schedules.close(); controls.close(); capture.close();
   for (const ws of clients) { stream.disconnected(ws); ws.close(1001, "Office stopping"); }
-  wss.close(); server.close(); await workspace.close(); await native.close(); process.exitCode = code;
+  wss.close(); server.close(); await tokenUsage.close(); await workspace.close(); await native.close(); process.exitCode = code;
 }
 for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => void close());
 async function restoreSessionStates() {

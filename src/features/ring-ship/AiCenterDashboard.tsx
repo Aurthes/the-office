@@ -7,6 +7,7 @@ import type { GatewayClient } from "@/lib/gateway/GatewayClient";
 import { useUiText } from "@/lib/i18n/ui-language";
 import type { AiCenterSnapshot, QuotaWindow, ResetCredit, ResetCreditResult } from "./ai-center";
 import "./ai-center.css";
+import { AiUsageDetail } from "./AiUsageDetail";
 
 const formatNumber = (value: number | null | undefined) => value == null ? "—" : new Intl.NumberFormat().format(value);
 
@@ -35,6 +36,9 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
   const [sampledAt, setSampledAt] = useState(0);
   const [providerId, setProviderId] = useState("");
   const [error, setError] = useState(false), [refresh, setRefresh] = useState(0);
+  const [detailDate, setDetailDate] = useState<string | null>(null);
+  const dayButton = useRef<HTMLButtonElement | null>(null);
+  const close = () => { setDetailDate(null); onClose(); };
   const resetAttempts = useRef(new Map<string, string>()), resetInFlight = useRef(false);
   const [pendingReset, setPendingReset] = useState<string | null>(null);
   const [resetFeedback, setResetFeedback] = useState<{ text: string; error: boolean } | null>(null);
@@ -91,16 +95,19 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
   };
   if (typeof document === "undefined") return null;
   return createPortal(<dialog ref={dialog} className="ai-dialog" aria-labelledby="ai-center-title"
-    onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
+    onCancel={event => { event.preventDefault(); close(); }} onClick={event => { if (event.target === event.currentTarget) close(); }}>
     <div className="ai-frame" aria-busy={loading}>
       <header className="ai-header">
-        <button type="button" className="ai-icon-button" aria-label={t("Back to ship")} onClick={onClose}><ArrowLeft size={18} /></button>
+        <button type="button" className="ai-icon-button" aria-label={t("Back to ship")} onClick={close}><ArrowLeft size={18} /></button>
         <span className="ai-header-title"><BrainCircuit size={17} />{t("AI CENTER")}</span>
         <span className="ai-connection" data-available={available}><i />{loading ? t("Refreshing…") : error ? t("Could not refresh") : available ? t("Connected account") : t("No usage data")}</span>
         <button type="button" className="ai-icon-button" disabled={loading || !connected || !client} aria-label={t("Refresh AI usage")} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={16} className={loading ? "ai-spinning" : ""} /></button>
-        <button type="button" className="ai-icon-button" aria-label={t("Close AI Center")} onClick={onClose}><X size={19} /></button>
+        <button type="button" className="ai-icon-button" aria-label={t("Close AI Center")} onClick={close}><X size={19} /></button>
       </header>
       <div className="ai-content">
+        {open && detailDate && client ? <AiUsageDetail key={detailDate} date={detailDate} accountTokens={daily?.find(day => day.date === detailDate)?.tokens ?? null} client={client}
+          onDateChange={setDetailDate} onBack={() => { setDetailDate(null); requestAnimationFrame(() => dayButton.current?.focus()); }} /> : null}
+        <div hidden={!!detailDate}>
         <div className="ai-hero">
           <div><div className="ai-provider-picker"><span className="ai-eyebrow">{t("COMPUTATION CORE")}</span>{snapshot?.providers.length ? snapshot.providers.length > 1 ? <select aria-label={t("AI provider")} value={data?.id} onChange={event => setProviderId(event.target.value)}>{snapshot.providers.map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select> : <span className="ai-provider-name">{data?.name}</span> : null}</div><h1 id="ai-center-title">{t("Your AI, at a glance.")}</h1><p>{t("Subscriptions, tokens, and API capacity.")}</p></div>
           <div className="ai-core-art" aria-hidden="true"><div className="ai-art-orbit" /><div className="ai-art-orbit ai-art-orbit-two" /><div className="ai-art-crystal"><Cpu size={34} strokeWidth={1} /></div><div className="ai-art-plinth" /></div>
@@ -147,9 +154,9 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
             <p className="ai-card-caption">{t("Across the selected provider account")}</p>
             <div className="ai-token-peak"><span>{t("Peak daily tokens")}</span><strong>{formatNumber(data?.usage?.peakDailyTokens)}</strong></div>
             {daily?.length ? <>
-              <div className="ai-token-chart" aria-label={t("Recent daily token usage")}>{daily.map(day => <div key={day.date} tabIndex={0} aria-label={`${day.date}: ${formatNumber(day.tokens)} tokens`}>
+              <div className="ai-token-chart" aria-label={t("Recent daily token usage")}>{daily.map(day => <button key={day.date} type="button" aria-label={`${day.date}: ${formatNumber(day.tokens)} tokens`} onClick={event => { dayButton.current = event.currentTarget; setDetailDate(day.date); }}>
                 <span className="ai-token-tooltip" role="tooltip"><span>{day.date}</span><strong>{formatNumber(day.tokens)} tokens</strong></span><i style={{ height: `${day.tokens / peak * 100}%` }} />
-              </div>)}</div>
+              </button>)}</div>
               <div className="ai-chart-dates"><span>{daily[0].date}</span><span>{daily[daily.length - 1].date}</span></div>
             </> : <p className="ai-unavailable">{loading ? t("Loading usage…") : t("Daily token history is not available.")}</p>}
           </section>
@@ -164,6 +171,7 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
             : <div className="ai-api-empty"><KeyRound size={24} /><div><b>{loading ? t("Loading usage…") : data?.api.status === "not_configured" ? t("API quota is not connected") : t("API quota is temporarily unavailable")}</b><p>{t("Your administrator can connect API project quotas. You can also check the provider website.")}</p></div></div>}
           <div className="ai-api-links">{data?.links.usage ? <a href={data.links.usage} target="_blank" rel="noreferrer">{t("API usage & billing")}<ArrowUpRight size={13} /></a> : null}<span>{t("Unavailable values appear as —.")}</span></div>
         </section>
+        </div>
       </div>
       <footer className="ai-footer"><span>{t("AI CENTER")} / {t("RESOURCE TELEMETRY")}</span><span>{snapshot ? t("Updated {time}", { time: new Date(snapshot.fetchedAt).toLocaleTimeString() }) : t("Waiting for usage data")}</span><span>{t("ESC TO RETURN")}</span></footer>
     </div>

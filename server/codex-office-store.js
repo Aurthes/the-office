@@ -220,8 +220,12 @@ class CodexOfficeStore {
     try {
       // Capture context and policy together before any await. Project edits during
       // dispatch or execution apply to the next turn, never this one.
-      const context = starting ? JSON.stringify({ project: row.projectId == null ? "Open Workspace" : this.project(row.projectId).name, workingDirectory: row.workspace, folders: this.sessionFolders(row), ...(this.todoContext ? { tasks: this.todoContext(row.id) } : {}), ...(this.companyContext ? { company: this.companyContext(row.id) } : {}) }) : null;
-      const questions = starting && this.questionContext ? JSON.stringify({ questions: this.questionContext(row.id) }) : null;
+      const dispatchTasks = starting && this.todoContext ? this.todoContext(row.id) : null;
+      const dispatchQuestions = starting && this.questionContext ? this.questionContext(row.id) : null;
+      const dispatchBinding = starting ? { taskId: dispatchTasks?.todoId, phaseId: dispatchTasks?.runningPhaseId,
+        questionIds: Array.isArray(dispatchQuestions?.answering) ? [...dispatchQuestions.answering] : [] } : null;
+      const context = starting ? JSON.stringify({ project: row.projectId == null ? "Open Workspace" : this.project(row.projectId).name, workingDirectory: row.workspace, folders: this.sessionFolders(row), ...(dispatchTasks ? { tasks: dispatchTasks } : {}), ...(this.companyContext ? { company: this.companyContext(row.id) } : {}) }) : null;
+      const questions = dispatchQuestions ? JSON.stringify({ questions: dispatchQuestions }) : null;
       const overrides = starting ? this.overrides(row.id) : null;
       const voiceSettings = voiceStarting ? { cwd: row.workspace, sandbox: ACCESS[row.settings.accessMode].sandbox, approvalPolicy: overrides.approvalPolicy,
         ...(overrides.model ? { model: overrides.model } : {}), config: {
@@ -269,6 +273,11 @@ class CodexOfficeStore {
       if (restoreQuestions) mapped.itemsView = "full";
       try {
         const result = await this.client.call(method, mapped);
+        if (method === "turn/start" && result.turn?.id) {
+          // Optional numeric telemetry must never block or fail chat dispatch.
+          try { this.onTurnDispatch?.({ nativeThreadId: row.codexThreadId, turnId: result.turn.id,
+            ...dispatchBinding }); } catch { /* telemetry is best effort */ }
+        }
         let updated = false;
         if (restoreQuestions && readEpoch === row.historyEpoch && !Array.isArray(row.pendingQuestions)) {
           row.pendingQuestions = (result.data[0]?.items || []).reduce(pendingAfterItem, []); updated = true;

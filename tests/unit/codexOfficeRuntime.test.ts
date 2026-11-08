@@ -28,6 +28,21 @@ async function session(f: ReturnType<typeof fixture>) {
   return (await f.store.createSession({ name: "Own chat", projectId: project.id, requestId: "session" })).threadId;
 }
 describe("independent Office runtime", () => {
+  it("captures immutable dispatch IDs for optional telemetry without adding a native request or blocking chat", async () => {
+    const f = fixture(), id = await session(f);
+    let task = "original-task"; const answering = ["q-original"];
+    f.store.todoContext = () => ({ todoId: task });
+    f.store.questionContext = () => ({ answering });
+    let release: () => void = () => {};
+    const gate = new Promise<void>(resolve => { release = resolve; }), original = f.client.call.getMockImplementation()!;
+    f.client.call.mockImplementation(async (method, params) => { if (method === "turn/start") await gate; return original(method, params); });
+    const capture = vi.fn(() => { throw new Error("Telemetry unavailable"); }); f.store.onTurnDispatch = capture;
+    const pending = f.store.call("turn/start", { threadId: id, input: [] });
+    await vi.waitFor(() => expect(f.client.call.mock.calls.some(([method]) => method === "turn/start")).toBe(true));
+    task = "new-task"; answering.push("q-later"); release(); await pending;
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({ taskId: "original-task", questionIds: ["q-original"], nativeThreadId: "native-own-thread", turnId: "turn-1" }));
+    expect(f.client.call.mock.calls.map(([method]) => method)).not.toContain("thread/read");
+  });
   it("persists the first attempted turn before dispatch but skips unchanged later writes", async () => {
     const f = fixture(), id = await session(f);
     const original = f.client.call.getMockImplementation()!;
