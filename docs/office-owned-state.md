@@ -220,9 +220,12 @@ disables this reader. Ordinary account usage remains usable.
 
 Coverage is incomplete: missing usage, some failures/background calls, actual
 response status and historical task attribution may be unknown. No records does
-not mean zero consumption. The provider's account-day timezone is unspecified;
-Office detail uses the browser's explicit IANA timezone. The account total and
-Office's observed subtotal therefore cannot be directly reconciled.
+not mean zero consumption. Office's AI usage overview, today's date and account
+bar drill-down all use UTC days: [00:00 UTC, next day 00:00 UTC). UTC was the
+closest account-day candidate in a multi-day comparison; the provider has not
+confirmed its day boundaries. Account numbers remain unchanged, and remaining
+coverage/scope differences mean the two totals need not match. This does not
+change other application or system timezones.
 
 A private asynchronous derived index under `office-runtime/token-usage` avoids
 rescanning original logs on each query. Detail covers at most the latest **14

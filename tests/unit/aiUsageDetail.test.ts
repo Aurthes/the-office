@@ -8,7 +8,7 @@ import { AiPurposePreview } from "@/features/ring-ship/AiPurposeSummary";
 import type { AiCenterSnapshot, UsageDetail } from "@/features/ring-ship/ai-center";
 import { UI_LANGUAGE_KEY } from "@/lib/i18n/ui-language";
 const { purposeSummary } = createRequire(import.meta.url)("../../server/office-usage-purpose.js");
-const date = "2026-11-08", timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const date = "2026-11-08", timeZone = "UTC";
 const detail = (patch: Partial<UsageDetail> = {}): UsageDetail => { const value = { date, timeZone, rows: [{ id: "origin:response", nativeThreadId: "origin", officeAgentId: "agent", agentName: "Big consumer", responseId: "response", turnId: "turn", rootTurnId: null, observedAt: "2026-11-08T01:00:00Z",
   usage: { input: 100, cachedInput: 60, uncachedInput: 40, cacheWriteInput: 0, output: 20, reasoningOutput: 5, otherOutput: 15, total: 120 },
   sourceKind: "nativeRollout", sourceKinds: ["nativeRollout"], contextNativeThreadId: null, sourceTurnId: null, totalBasis: "reported", purpose: "chat_work", purposeBasis: "businessEntry", trigger: "userMessage",
@@ -124,8 +124,8 @@ it("shows the raised retention boundary and a partial first local day without cl
   value.coverage = { ...value.coverage, retainedFrom: "2026-11-02", retainedFromUtc: "2026-11-02", retainedFromPartial: true, capacityLimited: true };
   render(createElement(AiUsageDetail, { date: value.date, accountTokens: null, client: { call: vi.fn().mockResolvedValue(value) }, onBack: vi.fn(), onDateChange: vi.fn() }));
   expect(await screen.findByText("This date is outside the currently retained detail range (age or capacity limit).")).toBeInTheDocument();
-  expect(screen.getByText(/Local dates retained from 2026-11-02/)).toBeInTheDocument();
-  expect(screen.getByText(/The first retained local day \(2026-11-02\) is partial/)).toBeInTheDocument();
+  expect(screen.getByText(/UTC dates retained from 2026-11-02/)).toBeInTheDocument();
+  expect(screen.getByText(/The first retained UTC day \(2026-11-02\) is partial/)).toBeInTheDocument();
   expect(screen.queryByText(/outside the 14 local-day/)).not.toBeInTheDocument();
   expect(screen.queryByText(/No recoverable response records/)).not.toBeInTheDocument();
 });
@@ -174,4 +174,50 @@ it("freezes the chosen purpose snapshot during backfill until the user refreshes
   await act(async () => { await vi.advanceTimersByTimeAsync(6000); }); expect(call.mock.calls.length).toBe(count);
   fireEvent.click(screen.getByRole("button", { name: "Refresh response detail" })); await act(async () => {});
   expect(call.mock.lastCall?.[1]).toMatchObject({ purpose: "chat_work", refresh: true }); expect(call.mock.lastCall?.[1]).not.toHaveProperty("snapshot");
+});
+
+it.each([
+  ["Shanghai midnight", "2026-11-08T15:59:30Z", "2026-11-08"],
+  ["New York midnight", "2026-11-08T04:59:30Z", "2026-11-08"],
+  ["UTC midnight", "2026-11-08T23:59:30Z", "2026-11-09"],
+])("keeps the preview date, visible UTC window and click query aligned across %s", async (_name, start, nextDate) => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date(start));
+  const call = vi.fn().mockImplementation((_method: string, p: { date: string; timeZone: string }) => Promise.resolve(detail({ date: p.date, timeZone: p.timeZone })));
+  const onSelect = vi.fn();
+  render(createElement(AiPurposePreview, { client: { call }, refresh: 0, onSelect }));
+  await act(async () => {});
+  expect(call.mock.lastCall?.[1]).toMatchObject({ date: "2026-11-08", timeZone: "UTC" });
+  await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+  expect(call.mock.lastCall?.[1]).toMatchObject({ date: nextDate, timeZone: "UTC" });
+  const preview = screen.getByRole("region", { name: "Today's usage by purpose" });
+  expect(within(preview).getByText(`${nextDate} · UTC 00:00 to next day 00:00 (end excluded)`)).toBeInTheDocument();
+  fireEvent.click(within(preview).getByRole("button", { name: "Chat and user work" }));
+  expect(onSelect).toHaveBeenCalledWith(nextDate, "chat_work", "stable-snapshot");
+});
+it("uses the unchanged account bar date with UTC detail even when the local calendar is another day", async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-11-08T01:00:00Z"));
+  const call = vi.fn().mockImplementation((method: string, p: { date: string; timeZone: string }) => Promise.resolve(method === "office.usage" ? account : detail({ date: p.date, timeZone: p.timeZone })));
+  render(createElement(AiCenterDashboard, { open: true, client: { call }, connected: true, onClose: vi.fn() }));
+  await act(async () => {});
+  const bar = screen.getByRole("button", { name: `${date}: 0 tokens` });
+  fireEvent.click(bar); await act(async () => {});
+  expect(call.mock.lastCall?.[1]).toMatchObject({ date, timeZone: "UTC", includeRecords: false });
+  const region = screen.getByRole("region", { name: "Daily response detail" });
+  expect(within(region).getByText(/UTC 00:00 to next day 00:00/)).toBeInTheDocument();
+  expect(within(region).getByText(/provider day boundaries are unconfirmed/)).toBeInTheDocument();
+  expect(within(region).getByText("Account date total: " + date).parentElement).toHaveTextContent("0");
+});
+
+it("does not link yesterday's snapshot while the new UTC day is loading", async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-11-08T23:59:30Z"));
+  let resolveNext: (value: UsageDetail) => void = () => {};
+  const call = vi.fn().mockImplementationOnce(() => Promise.resolve(detail())).mockImplementation(() => new Promise<UsageDetail>(resolve => { resolveNext = resolve; }));
+  render(createElement(AiPurposePreview, { client: { call }, refresh: 0, onSelect: vi.fn() }));
+  await act(async () => {});
+  expect(screen.getByRole("button", { name: "Chat and user work" })).toBeInTheDocument();
+  await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+  expect(screen.queryByRole("button", { name: "Chat and user work" })).not.toBeInTheDocument();
+  expect(call.mock.lastCall?.[1]).toMatchObject({ date: "2026-11-09", timeZone: "UTC" });
+  await act(async () => { resolveNext(detail({ date: "2026-11-09" })); });
+  expect(screen.getByRole("button", { name: "Chat and user work" })).toBeInTheDocument();
 });

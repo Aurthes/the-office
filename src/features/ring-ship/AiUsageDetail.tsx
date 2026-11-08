@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, RefreshCw } from "lucide-react";
 import type { GatewayClient } from "@/lib/gateway/GatewayClient";
 import { useUiText } from "@/lib/i18n/ui-language";
+import { USAGE_TIME_ZONE } from "./ai-center";
 import type { ObservedResponse, UsageDetail, UsageTaskLabel, UsagePurpose } from "./ai-center";
 import { AiPurposeSummary, PurposeComponents, PURPOSE_LABELS } from "./AiPurposeSummary";
 
@@ -43,7 +44,7 @@ export function AiUsageDetail({ date, accountTokens, client, onBack, onDateChang
   date: string; accountTokens: number | null; client: Pick<GatewayClient, "call">; onBack: () => void; onDateChange: (date: string) => void; initialPurpose?: UsagePurpose; initialSnapshot?: string;
 }) {
   const t = useUiText();
-  const [timeZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+  const timeZone = USAGE_TIME_ZONE;
   const [sort, setSort] = useState("total"), [agentId, setAgent] = useState(""), [configuredModel, setModel] = useState(""), [taskId, setTask] = useState("");
   const [purpose, setPurpose] = useState<UsagePurpose | null>(initialPurpose || null), [stage, setStage] = useState<"overview" | "components" | "records">(initialPurpose ? "components" : "overview");
   const [cursor, setCursor] = useState<string | null>(null), [previous, setPrevious] = useState<(string | null)[]>([]);
@@ -77,8 +78,8 @@ export function AiUsageDetail({ date, accountTokens, client, onBack, onDateChang
       <button type="button" className="ai-icon-button" aria-label={t("Refresh response detail")} disabled={loading} onClick={reload}><RefreshCw size={16} /></button></div>
     <h1 ref={heading} tabIndex={-1}>{t(stage === "overview" ? "Usage by purpose" : stage === "records" ? "Observed model responses" : PURPOSE_LABELS[purpose || "unknown"])}</h1>
     <p className="ai-card-caption">{t("Only reported Office response records are included. Missing records and failed requests without usage are unknown, not zero.")}</p>
-    <div className="ai-detail-totals"><div><span>{t("Account date total")}: {date}</span><strong>{number(accountTokens)}</strong><small>{t("Account day timezone is not provided; these totals are not directly comparable.")}</small></div>
-      <div><span>{t("Office observed subtotal")}</span><strong>{error ? "—" : number(result?.purposeSummary.denominatorTokens)}</strong><small>{date} · {timeZone} · {t("Filtered, partial sum")}</small></div></div>
+    <div className="ai-detail-totals"><div><span>{t("Account date total")}: {date}</span><strong>{number(accountTokens)}</strong><small>{t("UTC best matches observed account days; provider day boundaries are unconfirmed. Coverage gaps remain.")}</small></div>
+      <div><span>{t("Office observed subtotal")}</span><strong>{error ? "—" : number(result?.purposeSummary.denominatorTokens)}</strong><small>{t("{date} · UTC 00:00 to next day 00:00 (end excluded)", { date })} · {t("Filtered, partial sum")}</small></div></div>
     <div className="ai-detail-filters">
       <label>{t("Date")}<input type="date" aria-label={t("Detail date")} value={date} onChange={event => { if (event.target.value) onDateChange(event.target.value); }} /></label>
       {stage === "records" ? <label>{t("Sort by")}<select value={sort} onChange={event => { setSort(event.target.value); filtersChanged(); }}>{[["total", "Total tokens"], ["uncachedInput", "Uncached input"], ["input", "Input tokens"], ["output", "Output tokens"], ["time", "Newest first"]].map(([value, name]) => <option key={value} value={value}>{t(name)}</option>)}</select></label> : null}
@@ -90,8 +91,8 @@ export function AiUsageDetail({ date, accountTokens, client, onBack, onDateChang
     {loading ? <p role="status" className="ai-card-caption">{t("Loading response records…")}</p> : null}
     {result && !error ? <>
       <p className="ai-card-note" role="status">{result.coverage.indexing ? t("Indexing Office metadata in the background…") : t("{count} observed response records", { count: result.count })} · {t("{ready}/{known} known Office sources readable", { ready: result.coverage.readySources, known: result.coverage.knownSources })}</p>
-      <p className="ai-card-note">{t("Office-only compatibility reader ({version}); internal format, partial coverage.", { version: result.coverage.supportedVersion })} {t("Local dates retained from {date}.", { date: result.coverage.retainedFrom })}{result.coverage.indexedThrough ? ` ${t("Latest observed record: {time}", { time: new Date(result.coverage.indexedThrough).toLocaleString([], { timeZone }) })}` : ""}</p>
-      {result.coverage.capacityLimited ? <p className="ai-notice">{t("Capacity eviction shortened the retained detail range.")}{result.coverage.retainedFromPartial ? <><br />{t("The first retained local day ({date}) is partial: indexed records before {time} are no longer retained.", { date: result.coverage.retainedFrom, time: new Date(result.coverage.retainedFromUtc + "T00:00:00Z").toLocaleString([], { timeZone }) })}</> : null}</p> : null}
+      <p className="ai-card-note">{t("Office-only compatibility reader ({version}); internal format, partial coverage.", { version: result.coverage.supportedVersion })} {t("UTC dates retained from {date}.", { date: result.coverage.retainedFrom })}{result.coverage.indexedThrough ? ` ${t("Latest observed record: {time}", { time: new Date(result.coverage.indexedThrough).toLocaleString([], { timeZone }) })}` : ""}</p>
+      {result.coverage.capacityLimited ? <p className="ai-notice">{t("Capacity eviction shortened the retained detail range.")}{result.coverage.retainedFromPartial ? <><br />{t("The first retained UTC day ({date}) is partial: indexed records before {time} are no longer retained.", { date: result.coverage.retainedFrom, time: new Date(result.coverage.retainedFromUtc + "T00:00:00Z").toLocaleString([], { timeZone }) })}</> : null}</p> : null}
       {result.coverage.unavailable || result.coverage.storageLimit || result.coverage.unsupportedSources || result.coverage.partialLines || Object.keys(result.coverage.knownGaps).length ? <p className="ai-notice">{t("Coverage has gaps; unavailable or unsupported sources are not counted as zero.")} {result.coverage.storageLimit ? t("Local index storage limit reached.") : ""}<br />{Object.entries(result.coverage.knownGaps).map(([reason, count]) => `${reason}: ${count}`).join(" · ")}{result.coverage.partialLines ? ` · ${t("Incomplete source lines")}: ${result.coverage.partialLines}` : ""}</p> : null}
       {result.outsideRetention ? <p className="ai-notice">{t("This date is outside the currently retained detail range (age or capacity limit).")}</p> : !result.count && !loading ? <p className="ai-unavailable">{t("No recoverable response records for this selection. This does not mean zero consumption.")}</p> : null}
       {stage === "overview" ? <AiPurposeSummary summary={result.purposeSummary} onSelect={id => { setPurpose(id); setStage("components"); filtersChanged(); }} /> : <>

@@ -2,11 +2,11 @@
 import { useEffect, useState } from "react";
 import type { GatewayClient } from "@/lib/gateway/GatewayClient";
 import { useUiText } from "@/lib/i18n/ui-language";
+import { USAGE_TIME_ZONE, currentUsageDate } from "./ai-center";
 import type { PurposeBucket, PurposeSummary, UsageDetail, UsagePurpose } from "./ai-center";
 
 export const PURPOSE_LABELS: Record<UsagePurpose, string> = { chat_work: "Chat and user work", suggestion: "Gray suggestions", automation: "Scheduled work", operational_task: "Firefighter work", collaboration_mixed: "Collaboration-triggered work", mixed: "Mixed purposes", unknown: "Unknown purpose" };
 export const tokenNumber = (value: number | null | undefined) => value == null ? "—" : new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value);
-export function localUsageDate(timeZone: string) { return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()); }
 
 export function AiPurposeSummary({ summary, onSelect }: { summary: PurposeSummary; onSelect: (purpose: UsagePurpose) => void }) {
   const t = useUiText();
@@ -21,7 +21,7 @@ export function AiPurposeSummary({ summary, onSelect }: { summary: PurposeSummar
       {bucket.id === "collaboration_mixed" ? <small>{t("Includes task execution; pure coordination is not separated.")}</small> : null}
       {bucket.id === "chat_work" ? <small>{t("Includes embedded reasoning, source identification and tools.")}</small> : null}
     </button>)}</div>
-    <p className="ai-card-note">{t("{count} responses have unknown purpose; {missing} observed results lack total usage.", { count: summary.unknownPurposeResponses, missing: summary.unknownUsageResults })}{summary.purposesRecordedFrom ? ` ${t("Purpose recording started {time}; older records stay unknown.", { time: new Date(summary.purposesRecordedFrom).toLocaleString() })}` : ""}</p>
+    <p className="ai-card-note">{t("{count} responses have unknown purpose; {missing} observed results lack total usage.", { count: summary.unknownPurposeResponses, missing: summary.unknownUsageResults })}{summary.purposesRecordedFrom ? ` ${t("Purpose recording started {time}; older records stay unknown.", { time: new Date(summary.purposesRecordedFrom).toLocaleString([], { timeZone: USAGE_TIME_ZONE }) + " UTC" })}` : ""}</p>
     <div className="ai-purpose-unmeasured">{summary.unmeasured.map(item => <p key={item.id}><strong>—</strong> {t(notes[item.id] || "Token usage is not measured.")}</p>)}</div>
   </div>;
 }
@@ -42,8 +42,8 @@ export function PurposeComponents({ bucket, denominator }: { bucket: PurposeBuck
 
 export function AiPurposePreview({ client, refresh, onSelect }: { client: Pick<GatewayClient, "call">; refresh: number; onSelect: (date: string, purpose: UsagePurpose, snapshot: string) => void }) {
   const t = useUiText(), [value, setValue] = useState<UsageDetail | null>(null), [failed, setFailed] = useState(false);
-  const [timeZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
-  const date = localUsageDate(timeZone);
+  const timeZone = USAGE_TIME_ZONE;
+  const [date, setDate] = useState(currentUsageDate);
   useEffect(() => {
     let stopped = false, pending = false, timer: ReturnType<typeof setTimeout> | undefined;
     const load = async (refreshSources: boolean) => {
@@ -51,18 +51,23 @@ export function AiPurposePreview({ client, refresh, onSelect }: { client: Pick<G
       pending = true;
       try {
         const result = await client.call<UsageDetail>("office.usage.detail", { date, timeZone, includeRecords: false, refresh: refreshSources });
-        if (!result?.purposeSummary || result.date !== date) throw new Error("Unavailable overview");
+        if (!result?.purposeSummary || result.date !== date || result.timeZone !== timeZone) throw new Error("Unavailable overview");
         if (!stopped) { setValue(result); setFailed(false); clearTimeout(timer); if (result.coverage.indexing) timer = setTimeout(() => void load(false), 2000); }
       } catch { if (!stopped) setFailed(true); }
       finally { pending = false; }
     };
     void load(true);
-    const interval = setInterval(() => { if (document.visibilityState === "visible") void load(false); }, 60000);
+    const interval = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      const today = currentUsageDate();
+      if (today !== date) setDate(today);
+      else void load(false);
+    }, 60000);
     return () => { stopped = true; clearTimeout(timer); clearInterval(interval); };
   }, [client, date, timeZone, refresh]);
   return <section className="ai-card ai-purpose-preview" aria-label={t("Today's usage by purpose")}>
-    <p className="ai-card-caption">{date} · {timeZone}</p>
-    {failed ? <p className="ai-notice">{t("Purpose usage is unavailable. The account chart remains available.")}</p> : value ? <>
+    <p className="ai-card-caption">{t("{date} · UTC 00:00 to next day 00:00 (end excluded)", { date })}</p>
+    {failed ? <p className="ai-notice">{t("Purpose usage is unavailable. The account chart remains available.")}</p> : value?.date === date ? <>
       <AiPurposeSummary summary={value.purposeSummary} onSelect={purpose => onSelect(date, purpose, value.snapshot)} />
       {value.coverage.unavailable || value.coverage.storageLimit || value.coverage.unsupportedSources || Object.keys(value.coverage.knownGaps).length ? <p className="ai-notice">{t("Coverage has gaps; unavailable or unsupported sources are not counted as zero.")}</p> : null}
       {value.coverage.indexing ? <p role="status">{t("Indexing Office metadata in the background…")}</p> : null}

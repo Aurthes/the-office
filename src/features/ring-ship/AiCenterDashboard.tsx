@@ -156,6 +156,7 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
           <section className="ai-card">
             <div className="ai-card-heading"><span><Cpu size={17} />{t("Token activity")}</span><small>{t("ACCOUNT")}</small></div>
             <p className="ai-card-caption">{t("Across the selected provider account")}</p>
+            <p className="ai-card-note">{t("UTC best matches observed account days; provider day boundaries are unconfirmed. Coverage gaps remain.")}</p>
             <div className="ai-token-peak"><span>{t("Peak daily tokens")}</span><strong>{formatNumber(data?.usage?.peakDailyTokens)}</strong></div>
             {daily?.length ? <>
               <div className="ai-token-chart" aria-label={t("Recent daily token usage")}>{daily.map(day => <button key={day.date} type="button" aria-label={`${day.date}: ${formatNumber(day.tokens)} tokens`} onClick={event => { dayButton.current = event.currentTarget; setPurposeEntry(null); setDetailDate(day.date); }}>

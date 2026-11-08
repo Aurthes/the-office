@@ -1,3 +1,6 @@
+export const USAGE_TIME_ZONE = "UTC";
+export const currentUsageDate = () => new Date().toISOString().slice(0, 10);
+
 export type QuotaWindow = { usedPercent: number; windowDurationMins: number | null; resetsAt: number | null };
 export type ResetCredit = { id: string; title: string | null; resetType: "codexRateLimits" | "unknown"; expiresAt?: number | null };
 export type ResetCredits = { availableCount: number; credits: ResetCredit[] | null };
