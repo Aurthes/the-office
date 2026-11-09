@@ -98,13 +98,13 @@ describe("real-session Office delegation", () => {
     expect(f.company.context(f.worker).managers.map((row: { id: string }) => row.id)).toEqual([CEO]);
     expect(() => f.company.assertDelegate(f.manager, f.worker)).toThrow("archived");
   });
-  it("fails closed on invalid settings instead of using a stale reporting graph", async () => {
+  it("reports unavailable organization data without blocking an explicitly chosen employee", async () => {
     const f = await fixture(); f.company.context(f.manager); writeFileSync(f.settingsFile, "invalid JSON");
     expect(() => f.company.context(f.manager)).toThrow();
     expect(f.company.forTurn(f.manager)).toMatchObject({ unavailable: true, delegationMode: "self", directReports: [] });
     f.store.companyContext = (id: string) => f.company.forTurn(id);
     await expect(f.store.call("turn/start", { threadId: f.manager, input: [] })).resolves.toMatchObject({ turn: { id: "turn" } });
-    await expect(f.delegate(f.create().id)).rejects.toThrow(); expect(f.send).not.toHaveBeenCalled();
+    await f.delegate(f.create().id); expect(f.send).toHaveBeenCalledTimes(1);
   });
   it("injects current organization into an existing thread only when context changes", async () => {
     const f = await fixture(); f.store.companyContext = (id: string) => f.company.context(id);
@@ -187,13 +187,17 @@ describe("real-session Office delegation", () => {
     expect(activeDelegation(f.todos.raw(task.id))).toBeUndefined(); expect(f.todos.raw(task.id).assigneeId).toBe(f.worker);
     expect(f.send.mock.calls.map(([id]) => id)).toEqual([f.manager, f.worker, f.manager, CEO]);
   });
-  it("refuses unrelated, busy or newly moved reports before changing ownership", async () => {
+  it("allows explicit non-direct recipients and reporting changes, while refusing busy or archived conversations", async () => {
     const f = await fixture(), task = f.create();
-    await expect(f.delegate(task.id, f.manager, f.peer)).rejects.toThrow("direct report");
     f.available.set(f.worker, false); await expect(f.delegate(task.id)).rejects.toThrow("busy");
-    f.canSend.mockImplementationOnce(async () => { f.graph[f.worker].reportsTo = [CEO]; f.saveGraph(); return true; });
-    await expect(f.delegate(task.id)).rejects.toThrow("direct report");
     expect(f.todos.raw(task.id).assigneeId).toBe(f.manager); expect(f.send).not.toHaveBeenCalled();
+    await f.delegate(task.id, f.manager, f.peer); expect(f.send.mock.calls.at(-1)?.[0]).toBe(f.peer);
+    f.available.set(f.worker, true);
+    f.canSend.mockImplementationOnce(async () => { f.graph[f.worker].reportsTo = [CEO]; f.saveGraph(); return true; });
+    const moved = f.create(); await f.delegate(moved.id); expect(f.send.mock.calls.at(-1)?.[0]).toBe(f.worker);
+    const archived = f.create(); f.canSend.mockImplementationOnce(async () => { f.store.get(f.worker).archived = true; return true; });
+    await expect(f.delegate(archived.id)).rejects.toThrow("archived");
+    expect(f.todos.raw(archived.id).assigneeId).toBe(f.manager); expect(f.send).toHaveBeenCalledTimes(2);
   });
   it("keeps a busy manager's report pending and delivers it once when available", async () => {
     const f = await fixture(), task = f.create(); await f.delegate(task.id); f.available.set(f.manager, false);

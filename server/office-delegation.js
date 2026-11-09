@@ -28,18 +28,18 @@ class OfficeDelegation {
   }
   async delegate(input) {
     if (Object.hasOwn(this.store.data.requests, input.requestId || "")) return this.store.once(input, () => {});
-    const row = this.todos.raw(input.id), manager = input.actorId || (isPhaseTask(row) ? handlingAgentId(row, input.phaseId) : null);
+    const row = this.todos.raw(input.id);
+    const manager = input.actorId || (isPhaseTask(row) ? (!activeDelegation(row, input.phaseId) && row.ownerId) || handlingAgentId(row, input.phaseId) : null);
     if (isPhaseTask(row)) { if (!row.ownerId) throw new Error("Assign an Owner before starting work"); if (!row.phases.some(p => p.id === input.phaseId)) throw new Error("Choose an explicit task phase"); this.todos.assertPhaseAvailable(input.assigneeId, row.id, input.phaseId); }
     // Definitive preflight refusals must not consume the retry ID. Once dispatch
     // begins, the existing durable operation guard prevents uncertain replay.
     if (!Object.hasOwn(this.store.data.requests, input.requestId || "")) {
       this.company.assertDelegate(manager, input.assigneeId);
-      if (this.inflight.has(input.assigneeId) || !await this.canSend(input.assigneeId)) throw new Error("This direct report is busy or waiting for input; no work was delegated");
+      if (this.inflight.has(input.assigneeId) || !await this.canSend(input.assigneeId)) throw new Error("This employee is busy or waiting for input; no work was delegated");
     }
     return this.store.once(input, async () => {
-      this.company.assertDelegate(manager, input.assigneeId);
-      if (this.inflight.has(input.assigneeId)) throw new Error("This direct report is receiving another task; refresh before delegating");
-      // Recheck the live reporting graph after asynchronous readiness checks.
+      if (this.inflight.has(input.assigneeId)) throw new Error("This employee is receiving another task; refresh before delegating");
+      // Recheck that both conversations still exist after asynchronous readiness checks.
       this.company.assertDelegate(manager, input.assigneeId);
       const result = this.todos.change(input, "delegate");
       await this.deliver(result.todo.id, isPhaseTask(result.todo) ? input.phaseId : undefined);
@@ -120,12 +120,6 @@ class OfficeDelegation {
     this.todos.assertPhaseAvailable(recipient, row.id, phase.id);
     if (this.inflight.has(recipient) || !await this.canSend(recipient)) throw new Error("This agent is busy or waiting for input");
     return this.store.once(input, async () => {
-      if (!entry && recipient !== handlingAgentId(row, phase.id)) {
-        const manager = input.actorId || handlingAgentId(row, phase.id);
-        this.company.assertDelegate(manager, recipient); this.todos.assertPhaseAvailable(recipient, row.id, phase.id);
-        const result = this.todos.change({ ...input, usageTrigger: "todoRun", assigneeId: recipient, instructions: phase.notes || phase.title, acceptanceCriteria: phase.notes || `Complete and verify: ${phase.title}` }, "delegate");
-        await this.deliver(result.todo.id, phase.id); return { ...this.todos.get({ id: result.todo.id }), threadId: recipient };
-      }
       if (row.revision !== input.revision) throw new Error("This to-do changed. Refresh it before starting");
       if (input.actorId && input.actorId !== handlingAgentId(row, phase.id) && input.actorId !== row.ownerId) throw new Error("Only this phase's responsible agent or Owner can start it");
       if (this.inflight.has(recipient)) throw new Error("This agent is receiving another task");

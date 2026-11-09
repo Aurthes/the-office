@@ -38,7 +38,7 @@ const handlingAgentId = (row, phaseId) => {
   const entry = activeDelegation(row, phaseId);
   const phase = phaseId && row.phases?.find(p => p.id === phaseId);
   return entry ? entry.state === "review" ? entry.managerId : entry.workerId : isPhaseTask(row)
-    ? phase?.activity?.agentId || phase?.acceptanceManagerId || taskOwnerId(row) : row.acceptanceManagerId || row.assigneeId;
+    ? phase?.assigneeId || phase?.acceptanceManagerId || taskOwnerId(row) : row.acceptanceManagerId || row.assigneeId;
 };
 class OfficeTodos {
   constructor(directory, { projects, agents, changed = () => {}, now = Date.now, replyContext = () => null }) {
@@ -259,6 +259,7 @@ class OfficeTodos {
           const updated = next.find(p => p.id === old.id);
           if (!updated && (row.delegations || []).some(e => e.phaseId === old.id)) throw new Error("Keep phases with recorded handoff history");
           if ((!updated || updated.assigneeId !== old.assigneeId) && (old.startedAt != null || activeDelegation(row, old.id))) throw new Error("Pause and finish or recall this phase's handoff before reassigning or removing it");
+          if (updated && updated.assigneeId !== old.assigneeId) delete updated.activity;
           if (!updated) this.event(row, `Removed phase: ${old.title} (${Math.round(old.elapsedMs / 1000)}s)`, actor);
         }
         row.phases = next;
@@ -266,10 +267,11 @@ class OfficeTodos {
       }
       message = "Plan, phase assignments or documentation updated";
     } else if (action === "delegate") {
-      const manager = actor.id || handlingAgentId(row, phase.id);
-      if (!manager || manager !== handlingAgentId(row, phase.id)) throw new Error("Only the responsible phase manager can delegate");
+      const manager = actor.id || (!entry && owner) || handlingAgentId(row, phase.id);
+      if (!manager || manager !== handlingAgentId(row, phase.id) && (entry || manager !== owner)) throw new Error("Only this phase's responsible agent or Owner can coordinate its handoff");
+      if (!entry && manager !== handlingAgentId(row, phase.id) && phase.startedAt != null) throw new Error("Pause this phase before changing its execution handoff");
       if (entry?.state === "review") throw new Error("Review this phase's submitted result before delegating again");
-      if (!input.assigneeId || input.assigneeId === manager || openDelegations(row).some(e => e.phaseId === phase.id && e.managerId === input.assigneeId)) throw new Error("Choose a direct report outside this phase's handoff chain");
+      if (!input.assigneeId || input.assigneeId === manager || openDelegations(row).some(e => e.phaseId === phase.id && e.managerId === input.assigneeId)) throw new Error("Choose another employee outside this phase's handoff chain");
       const instructions = text(input.instructions, "Delegation scope", 6000), acceptanceCriteria = text(input.acceptanceCriteria, "Acceptance criteria", 3000);
       this.stopClock(row, this.now(), phase.id); delete phase.activity;
       const candidate = actor.id ? this.replyContext(actor.id) : null;
@@ -306,7 +308,7 @@ class OfficeTodos {
       }
     } else if (action === "start") {
       if (phase.completedAt != null) throw new Error("Reopen this phase before starting");
-      if (!entry && phase.assigneeId !== handlingAgentId(row, phase.id)) throw new Error("Use Start with agent to dispatch this assigned phase through its Owner");
+      if (!entry && !phase.assigneeId) throw new Error("Assign an agent to this phase before starting");
       const agentId = handlingAgentId(row, phase.id);
       if (!agentId) throw new Error("Assign an Owner before starting");
       this.assertPhaseAvailable(agentId, row.id, phase.id);
@@ -434,7 +436,7 @@ class OfficeTodos {
     } else if (action === "delegate") {
       if (actor.id !== handlingAgentId(row) || !actor.id) throw new Error("Only the current responsible agent can delegate this task");
       if (delegation?.state === "review") throw new Error("Review the submitted result before delegating again");
-      if (!input.assigneeId || input.assigneeId === actor.id || (row.delegations || []).some(entry => !["accepted", "recalled"].includes(entry.state) && entry.managerId === input.assigneeId)) throw new Error("Choose a direct report outside the active handoff chain");
+      if (!input.assigneeId || input.assigneeId === actor.id || (row.delegations || []).some(entry => !["accepted", "recalled"].includes(entry.state) && entry.managerId === input.assigneeId)) throw new Error("Choose another employee outside the active handoff chain");
       const instructions = text(input.instructions, "Delegation scope", 6000), acceptanceCriteria = text(input.acceptanceCriteria, "Acceptance criteria", 3000);
       this.stopClock(row);
       if (!delegation) row.acceptanceManagerId = actor.id;

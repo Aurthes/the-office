@@ -10,6 +10,7 @@ const { CodexOfficeStore } = require("../../server/codex-office-store");
 const { CodexSessionControls } = require("../../server/codex-session-controls");
 const { OfficeCompany } = require("../../server/office-company");
 const { OfficeDelegation } = require("../../server/office-delegation");
+const { WORKFLOW } = require("../../server/office-company");
 const { ceo: CEO } = require("../../src/lib/office/identities.json");
 const roots: string[] = [];
 afterEach(() => { roots.splice(0).forEach(p => rmSync(p, { recursive: true, force: true })); });
@@ -54,6 +55,72 @@ async function fixture() {
   return { root, store, client, company, todos, deps, runtime, nativeFrame, owner, a, b, c, task, pa, pb, pc, input, delegate, entry, phase, submit, review, available, send, settle, advance: (ms: number) => { now += ms; } };
 }
 describe("independent phase execution through actual dispatch callbacks", () => {
+  it("lets a directly assigned worker start its phase without a Head handoff or an extra model message", async () => {
+    const f = await fixture();
+    f.todos.change(f.input(f.pa, f.a), "start");
+    expect(f.send).not.toHaveBeenCalled(); expect(f.client.call).not.toHaveBeenCalled();
+    expect(f.phase(f.pa).activity).toMatchObject({ agentId: f.a, role: "self", handoffId: null });
+    expect(f.todos.context(f.a)).toMatchObject({ todoId: f.task.id, runningPhaseId: f.pa, assigneeId: f.a, handlingAgentId: f.a });
+    expect(f.todos.context(f.owner).todoId).toBeNull();
+    await f.store.call("turn/start", { threadId: f.a, input: [] });
+    const turnId = f.phase(f.pa).activity.turnId;
+    expect(turnId).toMatch(/^turn-/); expect(f.entry(f.pa)).toBeUndefined();
+    f.advance(700); f.nativeFrame("turn/completed", f.a, turnId);
+    expect(f.phase(f.pa)).toMatchObject({ status: "paused", elapsedMs: 700 });
+    expect(WORKFLOW).toContain("Direct user instructions authorize the addressed agent");
+    expect(WORKFLOW).not.toContain("target is not your direct report, explain the routing gap");
+  });
+  it.each(["owner", "user"])("allows %s coordination of an explicitly assigned non-direct employee without manufacturing a handoff", async actor => {
+    const f = await fixture(), row = f.todos.raw(f.task.id);
+    f.todos.change({ id: row.id, revision: row.revision, phases: row.phases.map((p: { id: string; title: string; assigneeId: string }) => ({ id: p.id, title: p.title, assigneeId: p.id === f.pa ? f.c : p.assigneeId })) }, "edit");
+    await f.runtime.run({ ...f.input(f.pa), actorId: actor === "owner" ? f.owner : undefined });
+    expect(f.send).toHaveBeenCalledTimes(1); expect(f.send.mock.calls[0][0]).toBe(f.c);
+    expect(f.phase(f.pa).activity).toMatchObject({ agentId: f.c, role: "self", handoffId: null });
+    expect(f.todos.raw(f.task.id).delegations).toBeUndefined();
+    expect(f.todos.context(f.c).todoId).toBe(f.task.id); expect(f.todos.context(f.owner).todoId).toBeNull();
+    const injection = f.client.call.mock.calls.find(c => c[0] === "thread/inject_items");
+    expect(JSON.stringify(injection)).toContain(f.pa);
+    expect(f.todos.raw(f.task.id).events.at(-1).actor).toMatchObject(actor === "owner" ? { source: "agent", id: f.owner } : { source: "user" });
+  });
+  it("invalidates old activity on a paused reassignment, preserves the new identity across restart and ignores old turn callbacks", async () => {
+    const f = await fixture(); await f.runtime.run(f.input(f.pa));
+    const old = structuredClone(f.phase(f.pa).activity); f.advance(400);
+    f.todos.change(f.input(f.pa, f.a), "pause");
+    const row = f.todos.raw(f.task.id);
+    f.todos.change({ id: row.id, revision: row.revision, phases: row.phases.map((p: { id: string; title: string; assigneeId: string }) => ({ id: p.id, title: p.title, assigneeId: p.id === f.pa ? f.b : p.assigneeId })) }, "edit");
+    expect(f.phase(f.pa).activity).toBeUndefined(); expect(f.todos.context(f.a).todoId).toBeNull();
+    f.advance(100); f.todos.change(f.input(f.pa, f.b), "start");
+    await f.store.call("turn/start", { threadId: f.b, input: [] });
+    const current = structuredClone(f.phase(f.pa));
+    f.nativeFrame("turn/completed", f.a, old.turnId);
+    f.todos.recordTurn({ agentId: f.a, taskId: f.task.id, phaseId: f.pa, activityId: old.requestId, activityRole: old.role, handoffId: null, turnId: "late-ack" });
+    expect(f.phase(f.pa)).toEqual(current);
+    f.advance(600); f.todos.checkpoint();
+    const restored = new OfficeTodos(path.join(f.root, "office"), f.deps);
+    expect(restored.context(f.b)).toMatchObject({ todoId: f.task.id, runningPhaseId: f.pa, assigneeId: f.b, handlingAgentId: f.b });
+    expect(restored.context(f.a).todoId).toBeNull(); expect(restored.context(f.owner).todoId).toBeNull();
+    expect(restored.raw(f.task.id).phases[0]).toMatchObject({ elapsedMs: 1000, startedAt: null, activity: { agentId: f.b, turnId: current.activity.turnId } });
+  });
+  it("does not let Owner coordination replace a running direct worker's phase", async () => {
+    const f = await fixture(); f.todos.change(f.input(f.pa, f.a), "start");
+    const before = structuredClone(f.phase(f.pa));
+    await expect(f.delegate(f.pa, f.b)).rejects.toThrow(/Pause this phase/);
+    await expect(f.runtime.run(f.input(f.pa))).rejects.toThrow(/busy/);
+    expect(f.phase(f.pa)).toEqual(before); expect(f.send).not.toHaveBeenCalled();
+  });
+  it("ignores an old direct dispatch ACK after a paused reassignment and a new worker starts", async () => {
+    const f = await fixture(), original = f.send.getMockImplementation()!;
+    let release = () => {}; const gate = new Promise<void>(resolve => { release = resolve; });
+    f.send.mockImplementation(async (...args) => { const result = await original(...args); if (args[0] === f.a) await gate; return result; });
+    const first = f.runtime.run(f.input(f.pa));
+    await vi.waitFor(() => expect(f.phase(f.pa).activity?.turnId).toBeTruthy());
+    f.todos.change(f.input(f.pa, f.a), "pause"); const row = f.todos.raw(f.task.id);
+    f.todos.change({ id: row.id, revision: row.revision, phases: row.phases.map((p: { id: string; title: string; assigneeId: string }) => ({ id: p.id, title: p.title, assigneeId: p.id === f.pa ? f.b : p.assigneeId })) }, "edit");
+    await f.runtime.run(f.input(f.pa)); const current = structuredClone(f.phase(f.pa));
+    release(); await first;
+    expect(f.phase(f.pa)).toEqual(current); expect(f.phase(f.pa).activity.agentId).toBe(f.b);
+    expect(f.entry(f.pa)).toBeUndefined(); expect(f.send).toHaveBeenCalledTimes(2);
+  });
   it("delivers A and B concurrently to real fixture sessions, preserves B when A pauses/accepts, and never starts C", async () => {
     const f = await fixture();
     await f.delegate(f.pa, f.a); await f.delegate(f.pb, f.b);
@@ -111,16 +178,17 @@ describe("independent phase execution through actual dispatch callbacks", () => 
     expect(f.todos.raw(f.task.id)).toMatchObject({ status: "done", archived: true });
     expect(f.todos.raw(f.task.id).phases).toHaveLength(3);
   });
-  it("uses self execution without self-delegation, keeps human attribution and refuses busy/cross-line dispatch", async () => {
+  it("uses assigned execution without forced delegation, keeps human attribution and refuses busy dispatch", async () => {
     const f = await fixture();
     await f.runtime.run({ ...f.input(f.pc), actorId: undefined });
     expect(f.phase(f.pc).activity).toMatchObject({ agentId: f.owner, role: "self", handoffId: null });
     expect(f.todos.raw(f.task.id).events.at(-1).actor.source).toBe("user"); expect(f.todos.raw(f.task.id).delegations).toBeUndefined();
     f.available.set(f.a, false); await expect(f.delegate(f.pa, f.a)).rejects.toThrow(/busy/);
-    f.available.set(f.a, true); await expect(f.delegate(f.pa, f.c)).rejects.toThrow(/direct report/);
+    f.available.set(f.a, true);
     f.todos.change(f.input(f.pc), "pause");
     await f.runtime.run({ ...f.input(f.pa), actorId: undefined });
-    expect(f.todos.raw(f.task.id).events.some((e: { actor: { source: string }; message: string }) => e.actor.source === "user" && /Delegated phase/.test(e.message))).toBe(true);
+    expect(f.todos.raw(f.task.id).events.at(-1).actor.source).toBe("user");
+    expect(f.todos.raw(f.task.id).delegations).toBeUndefined();
     expect(f.phase(f.pc).startedAt).toBeNull();
     expect(f.send.mock.calls.at(-1)?.[4]).toMatchObject({ purpose: "collaboration_mixed", trigger: "todoRun" });
   });
@@ -154,20 +222,22 @@ it("preserves run operation IDs across changed scope and rejects a second active
   f.todos.change({ id: row.id, revision: row.revision, phases: row.phases.map((p: { id: string; title: string }) => ({ id: p.id, title: p.title, ...(p.id === f.pb ? { assigneeId: f.a } : {}) })) }, "edit");
   await expect(f.delegate(f.pb, f.a)).rejects.toThrow(/already working/); expect(f.entry(f.pb)).toBeUndefined();
   f.todos.change(f.input(f.pa, f.a), "pause");
-  const old = f.entry(f.pa).id;
-  await f.runtime.recall(f.input(f.pa, f.owner, { handoffId: old, reason: "Stopped; reassign" }));
-  await f.delegate(f.pa, f.b);
+  const old = structuredClone(f.phase(f.pa).activity);
+  const row2 = f.todos.raw(f.task.id);
+  f.todos.change({ id: row2.id, revision: row2.revision, phases: row2.phases.map((p: { id: string; title: string; assigneeId: string }) => ({ id: p.id, title: p.title, assigneeId: p.id === f.pa ? f.b : p.assigneeId })) }, "edit");
+  await f.runtime.run(f.input(f.pa));
   const active = structuredClone(f.phase(f.pa));
-  await expect(f.runtime.submit(f.input(f.pa, f.a, { handoffId: old, report: "Late report" }))).rejects.toThrow(/exact/);
-  f.todos.delivery(f.task.id, first.todo.delegations[0].delivery.requestId, "uncertain", "Late receipt");
-  expect(f.phase(f.pa)).toEqual(active); expect(f.entry(f.pa).workerId).toBe(f.b);
+  f.todos.recordTurn({ agentId: f.a, taskId: f.task.id, phaseId: f.pa, activityId: old.requestId, activityRole: old.role, handoffId: old.handoffId, turnId: "late-turn" });
+  f.todos.finishTurn(f.a, "completed", old.turnId);
+  expect(f.phase(f.pa)).toEqual(active); expect(f.entry(f.pa)).toBeUndefined();
+  expect(f.phase(f.pa).activity.agentId).toBe(f.b);
 });
 it("preserves uncertain requests without automatic replay, and validates phase state on restart", async () => {
   const f = await fixture(); f.send.mockRejectedValueOnce(new Error("Timed out after possible send"));
   const operation = { ...f.input(f.pa), actorId: undefined };
-  await f.runtime.run(operation); const count = f.send.mock.calls.length;
-  expect(f.entry(f.pa).delivery.state).toBe("uncertain"); await f.runtime.flush();
-  await f.runtime.run(operation); expect(f.send.mock.calls.length).toBe(count);
+  await expect(f.runtime.run(operation)).rejects.toThrow(/Timed out/); const count = f.send.mock.calls.length;
+  expect(f.entry(f.pa)).toBeUndefined(); await f.runtime.flush();
+  await expect(f.runtime.run(operation)).rejects.toThrow(/submitted/); expect(f.send.mock.calls.length).toBe(count);
   const malformed = structuredClone(f.todos.raw(f.task.id)); malformed.phases[0].activity.role = "invented";
   writeFileSync(path.join(f.root, "office", "todos", f.task.id + ".json"), JSON.stringify(malformed));
   expect(() => new OfficeTodos(path.join(f.root, "office"), f.deps)).toThrow(/Invalid phase activity/);

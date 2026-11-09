@@ -10,12 +10,23 @@ under each of these people in the agent directory, with the relevant role shown;
 holding both roles produces one entry with both labels. Different tasks remain
 separate. Completing or archiving a task removes it from current task lists.
 
-Owner is metadata. It does not grant execution, editing, delegation, or acceptance
-permissions. Existing reporting relationships and delegation checks still apply.
+Owner and Assignee record coordination and execution responsibility, not extra
+system permissions. Direct user instructions authorize the addressed employee
+without additional Head approval. Reporting lines are default routing; an
+explicit recipient need not be a direct report. Existing task-state and review
+checks protect active work and evidence, not permission to do user work.
 `handlingAgentId`, `reviewerId`, and `acceptanceManagerId` retain their workflow
 meaning and are not interchangeable with Owner. Delegating, submitting, accepting,
 recalling, reassigning execution, or adding follow-up phases preserves Owner.
 Changing Owner requires an explicit edit.
+
+For independently assigned phases without an active handoff, the current phase
+Assignee can start its timer directly. **Start with agent** notifies that employee
+without manufacturing an Owner-to-worker handoff; starting one's own timer sends
+no model message. Owner coordination keeps time, context and usage attached to
+the executing employee. Explicit handoffs preserve their actual report/review
+chain. Busy employees, uncertain deliveries, real actor identities and stale
+revisions remain protected.
 
 Agent task creation defaults an omitted Owner to the creating actor. An explicit
 `ownerId`, including `null`, is respected. Human creation can select Owner in the

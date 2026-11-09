@@ -43,7 +43,11 @@ describe("independent Office runtime", () => {
     const payloads = f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items").map(([, params]) =>
       (params as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text);
     const worker = shared + "\n" + payloads[0], head = shared + "\n" + payloads[1];
+    expect(shared.split("Direct user instructions authorize the addressed agent")).toHaveLength(2);
     for (const text of [worker, head]) {
+      expect(text).toContain("do not require extra Head approval");
+      expect(text).toContain("not execution permission");
+      expect(text).not.toContain("target is not your direct report, explain the routing gap");
       expect(text).toContain("Keep questions, handoffs and reports at the level asked");
       expect(text).toContain("send only changes affecting the recipient's judgment, inputs, constraints or next action");
       expect(text).toContain("do not repeat known plans, require rereading them or send no-action FYIs");
