@@ -603,6 +603,7 @@ export const ZH_CN: Record<string, string> = {
   "Pause": "暂停",
   "Resume": "恢复",
   "Paused": "已暂停",
+  "Assigned": "已分配",
   "Waiting": "等待中",
   "Sending": "发送中",
   "Running": "运行中",

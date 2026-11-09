@@ -266,3 +266,39 @@ it("updates visible rows and counts together, removes the last menu and keeps ag
   expect(screen.queryByRole("button", { name: /^Tasks for Worker/ })).toBeNull();
   expect(screen.getByRole("button", { name: "Open session: Worker 3" })).toBeTruthy();
 });
+
+
+it("keeps begun paused work and pending review, excluding unstarted and closed participants", () => {
+  const task = { id: "t", title: "Work", status: "paused", archived: false, executionMode: "phases" as const, ownerId: "head", assigneeId: "old", phases: [
+    { id: "p", title: "Blocked", status: "paused", assigneeId: "worker", handlingAgentId: "worker", lastStartedAt: 100, completedAt: null },
+    { id: "r", title: "Review", status: "review", assigneeId: "submitter", handlingAgentId: "head", reviewerId: "head", completedAt: null },
+    { id: "u", title: "Unstarted", status: "paused", assigneeId: "worker", handlingAgentId: "worker", completedAt: null },
+    { id: "q", title: "Queued", status: "queued", assigneeId: "worker", lastStartedAt: 100, completedAt: null },
+  ], delegations: [{ phaseId: "p", managerId: "head", workerId: "past", state: "accepted" }, { phaseId: "r", managerId: "head", workerId: "submitter", state: "review" }] };
+  const index = currentTasksByAgent([task]);
+  expect(index.get("worker")?.[0].phases?.map(p => [p.id, p.status])).toEqual([["p", "paused"]]);
+  expect(index.get("submitter")?.[0].phases?.[0]).toMatchObject({ id: "r", status: "review", roles: ["Assignee"] });
+  expect(index.has("past")).toBe(false); expect(index.has("old")).toBe(false);
+  expect(index.get("head")?.[0].phases).toHaveLength(2);
+});
+it("uses explicit legacy phase responsibility, never the residual parent assignee or a fabricated handoff", () => {
+  const phase = { id: "p", title: "Current responsibility", assigneeId: "worker" as string | null, elapsedMs: 50, startedAt: null, completedAt: null as number | null };
+  const task = { id: "t", title: "Legacy", status: "paused", archived: false, ownerId: "head", assigneeId: "past", handlingAgentId: "head", phases: [phase], delegations: [{ managerId: "head", workerId: "past", state: "accepted" }] };
+  const before = JSON.stringify(task), index = currentTasksByAgent([task]);
+  expect(index.get("worker")?.[0].phases?.[0]).toMatchObject({ id: "p", status: "paused", roles: ["Assignee"] });
+  expect(index.has("past")).toBe(false); expect(JSON.stringify(task)).toBe(before);
+  expect(currentTasksByAgent([{ ...task, status: "running" }]).get("worker")?.[0].phases?.[0].status).toBe("assigned");
+  phase.assigneeId = null; expect(currentTasksByAgent([task]).has("worker")).toBe(false);
+  phase.assigneeId = "other"; expect(currentTasksByAgent([task]).has("worker")).toBe(false);
+  phase.assigneeId = "worker"; phase.completedAt = 100; expect(currentTasksByAgent([task]).has("worker")).toBe(false);
+  phase.completedAt = null; phase.elapsedMs = 0; expect(currentTasksByAgent([task]).has("worker")).toBe(false);
+});
+it("renders real paused/review/assigned labels and counts without changing task navigation", () => {
+  const onOpenTask = vi.fn();
+  const task = { id: "t", code: "T1", title: "Legacy", status: "paused", archived: false, assigneeId: "head", handlingAgentId: "head", phases: [{ id: "p", title: "Paused responsibility", assigneeId: "worker", elapsedMs: 50, completedAt: null }] };
+  const indexed = currentTasksByAgent([task]);
+  render(createElement(AgentDirectory, { agents: [{ ...agents[0], tasks: indexed.get("worker") }], organization, view: "activity", search: "", onSearchChange: vi.fn(), onViewChange: vi.fn(), selectedId: null, onOpenChat: vi.fn(), onOpenTask }));
+  fireEvent.click(screen.getByRole("button", { name: "Tasks for Worker 3: 1" }));
+  const menu = screen.getByRole("group"); expect(menu).toHaveTextContent("Paused"); expect(menu).toHaveTextContent("Assignee"); expect(menu).not.toHaveTextContent("Running");
+  fireEvent.click(within(menu).getByRole("button")); expect(onOpenTask).toHaveBeenCalledWith("t", "p");
+});

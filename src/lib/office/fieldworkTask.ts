@@ -2,7 +2,7 @@ export type SiteTask = string | { taskId: string; title: string; phase?: string;
 export type FieldworkTaskSummary = {
   id: string; title: string; status: string; archived: boolean; handlingAgentId?: string | null;
   executionMode?: "phases"; activePhaseId?: string;
-  revision?: number; lastStartedAt?: number; phases?: { id?: string; title: string; assigneeId?: string | null; handlingAgentId?: string | null; reviewerId?: string | null; status?: string; startedAt?: number | null; lastStartedAt?: number; completedAt?: number | null }[];
+  revision?: number; lastStartedAt?: number; phases?: { id?: string; title: string; assigneeId?: string | null; handlingAgentId?: string | null; reviewerId?: string | null; status?: string; elapsedMs?: number; startedAt?: number | null; lastStartedAt?: number; completedAt?: number | null }[];
 };
 
 export function isTaskContinuation(text: string) {
