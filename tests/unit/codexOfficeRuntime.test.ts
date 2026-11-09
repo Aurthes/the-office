@@ -2,9 +2,12 @@ import { createRequire } from "node:module";
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import path from "node:path";
+import { parse } from "smol-toml";
 import { afterEach, describe, expect, it, vi } from "vitest";
 const require = createRequire(import.meta.url);
 const { officeEnvironment } = require("../../server/codex-office-client.js");
+const { prepareOfficeProfile } = require("../../server/codex-office-profile.js");
+const { WORKFLOW, TASK_WORKFLOW } = require("../../server/office-company.js");
 const { CodexOfficeStore } = require("../../server/codex-office-store.js");
 const { CodexSessionControls } = require("../../server/codex-session-controls.js");
 const { DEPARTMENT_HEAD_GUIDELINE } = require("../../server/office-head-guideline.js");
@@ -30,6 +33,31 @@ async function session(f: ReturnType<typeof fixture>) {
   return (await f.store.createSession({ name: "Own chat", projectId: project.id, requestId: "session" })).threadId;
 }
 describe("independent Office runtime", () => {
+  it("shares question-level delta reporting with workers without assigning them the Head identity", async () => {
+    const f = fixture(), id = await session(f), source = path.join(f.root, "source-config"); mkdirSync(source);
+    const profile = prepareOfficeProfile(f.directory, { CODEX_HOME: source, HOME: f.root }, WORKFLOW + "\n" + TASK_WORKFLOW);
+    const shared = parse(profile.overrides.filter((_: string, index: number) => index % 2 === 1).join("\n")).developer_instructions as string;
+    let title = "Worker"; f.store.companyContext = vi.fn(() => ({ agentId: id, title }));
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    title = "Head"; await f.store.call("turn/start", { threadId: id, input: [] });
+    const payloads = f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items").map(([, params]) =>
+      (params as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text);
+    const worker = shared + "\n" + payloads[0], head = shared + "\n" + payloads[1];
+    for (const text of [worker, head]) {
+      expect(text).toContain("Keep questions, handoffs and reports at the level asked");
+      expect(text).toContain("send only changes affecting the recipient's judgment, inputs, constraints or next action");
+      expect(text).toContain("do not repeat known plans, require rereading them or send no-action FYIs");
+      expect(text).toContain("Q/original-message links and material negative results");
+      expect(text).toContain("Workers own each authorized phase end to end");
+      expect(text).toContain("Use todo_review to accept with evidence or return gaps to the worker");
+      expect(text).not.toContain("Keep handoffs and reports concise: scope, constraints, acceptance, result and evidence paths");
+    }
+    expect(worker).not.toContain(DEPARTMENT_HEAD_GUIDELINE);
+    expect(head.split(DEPARTMENT_HEAD_GUIDELINE)).toHaveLength(2);
+    expect(DEPARTMENT_HEAD_GUIDELINE.split(/\s+/)).toHaveLength(134);
+    expect(f.store.companyContext).toHaveBeenCalledTimes(2);
+    expect(f.client.call.mock.calls.map(([method]) => method)).toEqual(["thread/start", "thread/inject_items", "turn/start", "thread/inject_items", "turn/start"]);
+  });
   it("keeps purpose metadata outside native requests and tags both start and steer acknowledgements", async () => {
     const f = fixture(), id = await session(f), capture = vi.fn(); f.store.onTurnDispatch = capture;
     await f.store.call("turn/start", { threadId: id, input: [] }, { purpose: "automation", trigger: "schedule", originId: "run" });
@@ -93,7 +121,7 @@ describe("independent Office runtime", () => {
     expect(text.split(DEPARTMENT_HEAD_GUIDELINE)).toHaveLength(2);
     expect(text).toContain("inactive for other roles or unavailable role data");
     expect(text).toContain("replaces earlier Head role definitions");
-    expect(DEPARTMENT_HEAD_GUIDELINE.split(/\s+/)).toHaveLength(107);
+    expect(DEPARTMENT_HEAD_GUIDELINE.split(/\s+/)).toHaveLength(134);
     expect(f.store.companyContext).toHaveBeenCalledExactlyOnceWith(id);
     expect(f.client.call.mock.calls.map(([method]) => method)).toEqual(["thread/start", "thread/inject_items", "turn/start"]);
   });
