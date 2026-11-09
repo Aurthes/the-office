@@ -5,6 +5,43 @@ import { SessionRunTimer } from "../../src/features/office/components/SessionRun
 import { SessionControls } from "../../src/features/office/components/SessionControls";
 const snapshot = { connected: true, version: 1, activeTurnId: "turn", items: [], approvals: [] };
 afterEach(() => { cleanup(); vi.useRealTimers(); });
+it("clears cached predictions on disable, rejects late results and stays off across reopen/reconnect/new turns", async () => {
+  const events = new Set<(event: { event: string; payload?: unknown }) => void>();
+  let subscriptionId = "", status: (value: "connected" | "disconnected") => void = () => {};
+  let resolveLate!: (value: unknown) => void;
+  const pending = new Promise(resolve => { resolveLate = resolve; });
+  let predictionCalls = 0;
+  const call = vi.fn(async (method: string, params: unknown) => {
+    if (method === "session.subscribe") subscriptionId = (params as { subscriptionId: string }).subscriptionId;
+    if (method === "session.prediction") return ++predictionCalls === 1 ? { text: "Cached next step" } : pending;
+    if (method === "session.send") return { status: "started", turnId: "sent" };
+    return {};
+  });
+  const client = { call, onEvent: (handler: (event: { event: string; payload?: unknown }) => void) => { events.add(handler); return () => { events.delete(handler); }; }, onStatus: (handler: typeof status) => { status = handler; return () => {}; } };
+  const props = { client, threadId: "prediction-disable", onItems: vi.fn() };
+  const view = render(React.createElement(SessionControls, props));
+  await waitFor(() => expect(subscriptionId).not.toBe(""));
+  let version = 1;
+  const push = (prediction: boolean, activeTurnId: string | null = null) => events.forEach(handler => handler({ event: "session.stream", payload: { ...snapshot, threadId: props.threadId, subscriptionId, version: version++, activeTurnId, turnStatus: activeTurnId ? "inProgress" : "completed", features: { prediction, voice: false, dictation: false } } }));
+  await act(async () => push(true));
+  await waitFor(() => expect(screen.getByPlaceholderText("Cached next step")).toBeVisible());
+  await act(async () => { push(true, "new-turn"); });
+  await act(async () => { push(true); });
+  await waitFor(() => expect(predictionCalls).toBe(2));
+  await act(async () => push(false));
+  await act(async () => resolveLate({ text: "Late next step" }));
+  expect(screen.queryByPlaceholderText("Cached next step")).toBeNull(); expect(screen.queryByPlaceholderText("Late next step")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Apply suggestion" })).toBeNull();
+  const input = screen.getByRole("textbox", { name: "Send to session" });
+  fireEvent.change(input, { target: { value: "Keep this draft" } });
+  view.rerender(React.createElement(SessionControls, { ...props, active: false }));
+  view.rerender(React.createElement(SessionControls, props));
+  await act(async () => { status("disconnected"); status("connected"); });
+  await act(async () => { push(false, "later-turn"); push(false); });
+  expect(input).toHaveValue("Keep this draft"); expect(predictionCalls).toBe(2);
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(call).toHaveBeenCalledWith("session.send", expect.objectContaining({ message: "Keep this draft" })));
+});
 describe("shared-session composer", () => {
   it("keeps the cached work state while hidden or disconnected and clears it only on an authoritative idle snapshot", async () => {
     let subscriptionId = "";
