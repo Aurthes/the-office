@@ -841,8 +841,8 @@ export function OfficeScreen({
   };
   const [directoryView, setDirectoryView] = useState<AgentDirectoryView>("organization");
   const [teaserBoardOpen, setTeaserBoardOpen] = useState(false);
-  const [taskBoardRequest, setTaskBoardRequest] = useState<{ id?: string } | null>(null);
-  const openTaskDetails = useCallback((id: string) => setTaskBoardRequest({ id }), [setTaskBoardRequest]);
+  const [taskBoardRequest, setTaskBoardRequest] = useState<{ id?: string; phaseId?: string } | null>(null);
+  const openTaskDetails = useCallback((id: string, phaseId?: string) => setTaskBoardRequest({ id, phaseId }), [setTaskBoardRequest]);
   const [messageSelection, setMessageSelection] = useState<{ gateway: string; target: MessageSearchTarget } | null>(null);
   const messageTarget = messageSelection?.gateway === gatewayUrl ? messageSelection.target : null;
   const [chatExpanded, setChatExpanded] = useState(false);
@@ -3774,7 +3774,7 @@ export function OfficeScreen({
 
       {sessionView ? <DepartmentPanel key={gatewayUrl} organization={organization} state={departmentPanel} onSelect={openDepartment} onClose={() => setDepartmentPanel(previous => ({ ...previous, open: false }))} tasks={{ ...currentTasks, error: status === "connected" ? currentTasks.error : "Current tasks are unavailable." }} onOpenTask={id => setTaskBoardRequest({ id })} /> : null}
       {sessionView && teaserBoardOpen ? <TeaserDashboard onClose={() => setTeaserBoardOpen(false)} target={teaserTarget} unavailableReason={status === "connected" ? teaserResolution.reason : "Connection unavailable. Please reconnect before sending."} solutionSender={teaserSolutions} onOpenSession={handleOpenAgentChat} /> : null}
-      {sessionView ? <TaskBoard open={!!taskBoardRequest} taskId={taskBoardRequest?.id} onClose={() => setTaskBoardRequest(null)} onOpenSession={handleOpenAgentChat} client={client} connected={status === "connected"} /> : null}
+      {sessionView ? <TaskBoard open={!!taskBoardRequest} taskId={taskBoardRequest?.id} phaseId={taskBoardRequest?.phaseId} onClose={() => setTaskBoardRequest(null)} onOpenSession={handleOpenAgentChat} client={client} connected={status === "connected"} /> : null}
       {sessionView && chatOpen ? <button type="button" aria-label={t("Click the office to close chat")} className="fixed inset-0 z-40 cursor-default bg-transparent" onClick={() => setChatOpen(false)} /> : null}
       <div
         className={sessionView && chatOpen
@@ -3806,7 +3806,7 @@ export function OfficeScreen({
               onViewChange={changeDirectoryView} search={sessionSearch} onSearchChange={setSessionSearch} selectedId={selectedChatAgentId}
               onOpenChat={handleOpenAgentChat}
               onDismiss={sessionListOverlay ? dismissSessionList : undefined}
-              onOpenTask={id => setTaskBoardRequest({ id })} taskError={currentTasks.error}
+              onOpenTask={openTaskDetails} taskError={currentTasks.error}
               client={client} onOpenMessage={target => {
                 const archived = target.archived || !state.agents.some(agent => agent.agentId === target.threadId);
                 if (!archived) handleOpenAgentChat(target.threadId);

@@ -4,7 +4,8 @@ import { CEO_ID, type OrganizationPerson } from "@/lib/office/organization";
 import type { ChatRosterEntry } from "./chatRoster";
 
 export type AgentDirectoryView = "project" | "activity" | "organization";
-export type CurrentAgentTask = { id: string; title: string; code: string; roles?: ("Owner" | "Assignee" | "Reviewer")[]; phases?: { id: string; title: string; status: string }[] };
+export type CurrentAgentTask = { id: string; title: string; code: string; roles?: ("Owner" | "Assignee" | "Reviewer")[]; phases?: { id: string; code: string; title: string; status: string; roles: ("Assignee" | "Reviewer")[] }[] };
+export const shortPhaseCode = (id: string) => `P-${id.slice(0, 8)}`;
 export type DirectoryAgent = ChatRosterEntry & { color: string; avatarProfile?: AgentAvatarProfile | null; tasks?: CurrentAgentTask[] };
 export type DirectoryTaskSummary = FieldworkTaskSummary & { id: string; code?: string; title: string; assigneeId: string | null; assigneeName?: string | null; ownerId?: string | null; ownerName?: string | null; departmentId?: string | null; reviewerId?: string | null; status: string; archived: boolean; delegations?: { phaseId?: string; workerId: string; managerId: string; state: string }[] };
 export const needsFollowUp = (task: DirectoryTaskSummary) => !task.archived && task.status !== "done";
@@ -22,10 +23,12 @@ export function currentTasksByAgent(tasks: DirectoryTaskSummary[]): Map<string, 
       if (assigned.some(existing => existing.id === task.id)) continue;
       const roles: ("Owner" | "Assignee" | "Reviewer")[] = [];
       if (id === task.ownerId) roles.push("Owner");
-      const phases = phaseMode ? (task.phases || []).filter(p => p.assigneeId === id || p.handlingAgentId === id || p.reviewerId === id || (task.delegations || []).some(e => e.phaseId === p.id && [e.workerId, e.managerId].includes(id))) : [];
+      const phases = phaseMode ? (task.phases || []).filter(p => id === task.ownerId || p.assigneeId === id || p.handlingAgentId === id || p.reviewerId === id || (task.delegations || []).some(e => e.phaseId === p.id && [e.workerId, e.managerId].includes(id))) : [];
       if (phaseMode ? phases.some(p => p.assigneeId === id || (task.delegations || []).some(e => e.phaseId === p.id && e.workerId === id)) : id === task.assigneeId) roles.push("Assignee");
       if (phaseMode && phases.some(p => p.reviewerId === id)) roles.push("Reviewer");
-      assigned.push({ id: task.id, title: task.title, code: task.code || task.id, roles, ...(phaseMode ? { phases: phases.map(p => ({ id: p.id!, title: p.title, status: p.completedAt != null ? "done" : p.assigneeId === id || p.handlingAgentId === id || p.reviewerId === id ? p.status || "queued" : (task.delegations || []).some(e => e.phaseId === p.id && !["accepted", "recalled"].includes(e.state) && [e.workerId, e.managerId].includes(id)) ? "waiting" : "finished" })) } : {}) });
+      assigned.push({ id: task.id, title: task.title, code: task.code || task.id, roles, ...(phaseMode ? { phases: phases.flatMap(p => p.id ? [{ id: p.id, code: shortPhaseCode(p.id), title: p.title,
+        roles: [...(p.assigneeId === id ? ["Assignee" as const] : []), ...(p.reviewerId === id ? ["Reviewer" as const] : [])],
+        status: p.completedAt != null ? "done" : id === task.ownerId || p.assigneeId === id || p.handlingAgentId === id || p.reviewerId === id ? p.status || "queued" : (task.delegations || []).some(e => e.phaseId === p.id && !["accepted", "recalled"].includes(e.state) && [e.workerId, e.managerId].includes(id)) ? "waiting" : "finished" }] : []) } : {}) });
       result.set(id, assigned);
     }
   }

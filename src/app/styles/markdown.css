@@ -249,3 +249,9 @@
 .dark .ui-chat-assistant-card .agent-markdown li + li {
   margin-top: 0.42rem;
 }
+
+/* Rendered diagrams keep their original source in the copy target. */
+.agent-markdown .markdown-code-block > pre[hidden] { display: none; }
+.markdown-diagram { min-width: 0; max-width: 100%; overflow-x: auto; padding: 1rem 36px 1rem .75rem; }
+.agent-markdown .markdown-diagram img { display: block; width: 100%; max-width: 100%; height: auto; border: 0; border-radius: 0; }
+.markdown-diagram-error { display: block; padding: 0 .75rem .5rem; font-size: .75rem; color: var(--muted-foreground); }
