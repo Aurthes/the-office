@@ -23,13 +23,14 @@ function TaskRoles({ roles = ["Assignee"], parentOwner = false }: { roles?: Curr
 function AssignedTaskMenu({ name, tasks, onOpenTask }: { name: string; tasks: CurrentAgentTask[]; onOpenTask: (id: string, phaseId?: string) => void }) {
   const t = useUiText(), id = useId(), trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const count = tasks.reduce((sum, task) => sum + (task.phases?.length ?? 1), 0);
   const escape = (event: KeyboardEvent) => {
     if (open && event.key === "Escape") { event.stopPropagation(); setOpen(false); trigger.current?.focus(); }
   };
   return <>
     <button ref={trigger} type="button" className="directory-task directory-task-count" title={tasks.map(task => task.title).join("\n")}
-      aria-label={t("Tasks for {name}: {count}", { name, count: tasks.length })} aria-expanded={open} aria-controls={id}
-      onKeyDown={escape} onClick={() => setOpen(value => !value)}>{t("{count} tasks", { count: tasks.length })}<ChevronDown size={11} aria-hidden="true" /></button>
+      aria-label={t("Tasks for {name}: {count}", { name, count })} aria-expanded={open} aria-controls={id}
+      onKeyDown={escape} onClick={() => setOpen(value => !value)}>{t("{count} tasks", { count })}<ChevronDown size={11} aria-hidden="true" /></button>
     {open ? <div id={id} className="directory-task-list" role="group" aria-label={t("Tasks for {name}", { name })} onKeyDown={escape}>
       {tasks.flatMap(task => task.phases?.length ? task.phases.map(phase => <button type="button" key={`${task.id}:${phase.id}`} className="directory-task-link" title={`${task.title}\n${phase.title}\n${phase.id}`} aria-label={t("Open task: {name}", { name: `${task.code} ${phase.code} · ${phase.title}` })}
         onClick={() => { setOpen(false); onOpenTask(task.id, phase.id); }}>

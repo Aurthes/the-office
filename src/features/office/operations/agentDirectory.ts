@@ -10,25 +10,26 @@ export type DirectoryAgent = ChatRosterEntry & { color: string; avatarProfile?: 
 export type DirectoryTaskSummary = FieldworkTaskSummary & { id: string; code?: string; title: string; assigneeId: string | null; assigneeName?: string | null; ownerId?: string | null; ownerName?: string | null; departmentId?: string | null; reviewerId?: string | null; status: string; archived: boolean; delegations?: { phaseId?: string; workerId: string; managerId: string; state: string }[] };
 export const needsFollowUp = (task: DirectoryTaskSummary) => !task.archived && task.status !== "done";
 
-// Assignment lasts until completion, archive or reassignment, including pauses.
+// The directory shows active work, independently of department follow-up totals.
 export function currentTasksByAgent(tasks: DirectoryTaskSummary[]): Map<string, CurrentAgentTask[]> {
   const result = new Map<string, CurrentAgentTask[]>();
   for (const task of tasks) {
     if (!needsFollowUp(task)) continue;
     const phaseMode = task.executionMode === "phases";
-    const phaseParticipants = phaseMode ? [...(task.phases || []).flatMap(p => [p.assigneeId, p.handlingAgentId, p.reviewerId]), ...(task.delegations || []).flatMap(e => [e.workerId, e.managerId])] : [];
-    for (const id of new Set([task.ownerId, ...(phaseMode ? phaseParticipants : [task.assigneeId])])) {
+    const running = (task.phases || []).filter(p => p.id && p.completedAt == null && p.status === "running");
+    if (phaseMode ? !running.length : task.status !== "running") continue;
+    const handler = (item: { handlingAgentId?: string | null; assigneeId?: string | null }) => item.handlingAgentId || item.assigneeId;
+    for (const id of new Set([task.ownerId, ...(phaseMode ? running.map(handler) : [handler(task)])])) {
       if (!id) continue;
       const assigned = result.get(id) || [];
       if (assigned.some(existing => existing.id === task.id)) continue;
+      const phases = phaseMode ? running.filter(p => id === task.ownerId || handler(p) === id) : [];
       const roles: ("Owner" | "Assignee" | "Reviewer")[] = [];
       if (id === task.ownerId) roles.push("Owner");
-      const phases = phaseMode ? (task.phases || []).filter(p => id === task.ownerId || p.assigneeId === id || p.handlingAgentId === id || p.reviewerId === id || (task.delegations || []).some(e => e.phaseId === p.id && [e.workerId, e.managerId].includes(id))) : [];
-      if (phaseMode ? phases.some(p => p.assigneeId === id || (task.delegations || []).some(e => e.phaseId === p.id && e.workerId === id)) : id === task.assigneeId) roles.push("Assignee");
-      if (phaseMode && phases.some(p => p.reviewerId === id)) roles.push("Reviewer");
+      if (phaseMode ? phases.some(p => p.assigneeId === id) : id === task.assigneeId) roles.push("Assignee");
+      if (phaseMode ? phases.some(p => p.reviewerId === id) : id === task.reviewerId) roles.push("Reviewer");
       assigned.push({ id: task.id, title: task.title, code: task.code || task.id, roles, ...(phaseMode ? { phases: phases.flatMap(p => p.id ? [{ id: p.id, code: shortPhaseCode(p.id), title: p.title,
-        roles: [...(p.assigneeId === id ? ["Assignee" as const] : []), ...(p.reviewerId === id ? ["Reviewer" as const] : [])],
-        status: p.completedAt != null ? "done" : id === task.ownerId || p.assigneeId === id || p.handlingAgentId === id || p.reviewerId === id ? p.status || "queued" : (task.delegations || []).some(e => e.phaseId === p.id && !["accepted", "recalled"].includes(e.state) && [e.workerId, e.managerId].includes(id)) ? "waiting" : "finished" }] : []) } : {}) });
+        roles: [...(p.assigneeId === id ? ["Assignee" as const] : []), ...(p.reviewerId === id ? ["Reviewer" as const] : [])], status: "running" }] : []) } : {}) });
       result.set(id, assigned);
     }
   }

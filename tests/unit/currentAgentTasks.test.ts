@@ -28,7 +28,7 @@ it("does not fetch while closed or show stale tasks after a gateway change", asy
   expect(result.current.tasks.size).toBe(0);
 });
 
-it("retains assignments through phase transitions, pauses, disconnects and read failures; removes them on reassignment or completion", async () => {
+it("updates active work on transitions, retains last snapshot on read failure and removes reassigned or completed work", async () => {
   let onEvent: ((event: { event: string }) => void) | undefined;
   let fail = false;
   let task = { id: "task", title: "Example", status: "running", archived: false, assigneeId: "agent" };
@@ -44,7 +44,7 @@ it("retains assignments through phase transitions, pauses, disconnects and read 
     task = { ...task, status };
     act(() => onEvent?.({ event: "todos.updated" }));
     await waitFor(() => expect(call.mock.calls.length).toBeGreaterThan(before));
-    expect(result.current.tasks.get("agent")?.[0].id).toBe("task");
+    expect(result.current.tasks.has("agent")).toBe(status === "running");
   }
   fail = true;
   act(() => onEvent?.({ event: "todos.updated" }));

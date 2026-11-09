@@ -35,13 +35,13 @@ function fixture(view: "project" | "activity" | "organization" = "project", sear
   return { ...result, props };
 }
 it("indexes the same task ID under Owner and Assignee, deduplicates the same person and keeps different tasks", () => {
-  const shared = { id: "same", code: "T1", title: "Shared task", ownerId: "head", assigneeId: "worker", status: "paused", archived: false };
+  const shared = { id: "same", code: "T1", title: "Shared task", ownerId: "head", assigneeId: "worker", status: "running", archived: false };
   const indexed = currentTasksByAgent([shared, shared, { ...shared, id: "both", code: "T2", ownerId: "worker" }, { ...shared, id: "finished", status: "done" }, { ...shared, id: "archived", archived: true }]);
   expect(indexed.get("head")).toEqual([{ id: "same", title: "Shared task", code: "T1", roles: ["Owner"] }]);
   expect(indexed.get("worker")).toEqual([{ id: "same", title: "Shared task", code: "T1", roles: ["Assignee"] }, { id: "both", title: "Shared task", code: "T2", roles: ["Owner", "Assignee"] }]);
 });
 it.each(["project", "activity", "organization"] as const)("shows each person's actual task roles in single badges and multi-task menus in %s", view => {
-  const indexed = currentTasksByAgent([{ id: "same", title: "Shared task", ownerId: "head", assigneeId: "worker", status: "queued", archived: false }, { id: "both", title: "Both roles", ownerId: "worker", assigneeId: "worker", status: "paused", archived: false }]);
+  const indexed = currentTasksByAgent([{ id: "same", title: "Shared task", ownerId: "head", assigneeId: "worker", status: "running", archived: false }, { id: "both", title: "Both roles", ownerId: "worker", assigneeId: "worker", status: "running", archived: false }]);
   const onOpenTask = vi.fn();
   render(createElement(AgentDirectory, { agents: agents.map(agent => ({ ...agent, tasks: indexed.get(agent.id) })), organization, view, search: "", onSearchChange: vi.fn(), onViewChange: vi.fn(), selectedId: null, onOpenChat: vi.fn(), onOpenTask }));
   expect(screen.getByRole("button", { name: "Open task: Shared task" })).toHaveTextContent("Owner");
@@ -86,12 +86,12 @@ it("keeps ancestor paths when searching by a task code and lets branches collaps
   expect(within(tree).getAllByRole("button", { name: "Open session: Worker 3" })).toHaveLength(2);
   expect(within(tree).getByLabelText("Also reports here")).toBeTruthy();
 });
-it("keeps all open assignments including queued and paused work, excluding completed, archived and unassigned work", () => {
+it("shows only running legacy work, excluding queued, paused, completed and archived work", () => {
   const task = { id: "avc", code: "T37", title: "Agent View Compression (AVC)", status: "running", archived: false, assigneeId: "worker" };
   const result = currentTasksByAgent([task, task, { ...task, id: "paused", status: "paused" }, { ...task, id: "queued", status: "queued", assigneeId: "head" }, { ...task, id: "done", status: "done" }, { ...task, id: "archived", archived: true }, { ...task, id: "orphan", assigneeId: null }]);
-  expect([...result.keys()]).toEqual(["worker", "head"]);
-  expect(result.get("worker")?.map(task => task.id)).toEqual(["avc", "paused"]);
-  expect(result.get("head")).toEqual([{ id: "queued", title: task.title, code: "T37", roles: ["Assignee"] }]);
+  expect([...result.keys()]).toEqual(["worker"]);
+  expect(result.get("worker")?.map(task => task.id)).toEqual(["avc"]);
+  expect(result.has("head")).toBe(false);
   expect(currentTasksByAgent([{ ...task, title: "Renamed task" }]).get("worker")?.[0].code).toBe("T37");
   expect(currentTasksByAgent([{ ...task, code: undefined }]).get("worker")?.[0].code).toBe(task.id);
 });
@@ -182,46 +182,87 @@ it("deduplicates a phase-mode parent and displays only each employee's actual pa
   ], delegations: [{ phaseId: "a", managerId: "head", workerId: "retired-worker", state: "recalled" }] };
   const index = currentTasksByAgent([task, task]);
   expect(index.get("head")).toHaveLength(1); expect(index.get("worker")?.[0].phases).toEqual([{ id: "a", code: "P-a", title: "Teaser", status: "running", roles: ["Assignee"] }]);
-  expect(index.get("other")?.[0].phases?.[0].status).toBe("done"); expect(index.has("old-parent")).toBe(false);
-  expect(index.get("retired-worker")?.[0].phases?.[0].status).toBe("finished");
+  expect(index.has("other")).toBe(false); expect(index.has("old-parent")).toBe(false);
+  expect(index.has("retired-worker")).toBe(false);
 });
 
 
 it("expands the parent Owner scope while keeping phase Assignee and Reviewer roles separate", () => {
   const phases = [
-    { id: "a1234567-aaaa-4000-8000-000000000001", title: "Investigate", status: "done", assigneeId: "worker", completedAt: 1000 },
-    { id: "b1234567-bbbb-4000-8000-000000000002", title: "Review", status: "review", assigneeId: "other", reviewerId: "worker", handlingAgentId: "worker", completedAt: null },
+    { id: "a1234567-aaaa-4000-8000-000000000001", title: "Investigate", status: "running", assigneeId: "worker", handlingAgentId: "worker", completedAt: null },
+    { id: "b1234567-bbbb-4000-8000-000000000002", title: "Review", status: "running", assigneeId: "other", reviewerId: "worker", handlingAgentId: "worker", completedAt: null },
     { id: "c1234567-cccc-4000-8000-000000000003", title: "Unrelated", status: "queued", assigneeId: "other", completedAt: null },
   ];
   const task = { id: "shared", code: "T87", title: "Parent", status: "running", archived: false, executionMode: "phases" as const, ownerId: "head", assigneeId: null, phases };
   const index = currentTasksByAgent([task, task]);
   expect(index.get("head")).toHaveLength(1);
-  expect(index.get("head")?.[0].phases?.map(p => p.title)).toEqual(["Investigate", "Review", "Unrelated"]);
+  expect(index.get("head")?.[0].phases?.map(p => p.title)).toEqual(["Investigate", "Review"]);
   expect(index.get("head")?.[0].phases?.every(p => !p.roles.length)).toBe(true);
-  expect(index.get("worker")?.[0].phases?.map(p => [p.title, p.roles, p.status])).toEqual([["Investigate", ["Assignee"], "done"], ["Review", ["Reviewer"], "review"]]);
+  expect(index.get("worker")?.[0].phases?.map(p => [p.title, p.roles, p.status])).toEqual([["Investigate", ["Assignee"], "running"], ["Review", ["Reviewer"], "running"]]);
   const reordered = currentTasksByAgent([{ ...task, phases: [...phases].reverse() }]);
   expect(reordered.get("head")?.[0].phases?.find(p => p.id === phases[0].id)?.code).toBe(index.get("worker")?.[0].phases?.[0].code);
   expect(shortPhaseCode(phases[0].id)).toBe("P-a1234567");
 });
 
-it.each(["project", "activity", "organization"] as const)("opens separate phase rows even for one parent, preserving completed work and parent task counts in %s", view => {
+it.each(["project", "activity", "organization"] as const)("opens separate running phase rows even for one parent and counts the visible work items in %s", view => {
   const phases = [
-    { id: "first-phase", code: "P-first-ph", title: "Completed investigation with a long detailed title", status: "done", roles: ["Assignee" as const] },
-    { id: "review-phase", code: "P-review-p", title: "Review the result", status: "review", roles: ["Reviewer" as const] },
+    { id: "first-phase", code: "P-first-ph", title: "Running investigation with a long detailed title", status: "running", roles: ["Assignee" as const] },
+    { id: "review-phase", code: "P-review-p", title: "Review the result", status: "running", roles: ["Reviewer" as const] },
   ];
   const onOpenTask = vi.fn();
   render(createElement(AgentDirectory, { agents: [{ ...agents[0], tasks: [{ id: "parent", code: "T87", title: "Parent task", roles: ["Owner", "Assignee", "Reviewer"], phases }] }], organization, view, search: "", onSearchChange: vi.fn(), onViewChange: vi.fn(), selectedId: null, onOpenChat: vi.fn(), onOpenTask }));
-  const trigger = screen.getAllByRole("button", { name: "Tasks for Worker 3: 1" })[0]; fireEvent.click(trigger);
+  const trigger = screen.getAllByRole("button", { name: "Tasks for Worker 3: 2" })[0]; fireEvent.click(trigger);
   const menu = screen.getByRole("group", { name: "Tasks for Worker 3" });
   const rows = within(menu).getAllByRole("button"); expect(rows).toHaveLength(2);
-  expect(rows[0]).toHaveTextContent("T87 · P-first-ph"); expect(rows[0]).toHaveTextContent("Completed");
+  expect(rows[0]).toHaveTextContent("T87 · P-first-ph"); expect(rows[0]).toHaveTextContent("Running");
   expect(rows[0]).toHaveTextContent("Parent task owner + Assignee"); expect(rows[0]).not.toHaveTextContent("Reviewer");
   expect(rows[1]).toHaveTextContent("Parent task owner + Reviewer"); expect(rows[1]).not.toHaveTextContent("Assignee");
   fireEvent.click(rows[1]); expect(onOpenTask).toHaveBeenCalledExactlyOnceWith("parent", "review-phase");
   expect(trigger).toHaveAttribute("aria-expanded", "false");
 });
 
-it("retains ended participation without inventing a current Assignee or Reviewer role", () => {
+it("excludes ended participation instead of inventing a current Assignee or Reviewer role", () => {
   const index = currentTasksByAgent([{ id: "t", title: "Task", assigneeId: null, ownerId: "head", status: "queued", archived: false, executionMode: "phases", phases: [{ id: "p", title: "Past participation", assigneeId: "other" }], delegations: [{ phaseId: "p", workerId: "worker", managerId: "head", state: "recalled" }] }]);
-  expect(index.get("worker")?.[0].phases?.[0]).toMatchObject({ roles: [], status: "finished" });
+  expect(index.has("worker")).toBe(false);
+});
+
+
+it("filters phase states before person association and leaves the source/history intact", () => {
+  const phases = ["queued", "paused", "review", "done", "waiting", "running"].map((status, i) => ({ id: `phase-${i}`, title: status, status, assigneeId: "worker", handlingAgentId: "worker", completedAt: status === "done" ? 123 : null }));
+  const task = { id: "parent", title: "Parent", status: "running", archived: false, executionMode: "phases" as const, ownerId: "head", assigneeId: null, phases };
+  const before = JSON.stringify(task);
+  const index = currentTasksByAgent([task, task]);
+  expect(index.get("worker")?.[0].phases?.map(p => p.id)).toEqual(["phase-5"]);
+  expect(index.get("head")?.[0].phases?.map(p => p.id)).toEqual(["phase-5"]);
+  expect(JSON.stringify(task)).toBe(before);
+  expect(currentTasksByAgent([{ ...task, phases: phases.slice(0, -1) }]).size).toBe(0);
+  expect(currentTasksByAgent([{ ...task, archived: true }]).size).toBe(0);
+});
+
+it("does not claim another handler's active work for an assignee or historic handoff participant", () => {
+  const task = { id: "parent", title: "Parent", status: "running", archived: false, executionMode: "phases" as const, ownerId: "head", assigneeId: null, phases: [{ id: "p", title: "Delegated", status: "running", assigneeId: "former", handlingAgentId: "current", completedAt: null }], delegations: [{ phaseId: "p", workerId: "former", managerId: "old-manager", state: "accepted" }] };
+  const index = currentTasksByAgent([task]);
+  expect([...index.keys()]).toEqual(["head", "current"]);
+  expect(index.get("head")?.[0].roles).toEqual(["Owner"]);
+  expect(index.get("current")?.[0].phases?.[0].roles).toEqual([]);
+  const legacy = currentTasksByAgent([{ ...task, executionMode: undefined, assigneeId: "former", handlingAgentId: "current", reviewerId: "current" }]);
+  expect([...legacy.keys()]).toEqual(["head", "current"]);
+  expect(legacy.get("current")?.[0].roles).toEqual(["Reviewer"]);
+});
+
+it("updates visible rows and counts together, removes the last menu and keeps agents reachable", () => {
+  const phases = [{ id: "p1", title: "First", status: "queued", assigneeId: "worker", handlingAgentId: "worker" }, { id: "p2", title: "Second", status: "running", assigneeId: "worker", handlingAgentId: "worker" }];
+  const task = { id: "parent", code: "T87", title: "Parent", status: "running", archived: false, executionMode: "phases" as const, ownerId: "head", assigneeId: null, phases };
+  const props = { organization, view: "activity" as const, search: "", onSearchChange: vi.fn(), onViewChange: vi.fn(), selectedId: null, onOpenChat: vi.fn(), onOpenTask: vi.fn() };
+  const project = () => [{ ...agents[0], tasks: currentTasksByAgent([task]).get("worker") }];
+  const { rerender } = render(createElement(AgentDirectory, { ...props, agents: project() }));
+  fireEvent.click(screen.getByRole("button", { name: "Tasks for Worker 3: 1" }));
+  expect(within(screen.getByRole("group")).getAllByRole("button")).toHaveLength(1);
+  phases[0].status = "running"; rerender(createElement(AgentDirectory, { ...props, agents: project() }));
+  expect(screen.getByRole("button", { name: "Tasks for Worker 3: 2" })).toHaveAttribute("aria-expanded", "true");
+  expect(within(screen.getByRole("group")).getAllByRole("button")).toHaveLength(2);
+  phases[0].status = "paused"; phases[1].status = "done"; rerender(createElement(AgentDirectory, { ...props, agents: project() }));
+  expect(screen.queryByRole("group")).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Tasks for Worker/ })).toBeNull();
+  expect(screen.getByRole("button", { name: "Open session: Worker 3" })).toBeTruthy();
 });
