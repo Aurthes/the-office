@@ -805,6 +805,8 @@ export const ZH_CN: Record<string, string> = {
   "Updated {time}": "更新于 {time}",
   "Waiting for usage data": "等待用量数据",
   "Code": "代码",
+  "Diagram": "流程图",
+  "Could not render diagram. Source shown.": "流程图暂时无法显示，已保留源码。",
   "Copy code": "复制代码",
   "Copy": "复制",
   "Copied": "已复制",
