@@ -281,6 +281,7 @@ export const ZH_CN: Record<string, string> = {
   "Start with agent": "交给 agent 执行",
   "Task status": "任务状态",
   "Task owner": "任务跟进人",
+  "Parent task owner": "主任务跟进人",
   "All statuses": "全部状态",
   "Show task list": "显示任务列表",
   "Show task tree": "显示任务树",
