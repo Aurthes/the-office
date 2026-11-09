@@ -295,3 +295,17 @@ it.each([
   const calls = f.call.mock.calls.filter(([method]) => method === "todo.run"); expect(calls[1][1]).toEqual(calls[0][1]);
   await waitFor(() => expect(screen.queryByText(/Delivery outcome uncertain/)).toBeNull());
 });
+
+
+it("opens the selected completed phase without changing task data", async () => {
+  const f = fixture(undefined, { phases: [
+    { id: "done-phase", title: "Completed review", elapsedMs: 500, startedAt: null, completedAt: 1000 },
+    { id: "next-phase", title: "Continue work", elapsedMs: 0, startedAt: null, completedAt: null },
+  ] }, "todo");
+  f.rerender(createElement(TaskBoard, { ...f.props, phaseId: "done-phase" }));
+  await waitFor(() => expect(document.activeElement).toHaveAttribute("data-phase-id", "done-phase"));
+  expect(document.activeElement?.closest("details")).toHaveAttribute("open");
+  f.rerender(createElement(TaskBoard, { ...f.props, phaseId: "next-phase" }));
+  await waitFor(() => expect(document.activeElement).toHaveAttribute("data-phase-id", "next-phase"));
+  expect(f.call.mock.calls.every(([method]) => ["todo.list", "todo.get"].includes(method))).toBe(true);
+});

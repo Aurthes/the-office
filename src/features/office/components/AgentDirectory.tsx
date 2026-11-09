@@ -14,12 +14,13 @@ import { MessageSearchResults, type MessageSearchTarget } from "./MessageSearchR
 import type { SessionClient } from "./SessionControls";
 import "./agent-directory.css";
 
-function TaskRoles({ task }: { task: CurrentAgentTask }) {
+function TaskRoles({ roles = ["Assignee"], parentOwner = false }: { roles?: CurrentAgentTask["roles"]; parentOwner?: boolean }) {
   const t = useUiText();
-  return <span className="directory-task-role">{(task.roles || ["Assignee"]).map(role => t(role)).join(" + ")}</span>;
+  const labels = [...(parentOwner ? [t("Parent task owner")] : []), ...roles.map(role => t(role))];
+  return labels.length ? <span className="directory-task-role">{labels.join(" + ")}</span> : null;
 }
 
-function AssignedTaskMenu({ name, tasks, onOpenTask }: { name: string; tasks: CurrentAgentTask[]; onOpenTask: (id: string) => void }) {
+function AssignedTaskMenu({ name, tasks, onOpenTask }: { name: string; tasks: CurrentAgentTask[]; onOpenTask: (id: string, phaseId?: string) => void }) {
   const t = useUiText(), id = useId(), trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const escape = (event: KeyboardEvent) => {
@@ -30,8 +31,12 @@ function AssignedTaskMenu({ name, tasks, onOpenTask }: { name: string; tasks: Cu
       aria-label={t("Tasks for {name}: {count}", { name, count: tasks.length })} aria-expanded={open} aria-controls={id}
       onKeyDown={escape} onClick={() => setOpen(value => !value)}>{t("{count} tasks", { count: tasks.length })}<ChevronDown size={11} aria-hidden="true" /></button>
     {open ? <div id={id} className="directory-task-list" role="group" aria-label={t("Tasks for {name}", { name })} onKeyDown={escape}>
-      {tasks.map(task => <button type="button" key={task.id} className="directory-task-link" aria-label={t("Open task: {name}", { name: task.title })}
-        onClick={() => { setOpen(false); onOpenTask(task.id); }}><span className="directory-task-code">{task.code}</span><span className="directory-task-title">{task.title}</span><TaskRoles task={task} />{task.phases?.map(phase => <small key={phase.id}>{phase.title} · {t(phase.status === "done" ? "Completed" : phase.status === "finished" ? "Participation ended" : phase.status === "waiting" ? "Awaiting result" : phase.status === "running" ? "Running" : phase.status === "review" ? "Awaiting manager review" : phase.status === "paused" ? "Paused" : "Queued")}</small>)}</button>)}
+      {tasks.flatMap(task => task.phases?.length ? task.phases.map(phase => <button type="button" key={`${task.id}:${phase.id}`} className="directory-task-link" title={`${task.title}\n${phase.title}\n${phase.id}`} aria-label={t("Open task: {name}", { name: `${task.code} ${phase.code} · ${phase.title}` })}
+        onClick={() => { setOpen(false); onOpenTask(task.id, phase.id); }}>
+        <span className="directory-task-meta"><span className="directory-task-code">{task.code} · {phase.code}</span><TaskRoles roles={phase.roles} parentOwner={task.roles?.includes("Owner")} /><small>{t(phase.status === "done" ? "Completed" : phase.status === "finished" ? "Participation ended" : phase.status === "waiting" ? "Awaiting result" : phase.status === "running" ? "Running" : phase.status === "review" ? "Awaiting manager review" : phase.status === "paused" ? "Paused" : "Queued")}</small></span>
+        <span className="directory-task-title">{phase.title}</span>
+      </button>) : [<button type="button" key={task.id} className="directory-task-link" aria-label={t("Open task: {name}", { name: task.title })}
+        onClick={() => { setOpen(false); onOpenTask(task.id); }}><span className="directory-task-meta"><span className="directory-task-code">{task.code}</span><TaskRoles roles={task.roles} /></span><span className="directory-task-title">{task.title}</span></button>])}
     </div> : null}
   </>;
 }
@@ -39,7 +44,7 @@ function AssignedTaskMenu({ name, tasks, onOpenTask }: { name: string; tasks: Cu
 export function AgentDirectory({ agents, organization, view, onViewChange, search, onSearchChange, selectedId, onOpenChat, onOpenTask, taskError, focusRequest, client, onOpenMessage, onDismiss }: {
   agents: DirectoryAgent[]; organization: OrganizationView; view: AgentDirectoryView; onViewChange: (view: AgentDirectoryView) => void;
   search: string; onSearchChange: (search: string) => void; selectedId: string | null;
-  onOpenChat: (id: string) => void; onOpenTask: (id: string) => void; taskError?: string;
+  onOpenChat: (id: string) => void; onOpenTask: (id: string, phaseId?: string) => void; taskError?: string;
   focusRequest?: { id: string; request: number } | null;
   onDismiss?: () => void;
   client?: SessionClient; onOpenMessage?: (target: MessageSearchTarget) => void;
@@ -51,7 +56,7 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
   const forest = useMemo(() => reportingForest(organization.people, agents), [organization.people, agents]);
   const byId = new Map(agents.map(agent => [agent.id, agent]));
   const query = search.trim().toLocaleLowerCase();
-  const matches = (agent: DirectoryAgent) => !query || [agent.name, agent.id, agent.projectName, ...(agent.tasks || []).flatMap(task => [task.code, task.title])].some(value => value?.toLocaleLowerCase().includes(query));
+  const matches = (agent: DirectoryAgent) => !query || [agent.name, agent.id, agent.projectName, ...(agent.tasks || []).flatMap(task => [task.code, task.title, ...(task.phases || []).flatMap(phase => [phase.code, phase.title])])].some(value => value?.toLocaleLowerCase().includes(query));
   const groups = organizeChatRoster(agents.filter(matches), view === "activity" ? "activity" : "project");
   const visible = new Set<string>();
   if (query) {
@@ -88,7 +93,7 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
       <span className="directory-agent-status"><AgentActivityIndicator activity={agent.activity} /><ScheduledTaskIndicator active={agent.hasPendingSchedule} /></span>
     </button>
     {departmentLink && organization.openDepartment ? <button type="button" className="directory-department" title={agent.id === CEO_ID ? t("Company") : agent.projectName || t("Open Workspace")} onClick={() => organization.openDepartment?.(agent.id === CEO_ID ? undefined : agent.projectId || OPEN_DEPARTMENT_ID)}><span>{agent.id === CEO_ID ? t("Company") : agent.projectName || t("Open Workspace")}</span><ChevronRight size={12} aria-hidden="true" /></button> : null}
-    {tasks.length === 1 ? <button type="button" className="directory-task" title={tasks[0].title} aria-label={t("Open task: {name}", { name: tasks[0].title })} onClick={() => onOpenTask(tasks[0].id)}>{tasks[0].code}<TaskRoles task={tasks[0]} /></button> : tasks.length > 1 ? <AssignedTaskMenu name={agent.name} tasks={tasks} onOpenTask={onOpenTask} /> : null}
+    {tasks.length === 1 && !tasks[0].phases?.length ? <button type="button" className="directory-task" title={tasks[0].title} aria-label={t("Open task: {name}", { name: tasks[0].title })} onClick={() => onOpenTask(tasks[0].id)}>{tasks[0].code}<TaskRoles roles={tasks[0].roles} /></button> : tasks.length ? <AssignedTaskMenu name={agent.name} tasks={tasks} onOpenTask={onOpenTask} /> : null}
   </div>;
   };
   const branch = (node: ReportingNode): ReactNode => {

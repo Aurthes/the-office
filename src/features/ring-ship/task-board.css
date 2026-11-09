@@ -7,3 +7,5 @@
 .todo-phase-tree li,.todo-phase-list li{flex-wrap:wrap;align-items:center}.todo-phase-controls{display:flex;align-items:center;flex-wrap:wrap;gap:6px;width:100%;opacity:0;pointer-events:none}.todo-phase-controls select{max-width:170px}.todo-phase-controls small{color:#f4b8b1;flex-basis:100%}.todo-phase-tree li:hover .todo-phase-controls,.todo-phase-list li:hover .todo-phase-controls,.todo-phase-tree li:focus-within .todo-phase-controls,.todo-phase-list li:focus-within .todo-phase-controls{opacity:1;pointer-events:auto}@media(hover:none),(pointer:coarse){.todo-phase-controls{opacity:1;pointer-events:auto}}
 .todo-phase-summary{flex-basis:100%;font-size:11px;color:#8eabb7}.todo-phase-controls:has([role=alert]){opacity:1;pointer-events:auto}
 .todo-progress>.todo-phase-total{white-space:normal;text-align:right}
+
+.todo-phase-list li[data-targeted=true]{outline:2px solid #e9cf9b;outline-offset:3px;border-radius:4px}
