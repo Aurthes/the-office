@@ -37,18 +37,21 @@ function fixture(view: "project" | "activity" | "organization" = "project", sear
 it("indexes the same task ID under Owner and Assignee, deduplicates the same person and keeps different tasks", () => {
   const shared = { id: "same", code: "T1", title: "Shared task", ownerId: "head", assigneeId: "worker", status: "running", archived: false };
   const indexed = currentTasksByAgent([shared, shared, { ...shared, id: "both", code: "T2", ownerId: "worker" }, { ...shared, id: "finished", status: "done" }, { ...shared, id: "archived", archived: true }]);
-  expect(indexed.get("head")).toEqual([{ id: "same", title: "Shared task", code: "T1", roles: ["Owner"] }]);
-  expect(indexed.get("worker")).toEqual([{ id: "same", title: "Shared task", code: "T1", roles: ["Assignee"] }, { id: "both", title: "Shared task", code: "T2", roles: ["Owner", "Assignee"] }]);
+  expect(indexed.get("head")).toEqual([{ id: "same", title: "Shared task", code: "T1", roles: ["Owner"], status: "running" }]);
+  expect(indexed.get("worker")).toEqual([{ id: "same", title: "Shared task", code: "T1", roles: ["Assignee"], status: "running" }, { id: "both", title: "Shared task", code: "T2", roles: ["Owner", "Assignee"], status: "running" }]);
 });
 it.each(["project", "activity", "organization"] as const)("shows each person's actual task roles in single badges and multi-task menus in %s", view => {
   const indexed = currentTasksByAgent([{ id: "same", title: "Shared task", ownerId: "head", assigneeId: "worker", status: "running", archived: false }, { id: "both", title: "Both roles", ownerId: "worker", assigneeId: "worker", status: "running", archived: false }]);
   const onOpenTask = vi.fn();
   render(createElement(AgentDirectory, { agents: agents.map(agent => ({ ...agent, tasks: indexed.get(agent.id) })), organization, view, search: "", onSearchChange: vi.fn(), onViewChange: vi.fn(), selectedId: null, onOpenChat: vi.fn(), onOpenTask }));
-  expect(screen.getByRole("button", { name: "Open task: Shared task" })).toHaveTextContent("Owner");
+  fireEvent.click(screen.getAllByRole("button", { name: "Tasks for Ranger: 1" })[0]);
+  const ownerMenu = screen.getByRole("group", { name: "Tasks for Ranger" });
+  expect(within(ownerMenu).getByRole("button", { name: "Open task: Shared task" })).toHaveTextContent("Owner");
+  fireEvent.keyDown(ownerMenu, { key: "Escape" });
   fireEvent.click(screen.getAllByRole("button", { name: "Tasks for Worker 3: 2" })[0]);
   const menu = screen.getByRole("group", { name: "Tasks for Worker 3" });
-  expect(within(menu).getByRole("button", { name: "Open task: Shared task" })).toHaveTextContent("Assignee");
-  expect(within(menu).getByRole("button", { name: "Open task: Both roles" })).toHaveTextContent("Owner + Assignee");
+  expect(within(menu).getByRole("button", { name: "Open task: Shared task" })).toHaveTextContent("Assigned");
+  expect(within(menu).getByRole("button", { name: "Open task: Both roles" })).toHaveTextContent("Owner + Assigned");
   fireEvent.click(within(menu).getByRole("button", { name: "Open task: Shared task" }));
   expect(onOpenTask).toHaveBeenCalledWith("same");
 });
@@ -246,7 +249,7 @@ it("does not claim another handler's active work for an assignee or historic han
   expect(index.get("head")?.[0].roles).toEqual(["Owner"]);
   expect(index.get("current")?.[0].phases?.[0].roles).toEqual([]);
   const legacy = currentTasksByAgent([{ ...task, executionMode: undefined, assigneeId: "former", handlingAgentId: "current", reviewerId: "current" }]);
-  expect([...legacy.keys()]).toEqual(["head", "current"]);
+  expect([...legacy.keys()]).toEqual(["head", "current", "former"]);
   expect(legacy.get("current")?.[0].roles).toEqual(["Reviewer"]);
 });
 
@@ -281,12 +284,12 @@ it("keeps begun paused work and pending review, excluding unstarted and closed p
   expect(index.has("past")).toBe(false); expect(index.has("old")).toBe(false);
   expect(index.get("head")?.[0].phases).toHaveLength(2);
 });
-it("uses explicit legacy phase responsibility, never the residual parent assignee or a fabricated handoff", () => {
+it("distinguishes explicit legacy phase responsibility from an assigned parent without fabricating a handoff", () => {
   const phase = { id: "p", title: "Current responsibility", assigneeId: "worker" as string | null, elapsedMs: 50, startedAt: null, completedAt: null as number | null };
   const task = { id: "t", title: "Legacy", status: "paused", archived: false, ownerId: "head", assigneeId: "past", handlingAgentId: "head", phases: [phase], delegations: [{ managerId: "head", workerId: "past", state: "accepted" }] };
   const before = JSON.stringify(task), index = currentTasksByAgent([task]);
   expect(index.get("worker")?.[0].phases?.[0]).toMatchObject({ id: "p", status: "paused", roles: ["Assignee"] });
-  expect(index.has("past")).toBe(false); expect(JSON.stringify(task)).toBe(before);
+  expect(index.get("past")?.[0]).toMatchObject({ roles: ["Assignee"], status: "paused" }); expect(index.get("past")?.[0].phases).toBeUndefined(); expect(JSON.stringify(task)).toBe(before);
   expect(currentTasksByAgent([{ ...task, status: "running" }]).get("worker")?.[0].phases?.[0].status).toBe("assigned");
   phase.assigneeId = null; expect(currentTasksByAgent([task]).has("worker")).toBe(false);
   phase.assigneeId = "other"; expect(currentTasksByAgent([task]).has("worker")).toBe(false);
@@ -301,4 +304,19 @@ it("renders real paused/review/assigned labels and counts without changing task 
   fireEvent.click(screen.getByRole("button", { name: "Tasks for Worker 3: 1" }));
   const menu = screen.getByRole("group"); expect(menu).toHaveTextContent("Paused"); expect(menu).toHaveTextContent("Assignee"); expect(menu).not.toHaveTextContent("Running");
   fireEvent.click(within(menu).getByRole("button")); expect(onOpenTask).toHaveBeenCalledWith("t", "p");
+});
+
+
+it("shows a legacy assigned task and its actual paused state without claiming a phase or handoff", () => {
+  const task = { id: "legacy", code: "T22", title: "Assigned parent", status: "paused", archived: false, ownerId: "head", assigneeId: "worker", handlingAgentId: "head", phases: [{ id: "target", title: "Head acceptance phase", elapsedMs: 20, completedAt: null }], delegations: [{ managerId: "head", workerId: "worker", state: "accepted" }, { managerId: "head", workerId: "unassigned-past", state: "accepted" }] };
+  const before = JSON.stringify(task), index = currentTasksByAgent([task]);
+  expect(index.get("worker")?.[0]).toMatchObject({ roles: ["Assignee"], status: "paused" }); expect(index.get("worker")?.[0].phases).toBeUndefined();
+  expect(index.has("unassigned-past")).toBe(false); expect(JSON.stringify(task)).toBe(before);
+  const onOpenTask = vi.fn(); render(createElement(AgentDirectory, { agents: [{ ...agents[0], tasks: index.get("worker") }], organization, view: "activity", search: "", onSearchChange: vi.fn(), onViewChange: vi.fn(), selectedId: null, onOpenChat: vi.fn(), onOpenTask }));
+  fireEvent.click(screen.getByRole("button", { name: "Tasks for Worker 3: 1" }));const row = within(screen.getByRole("group")).getByRole("button");
+  expect(row).toHaveTextContent("Assigned"); expect(row).toHaveTextContent("Paused"); expect(row).not.toHaveTextContent("P-target"); expect(row).not.toHaveTextContent("Head acceptance phase");
+  fireEvent.click(row);expect(onOpenTask).toHaveBeenCalledExactlyOnceWith("legacy");
+  for (const status of ["queued", "done"]) expect(currentTasksByAgent([{ ...task, status }]).has("worker")).toBe(false);
+  expect(currentTasksByAgent([{ ...task, archived: true }]).has("worker")).toBe(false);
+  expect(currentTasksByAgent([{ ...task, phases: [{ id: "new", title: "Never started", elapsedMs: 0, completedAt: null }] }]).has("worker")).toBe(false);
 });

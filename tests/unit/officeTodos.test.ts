@@ -347,39 +347,3 @@ describe("collaborative metadata edits preserve workflow authority", () => {
     expect(() => f.change(task.id, "edit", { actorId: "bob", ownerId: "bob" })).toThrow(/Restore this archived/);
   });
 });
-
-
-describe("explicit legacy phase responsibility without execution conversion", () => {
-  it("persists, summarizes and reloads assignment while preserving the paused execution and acceptance chain", () => {
-    const f = fixture(), task = f.create({ actorId: "alice" });
-    f.change(task.id, "delegate", { actorId: "alice", assigneeId: "bob", instructions: "Implement", acceptanceCriteria: "Verify" });
-    f.change(task.id, "start", { actorId: "bob" }); f.advance(250);
-    f.change(task.id, "submit", { actorId: "bob", report: "Evidence" });
-    f.change(task.id, "review", { actorId: "alice", accept: true, notes: "Accepted" });
-    const before = f.todos.get({ id: task.id }).todo;
-    const phases = before.phases.map((p: { id: string; title: string }) => ({ id: p.id, title: p.title, ...(p.id === task.phases[0].id ? { assigneeId: "bob" } : {}) }));
-    const next = f.change(task.id, "edit", { actorId: "alice", phases });
-    expect(next.executionMode).toBeUndefined();
-    for (const key of ["assigneeId", "handlingAgentId", "acceptanceManagerId", "ownerId", "activity", "delegations", "status", "elapsedMs"]) expect(next[key]).toEqual(before[key]);
-    expect(next.phases.map((p: { id: string; elapsedMs: number; startedAt: number | null; completedAt: number | null }) => [p.id, p.elapsedMs, p.startedAt, p.completedAt])).toEqual(before.phases.map((p: { id: string; elapsedMs: number; startedAt: number | null; completedAt: number | null }) => [p.id, p.elapsedMs, p.startedAt, p.completedAt]));
-    expect(next.phases[0]).toMatchObject({ assigneeId: "bob", assigneeName: "Bob" });
-    expect(f.todos.list({ status: "all" }).todos[0].phases[0].assigneeId).toBe("bob");
-    expect(JSON.parse(readFileSync(path.join(f.directory, "todos", task.id + ".json"), "utf8")).phases[0].assigneeId).toBe("bob");
-    const restored = new OfficeTodos(f.directory, f.deps);
-    expect(restored.get({ id: task.id }).todo.phases[0].assigneeId).toBe("bob");
-    expect(f.change(task.id, "edit", { phases: task.phases.map((p: { id: string; title: string }) => ({ id: p.id, title: p.title })) }).phases[0].assigneeId).toBe("bob");
-    expect(f.change(task.id, "edit", { phases: task.phases.map((p: { id: string; title: string }, i: number) => ({ id: p.id, title: p.title, ...(i === 0 ? { assigneeId: null } : {}) })) }).phases[0]).toMatchObject({ assigneeId: null, assigneeName: null });
-  });
-  it("validates legacy responsibility, protects completed history and permits an explicit reopened phase change", () => {
-    const f = fixture(), task = f.create({ actorId: "alice", phases: [{ title: "First", assigneeId: "alice" }, { title: "Final" }] });
-    const phases = (assigneeId: string | null) => task.phases.map((p: { id: string; title: string }, i: number) => ({ id: p.id, title: p.title, ...(i === 0 ? { assigneeId } : {}) }));
-    const before = structuredClone(f.todos.raw(task.id));
-    expect(() => f.change(task.id, "edit", { phases: phases("missing") })).toThrow(/existing phase assignee/);
-    expect(f.todos.raw(task.id)).toEqual(before);
-    f.change(task.id, "complete", { actorId: "alice", phaseId: task.phases[0].id }); f.change(task.id, "pause", { actorId: "alice" });
-    expect(() => f.change(task.id, "edit", { phases: phases("bob") })).toThrow(/Reopen the phase/);
-    expect(() => f.change(task.id, "edit", { phases: phases(null) })).toThrow(/Reopen the phase/);
-    f.change(task.id, "reopen", { actorId: "alice", phaseId: task.phases[0].id }); f.change(task.id, "pause", { actorId: "alice" });
-    expect(f.change(task.id, "edit", { phases: phases("bob") }).phases[0].assigneeId).toBe("bob");
-  });
-});

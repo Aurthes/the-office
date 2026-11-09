@@ -150,9 +150,9 @@ class OfficeTodos {
       const id = old?.id || uuid(); if (seen.has(id)) throw new Error("Phase IDs must be unique"); seen.add(id);
       const assigneeId = phase.assigneeId === undefined ? old ? old.assigneeId : mode ? null : undefined : phase.assigneeId;
       const agent = this.agents().find(a => a.id === assigneeId);
-      if (assigneeId != null && !agent && assigneeId !== old?.assigneeId) throw new Error("Choose an existing phase assignee");
-      if (old && assigneeId !== old.assigneeId && old.completedAt != null) throw new Error("Reopen the phase before changing its recorded assignment");
-      return { ...(old || {}), ...(assigneeId !== undefined ? { assigneeId, assigneeName: assigneeId == null ? null : agent?.name || old?.assigneeName || null } : {}), ...(mode ? { status: old?.status || (old?.completedAt != null ? "done" : "queued") } : {}), id, title: text(phase.title, "Phase title", 160), notes: text(phase.notes ?? old?.notes ?? "", "Phase notes", 3000, true),
+      if (mode && assigneeId != null && !agent && assigneeId !== old?.assigneeId) throw new Error("Choose an existing phase assignee");
+      if (mode && old && assigneeId !== old.assigneeId && old.completedAt != null) throw new Error("Reopen the phase before changing its recorded assignment");
+      return { ...(old || {}), ...(mode ? { ...(assigneeId !== undefined ? { assigneeId, assigneeName: agent?.name || old?.assigneeName || null } : {}), status: old?.status || (old?.completedAt != null ? "done" : "queued") } : {}), id, title: text(phase.title, "Phase title", 160), notes: text(phase.notes ?? old?.notes ?? "", "Phase notes", 3000, true),
         elapsedMs: old?.elapsedMs || 0, startedAt: old?.startedAt ?? null, completedAt: old?.completedAt ?? null };
     });
   }
