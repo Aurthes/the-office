@@ -218,14 +218,43 @@ data or stores prompt, tool-output or reasoning bodies. Unsupported runtime/sour
 versions or schemas are reported explicitly; an unverified custom CLI override
 disables this reader. Ordinary account usage remains usable.
 
-Coverage is incomplete: missing usage, some failures/background calls, actual
-response status and historical task attribution may be unknown. No records does
-not mean zero consumption. Office's AI usage overview, today's date and account
-bar drill-down all use UTC days: [00:00 UTC, next day 00:00 UTC). UTC was the
-closest account-day candidate in a multi-day comparison; the provider has not
-confirmed its day boundaries. Account numbers remain unchanged, and remaining
-coverage/scope differences mean the two totals need not match. This does not
-change other application or system timezones.
+Office's default view uses the last **24 complete hours**, anchored by the
+server to the UTC hour: `[end - 24 hours, end)`. Overview, purpose composition,
+records and pages share that anchor and immutable snapshot. A new hour opens a
+new first page; stale replies cannot replace it. Local time is for display only,
+so daylight-saving changes still cover 24 real hours. The existing date/timezone
+query and account-day drill-down remain available. New clients use `schemaVersion: 2`
+for the expanded purpose/source union (rolling queries imply v2); old day clients
+receive unsupported new categories under their existing Unknown label, with
+`recordedPurpose` retaining the actual category. Token totals are unchanged; provider account numbers are
+an independent reference and are never used to scale Office totals.
+
+Coverage is incomplete. Known Office roots, metadata-proven descendants and
+helpers in the same isolated runtime home use the existing read-only reader.
+Helpers without a proven employee association remain unattributed. Metadata
+recovery uses bounded background `thread/list` pages, including archived and
+subagent source kinds; chat/frame callbacks only enqueue bounded metadata.
+Native and suggestion records with the same provider response identity are
+counted once across roots, children, forks, replay and restart. Conflicting
+values are exposed, not added. Different response IDs still count separately.
+
+Dictation records existing HTTP response usage before text validation. Valid
+reported input + output tokens are counted; missing cache/reasoning components
+stay null. Duration-only seconds are not converted to tokens. Every actual
+POST has its own attempt ID, including an existing auth retry; preflight rejection
+is not a provider attempt. Request IDs are namespace-scoped deduplication aliases.
+Failed, cancelled or malformed results without usage stay unknown. No audio,
+transcript, authentication data or full provider response is retained. Numeric
+receipts use the same asynchronous index; a hard crash can lose an unflushed
+HTTP/sample receipt when upstream offers no replayable ledger.
+
+Foreground compaction response records are already counted. Background
+compaction budget updates lack recoverable per-response identity; native realtime
+audio and arbitrary external AI tools also lack a usable usage contract here.
+The coverage status list distinguishes embedded cost, partial measurement,
+upstream-unavailable and unsupported paths. Unknown usage is not zero and unknown
+purpose does not discard known usage. No claim of 100% numerical coverage is made;
+original historical purposes and failed upstream usage are never guessed.
 
 A private asynchronous derived index under `office-runtime/token-usage` avoids
 rescanning original logs on each query. Detail covers at most the latest **14
@@ -238,7 +267,7 @@ Current-day saturation stops indexing with a visible coverage warning.
 
 Purpose tags come from existing business entry points, not message keywords or
 the latest Task/Owner. The exclusive measured categories are chat/user work,
-gray suggestions, scheduled work, firefighter work, collaboration-triggered
+gray suggestions, dictation, scheduled work, firefighter work, collaboration-triggered
 work, mixed and unknown. Collaboration includes actual task execution; it is
 not a measurement of pure coordination overhead. Continue/recovery inherit the
 recorded original purpose; different-purpose steering makes that turn mixed.

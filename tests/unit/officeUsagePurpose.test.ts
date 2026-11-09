@@ -83,7 +83,7 @@ it.each([true, false])("reconciles exact sample/rollout response IDs in either o
   await appendFile(f.file, record("same")); await f.collect();
   if (!sampleFirst) { f.sample("same", { inputTokens: 80, cachedInputTokens: 0, outputTokens: 20 }); await f.c.running; }
   const result = await f.read(); expect(result.count).toBe(1); expect(result.purposeSummary.denominatorTokens).toBe(100); expect(result.rows[0].purpose).toBe("suggestion"); expect(result.rows[0].sourceKinds.sort()).toEqual(["nativeRollout", "threadSample"]);
-  await f.c.close(); expect((await f.read({}, f.create())).count).toBe(1);
+  await f.c.close(); const restored = await f.read({}, f.create()); expect(restored.count).toBe(1); expect(restored.rows[0].usage).toEqual(result.rows[0].usage);
 });
 it("keeps first values on conflicting cross-source usage, and rejects invalid/misidentified samples", async () => {
   const f = await fixture(); f.sample("same"); await f.c.running; await appendFile(f.file, record("same")); await f.collect();

@@ -1,5 +1,5 @@
 "use strict";
-const PURPOSES = ["chat_work", "suggestion", "automation", "operational_task", "collaboration_mixed", "mixed", "unknown"];
+const PURPOSES = ["chat_work", "suggestion", "dictation", "automation", "operational_task", "collaboration_mixed", "mixed", "unknown"];
 const FIELDS = ["input", "cachedInput", "uncachedInput", "cacheWriteInput", "output", "reasoningOutput", "otherOutput", "total"];
 const number = value => Number.isSafeInteger(value) && value >= 0;
 const isSample = row => row.source?.kind === "threadSample" || row.sourceKinds?.includes("threadSample");
@@ -14,6 +14,7 @@ function sampleUsageOf(value) {
     cacheWriteInput: null, reasoningOutput: null, otherOutput: null, total: input !== null && output !== null && number(input + output) ? input + output : null };
 }
 function purposeOf(row, bindings) {
+  if (row.source?.kind === "dictation") return "dictation";
   if (isSample(row)) return "suggestion";
   const value = bindings[`${row.nativeThreadId}:${row.turnId}`]?.purpose?.id;
   return PURPOSES.includes(value) ? value : "unknown";
@@ -45,10 +46,10 @@ function purposeSummary(rows, purposesRecordedFrom) {
     }),
     unmeasured: [
       { id: "origin", status: "embedded", tokens: null, share: null },
-      { id: "context_management", status: "unlinked", tokens: null, share: null },
-      { id: "dictation", status: "uncovered", tokens: null, share: null },
-      { id: "realtime_voice", status: "uncovered", tokens: null, share: null },
-      { id: "external_native", status: "uncovered", tokens: null, share: null },
+      { id: "context_management", status: "partial", tokens: null, share: null },
+      { id: "dictation", status: "partial", tokens: null, share: null },
+      { id: "realtime_voice", status: "upstreamUnavailable", tokens: null, share: null },
+      { id: "external_native", status: "partial", tokens: null, share: null },
       { id: "company_planning", status: "backendUnsupported", tokens: null, share: null },
     ].map(value => ({ ...value, measuredResponses: null })) };
 }

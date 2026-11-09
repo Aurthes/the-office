@@ -51,8 +51,9 @@ const native = new CodexOfficeClient({
   if (["account/login/completed", "account/updated"].includes(frame.method)) dictate?.refresh({ reset: true });
   workspace?.handle(frame);
   if (composer?.handleToolCall(frame)) return;
-  const mapped = store?.handle(frame); if (!mapped) return;
+  tokenUsage?.observeNative(frame);
   if (["thread/tokenUsage/updated", "turn/started", "turn/completed"].includes(frame.method)) tokenUsage?.hint(frame.params?.threadId);
+  const mapped = store?.handle(frame); if (!mapped) return;
   voice?.handle(mapped);
   controls?.handle(mapped); if (mapped.params?.threadId) stream?.changed(mapped.params.threadId);
   schedules?.handle(mapped);
@@ -67,6 +68,7 @@ store = new CodexOfficeStore(directory, native, changed, id => Boolean(voice?.ac
 store.ensureCeo();
 tokenUsage = new OfficeTokenUsage({ directory, home: native.home, sessions: () => store.data.sessions,
   tasks: () => todos?.rows || new Map(),
+  listSources: p => native.call("thread/list", p),
   nativeVersion: process.env.CLAW3D_CODEX_BIN ? null : require("@openai/codex/package.json").version,
   resolveSource: async threadId => (await native.call("thread/read", { threadId, includeTurns: false })).thread?.path,
 });
@@ -296,7 +298,7 @@ const methods = {
   "agents.files.get": async () => ({ file: { missing: true } }),
   "exec.approvals.get": async () => ({ file: { agents: {} } }),
 };
-dictate = createOfficeDictation({ token, findThread: id => store.get(id), home: native.home,
+dictate = createOfficeDictation({ token, onUsage: value => tokenUsage.recordDictation(value), findThread: id => store.get(id), home: native.home,
   refreshAuth: () => native.call("account/read", { refreshToken: true }),
   onStatus: status => {
     Object.assign(features, status);
@@ -339,9 +341,9 @@ wss.on("connection", ws => {
 const checkpoint = setInterval(() => { try { todos.checkpoint(); } catch (error) { console.error("Could not save task timer:", error.message); } }, 15000); checkpoint.unref();
 const tick = setInterval(() => broadcast("tick", { ts: Date.now() }), 30000); tick.unref();
 async function close(code = 0) {
-  if (stopping) return; stopping = true; clearInterval(tick); clearInterval(checkpoint); todos?.close(); clearTimeout(rosterTimer); dictate.close(); schedules.close(); controls.close();
+  if (stopping) return; stopping = true; clearInterval(tick); clearInterval(checkpoint); todos?.close(); clearTimeout(rosterTimer); const dictationClosed = dictate.close(); schedules.close(); controls.close();
   for (const ws of clients) { stream.disconnected(ws); ws.close(1001, "Office stopping"); }
-  wss.close(); server.close(); await tokenUsage.close(); await workspace.close(); await native.close(); process.exitCode = code;
+  wss.close(); server.close(); await dictationClosed; await tokenUsage.close(); await workspace.close(); await native.close(); process.exitCode = code;
 }
 for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => void close());
 async function restoreSessionStates() {

@@ -13,7 +13,7 @@ function fixture(options: Record<string, unknown> = {}) {
   const writeAuth = (accessToken = "office-test-token") => fs.writeFileSync(path.join(home, "auth.json"), JSON.stringify({ auth_mode: "chatgpt", tokens: { access_token: accessToken, account_id: "office-test-account" } }));
   writeAuth();
   const onStatus = vi.fn();
-  const handler = createOfficeDictation({ token: "private", findThread: vi.fn(), home, onStatus, ...options });
+  const handler = createOfficeDictation({ token: "private", findThread: vi.fn(() => ({ id: "own", codexThreadId: "native-own" })), home, onStatus, ...options });
   cleanups.push(() => { handler.close(); fs.rmSync(home, { recursive: true, force: true }); });
   function request(audio = Buffer.from("synthetic-audio"), authorization = "Bearer private") {
     const req = Object.assign(Readable.from([audio]), { headers: { authorization }, url: "/dictation?threadId=own" });
@@ -155,4 +155,31 @@ describe("Office standalone dictation", () => {
     expect(timeout).toHaveBeenCalledWith(60000); expect(r.res.status).toBe(503); expect(r.res.body).not.toContain("private detail");
     expect(f.onStatus.mock.calls.at(-1)![0].dictation).toBe(true);
   });
+});
+
+it("reports token usage before rejecting empty text and isolates metering failures", async () => {
+  const onUsage = vi.fn((value: Record<string, unknown>) => { expect(value).toHaveProperty("attemptId"); throw new Error("meter unavailable"); });
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ text: "", usage: { type: "tokens", input_tokens: 100, output_tokens: 5, total_tokens: 105 } }, { headers: { "x-request-id": "request-one" } })));
+  const f = fixture({ onUsage }), r = f.request(); await r.run();
+  expect(r.res.status).toBe(422);
+  expect(onUsage).toHaveBeenCalledOnce();
+  expect(onUsage.mock.calls[0][0]).toMatchObject({ officeAgentId: "own", contextNativeThreadId: "native-own", providerKind: "chatgptSubscription", providerRequestId: "request-one", unit: "tokens", usage: { input: 100, output: 5, total: 105, cachedInput: null, reasoningOutput: null } });
+  expect(JSON.stringify(onUsage.mock.calls)).not.toMatch(/synthetic-audio|transcribed words|Authorization|office-test-token/);
+});
+it("records only actual POST attempts, including the auth retry and duration-only result", async () => {
+  const onUsage = vi.fn(), refreshAuth = vi.fn();
+  const fetcher = vi.fn().mockResolvedValueOnce(new Response("", { status: 401 })).mockResolvedValueOnce(Response.json({ text: "ok", usage: { type: "duration", seconds: 2.5 } })); vi.stubGlobal("fetch", fetcher);
+  const f = fixture({ onUsage, refreshAuth }), bad = f.request(Buffer.alloc(0)); await bad.run(); expect(onUsage).not.toHaveBeenCalled();
+  const r = f.request(); await r.run(); expect(r.res.status).toBe(200); expect(onUsage).toHaveBeenCalledTimes(2);
+  expect(onUsage.mock.calls[0][0].attemptId).not.toBe(onUsage.mock.calls[1][0].attemptId);
+  expect(onUsage.mock.calls[0][0]).toMatchObject({ status: "failed", unit: "unknown", usage: { total: null } });
+  expect(onUsage.mock.calls[1][0]).toMatchObject({ unit: "seconds", durationSeconds: 2.5, usage: { total: null }, usageReason: "durationOnly" });
+});
+
+it("flushes an aborted in-flight POST observation before graceful dictation close resolves", async () => {
+  const onUsage = vi.fn(); let started: () => void = () => {};
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => { init.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }); started(); })));
+  const f = fixture({ onUsage }), r = f.request(), pending = r.run(); await ready; await f.handler.close(); await pending;
+  expect(onUsage).toHaveBeenCalledOnce(); expect(onUsage.mock.calls[0][0]).toMatchObject({ status: "interrupted", unit: "unknown", usage: { total: null } });
 });

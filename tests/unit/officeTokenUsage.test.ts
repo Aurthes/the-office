@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { mkdtemp, mkdir, writeFile, appendFile, readFile, readdir, stat, rm, rename, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UsageDetail } from "@/features/ring-ship/ai-center";
 const { OfficeTokenUsage, usageOf, parameters } = createRequire(import.meta.url)("../../server/office-token-usage.js");
 const roots: string[] = [], collectors: { close(): Promise<void> }[] = [];
@@ -212,4 +212,89 @@ describe("detail date, capacity and stable pagination", () => {
   it.each([{ date: "2026-02-30" }, { timeZone: "../../secret" }, { timeZone: "Invalid/Zone" }, { limit: 101 }, { limit: 0 }, { sort: "prompt" }, { agentId: "../x" }, { path: "/etc/passwd" }, { cursor: 123 }])("rejects invalid query %j", async patch => {
     expect(() => parameters({ date: DATE, timeZone: "UTC", ...patch }, NOW)).toThrow();
   });
+});
+
+describe("expanded sources and anchored windows", () => {
+  it("discovers a real parent-child-grandchild chain and a local helper without creating employees, globally deduplicates and recovers", async () => {
+    const f = await fixture(); await writeFile(f.file, meta() + record());
+    for (const native of ["child", "grandchild", "helper"]) {
+      f.paths[native] = path.join(path.dirname(f.file), `rollout-${native}.jsonl`);
+      await writeFile(f.paths[native], meta(native) + record(native + "-response", { thread_id: native }));
+    }
+    await appendFile(f.paths.child, record("resp-one", { thread_id: "child" }));
+    for (const thread of [{ id: "child", parentThreadId: "native-one" }, { id: "grandchild", source: { subAgent: { thread_spawn: { parent_thread_id: "child", depth: 2 } } } }, { id: "helper", source: { subAgent: "memory_consolidation" } }]) f.collector.observeNative({ method: "thread/started", params: { thread } });
+    await f.collect(); let result = await f.detail();
+    expect(result.count).toBe(4); expect(result.purposeSummary.denominatorTokens).toBe(480);
+    expect(result.rows.find(r => r.responseId === "grandchild-response")?.officeAgentId).toBe("agent-one");
+    expect(result.rows.find(r => r.responseId === "helper-response")?.officeAgentId).toBeNull(); expect(f.sessions).toHaveLength(2);
+    await f.collector.close(); result = await f.detail({}, f.create()); expect(result.count).toBe(4); expect(result.purposeSummary.denominatorTokens).toBe(480);
+  });
+  it("recovers subAgent metadata in bounded background pages and rejects outside-home and unknown-parent sources", async () => {
+    const listSources = vi.fn(async (p: { archived: boolean }) => ({ data: p.archived ? [] : [{ id: "outside", source: { subAgent: "review" } }, { id: "orphan", parentThreadId: "external" }], nextCursor: null }));
+    const f = await fixture({ listSources }); f.paths.outside = path.join(f.root, "rollout-outside.jsonl"); await writeFile(f.paths.outside, meta("outside") + record("out", { thread_id: "outside" }));
+    f.collector.refresh(); await f.collector.running; const result = await f.detail();
+    expect(listSources).toHaveBeenCalledWith(expect.objectContaining({ archived: true, useStateDbOnly: true, sourceKinds: expect.arrayContaining(["subAgentCompact", "subAgentThreadSpawn"]) }));
+    expect(result.count).toBe(0); expect(result.coverage.knownGaps.unmappedNativeSource).toBeGreaterThan(0);
+  });
+  it("keeps dictation nullable units, replaces one attempt and persists aliases without merging provider namespaces", async () => {
+    const f = await fixture();
+    const value = { officeAgentId: "agent-one", contextNativeThreadId: "native-one", attemptId: "attempt-one", providerKind: "openaiApi", providerRequestId: null, usage: { input: null, output: null, total: null, cachedInput: null, uncachedInput: null, cacheWriteInput: null, reasoningOutput: null, otherOutput: null }, unit: "seconds", durationSeconds: 3, usageReason: "durationOnly", status: "completed" };
+    f.collector.recordDictation(value); await f.collector.running;
+    expect((await f.detail()).purposeSummary.denominatorTokens).toBeNull();
+    const measured = { ...value, unit: "tokens", providerRequestId: "resp-one", usage: { ...value.usage, input: 40, output: 2, total: 42 } };
+    f.collector.recordDictation(measured); f.collector.recordDictation(measured); await f.collector.running;
+    await writeFile(f.file, meta() + record()); await f.collect();
+    let result = await f.detail(); expect(result.count).toBe(2); expect(result.purposeSummary.denominatorTokens).toBe(162);
+    expect(result.rows.find(r => r.sourceKind === "dictation")?.usage.reasoningOutput).toBeNull();
+    f.collector.recordDictation({ ...measured, attemptId: "new-attempt", providerRequestId: "new-request" }); await f.collector.running;
+    await f.collector.close(); result = await f.detail({}, f.create()); expect(result.count).toBe(3); expect(result.purposeSummary.denominatorTokens).toBe(204);
+  });
+  it("freezes the server-hour anchor, membership, denominator, filters and pages across a new hour", async () => {
+    let now = NOW + 59 * 60000; const f = await fixture({ now: () => now });
+    await writeFile(f.file, meta() + record("start", {}, "2026-11-07T12:00:00Z") + record("middle", {}, TS) + record("end", {}, "2026-11-08T12:00:00Z") + record("later", {}, "2026-11-08T12:30:00Z")); await f.collect();
+    const first = await f.collector.detail({ window: "rolling24h", limit: 1 });
+    expect(first.window).toEqual({ kind: "rolling24h", start: "2026-11-07T12:00:00.000Z", end: "2026-11-08T12:00:00.000Z", timeZone: "UTC" }); expect(first.count).toBe(2); expect(first.purposeSummary.denominatorTokens).toBe(240);
+    now += 2 * 60000;
+    const second = await f.collector.detail({ window: "rolling24h", limit: 1, cursor: first.nextCursor }); expect(second.window).toEqual(first.window); expect(second.rows[0].id).not.toBe(first.rows[0].id);
+    const purpose = await f.collector.detail({ window: "rolling24h", snapshot: first.snapshot, purpose: "unknown", includeRecords: false }); expect(purpose.purposeSummary.denominatorTokens).toBe(240);
+    const fresh = await f.collector.detail({ window: "rolling24h" }); expect(fresh.count).toBe(3); expect(fresh.window.end).toBe("2026-11-08T13:00:00.000Z");
+    await expect(f.collector.detail({ window: "rolling24h", end: fresh.window.end, snapshot: first.snapshot })).rejects.toThrow(/expired|filters/);
+  });
+  it.each(["2026-03-08T07:59:00Z", "2026-11-01T06:01:00Z", "2027-01-01T00:00:00Z"])("uses exactly 24 real hours across DST/year at %s", now => {
+    const p = parameters({ window: "rolling24h" }, Date.parse(now)); expect(Date.parse(p.window.end) - Date.parse(p.window.start)).toBe(86400000); expect(Date.parse(p.window.end) % 3600000).toBe(0);
+    expect(() => parameters({ window: "rolling24h", date: DATE }, NOW)).toThrow();
+  });
+});
+
+it("marks a capacity-cut rolling window partial and preserves the floor after restart", async () => {
+  const f = await fixture(); await writeFile(f.file, meta() + record("old", {}, "2026-11-07T18:00:00Z") + record("current")); await f.collect();
+  f.collector.evict("2026-11-07"); f.collector.floor = "2026-11-08"; await f.collector.prune(); await f.collector.close();
+  const restored = f.create(), r = await restored.detail({ window: "rolling24h" });
+  expect(r.windowPartial).toBe(true); expect(r.count).toBe(1); expect(r.purposeSummary.denominatorTokens).toBe(120); expect(r.coverage.capacityLimited).toBe(true);
+});
+it("queues new source and dictation hooks with bounded O(1) work and no synchronous discovery/history", async () => {
+  const f = await fixture(); f.collector.running = new Promise(() => {}); f.collector.known = () => { throw new Error("hot-path scan"); };
+  for (let i = 0; i < 1100; i++) { f.collector.observeNative({ method: "thread/started", params: { thread: { id: "child-" + i, parentThreadId: "native-one" } } }); f.collector.recordDictation({ attemptId: "a" + i }); }
+  expect(f.collector.sourceQueue.length).toBe(1024); expect(f.collector.dictationQueue.length).toBe(1024); expect(f.reads()).toBe(0);
+  expect(f.collector.gaps).toMatchObject({ sourceBackpressure: 76, dictationBackpressure: 76 });
+  f.collector.sourceQueue.length = 0; f.collector.dictationQueue.length = 0; f.collector.running = null;
+});
+
+it("resolves trusted ownership once per file rather than once per response", async () => {
+  const f = await fixture(), known = vi.spyOn(f.collector, "known");
+  await writeFile(f.file, meta() + Array.from({ length: 200 }, (_, i) => record("response-" + i)).join(""));
+  await f.collect(); expect(known.mock.calls.length).toBeLessThan(20); expect((await f.detail()).count).toBe(200);
+});
+
+it("keeps provider units explicit and rejects malformed token totals/details without relaxing native validation", () => {
+  const { transcriptionUsage } = createRequire(import.meta.url)("../../server/office-usage-adapters.js");
+  for (const value of [{ type: "tokens", input_tokens: 2, output_tokens: 1, total_tokens: 4 }, { type: "tokens", input_tokens: 2, output_tokens: 1, total_tokens: 3, input_token_details: { audio_tokens: 3 } }, { type: "tokens", input_tokens: -1, output_tokens: 1, total_tokens: 0 }]) expect(transcriptionUsage(value).usage.total).toBeNull();
+  expect(transcriptionUsage({ type: "duration", seconds: 10 })).toMatchObject({ unit: "seconds", usage: { input: null, output: null, total: null } });
+  expect(usageOf({ ...usage, cached_input_tokens: null })).toBeNull();
+});
+
+it("keeps old day clients safe from new enum labels while v2/day and rolling retain exact dictation purpose and S", async () => {
+  const f = await fixture(); f.collector.recordDictation({ officeAgentId: "agent-one", attemptId: "old-client", providerKind: "openaiApi", unit: "tokens", durationSeconds: null, usage: { input: 2, output: 1, total: 3, cachedInput: null, uncachedInput: null, cacheWriteInput: null, reasoningOutput: null, otherOutput: null } }); await f.collector.running;
+  const legacy = await f.detail(); expect(legacy.purposeSummary.purposes.some(p => p.id === "dictation")).toBe(false); expect(legacy.rows[0].purpose).toBe("unknown");
+  const next = await f.detail({ schemaVersion: 2 }); expect(next.rows[0].purpose).toBe("dictation"); expect(next.purposeSummary.denominatorTokens).toBe(legacy.purposeSummary.denominatorTokens);
 });
