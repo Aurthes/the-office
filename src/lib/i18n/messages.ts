@@ -1,5 +1,10 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "System": "系统",
+  "Owner follow-up": "Owner 跟进任务",
+  "Progress details": "展开记录",
+  "Recorded excerpts. Open the task record for full reports and context.": "这里是已记录的原文节选；完整报告及上下文见任务详情。",
+  "Open full task record": "查看完整任务记录",
   "Task progress": "任务进度",
   "Task progress for {name}": "{name} 的任务进度",
   "Recent progress": "最近进展",

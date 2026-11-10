@@ -70,7 +70,32 @@ it("shows recorded progress separately from each current phase/person/wait state
   expect(table.querySelector('[data-head-work-id="b1234567"]')).toHaveTextContent("Waiting for Reviewer");
   expect(table.querySelector('[data-head-work-id="c1234567"]')).toHaveTextContent("Pause reason not recorded");
   expect(table.querySelector('time[datetime="1970-01-01T00:00:10.000Z"]')).toBeTruthy();
+  fireEvent.click(screen.getByText("Progress details"));
   fireEvent.click(screen.getByRole("button", { name: "Completed implementation" })); expect(onOpenTask).toHaveBeenCalledWith("parent", "done");
+});
+it("defaults to one true action, keeps older/unscoped text collapsed and preserves state timestamps when expanded", () => {
+  const onOpenTask = vi.fn();
+  const recorded = { ...tracking, recent: [
+    { action: "Submitted", at: 40000, actorId: "worker", phaseId: "b1234567", detail: "Submitted excerpt; final acceptance is still pending." },
+    { action: "Completed", at: 10000, actorId: "worker", phaseId: "done", detail: "Older result with important limitations" },
+  ], unscopedNote: { at: 1000, text: "Old unscoped pause note, unrelated to current work" } };
+  render(createElement(HeadTaskOverview, { name: "Head", rows: headTaskRows("head", [{ ...phased, tracking: recorded }]), names, loading: false, error: "", onOpenTask, onClose: vi.fn() }));
+  const table = screen.getByRole("table"), latest = table.querySelector(".head-latest-progress")!, details = table.querySelector("details")!;
+  expect(table.querySelectorAll(".head-latest-progress")).toHaveLength(1); expect(latest).toHaveTextContent("EmployeeSubmittedP-b1234567"); expect(latest).not.toHaveTextContent("Completed");
+  expect(details).not.toHaveAttribute("open"); expect(screen.getByText("Older result with important limitations")).not.toBeVisible(); expect(screen.getByText("Old unscoped pause note, unrelated to current work")).not.toBeVisible();
+  expect(table.querySelector(".head-work-pairs")).not.toHaveTextContent("Old unscoped pause note");
+  const before = [...table.querySelectorAll(".head-state-age time")].map(n => n.getAttribute("datetime"));
+  fireEvent.click(screen.getByText("Progress details"));
+  expect(screen.getByText("Older result with important limitations")).toBeVisible(); expect(screen.getByText("Submitted excerpt; final acceptance is still pending.")).toBeVisible();
+  expect(screen.getByText("Old unscoped pause note, unrelated to current work")).toBeVisible();
+  expect([...table.querySelectorAll(".head-state-age time")].map(n => n.getAttribute("datetime"))).toEqual(before);
+  fireEvent.click(screen.getByRole("button", { name: "Open full task record" })); expect(onOpenTask).toHaveBeenCalledWith("parent", undefined);
+});
+it("labels system operations separately from employee actions", () => {
+  const system = { ...tracking, recent: [{ action: "Started", at: 10000, actorId: null, actorSource: "system", actorName: "Office", phaseId: null, detail: "System operation" }] };
+  render(createElement(HeadTaskOverview, { name: "Head", rows: headTaskRows("head", [{ ...task, tracking: system }]), names, loading: false, error: "", onOpenTask: vi.fn(), onClose: vi.fn() }));
+  expect(document.querySelector(".head-latest-progress strong")).toHaveTextContent("System");
+  expect(document.querySelector(".head-latest-progress")).not.toHaveTextContent("Employee");
 });
 it("keeps prior draft DOM mounted and returns focus when the header action closes the same overview", () => {
   function Harness() {
