@@ -21,7 +21,7 @@ const properties = {
   instructions: { type: "string", minLength: 1, maxLength: 6000, description: "This handoff's goal, meaningful changes and genuine constraints; refer to already shared context rather than restating it; executor chooses implementation" },
   acceptanceCriteria: { type: "string", minLength: 1, maxLength: 3000, description: "Distinct observable success conditions not already stated in instructions; refer to shared criteria rather than repeating them" },
   report: { type: "string", minLength: 1, maxLength: 6000, description: "Conclusion, decisive evidence and important limits; details linked; omit known context" },
-  accept: { type: "boolean" }, notes: { type: "string", minLength: 1, maxLength: 6000, description: "Manager's verification evidence when accepting, or concrete correction feedback when returning" },
+  accept: { type: "boolean" }, notes: { type: "string", minLength: 1, maxLength: 6000, description: "Manager's verification conclusion, decisive evidence and important limits when accepting; link full check records instead of reproducing them; concrete correction feedback when returning" },
 };
 const definitions = [
   ["organization", "Read your live role, managers and direct reports plus department responsibilities, existing Heads, members and roles. Default: all departments for CEO, own department for others. Set allDepartments=true for the full directory, or departmentId for one department (null means Open Workspace). Everyone may look up other departments; this does not change filesystem or system permissions; reporting lines are default routing, not task-execution authorization. Use your own actorId.", ["actorId", "departmentId", "allDepartments"], ["actorId"]],
@@ -37,7 +37,7 @@ const definitions = [
   ["start", "Start or resume timing for the current phase Assignee without extra Head approval or a formal handoff. Phase-mode tasks require explicit phaseId and never start another phase. This does not send a message; busy, actor and task-state checks still apply.", ["id", "revision", "actorId", "phaseId"], ["id", "revision", "actorId"]],
   ["pause", "Pause timing when blocked or waiting for a person; include a reason.", ["id", "revision", "actorId", "reason", "phaseId"], ["id", "revision", "actorId"]],
   ["complete", "Check a verified phase with evidence recorded first. In phase mode, explicit phaseId is required, manager acceptance is protected and no other phase starts. The legitimately completed final phase automatically archives the task. Old tasks keep their sequential behavior.", ["id", "revision", "actorId", "phaseId"], ["id", "revision", "actorId", "phaseId"]],
-  ["reopen", "Reopen a phase preserving its time. Phase-mode work remains queued until explicitly started; old sequential tasks resume timing.", ["id", "revision", "actorId", "phaseId"], ["id", "revision", "actorId", "phaseId"]],
+  ["reopen", "Reopen a phase preserving its time. In phase mode the Owner or recorded acceptance manager may reopen it after its handoffs are resolved; work remains queued until explicitly started; old sequential tasks resume timing.", ["id", "revision", "actorId", "phaseId"], ["id", "revision", "actorId", "phaseId"]],
   ["archive", "Remove a to-do from the active board while retaining its history.", ["id", "revision", "actorId"], ["id", "revision", "actorId"]],
   ["restore", "Restore an archived unfinished to-do. Completed work stays archived: add or reopen a phase to follow up.", ["id", "revision", "actorId"], ["id", "revision", "actorId"]],
 ];

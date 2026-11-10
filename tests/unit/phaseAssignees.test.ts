@@ -452,3 +452,46 @@ it("does not date an older legacy activity from doc/timer metadata; missing actu
   const restored = new OfficeTodos(path.join(f.root, "office"), f.deps);
   expect(restored.bound(f.owner)).toBeNull(); expect(restored.context(f.owner).todoId).toBeNull(); expect(restored.phaseScope(f.owner)).toBeNull();
 });
+
+
+describe("reopening accepted phases with distinct Owner, executor and acceptance manager", () => {
+  async function accepted() {
+    const f = await fixture();
+    await f.delegate(f.pa, f.c, f.a);
+    f.advance(800); await f.submit(f.pa, f.c); await f.settle();
+    await f.review(f.pa, f.a);
+    expect(f.phase(f.pa)).toMatchObject({ status: "done", assigneeId: f.c, acceptanceManagerId: f.a });
+    return f;
+  }
+  it.each(["owner", "manager", "user"])("allows %s to reopen without rewriting accepted history or adding time", async role => {
+    const f = await accepted(), row = f.todos.raw(f.task.id);
+    const before = structuredClone(row), calls = f.client.call.mock.calls.length;
+    f.todos.change({ ...f.input(f.pa), actorId: role === "user" ? undefined : role === "owner" ? f.owner : f.a }, "reopen");
+    expect(f.phase(f.pa)).toMatchObject({ status: "queued", completedAt: null, startedAt: null, elapsedMs: before.phases[0].elapsedMs, assigneeId: f.c, acceptanceManagerId: f.a });
+    expect(row.delegations).toEqual(before.delegations);
+    const next = f.todos.raw(f.task.id);
+    expect(next.delegations).toEqual(before.delegations);
+    expect(next.phases.slice(1)).toEqual(before.phases.slice(1));
+    expect(f.client.call.mock.calls.length).toBe(calls);
+    const restored = new OfficeTodos(path.join(f.root, "office"), f.deps);
+    expect(restored.raw(f.task.id).phases).toEqual(next.phases);
+    expect(restored.raw(f.task.id).delegations).toEqual(before.delegations);
+    // Reopening changes no completion authority or actor validation.
+    expect(() => f.todos.change(f.input(f.pa, f.owner), "complete")).toThrow(/responsible manager/);
+    expect(() => f.todos.change(f.input(f.pa, f.c), "complete")).toThrow(/responsible manager/);
+  });
+  it.each(["executor", "unrelated", "unknown"])("rejects %s and stale revisions without mutating the record", async role => {
+    const f = await accepted(), before = structuredClone(f.todos.raw(f.task.id));
+    const actor = role === "executor" ? f.c : role === "unrelated" ? f.b : "missing-agent";
+    expect(() => f.todos.change(f.input(f.pa, actor), "reopen")).toThrow();
+    expect(() => f.todos.change({ ...f.input(f.pa, f.owner), revision: before.revision - 1 }, "reopen")).toThrow(/changed/);
+    expect(f.todos.raw(f.task.id)).toEqual(before);
+  });
+  it.each(["working", "review"])("preserves active %s handoff protection for Owner and manager", async state => {
+    const f = await fixture(); await f.delegate(f.pa, f.c, f.a);
+    if (state === "review") { await f.submit(f.pa, f.c); await f.settle(); }
+    const before = structuredClone(f.todos.raw(f.task.id));
+    for (const actor of [f.owner, f.a]) expect(() => f.todos.change(f.input(f.pa, actor), "reopen")).toThrow(/manager acceptance/);
+    expect(f.todos.raw(f.task.id)).toEqual(before);
+  });
+});

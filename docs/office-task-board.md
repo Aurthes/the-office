@@ -83,3 +83,8 @@ reply context. Receiving a notice needs no extra lookup to recover these fields;
 a real revision conflict still requires a refresh. New and historical notification
 headings remain readable without rewriting stored messages or summarizing their
 content with a model.
+
+Reopening a completed phase preserves its time and accepted handoff history.
+The task Owner or that phase's recorded acceptance manager can reopen it once
+its active handoffs are resolved. Reopening leaves the phase queued; it does
+not start work, change its executor, or grant completion/review authority.

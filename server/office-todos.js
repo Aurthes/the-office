@@ -255,7 +255,7 @@ class OfficeTodos {
     if (needsPhase && !phase) throw new Error("Choose an explicit task phase");
     const entry = phase && activeDelegation(row, phase.id), owner = taskOwnerId(row);
     if (["submit", "review", "recall"].includes(action) && (!input.handoffId || entry?.id !== input.handoffId)) throw new Error("Choose the exact active phase handoff; refresh the task");
-    if (phase && actor.id && !["delegate", "submit", "review", "recall"].includes(action) && actor.id !== handlingAgentId(row, phase.id) && actor.id !== owner) throw new Error("Only this phase's responsible agent or Owner can change its execution");
+    if (phase && actor.id && !["delegate", "submit", "review", "recall", "reopen"].includes(action) && actor.id !== handlingAgentId(row, phase.id) && actor.id !== owner) throw new Error("Only this phase's responsible agent or Owner can change its execution");
     let message;
     if (action === "edit") {
       if (input.title !== undefined) row.title = text(input.title, "To-do title", 200);
@@ -330,7 +330,9 @@ class OfficeTodos {
       message = input.reason ? text(input.reason, "Pause reason", 500) : `Paused phase: ${phase.title}`;
     } else if (action === "complete" || action === "reopen") {
       if (entry) throw new Error("Submit and obtain this phase's manager acceptance before checking it complete or reopening it");
-      if (actor.id && actor.id !== (phase.acceptanceManagerId || owner)) throw new Error("Only this phase's responsible manager can complete or reopen it");
+      if (action === "reopen") {
+        if (actor.id && actor.id !== owner && actor.id !== phase.acceptanceManagerId) throw new Error("Only the Owner or this phase's acceptance manager can reopen it");
+      } else if (actor.id && actor.id !== (phase.acceptanceManagerId || owner)) throw new Error("Only this phase's responsible manager can complete it");
       this.stopClock(row, this.now(), phase.id); delete phase.activity;
       phase.completedAt = action === "complete" ? phase.completedAt ?? this.now() : null; phase.status = action === "complete" ? "done" : "queued";
       message = `${action === "complete" ? "Completed" : "Reopened"} phase: ${phase.title}`;

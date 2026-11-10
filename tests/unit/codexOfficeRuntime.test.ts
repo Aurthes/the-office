@@ -51,6 +51,13 @@ describe("independent Office runtime", () => {
       expect(text).not.toContain("target is not your direct report, explain the routing gap");
       expect(text.split(OFFICE_COLLABORATION_GUIDELINE)).toHaveLength(2);
       expect(text).toContain("replaces earlier communication wording");
+      expect(text).toContain("Before sending, distill what the recipient needs to decide or act");
+      expect(text).toContain("Keep complete execution and verification records in the task or linked evidence");
+      expect(text).toContain("If a key fact is missing, ask for it");
+      expect(text).toContain("preserve its original-message link through question_context and reply metadata");
+      expect(text).toContain("Do not copy their UUIDs or URLs into prose unless needed to disambiguate");
+      expect(text).not.toContain("every public response must identify");
+      expect(text).not.toContain("Use shared context and send only meaningful changes.");
       expect(text).toContain("Q/original-message links and material negative results");
       expect(text).toContain("Workers own each authorized phase end to end");
       expect(text).toContain("Use todo_review to accept with evidence or return gaps to the worker");
@@ -58,6 +65,7 @@ describe("independent Office runtime", () => {
     }
     expect(worker).not.toContain(DEPARTMENT_HEAD_GUIDELINE);
     expect(head.split(DEPARTMENT_HEAD_GUIDELINE)).toHaveLength(2);
+    expect(head).toContain("delegate the next complete outcome and relevant changes instead of repeating the plan or shared workflow");
     expect(DEPARTMENT_HEAD_GUIDELINE).toContain("workers choose implementation and own execution");
     expect(f.store.companyContext).toHaveBeenCalledTimes(2);
     expect(f.client.call.mock.calls.map(([method]) => method)).toEqual(["thread/start", "thread/inject_items", "turn/start", "thread/inject_items", "turn/start"]);

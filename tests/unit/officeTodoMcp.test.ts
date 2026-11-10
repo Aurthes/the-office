@@ -13,6 +13,9 @@ it("guides colleague-style handoffs without changing delegation or submission sc
   const { tools } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");
   const delegate = tools.find((tool: { name: string }) => tool.name === "todo_delegate");
   const submit = tools.find((tool: { name: string }) => tool.name === "todo_submit");
+  const review = tools.find((tool: { name: string }) => tool.name === "todo_review");
+  expect(review.inputSchema.properties.notes.description).toContain("verification conclusion, decisive evidence and important limits");
+  expect(review.inputSchema.properties.notes.description).toContain("link full check records instead of reproducing them");
   expect(delegate.description).toContain("leaving implementation to the executor");
   expect(delegate.inputSchema.properties.instructions).toMatchObject({ minLength: 1, maxLength: 6000, description: expect.stringContaining("executor chooses implementation") });
   expect(delegate.inputSchema.properties.instructions.description).toContain("refer to already shared context rather than restating it");
