@@ -10,7 +10,7 @@ const { prepareOfficeProfile } = require("../../server/codex-office-profile.js")
 const { WORKFLOW, TASK_WORKFLOW } = require("../../server/office-company.js");
 const { CodexOfficeStore } = require("../../server/codex-office-store.js");
 const { CodexSessionControls } = require("../../server/codex-session-controls.js");
-const { DEPARTMENT_HEAD_GUIDELINE } = require("../../server/office-head-guideline.js");
+const { OFFICE_COLLABORATION_GUIDELINE, DEPARTMENT_HEAD_GUIDELINE } = require("../../server/office-head-guideline.js");
 const { ceo: CEO_ID } = require("../../src/lib/office/identities.json");
 const roots: string[] = [];
 afterEach(() => { roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })); });
@@ -33,7 +33,7 @@ async function session(f: ReturnType<typeof fixture>) {
   return (await f.store.createSession({ name: "Own chat", projectId: project.id, requestId: "session" })).threadId;
 }
 describe("independent Office runtime", () => {
-  it("shares question-level delta reporting with workers without assigning them the Head identity", async () => {
+  it("delivers colleague collaboration guidance to workers and promoted Heads in the existing context", async () => {
     const f = fixture(), id = await session(f), source = path.join(f.root, "source-config"); mkdirSync(source);
     const profile = prepareOfficeProfile(f.directory, { CODEX_HOME: source, HOME: f.root }, WORKFLOW + "\n" + TASK_WORKFLOW);
     const shared = parse(profile.overrides.filter((_: string, index: number) => index % 2 === 1).join("\n")).developer_instructions as string;
@@ -43,14 +43,14 @@ describe("independent Office runtime", () => {
     const payloads = f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items").map(([, params]) =>
       (params as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text);
     const worker = shared + "\n" + payloads[0], head = shared + "\n" + payloads[1];
+    expect(shared).not.toContain(OFFICE_COLLABORATION_GUIDELINE);
     expect(shared.split("Direct user instructions authorize the addressed agent")).toHaveLength(2);
     for (const text of [worker, head]) {
       expect(text).toContain("do not require extra Head approval");
       expect(text).toContain("not execution permission");
       expect(text).not.toContain("target is not your direct report, explain the routing gap");
-      expect(text).toContain("Keep questions, handoffs and reports at the level asked");
-      expect(text).toContain("send only changes affecting the recipient's judgment, inputs, constraints or next action");
-      expect(text).toContain("do not repeat known plans, require rereading them or send no-action FYIs");
+      expect(text.split(OFFICE_COLLABORATION_GUIDELINE)).toHaveLength(2);
+      expect(text).toContain("replaces earlier communication wording");
       expect(text).toContain("Q/original-message links and material negative results");
       expect(text).toContain("Workers own each authorized phase end to end");
       expect(text).toContain("Use todo_review to accept with evidence or return gaps to the worker");
@@ -58,7 +58,7 @@ describe("independent Office runtime", () => {
     }
     expect(worker).not.toContain(DEPARTMENT_HEAD_GUIDELINE);
     expect(head.split(DEPARTMENT_HEAD_GUIDELINE)).toHaveLength(2);
-    expect(DEPARTMENT_HEAD_GUIDELINE.split(/\s+/)).toHaveLength(134);
+    expect(DEPARTMENT_HEAD_GUIDELINE).toContain("workers choose implementation and own execution");
     expect(f.store.companyContext).toHaveBeenCalledTimes(2);
     expect(f.client.call.mock.calls.map(([method]) => method)).toEqual(["thread/start", "thread/inject_items", "turn/start", "thread/inject_items", "turn/start"]);
   });
@@ -125,7 +125,7 @@ describe("independent Office runtime", () => {
     expect(text.split(DEPARTMENT_HEAD_GUIDELINE)).toHaveLength(2);
     expect(text).toContain("inactive for other roles or unavailable role data");
     expect(text).toContain("replaces earlier Head role definitions");
-    expect(DEPARTMENT_HEAD_GUIDELINE.split(/\s+/)).toHaveLength(134);
+    expect(DEPARTMENT_HEAD_GUIDELINE).toContain("workers choose implementation and own execution");
     expect(f.store.companyContext).toHaveBeenCalledExactlyOnceWith(id);
     expect(f.client.call.mock.calls.map(([method]) => method)).toEqual(["thread/start", "thread/inject_items", "turn/start"]);
   });
@@ -184,9 +184,9 @@ describe("independent Office runtime", () => {
     expect(f.store.companyContext).toHaveBeenCalledTimes(3);
   });
 
-  it("refreshes legacy cached context once, then reuses it on subsequent turns", async () => {
+  it.each(["Worker", "Head"])("refreshes legacy cached %s context once, then reuses it on subsequent turns", async title => {
     const f = fixture(), id = await session(f);
-    f.store.companyContext = () => ({ agentId: id, title: "Head" });
+    f.store.companyContext = () => ({ agentId: id, title });
     await f.store.call("turn/start", { threadId: id, input: [] });
     const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
     const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
@@ -198,6 +198,7 @@ describe("independent Office runtime", () => {
     await restored.call("turn/start", { threadId: id, input: [] });
     expect(injections()).toHaveLength(2);
     expect(JSON.stringify(injections()[1])).toContain("Current Office project context");
+    expect(JSON.stringify(injections()[1])).toContain(OFFICE_COLLABORATION_GUIDELINE);
     expect(JSON.stringify(injections()[1])).not.toContain("Office question workflow:");
     await restored.call("turn/start", { threadId: id, input: [] });
     expect(injections()).toHaveLength(2);

@@ -9,6 +9,17 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
 const { createGatewayClient } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");
+it("guides colleague-style handoffs without changing delegation or submission schemas", () => {
+  const { tools } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");
+  const delegate = tools.find((tool: { name: string }) => tool.name === "todo_delegate");
+  const submit = tools.find((tool: { name: string }) => tool.name === "todo_submit");
+  expect(delegate.description).toContain("leaving implementation to the executor");
+  expect(delegate.inputSchema.properties.instructions).toMatchObject({ minLength: 1, maxLength: 6000, description: expect.stringContaining("executor chooses implementation") });
+  expect(delegate.inputSchema.properties.acceptanceCriteria).toMatchObject({ minLength: 1, maxLength: 3000, description: "Observable success for the assigned question" });
+  expect(submit.inputSchema.properties.report).toMatchObject({ minLength: 1, maxLength: 6000, description: expect.stringContaining("important limits") });
+  expect(delegate.inputSchema.required).toEqual(["id", "revision", "actorId", "assigneeId", "instructions", "acceptanceCriteria", "requestId"]);
+  expect(submit.inputSchema.required).toEqual(["id", "revision", "actorId", "report", "requestId"]);
+});
 it("exposes nullable Owner metadata independently on create/edit/list without changing delegation inputs", () => {
   const { tools } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");
   for (const name of ["todo_create", "todo_edit", "todo_list"]) {
