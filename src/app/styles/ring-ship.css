@@ -1,7 +1,10 @@
-.ship-sidebar { position: absolute; top: 12px; left: 12px; z-index: 20; display: flex; flex-direction: column; gap: 12px; width: 260px; max-width: calc(100% - 24px); max-height: calc(100% - 24px); overflow-y: auto; overscroll-behavior: contain; }
+.ship-sidebar { --ship-sidebar-hud-bottom:var(--ship-hud-bottom,16px); position: absolute; top: 12px; left: 12px; z-index: 20; display: flex; flex-direction: column; gap: 12px; width: 260px; max-width: calc(100% - 24px); max-height: calc(100% - 24px - var(--ship-sidebar-hud-bottom) - var(--ship-summary-height,0px)); overflow-y: auto; overscroll-behavior: contain; }
+.ship-sidebar:has(.office-company-actions form) { width:min(440px,calc(100% - 24px)); }
 .ship-sidebar > * { flex-shrink: 0; }
 .ship-office .office-company-menu { position: relative; top: auto; left: auto; }
-.ship-office .office-company-panel { max-width: none; }
+.ship-office .office-company-panel { width:100%; max-width:none; }
+.ship-office .office-company-actions { width:100%; min-width:0; }
+.ship-office .office-company-panel form { max-height:none; overflow:visible; }
 .ship-heading { max-width: calc(100% - 520px); }
 /* Music stays on the bottom edge; corner cards reserve its height above that row. */
 .ship-office:has(.music-mini) { --ship-hud-bottom:72px; }
@@ -62,8 +65,9 @@
   .ship-heading > div:nth-child(2) { display: none; }
 }
 @media (max-width: 767px), (max-height: 600px) and (orientation: landscape) {
-  .ship-sidebar { display: contents; }
-  .ship-office .office-company-menu { position: absolute; top: 12px; left: 12px; }
+  .ship-sidebar { --ship-sidebar-hud-bottom:var(--ship-hud-bottom,72px); }
+  .ship-office .office-company-panel { position:static; top:auto; left:auto; max-height:none; overflow:visible; }
+  .ship-office .office-company-toggle { margin-bottom:6px; }
   .ship-crew-dock { position: absolute; bottom: 12px; left: 12px; z-index: 20; }
   .ship-crew-bar { display: flex; padding: 4px; }
   .ship-crew-avatar { display: none; }
@@ -87,8 +91,7 @@
     border-radius: 10px; background: rgb(13 27 34 / 95%); font-size: 12px;
   }
   .ship-office .office-company-panel {
-    position: absolute; top: calc(100% + 6px); left: 0; width: min(260px, calc(100vw - 24px));
-    max-height: calc(100dvh - 70px); overflow: auto; overscroll-behavior: contain; padding: 10px;
+    padding: 10px;
   }
   .ship-office .office-company-menu:not([data-open="true"]) .office-company-panel { display: none; }
   .ship-office .office-company-panel-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 12px; }

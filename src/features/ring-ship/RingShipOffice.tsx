@@ -8,6 +8,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { registerFurniture } from "./furnitureCollisions";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Environment, Lightformer, OrbitControls } from "@react-three/drei";
+import { useShipSidebarSpace } from "./useShipSidebarSpace";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import * as THREE from "three";
 import { BrainCircuit, CalendarClock, Monitor, Home, Layers3, Settings2, Volume2, VolumeX, X } from "lucide-react";
@@ -415,6 +416,8 @@ export function RingShipOffice(props: Props) {
   const openTeasers = useCallback(() => { closeObject(); if (onOpenTeaserBoard) onOpenTeaserBoard(); else setLocalTeasersOpen(true); }, [closeObject, onOpenTeaserBoard]);
   const openAiCenter = () => { closeObject(); setAiOpen(true); };
   const overlayRef = useRef<HTMLDivElement>(null);
+  const shipRootRef = useRef<HTMLDivElement>(null), summaryRef = useRef<HTMLDivElement>(null);
+  useShipSidebarSpace(shipRootRef, summaryRef);
   const pendingFocus = useRef("");
   const busy = !!trip;
   const [crewDecks, setCrewDecks] = useState<Record<string, DeckIndex>>({});
@@ -581,7 +584,7 @@ export function RingShipOffice(props: Props) {
     }),
   ];
   const button = "flex h-9 min-w-9 items-center justify-center rounded-lg border border-white/15 bg-[#122735]/90 px-2 text-xs text-[#b8cccf] hover:border-[#d7af77]/70";
-  return <div className={`ship-office relative h-full w-full overflow-hidden bg-[#081421] text-[#deebea]${navigationOpen ? " star-navigation-active" : ""}`} data-star-system={system.id} data-navigation-phase={navigationPreview ? navigation.phase : undefined} data-ship-focused-person={props.activeChatAgentId || (currentLayout.seats[validFocus] ? validFocus : undefined)} data-ship-deck={visibleDeck} data-ship-mode={shipView ? "ship" : "deck"} data-ship-travelling={busy} data-ship-visible-crew={visibleAgents.length} data-ship-sectors={layout.allocation.sectors} data-ship-reserves={reserveCount} data-ship-projects={roster.projects.length} data-ship-placed={agents.filter(agent => layout.seats[agent.id]).length}>
+  return <div ref={shipRootRef} className={`ship-office relative h-full w-full overflow-hidden bg-[#081421] text-[#deebea]${navigationOpen ? " star-navigation-active" : ""}`} data-star-system={system.id} data-navigation-phase={navigationPreview ? navigation.phase : undefined} data-ship-focused-person={props.activeChatAgentId || (currentLayout.seats[validFocus] ? validFocus : undefined)} data-ship-deck={visibleDeck} data-ship-mode={shipView ? "ship" : "deck"} data-ship-travelling={busy} data-ship-visible-crew={visibleAgents.length} data-ship-sectors={layout.allocation.sectors} data-ship-reserves={reserveCount} data-ship-projects={roster.projects.length} data-ship-placed={agents.filter(agent => layout.seats[agent.id]).length}>
     {renderProbeEnabled ? <Suspense fallback={null}><RenderProbe onShadowsChange={setProbeShadows} /></Suspense> : null}
     <Canvas orthographic frameloop={monitorOpen || serversOpen || todoOpen || teasersOpen || !!terminalHost ? "never" : "always"} dpr={[0.85, 1.5]} camera={{ position: [25, 40, 36], zoom: 12, near: 0.1, far: 5000 }} shadows={probeShadows}
       gl={{ antialias: true, powerPreference: "high-performance" }} onPointerMissed={() => { setLiftOpen(false); closeObject(); }} onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.95; gl.domElement.dataset.shipReady = "true"; }}>
@@ -643,7 +646,7 @@ export function RingShipOffice(props: Props) {
     </fieldset>
     <div className="ship-bottom-hud">
     <fieldset className="contents" disabled={busy}>
-    <div className="ship-summary pointer-events-none rounded-xl border border-white/10 bg-[#102531]/90 px-4 py-3">
+    <div ref={summaryRef} className="ship-summary pointer-events-none rounded-xl border border-white/10 bg-[#102531]/90 px-4 py-3">
       <div className="text-xs text-[#e1cb9f]">{selected ? (selected.kind === "work" && selected.projectId !== SHARED_PROJECT_ID ? selected.name : t(selected.name)) : shipView ? t("Three-ring ship · Whole ship") : `L${visibleDeck + 1} · ${t(DECK_NAMES[visibleDeck])}`}</div>
       <div className="mt-1 text-[11px] text-[#9fb9c2]">{selected ? t(PUBLIC_DESCRIPTIONS[selected.kind]) : t("{0} projects · {1} sessions · {2} reserve cabins", { "0": roster.projects.length, "1": agents.length, "2": reserveCount })}</div>
       {selected?.kind === "monitor" ? <button type="button" onClick={openTaskBoard} className="pointer-events-auto mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#71d3c8]/40 px-3 text-xs text-[#b7eee0] hover:bg-white/10">{t("Open task board")}</button> : null}
