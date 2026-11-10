@@ -14,6 +14,15 @@ function fixture() {
 }
 const user = (itemId: string, content: string, turnId = "turn") => ({ id: `${turnId}:${itemId}`, turnId, role: "user", content });
 const answer = (itemId: string, turnId = "turn") => ({ id: `${turnId}:${itemId}`, turnId, role: "assistant", content: "Answer" });
+it("keeps readable and historical notices out of original-user provenance", () => {
+  const { sourceOf } = createRequire(import.meta.url)("../../server/office-reply-context");
+  const taskId = "00000000-0000-4000-8000-000000000100";
+  const current = `**From agent: worker2**\n\n[T100 · Goal](task://${taskId})\n\nKey result`;
+  const legacy = `**From agent: worker2**\n\nWork on delegated Office task ${taskId}: Goal\nTask update: {}`;
+  expect(sourceOf("head", user("new", current))).toBeNull();
+  expect(sourceOf("head", user("old", legacy))).toBeNull();
+  expect(sourceOf("head", user("question", `[Goal](task://${taskId}) needs review`))).not.toBeNull();
+});
 const define = (context: InstanceType<typeof OfficeReplyContext>, actor: string, summary: string, extra = {}) => context.context(actor, { questions: [{ key: "q", summary, ...extra }], answering: ["q"], requestId: summary });
 
 it("registers a clarified child directly with its exact unique current source and original ancestry", async () => {
@@ -130,7 +139,7 @@ it("carries the selected child step through nested handoffs and reports without 
   const child = await define(context, "ceo", "Verify RPI and non-RPI coverage", { parentQuestionId: parent });
   const delegated = taskReplyContext(task, child.context);
   context.prepare("head", "handoff", delegated);
-  context.record("head", user("notification", "Work on delegated Office task maker"), "handoff");
+  context.record("head", user("notification", "**From agent: CEO**\n\n[Maker](task://00000000-0000-4000-8000-000000000100)\n\nVerify coverage"), "handoff");
   const nested = taskReplyContext(task, context.current("head")); context.prepare("worker", "nested", nested);
   context.record("worker", user("inbox", "Do the work"), "nested"); context.record("worker", answer("report"));
   context.record("head", user("other", "Fix the department panel", "different")); await define(context, "head", "Department panel");

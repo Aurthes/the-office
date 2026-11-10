@@ -321,7 +321,8 @@ class OfficeTodos {
       if (!agentId) throw new Error("Assign an Owner before starting");
       this.assertPhaseAvailable(agentId, row.id, phase.id);
       this.stopClock(row, this.now(), phase.id); phase.startedAt = this.now(); phase.lastStartedAt = this.now(); phase.status = "running";
-      phase.activity = { agentId, role: entry ? entry.state === "review" ? "reviewer" : "worker" : "self", handoffId: entry?.id || null, requestId: input.activityId || uuid(), turnId: null, startedAt: phase.lastStartedAt };
+      const noticeRevision = input.notice ? row.revision + 1 : phase.activity?.agentId === agentId && phase.activity.handoffId === (entry?.id || null) ? phase.activity.noticeRevision : undefined;
+      phase.activity = { agentId, role: entry ? entry.state === "review" ? "reviewer" : "worker" : "self", handoffId: entry?.id || null, requestId: input.activityId || uuid(), turnId: null, startedAt: phase.lastStartedAt, ...(noticeRevision === undefined ? {} : { noticeRevision }) };
       message = `Started phase: ${phase.title}`;
     } else if (action === "pause") {
       if (input.activityId && phase.activity?.requestId !== input.activityId) return this.get(input);
@@ -400,7 +401,12 @@ class OfficeTodos {
   }
   context(agentId) {
     const scope = this.executionScope(agentId), row = scope?.row, phase = scope?.phase, entry = row && activeDelegation(row, phase?.id);
+    const noticeRevision = (phase ? phase.activity : row?.activity)?.noticeRevision;
     return { protocol: 6, agentId, todoId: row?.id || null, assigneeId: phase ? phase.assigneeId ?? null : row?.assigneeId || null,
+      ...(row ? { taskCode: row.code, taskTitle: row.title,
+        ...(entry ? { handoffState: entry.state, returnedForChanges: entry.state === "working" && entry.review?.accepted === false } : {}) } : {}),
+      // This is the received notice's CAS revision, not a per-turn clock nonce.
+      ...(noticeRevision === undefined ? {} : { notice: { revision: noticeRevision } }),
       handlingAgentId: row ? handlingAgentId(row, phase?.id) : null, reviewerId: entry?.state === "review" ? entry.managerId : null,
       ...(phase ? { runningPhaseId: phase.id, phaseTitle: phase.title, handoffId: entry?.id || null, activityId: phase.activity?.requestId, activityRole: phase.activity?.role } : row?.activity ? { activityId: row.activity.requestId, activityRole: "legacy", handoffId: entry?.id || null } : {}), delegatedTasks: this.delegated(agentId) };
   }
@@ -523,7 +529,11 @@ class OfficeTodos {
     const handler = handlingAgentId(row);
     if (row.status === "running" && handler) {
       this.assertPhaseAvailable(handler, row.id, null);
-      if (!row.activity || row.activity.agentId !== handler || previous.status !== "running" || action === "start" || input.activityId && row.activity.requestId !== input.activityId) row.activity = { agentId: handler, role: "legacy", handoffId: activeDelegation(row)?.id || null, requestId: input.activityId || uuid(), turnId: null, startedAt: row.lastStartedAt };
+      if (!row.activity || row.activity.agentId !== handler || previous.status !== "running" || action === "start" || input.activityId && row.activity.requestId !== input.activityId) {
+        const handoffId = activeDelegation(row)?.id || null;
+        const noticeRevision = input.notice ? row.revision + 1 : row.activity?.agentId === handler && row.activity.handoffId === handoffId ? row.activity.noticeRevision : undefined;
+        row.activity = { agentId: handler, role: "legacy", handoffId, requestId: input.activityId || uuid(), turnId: null, startedAt: row.lastStartedAt, ...(noticeRevision === undefined ? {} : { noticeRevision }) };
+      }
       for (const other of this.rows.values()) if (!isPhaseTask(other) && other.id !== row.id && handlingAgentId(other) === handler && other.status === "running") this.change({ id: other.id, revision: other.revision, source: "system", reason: "Agent switched to another to-do" }, "pause");
     }
     row.revision++; row.updatedAt = this.now(); this.event(row, message, actor); this.save(row);
@@ -551,12 +561,12 @@ class OfficeTodos {
     if (this.delegated(agentId).length) throw new Error("Review or recall this agent's open delegations before archiving the conversation");
   }
   bound(agentId) { return this.executionScope(agentId)?.row || null; }
-  startForAgent(agentId, id, phaseId, activityId) {
+  startForAgent(agentId, id, phaseId, activityId, notice = false) {
     const row = this.raw(id);
     if (isPhaseTask(row)) {
       const phase = row.phases.find(p => p.id === phaseId);
       if (!phase || row.archived || phase.completedAt != null || handlingAgentId(row, phaseId) !== agentId) throw new Error("Choose this agent's unfinished phase");
-      this.change({ id: row.id, revision: row.revision, phaseId, activityId, source: "system" }, "start");
+      this.change({ id: row.id, revision: row.revision, phaseId, activityId, source: "system", notice }, "start");
       return this.raw(row.id);
     }
     id = row.id;
@@ -564,9 +574,11 @@ class OfficeTodos {
     this.assertPhaseAvailable(agentId, row.id, null);
     for (const other of this.rows.values()) if (!isPhaseTask(other) && other.id !== id && handlingAgentId(other) === agentId && other.status === "running") this.change({ id: other.id, revision: other.revision, source: "system", reason: "Agent switched to another to-do" }, "pause");
     const requestId = activityId || uuid();
-    if (row.status !== "running" || activeDelegation(row)?.state === "working" && row.assigneeId !== agentId) this.change({ id, revision: row.revision, activityId: requestId, source: "system", execute: true }, "start");
-    if (this.raw(id).activity?.requestId !== requestId) {
-      const next = structuredClone(this.raw(id)); next.activity = { agentId, role: "legacy", handoffId: activeDelegation(next)?.id || null, requestId, turnId: null, startedAt: this.now() }; this.save(next);
+    if (row.status !== "running" || activeDelegation(row)?.state === "working" && row.assigneeId !== agentId) this.change({ id, revision: row.revision, activityId: requestId, source: "system", execute: true, notice }, "start");
+    if (this.raw(id).activity?.requestId !== requestId || notice && this.raw(id).activity?.noticeRevision === undefined) {
+      const next = structuredClone(this.raw(id)), handoffId = activeDelegation(next)?.id || null;
+      const noticeRevision = notice ? next.revision : next.activity?.agentId === agentId && next.activity.handoffId === handoffId ? next.activity.noticeRevision : undefined;
+      next.activity = { agentId, role: "legacy", handoffId, requestId, turnId: null, startedAt: this.now(), ...(noticeRevision === undefined ? {} : { noticeRevision }) }; this.save(next);
     }
     this.bindings.set(agentId, id); return this.raw(id);
   }

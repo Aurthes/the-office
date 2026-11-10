@@ -66,3 +66,20 @@ In chat, type `@task` and search by code or title. Choose a result to keep its U
 in the reference, even when tasks have identical titles. Sending it adds only a
 short link and retrieval instruction; it neither duplicates the plan nor starts
 a task. See [composer references](codex-composer.md) for editing and link behavior.
+
+## Readable task notifications
+
+Handoffs, submitted reports and return feedback show the recorded sender, a short
+task link and the recipient's content. They do not print transport JSON or repeat
+workflow instructions. The UUID is only the task link's routing target. Sender
+identity comes from the validated action actor, not the current assignee; forwarding
+a report does not change its original execution record.
+
+The existing model task context carries `notice.revision` for that notification's
+CAS operation, together with the phase, handoff and handling/review identities.
+The revision is captured in the existing dispatch activity write, rather than
+changing with ordinary turn nonces. Q/original-message links use the existing
+reply context. Receiving a notice needs no extra lookup to recover these fields;
+a real revision conflict still requires a refresh. New and historical notification
+headings remain readable without rewriting stored messages or summarizing their
+content with a model.

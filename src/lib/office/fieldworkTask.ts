@@ -1,3 +1,5 @@
+import { officeTaskNotice } from "@/lib/text/office-task-notice";
+
 export type SiteTask = string | { taskId: string; title: string; phase?: string; revision?: number };
 export type FieldworkTaskSummary = {
   id: string; title: string; status: string; archived: boolean; handlingAgentId?: string | null;
@@ -14,13 +16,8 @@ export function isTaskContinuation(text: string) {
 // reports, cleanup instructions and examples of completely unrelated rooms.
 export function siteTaskMessage(text: string): SiteTask | null {
   if (!text.trim() || isTaskContinuation(text)) return null;
-  const match = /^(?:Work on delegated Office task|Work on Office task|Office delegation submitted for your acceptance\. Task|Finish manager acceptance for Office task) ([a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}): ([^\r\n]+)(?:\r?\n|$)/i.exec(text.trim());
-  if (match) {
-    let phase: string | undefined;
-    try { const update = JSON.parse(text.trim().split(/\r?\n/)[1]?.replace(/^Task update: /, "")); if (typeof update.phaseTitle === "string") phase = update.phaseTitle; } catch { /* Older notifications contain only the heading. */ }
-    return { taskId: match[1], title: match[2], ...(phase ? { phase } : {}) };
-  }
-  if (/^(?:Work on (?:delegated )?Office task|Office delegation submitted|Finish manager acceptance)/i.test(text.trim())) return "";
+  const notice = officeTaskNotice(text);
+  if (notice !== null) return notice || "";
   return isWorkDirective(text) ? text.slice(0, 12000) : "";
 }
 export function latestSiteTask(messages: readonly { role: string; content: string }[]): SiteTask | null {

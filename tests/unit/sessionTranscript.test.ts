@@ -3,15 +3,21 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, expect, it, vi } from "vitest";
 import { SessionTranscript } from "../../src/features/office/components/SessionTranscript";
 import { createRequire } from "node:module";
+import { SessionTaskContext } from "../../src/features/office/components/SessionTaskContext";
 afterEach(cleanup);
 
 it("keeps the system-generated sender visible before a collapsed long handoff", () => {
   const { taskNotification } = createRequire(import.meta.url)("../../server/office-delegation");
-  const content = taskNotification({ id: "task", title: "Goal", revision: 1, phases: [] }, { state: "review", report: "Result. ".repeat(120), delivery: { sender: { source: "agent", id: "worker-id", name: "Worker name" } } });
-  const view = render(React.createElement(SessionTranscript, { messages: [{ id: "handoff", role: "user", content }] }));
+  const taskId = "00000000-0000-4000-8000-000000000100", openTask = vi.fn();
+  const content = taskNotification({ id: taskId, code: "T100", title: "Goal", revision: 1, phases: [] }, { state: "review", report: "Result. ".repeat(120), delivery: { sender: { source: "agent", id: "worker-id", name: "Worker name" } } });
+  const view = render(React.createElement(SessionTaskContext.Provider, { value: openTask }, React.createElement(SessionTranscript, { messages: [{ id: "handoff", role: "user", content }] })));
   expect(screen.getByText("From agent: Worker name").tagName).toBe("STRONG");
   expect(screen.getByRole("button", { name: "Expand message" })).toHaveAttribute("aria-expanded", "false");
   expect(view.container.textContent).not.toContain("Sender not recorded");
+  expect(view.container.textContent).not.toContain(taskId);
+  expect(view.container.textContent).not.toContain("Task update");
+  fireEvent.click(screen.getByRole("button", { name: "T100 · Goal" }));
+  expect(openTask).toHaveBeenCalledWith(taskId);
 });
 
 it("shows one origin per continuous work run, including A to B to A, while retaining final citations", () => {

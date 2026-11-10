@@ -194,7 +194,7 @@ const methods = {
     if (todos.raw(p.id).revision !== p.revision) throw new Error("This to-do changed. Refresh it before starting");
     const delivery = activeDelegation(row)?.delivery;
     if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "sending");
-    todos.startForAgent(recipient, row.id, undefined, p.requestId);
+    todos.startForAgent(recipient, row.id, undefined, p.requestId, true);
     try {
       const result = await controls.send(recipient, taskNotification(todos.raw(row.id), undefined, undefined, todos.actor(p)), p.requestId, [], { onlyIfIdle: true, replyContext: entry?.replyContext || taskReplyContext(row), usage: { purpose: "collaboration_mixed", trigger: "todoRun", originId: entry?.id || row.id } });
       if (result.status === "busy") throw new Error("Agent became busy; the task was not sent");

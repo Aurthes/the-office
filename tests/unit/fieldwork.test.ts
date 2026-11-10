@@ -105,6 +105,10 @@ it("routes controlled Teaser work to break, keeps explicit clone work, and rejec
   const { layout } = fixture();
   const header = "Work on delegated Office task 00000000-0000-4000-8000-000000000074: Teaser看板、会话入口与逐题白板\nTask update: {\"instructions\":\"保护其他/cloning/研究\"}";
   expect(resolveWorksite(latestSiteTask([{ role: "user", content: header }]), layout, 0)?.kind).toBe("break");
+  const readable = "**From agent: Head**\n\n[T74 · Teaser看板、会话入口与逐题白板](task://00000000-0000-4000-8000-000000000074)\n\n保护其他/cloning/研究。修复rainforest示例。";
+  expect(latestSiteTask([{ role: "user", content: readable }])).toMatchObject({ taskId: "00000000-0000-4000-8000-000000000074", title: "Teaser看板、会话入口与逐题白板" });
+  expect(resolveWorksite(latestSiteTask([{ role: "user", content: readable }]), layout, 0)?.kind).toBe("break");
+  expect(resolveWorksite(latestSiteTask([{ role: "user", content: `**From agent: Head**\n\n${header}` }]), layout, 0)?.kind).toBe("break");
   for (const task of ["Teaser board", "修改趣题看板", "Teaser白板；保护cloning", "Teaser，保留 /tmp/cloning/cache", "Teaser，cloning/cache", "Teaser，清理cloning目录", "Teaser，不修改克隆舱", "Teaser，例如 gym", "Teaser，do not change cloning", "Teaser，`cloning`", "Teaser，```text\ncloning\n```"])
     expect(resolveWorksite(task, layout, 0)?.kind, task).toBe("break");
   expect(resolveWorksite({ taskId: "task", title: "Teaser board", phase: "修复克隆舱内的Teaser展示" }, layout, 0)?.kind).toBe("cloning");

@@ -55,6 +55,29 @@ async function fixture() {
   return { root, store, client, company, todos, deps, runtime, nativeFrame, owner, a, b, c, task, pa, pb, pc, input, delegate, entry, phase, submit, review, available, send, settle, advance: (ms: number) => { now += ms; } };
 }
 describe("independent phase execution through actual dispatch callbacks", () => {
+  it("captures hidden handoff metadata in the existing developer context with no added query", async () => {
+    const f = await fixture(); await f.delegate(f.pa, f.a);
+    const entry = f.entry(f.pa), context = f.todos.context(f.a);
+    expect(context).toMatchObject({ todoId: f.task.id, notice: { revision: f.todos.raw(f.task.id).revision }, runningPhaseId: f.pa, phaseTitle: "Teaser", handoffId: entry.id, handoffState: "working", taskTitle: "Shared work" });
+    const inject = f.client.call.mock.calls.find(([method]) => method === "thread/inject_items") as unknown as [string, { items: { content: { text: string }[] }[] }];
+    expect(inject[1].items[0].content[0].text).toContain(`"revision":${context.notice.revision}`);
+    expect(inject[1].items[0].content[0].text).toContain(`"handoffId":"${entry.id}"`);
+    expect(f.client.call.mock.calls.map(([method]) => method)).toEqual(["thread/start", "thread/inject_items", "turn/start"]);
+    const body = f.send.mock.calls[0][1];
+    expect(body).toContain("Bounded work\n\nEvidence");
+    expect(body).not.toContain(entry.id); expect(body).not.toContain(f.pa);
+    expect(body).not.toMatch(/Task update|todo_get|todo_submit|Work on delegated|System task notification/);
+    // Settle the pre-existing sending -> sent receipt context change first.
+    await f.store.call("turn/start", { threadId: f.a, input: [] });
+    const callsBefore = f.client.call.mock.calls.length;
+    // The revision moved out of prose remains usable for a real CAS edit.
+    f.todos.change({ id: context.todoId, revision: context.notice.revision, actorId: f.a, documentation: "Verified metadata" }, "edit");
+    expect(() => f.todos.change({ id: context.todoId, revision: context.notice.revision, actorId: f.a, documentation: "Stale" }, "edit")).toThrow(/changed/);
+    f.todos.change(f.input(f.pa, f.a), "start");
+    expect(f.todos.context(f.a).notice).toEqual(context.notice);
+    await f.store.call("turn/start", { threadId: f.a, input: [] });
+    expect(f.client.call.mock.calls.slice(callsBefore).map(([method]) => method)).toEqual(["turn/start"]);
+  });
   it("keeps phase sender provenance for owner handoff, worker report and human return", async () => {
     const f = await fixture(); await f.delegate(f.pa, f.a);
     expect(f.entry(f.pa).delivery.sender).toEqual({ source: "agent", id: f.owner, name: "Owner" });

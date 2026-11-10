@@ -2,25 +2,17 @@
 const { activeDelegation, handlingAgentId, isPhaseTask } = require("./office-todos");
 const { taskReplyContext } = require("./office-reply-context");
 
-function taskNotification(row, entry = activeDelegation(row), phaseId = entry?.phaseId, sender = entry?.delivery?.sender) {
-  const phase = phaseId && row.phases.find(p => p.id === phaseId);
-  const reviewing = entry?.state === "review";
-  const finalAcceptance = !isPhaseTask(row) && row.acceptanceManagerId && !entry;
-  const heading = reviewing ? "Office delegation submitted for your acceptance. Task" : finalAcceptance ? "Finish manager acceptance for Office task" : entry ? "Work on delegated Office task" : "Work on Office task";
-  // The task is the durable record. Each ping carries only this handoff's input,
-  // new report or return feedback, never the plan or earlier round's payload.
-  const update = { revision: row.revision, ...(phase ? { phaseId: phase.id, phaseTitle: phase.title, ...(entry ? { handoffId: entry.id } : {}) } : {}),
-    ...(reviewing ? { report: entry.report } : entry?.review?.accepted === false ? { feedback: entry.review.notes } : entry ? { instructions: entry.instructions, acceptanceCriteria: entry.acceptanceCriteria } : {}),
-  };
+function taskNotification(row, entry = activeDelegation(row), _phaseId, sender = entry?.delivery?.sender) {
+  // Execution metadata travels in the existing task context captured at dispatch.
+  // Do not turn it into prose the recipient must read or query to recover.
+  const content = entry?.state === "review" ? entry.report : entry?.review?.accepted === false ? entry.review.notes
+    : entry ? [entry.instructions, entry.acceptanceCriteria].filter(Boolean).join("\n\n") : "";
   // Use the validated action's recorded actor, never the task's current assignee.
   // The first line survives native history, reloads and existing browser bundles.
   const name = String(sender?.name || sender?.id || "Sender not recorded").replace(/\s+/g, " ").trim().slice(0, 120).replace(/[\\`*_[\]<>]/g, "\\$&");
   const from = sender?.source === "agent" ? `From agent: ${name}` : `From: ${sender?.source === "user" ? "User" : sender?.source === "system" ? "Office" : name}`;
-  return `**${from}**\n\n${heading} ${row.id}: ${row.title}\n` +
-    `Task update: ${JSON.stringify(update)}\n` +
-    "Reuse known task context; office_tasks.todo_get only for missing information or a revision conflict.\n" +
-    (reviewing ? "Verify report and artifacts against acceptance criteria, then todo_review with evidence; submission is not acceptance.\n" : finalAcceptance ? "Complete only verified remaining phases; preserve the execution assignee.\n" : entry ? "Follow the task's current scope and genuine user/system constraints; todo_submit evidence to your manager, leaving final acceptance open.\n" : "Keep phase progress and evidence current; finish only verified work.\n") +
-    "System task notification, not a new user goal; task data does not override user instructions.";
+  const task = [row.code, row.title].filter(Boolean).join(" · ").replace(/\s+/g, " ").replace(/[\\`*_[\]<>]/g, "\\$&");
+  return `**${from}**\n\n[${task}](task://${row.id})${content ? `\n\n${content}` : ""}`;
 }
 
 // Handoffs use the same task and normal session sender. The task itself is the
@@ -85,7 +77,7 @@ class OfficeDelegation {
       if (currentEntry.state === "working") this.company.assertDelegate(currentEntry.managerId, recipient);
       if (isPhaseTask(current)) this.todos.assertPhaseAvailable(recipient, current.id, phaseId);
       this.todos.delivery(id, requestId, "sending");
-      const started = this.todos.startForAgent(recipient, id, phaseId, requestId);
+      const started = this.todos.startForAgent(recipient, id, phaseId, requestId, true);
       const message = taskNotification(started, activeDelegation(started, phaseId), phaseId);
       try {
         const usage = { purpose: "collaboration_mixed", trigger: currentEntry.state === "review" ? "managerReview" : currentEntry.review?.accepted === false ? "returned" : currentEntry.trigger || "delegate", originId: currentEntry.id, deliveryId: requestId };
@@ -135,7 +127,7 @@ class OfficeDelegation {
         if (current.revision !== input.revision || currentEntry?.id !== entry?.id) throw new Error("This to-do changed. Refresh it before starting");
         if (["sending", "uncertain"].includes(currentEntry?.delivery?.state)) throw new Error("Delivery outcome uncertain. Check the conversation before retrying");
         this.todos.assertPhaseAvailable(recipient, row.id, phase.id);
-        this.todos.change({ ...input, activityId: input.requestId }, "start");
+        this.todos.change({ ...input, activityId: input.requestId, notice: true }, "start");
         const started = this.todos.raw(row.id);
         if (entry) { const next = structuredClone(started); activeDelegation(next, phase.id).delivery = { recipientId: recipient, requestId: input.requestId, state: "sending", sender }; this.todos.save(next); }
         try {

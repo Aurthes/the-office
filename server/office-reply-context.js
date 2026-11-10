@@ -4,9 +4,10 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { visibleUserText } = require("../src/lib/text/codex-visible-text");
 const { clipText } = require("./codex-session-items");
+const { officeTaskNotice } = require("../src/lib/text/office-task-notice");
 
 const sourceKey = source => `${source.threadId}:${source.turnId}:${source.itemId}`;
-const controlText = text => /^(?:Office delegation submitted|Work on (?:delegated )?Office (?:task|to-do)|Finish manager acceptance for Office task)\b/.test(text)
+const controlText = text => officeTaskNotice(text) !== null
   || /^Continue where you left off\.?$/i.test(text.trim());
 const uniqueSources = sources => [...new Map(sources.filter(source => source && !controlText(source.excerpt || "")).map(source => [sourceKey(source), source])).values()];
 function sourceOf(threadId, item) {
