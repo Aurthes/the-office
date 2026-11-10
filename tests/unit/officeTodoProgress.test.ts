@@ -42,6 +42,8 @@ it("keeps legacy task-level progress and real stop reasons without using edited 
   expect(tracking.recent[0]).toMatchObject({ action: "Completed", at: 1000, phaseId: "p" });
   expect(tracking.current[0]).toMatchObject({ phaseId: null, since: 2000, reason: "Agent turn ended; waiting for follow-up or a phase update" });
   expect(taskTracking({ ...row, status: "running", events: [] }).current[0].since).toBeNull();
+  const metadataOnly = taskTracking({ ...row, status: "running", activity: { agentId: "worker", startedAt: 9000 }, events: [{ at: 9000, message: "Plan, assignment or documentation updated", actor }] });
+  expect(metadataOnly.recent).toEqual([]); expect(metadataOnly.current[0].since).toBeNull();
 });
 it("retains unscoped custom pause wording as a note without pretending it proves phase identity or state start", () => {
   const row = { executionMode: "phases", phases: [{ id: "a", title: "A", status: "paused" }, { id: "b", title: "B", status: "paused" }], events: [{ at: 4000, message: "Waiting for the user to provide access", actor }] };

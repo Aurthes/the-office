@@ -42,7 +42,7 @@ function taskTracking(row) {
   }
   // activity.startedAt survives checkpoints; legacy lastStartedAt also changes
   // on edits, so it must never be used as an execution/state timestamp.
-  for (const p of mode ? phases : [row]) {
+  for (const p of mode ? phases : []) {
     const at = time(p.activity?.startedAt) ?? (mode ? time(p.lastStartedAt) : null);
     if (at !== null && !entries.some(e => e.action === "Started" && e.at === at && e.phaseId === (mode ? p.id : null))) add("Started", at, { id: p.activity?.agentId }, mode ? p.id : null, null, "activity");
   }
@@ -60,7 +60,7 @@ function taskTracking(row) {
     const phaseId = mode ? p.id : null, entry = [...handoffs].reverse().find(e => (e.phaseId || null) === phaseId && !["accepted", "recalled"].includes(e.state));
     const previous = states.get(phaseId), status = entry?.state === "review" && p.status !== "running" ? "review" : p.status;
     let since = null, reason = null, reasonCode = null, waitingForId = null;
-    if (status === "running") since = time(p.activity?.startedAt) ?? (mode ? time(p.lastStartedAt) : null) ?? (previous?.action === "Started" ? previous.at : null);
+    if (status === "running") since = (mode ? time(p.activity?.startedAt) ?? time(p.lastStartedAt) : null) ?? (previous?.action === "Started" ? previous.at : null);
     else if (status === "review") { since = time(entry?.submittedAt); reasonCode = "Submitted for manager acceptance"; waitingForId = entry?.managerId || null; }
     else if (status === "paused" && previous && ["Paused", "Accepted", "Recalled"].includes(previous.action)) { since = previous.at; reason = ["Paused", "Recalled"].includes(previous.action) && !/^(Work paused$|Paused phase: )/.test(previous.detail || "") ? previous.detail : null; }
     else if (status === "queued" && entry) {
