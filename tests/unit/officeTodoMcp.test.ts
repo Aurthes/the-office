@@ -15,7 +15,8 @@ it("guides colleague-style handoffs without changing delegation or submission sc
   const submit = tools.find((tool: { name: string }) => tool.name === "todo_submit");
   expect(delegate.description).toContain("leaving implementation to the executor");
   expect(delegate.inputSchema.properties.instructions).toMatchObject({ minLength: 1, maxLength: 6000, description: expect.stringContaining("executor chooses implementation") });
-  expect(delegate.inputSchema.properties.acceptanceCriteria).toMatchObject({ minLength: 1, maxLength: 3000, description: "Observable success for the assigned question" });
+  expect(delegate.inputSchema.properties.instructions.description).toContain("refer to already shared context rather than restating it");
+  expect(delegate.inputSchema.properties.acceptanceCriteria).toMatchObject({ minLength: 1, maxLength: 3000, description: expect.stringContaining("not already stated in instructions") });
   expect(submit.inputSchema.properties.report).toMatchObject({ minLength: 1, maxLength: 6000, description: expect.stringContaining("important limits") });
   expect(delegate.inputSchema.required).toEqual(["id", "revision", "actorId", "assigneeId", "instructions", "acceptanceCriteria", "requestId"]);
   expect(submit.inputSchema.required).toEqual(["id", "revision", "actorId", "report", "requestId"]);

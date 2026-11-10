@@ -18,8 +18,8 @@ const properties = {
   phases: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", properties: { id: { type: "string" }, title: { type: "string" }, notes: { type: "string" }, assigneeId: { type: ["string", "null"] } }, required: ["title"], additionalProperties: false } },
   phaseId: { type: "string" }, requestId: { type: "string", description: "Unique stable creation request ID; reuse on retry" }, reason: { type: "string" },
   status: { type: "string", enum: ["all", "queued", "running", "paused", "done", "archived"] }, query: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer", maximum: 25 },
-  instructions: { type: "string", minLength: 1, maxLength: 6000, description: "Plain-language goal, changes and genuine constraints; executor chooses implementation" },
-  acceptanceCriteria: { type: "string", minLength: 1, maxLength: 3000, description: "Observable success for the assigned question" },
+  instructions: { type: "string", minLength: 1, maxLength: 6000, description: "This handoff's goal, meaningful changes and genuine constraints; refer to already shared context rather than restating it; executor chooses implementation" },
+  acceptanceCriteria: { type: "string", minLength: 1, maxLength: 3000, description: "Distinct observable success conditions not already stated in instructions; refer to shared criteria rather than repeating them" },
   report: { type: "string", minLength: 1, maxLength: 6000, description: "Conclusion, decisive evidence and important limits; details linked; omit known context" },
   accept: { type: "boolean" }, notes: { type: "string", minLength: 1, maxLength: 6000, description: "Manager's verification evidence when accepting, or concrete correction feedback when returning" },
 };
