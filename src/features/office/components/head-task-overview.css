@@ -1,0 +1,25 @@
+.head-task-overview { width: min(900px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); margin: auto; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--foreground); font: 14px/1.45 system-ui, sans-serif; }
+.head-task-overview::backdrop { background: #0009; }
+.head-task-overview header { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+.head-task-overview h2 { margin: 0; font-size: 17px; overflow-wrap: anywhere; }
+.head-task-overview button { color: inherit; cursor: pointer; background: transparent; border: 0; font: inherit; }
+.head-task-overview header button { flex: 0 0 36px; height: 36px; display: grid; place-items: center; border-radius: 5px; }
+.head-task-overview button:hover { background: var(--muted); }
+.head-task-overview button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.head-task-scope, .head-task-overview small { color: var(--muted-foreground); }
+.head-task-scroll { overflow: auto; }
+.head-task-overview table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.head-task-col { width: 26%; } .head-work-col { width: 49%; } .head-person-col { width: 25%; }
+.head-task-overview th, .head-task-overview td { text-align: left; vertical-align: top; overflow-wrap: anywhere; border-bottom: 1px solid var(--border); padding: 10px 8px; }
+.head-task-overview tbody th { font-weight: normal; }
+.head-task-overview td.head-work-pairs { padding: 0; }
+.head-task-link { display: flex; flex-direction: column; width: 100%; text-align: left; overflow-wrap: anywhere; padding: 3px 0; border-radius: 3px; }
+.head-task-code { font-family: monospace; font-weight: 600; }
+.head-work-pair { display: grid; grid-template-columns: 49fr 25fr; }
+.head-work-pair + .head-work-pair { border-top: 1px solid var(--border); }
+.head-work-pair > div { min-width: 0; padding: 10px 8px; }
+.head-work-status, .head-work-people small, .head-work-people span { display: block; }
+.head-work-status { margin-bottom: 4px; }
+.head-work-people p { margin: 0 0 8px; }
+.head-work-people p:last-child { margin-bottom: 0; }
+@media (max-width: 480px) { .head-task-overview { padding: 10px; font-size: 12px; } .head-task-overview h2 { font-size: 15px; } .head-task-overview th, .head-work-pair > div { padding: 8px 5px; } }

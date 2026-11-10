@@ -9,7 +9,9 @@ import { useUiText } from "@/lib/i18n/ui-language";
 import { AgentActivityIndicator } from "./AgentActivityIndicator";
 import { ScheduledTaskIndicator } from "./ScheduledTaskIndicator";
 import { organizeChatRoster } from "../operations/chatRoster";
-import { reportingForest, type AgentDirectoryView, type CurrentAgentTask, type DirectoryAgent, type ReportingNode } from "../operations/agentDirectory";
+import { reportingForest, type AgentDirectoryView, type CurrentAgentTask, type DirectoryAgent, type DirectoryTaskSummary, type ReportingNode } from "../operations/agentDirectory";
+import { departmentManagerIds, headTaskRows } from "../operations/headTaskOverview";
+import { HeadTaskOverview } from "./HeadTaskOverview";
 import { MessageSearchResults, type MessageSearchTarget } from "./MessageSearchResults";
 import type { SessionClient } from "./SessionControls";
 import "./agent-directory.css";
@@ -42,10 +44,10 @@ function AssignedTaskMenu({ name, tasks, onOpenTask }: { name: string; tasks: Cu
   </>;
 }
 
-export function AgentDirectory({ agents, organization, view, onViewChange, search, onSearchChange, selectedId, onOpenChat, onOpenTask, taskError, focusRequest, client, onOpenMessage, onDismiss }: {
+export function AgentDirectory({ agents, organization, view, onViewChange, search, onSearchChange, selectedId, onOpenChat, onOpenTask, taskError, taskSummaries = [], tasksLoading = false, focusRequest, client, onOpenMessage, onDismiss }: {
   agents: DirectoryAgent[]; organization: OrganizationView; view: AgentDirectoryView; onViewChange: (view: AgentDirectoryView) => void;
   search: string; onSearchChange: (search: string) => void; selectedId: string | null;
-  onOpenChat: (id: string) => void; onOpenTask: (id: string, phaseId?: string) => void; taskError?: string;
+  onOpenChat: (id: string) => void; onOpenTask: (id: string, phaseId?: string) => void; taskError?: string; taskSummaries?: DirectoryTaskSummary[]; tasksLoading?: boolean;
   focusRequest?: { id: string; request: number } | null;
   onDismiss?: () => void;
   client?: SessionClient; onOpenMessage?: (target: MessageSearchTarget) => void;
@@ -54,6 +56,9 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [inspected, setInspected] = useState(CEO_ID);
   const [searchMessages, setSearchMessages] = useState(false);
+  const [overviewHead, setOverviewHead] = useState<string | null>(null);
+  const managerIds = departmentManagerIds(organization);
+  const names = new Map([...agents.map(agent => [agent.id, agent.name] as const), ...organization.people.map(person => [person.id, person.name] as const)]);
   const forest = useMemo(() => reportingForest(organization.people, agents), [organization.people, agents]);
   const byId = new Map(agents.map(agent => [agent.id, agent]));
   const query = search.trim().toLocaleLowerCase();
@@ -94,7 +99,8 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
       <span className="directory-agent-status"><AgentActivityIndicator activity={agent.activity} /><ScheduledTaskIndicator active={agent.hasPendingSchedule} /></span>
     </button>
     {departmentLink && organization.openDepartment ? <button type="button" className="directory-department" title={agent.id === CEO_ID ? t("Company") : agent.projectName || t("Open Workspace")} onClick={() => organization.openDepartment?.(agent.id === CEO_ID ? undefined : agent.projectId || OPEN_DEPARTMENT_ID)}><span>{agent.id === CEO_ID ? t("Company") : agent.projectName || t("Open Workspace")}</span><ChevronRight size={12} aria-hidden="true" /></button> : null}
-    {tasks.length === 1 && !tasks[0].phases?.length && !tasks[0].status ? <button type="button" className="directory-task" title={tasks[0].title} aria-label={t("Open task: {name}", { name: tasks[0].title })} onClick={() => onOpenTask(tasks[0].id)}>{tasks[0].code}<TaskRoles roles={tasks[0].roles} /></button> : tasks.length ? <AssignedTaskMenu name={agent.name} tasks={tasks} onOpenTask={onOpenTask} /> : null}
+    {managerIds.has(agent.id) ? <button type="button" className="directory-task directory-task-count" aria-haspopup="dialog" aria-label={t("Managed tasks for {name}", { name: agent.name })} onClick={() => setOverviewHead(agent.id)}>{t("Manage {count} tasks", { count: tasksLoading || taskError ? "…" : headTaskRows(agent.id, taskSummaries).length })}<ChevronRight size={11} aria-hidden="true" /></button>
+      : tasks.length === 1 && !tasks[0].phases?.length && !tasks[0].status ? <button type="button" className="directory-task" title={tasks[0].title} aria-label={t("Open task: {name}", { name: tasks[0].title })} onClick={() => onOpenTask(tasks[0].id)}>{tasks[0].code}<TaskRoles roles={tasks[0].roles} /></button> : tasks.length ? <AssignedTaskMenu name={agent.name} tasks={tasks} onOpenTask={onOpenTask} /> : null}
   </div>;
   };
   const branch = (node: ReportingNode): ReactNode => {
@@ -111,6 +117,7 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
     </li>;
   };
   return <aside id="session-chat-list" ref={container} aria-label={t("Agents")} className="agent-directory session-chat-list">
+    {overviewHead && managerIds.has(overviewHead) ? <HeadTaskOverview name={names.get(overviewHead) || overviewHead} rows={headTaskRows(overviewHead, taskSummaries)} names={names} loading={tasksLoading} error={taskError || ""} onClose={() => setOverviewHead(null)} onOpenTask={onOpenTask} /> : null}
     <header className="directory-heading"><Users size={16} /><strong>{t(searchMessages ? "Message search" : "Agents")}</strong>{!searchMessages ? <span>{agents.length}</span> : null}{onDismiss ? <button type="button" className="directory-dismiss" aria-label={t("Dismiss session list")} onClick={onDismiss}><X size={16} /></button> : null}</header>
     {client && onOpenMessage ? <div className="directory-search-tabs" role="tablist" aria-label={t("Search type")}>
       <button type="button" role="tab" aria-selected={!searchMessages} onClick={() => setSearchMessages(false)}>{t("Sessions")}</button>

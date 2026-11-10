@@ -8,7 +8,11 @@ import { CEO_ID, type OrganizationView } from "@/lib/office/organization";
 import { setUiLanguage } from "@/lib/i18n/ui-language";
 
 vi.mock("@/features/ring-ship/characterPortrait", () => ({ characterPortrait: vi.fn(async () => "data:image/png;base64,cG9ydHJhaXQ=") }));
-beforeEach(() => setUiLanguage("en"));
+beforeEach(() => {
+  setUiLanguage("en");
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
+});
 afterEach(cleanup);
 const agents: DirectoryAgent[] = [
   { id: "worker", name: "Worker 3", color: "#ffcc00", activity: getAgentActivity({ status: "working" }), hasPendingSchedule: true, updatedAt: 100, projectId: "office", projectName: "Office", tasks: [{ id: "avc", title: "Agent View Compression (AVC)", code: "AVC" }] },
@@ -41,13 +45,14 @@ it("indexes the same task ID under Owner and Assignee, deduplicates the same per
   expect(indexed.get("worker")).toEqual([{ id: "same", title: "Shared task", code: "T1", roles: ["Assignee"], status: "running" }, { id: "both", title: "Shared task", code: "T2", roles: ["Owner", "Assignee"], status: "running" }]);
 });
 it.each(["project", "activity", "organization"] as const)("shows each person's actual task roles in single badges and multi-task menus in %s", view => {
-  const indexed = currentTasksByAgent([{ id: "same", title: "Shared task", ownerId: "head", assigneeId: "worker", status: "running", archived: false }, { id: "both", title: "Both roles", ownerId: "worker", assigneeId: "worker", status: "running", archived: false }]);
+  const summaries = [{ id: "same", title: "Shared task", ownerId: "head", assigneeId: "worker", status: "running", archived: false }, { id: "both", title: "Both roles", ownerId: "worker", assigneeId: "worker", status: "running", archived: false }];
+  const indexed = currentTasksByAgent(summaries);
   const onOpenTask = vi.fn();
-  render(createElement(AgentDirectory, { agents: agents.map(agent => ({ ...agent, tasks: indexed.get(agent.id) })), organization, view, search: "", onSearchChange: vi.fn(), onViewChange: vi.fn(), selectedId: null, onOpenChat: vi.fn(), onOpenTask }));
-  fireEvent.click(screen.getAllByRole("button", { name: "Tasks for Ranger: 1" })[0]);
-  const ownerMenu = screen.getByRole("group", { name: "Tasks for Ranger" });
-  expect(within(ownerMenu).getByRole("button", { name: "Open task: Shared task" })).toHaveTextContent("Owner");
-  fireEvent.keyDown(ownerMenu, { key: "Escape" });
+  render(createElement(AgentDirectory, { agents: agents.map(agent => ({ ...agent, tasks: indexed.get(agent.id) })), taskSummaries: summaries, organization, view, search: "", onSearchChange: vi.fn(), onViewChange: vi.fn(), selectedId: null, onOpenChat: vi.fn(), onOpenTask }));
+  fireEvent.click(screen.getAllByRole("button", { name: "Managed tasks for Ranger" })[0]);
+  const ownerTable = screen.getByRole("table");
+  expect(within(ownerTable).getByRole("button", { name: "Open task: same · Shared task" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Close task overview" }));
   fireEvent.click(screen.getAllByRole("button", { name: "Tasks for Worker 3: 2" })[0]);
   const menu = screen.getByRole("group", { name: "Tasks for Worker 3" });
   expect(within(menu).getByRole("button", { name: "Open task: Shared task" })).toHaveTextContent("Assigned");

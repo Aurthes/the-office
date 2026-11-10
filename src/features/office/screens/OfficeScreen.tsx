@@ -3806,7 +3806,7 @@ export function OfficeScreen({
               onViewChange={changeDirectoryView} search={sessionSearch} onSearchChange={setSessionSearch} selectedId={selectedChatAgentId}
               onOpenChat={handleOpenAgentChat}
               onDismiss={sessionListOverlay ? dismissSessionList : undefined}
-              onOpenTask={openTaskDetails} taskError={currentTasks.error}
+              onOpenTask={openTaskDetails} taskError={status === "connected" ? currentTasks.error : "Current tasks are unavailable."} taskSummaries={currentTasks.summaries} tasksLoading={currentTasks.loading}
               client={client} onOpenMessage={target => {
                 const archived = target.archived || !state.agents.some(agent => agent.agentId === target.threadId);
                 if (!archived) handleOpenAgentChat(target.threadId);
