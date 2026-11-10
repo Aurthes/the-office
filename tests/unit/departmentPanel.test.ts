@@ -92,3 +92,20 @@ it("opens the organization-tree department without opening a session and derives
   expect(within(dialog).getByRole("tabpanel", { name: "Research" })).toHaveTextContent("Head position vacant");
   expect(within(dialog).getByRole("tabpanel", { name: "Research" })).toHaveTextContent("Engineer");
 });
+it("uses compact department buttons while retaining canonical details and ID-based navigation", async () => {
+  const organization = fixture();
+  organization.departments![0].name = "Strategic Intelligence";
+  render(h(Harness, { organization }));
+  fireEvent.click(screen.getByRole("button", { name: "Open departments" }));
+  const dialog = await screen.findByRole("dialog", { name: "Departments" });
+  const compact = within(dialog).getByRole("button", { name: "Strat Intel" });
+  expect(compact).toHaveAttribute("title", "Strategic Intelligence");
+  fireEvent.click(compact);
+  expect(within(dialog).getByRole("tab", { name: "Strat Intel" })).toHaveAttribute("data-department-id", "a");
+  expect(within(dialog).getByRole("heading", { level: 1, name: "Strategic Intelligence" })).toBeVisible();
+  fireEvent.click(within(dialog).getByRole("tab", { name: "Company overview" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "OW" }));
+  expect(within(dialog).getByRole("tab", { name: "OW" })).toHaveAttribute("data-department-id", "open-workspace");
+  expect(within(dialog).getByRole("heading", { level: 1, name: "Open Workspace" })).toBeVisible();
+  expect(organization.departments![0].name).toBe("Strategic Intelligence");
+});

@@ -5,6 +5,7 @@ import { CharacterPortrait } from "./CharacterPortrait";
 import { getAgentActivity } from "@/features/retro-office/core/agentActivity";
 import { OrganizationPanel } from "@/features/ring-ship/OrganizationPanel";
 import { CEO_ID, OPEN_DEPARTMENT_ID, type OrganizationView } from "@/lib/office/organization";
+import { departmentButtonLabel } from "@/lib/office/departments";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { AgentActivityIndicator } from "./AgentActivityIndicator";
 import { ScheduledTaskIndicator } from "./ScheduledTaskIndicator";
@@ -93,7 +94,7 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
       <span className="directory-agent-copy"><strong title={agent.name}>{agent.name}</strong><small title={subtitle}>{departmentLink && organization.openDepartment ? ["Worker", "Head", "CEO"].includes(title) ? t(title) : title : subtitle}</small></span>
       <span className="directory-agent-status"><AgentActivityIndicator activity={agent.activity} /><ScheduledTaskIndicator active={agent.hasPendingSchedule} /></span>
     </button>
-    {departmentLink && organization.openDepartment ? <button type="button" className="directory-department" title={agent.id === CEO_ID ? t("Company") : agent.projectName || t("Open Workspace")} onClick={() => organization.openDepartment?.(agent.id === CEO_ID ? undefined : agent.projectId || OPEN_DEPARTMENT_ID)}><span>{agent.id === CEO_ID ? t("Company") : agent.projectName || t("Open Workspace")}</span><ChevronRight size={12} aria-hidden="true" /></button> : null}
+    {departmentLink && organization.openDepartment ? <button type="button" className="directory-department" title={agent.id === CEO_ID ? t("Company") : agent.projectName || t("Open Workspace")} onClick={() => organization.openDepartment?.(agent.id === CEO_ID ? undefined : agent.projectId || OPEN_DEPARTMENT_ID)}><span>{agent.id === CEO_ID ? t("Company") : departmentButtonLabel(agent.projectId, agent.projectName || t("Open Workspace"))}</span><ChevronRight size={12} aria-hidden="true" /></button> : null}
     {tasks.length === 1 && !tasks[0].phases?.length && !tasks[0].status ? <button type="button" className="directory-task" title={tasks[0].title} aria-label={t("Open task: {name}", { name: tasks[0].title })} onClick={() => onOpenTask(tasks[0].id)}>{tasks[0].code}<TaskRoles roles={tasks[0].roles} /></button> : tasks.length ? <AssignedTaskMenu name={agent.name} tasks={tasks} onOpenTask={onOpenTask} /> : null}
   </div>;
   };
@@ -129,7 +130,7 @@ export function AgentDirectory({ agents, organization, view, onViewChange, searc
         <details className="directory-position" key={inspected}><summary>{t("Organization details")} · {organization.people.find(person => person.id === inspected)?.name}</summary><OrganizationPanel key={inspected} organization={organization} personId={inspected} /></details>
       </div>
     </> : <div className="directory-scroll">
-      {groups.map(group => <section key={group.id || "ungrouped"}>{view === "project" ? <h3 className="directory-project">{organization.openDepartment ? <button type="button" className="directory-department" title={group.id ? group.name : t("Open Workspace")} onClick={() => organization.openDepartment?.(group.id || OPEN_DEPARTMENT_ID)}><span>{group.id ? group.name : t("Open Workspace")}</span><ChevronRight size={12} aria-hidden="true" /></button> : group.id ? group.name : t("Open Workspace")}<span>{group.agents.length}</span></h3> : null}
+      {groups.map(group => <section key={group.id || "ungrouped"}>{view === "project" ? <h3 className="directory-project">{organization.openDepartment ? <button type="button" className="directory-department" title={group.id ? group.name : t("Open Workspace")} onClick={() => organization.openDepartment?.(group.id || OPEN_DEPARTMENT_ID)}><span>{departmentButtonLabel(group.id, group.name)}</span><ChevronRight size={12} aria-hidden="true" /></button> : group.id ? group.name : t("Open Workspace")}<span>{group.agents.length}</span></h3> : null}
         {group.agents.map(entry => { const agent = byId.get(entry.id)!; return <div key={agent.id}>{card(agent, view === "activity" ? (agent.projectId ? agent.projectName : t("Open Workspace")) : t(agent.activity.label), view === "activity")}</div>; })}
       </section>)}
       {!groups.some(group => group.agents.length) ? <p className="directory-empty">{t("No matching agents.")}</p> : null}

@@ -165,7 +165,7 @@ it.each(["project", "activity", "organization"] as const)("keeps department butt
     expect(button.closest(".directory-agent-open")).toBeNull();
   }
   fireEvent.click(buttons[0]); expect(openDepartment).toHaveBeenLastCalledWith("office");
-  const open = screen.getAllByRole("button", { name: "Open Workspace" })[0];
+  const open = screen.getAllByRole("button", { name: "OW" })[0];
   expect(open).toHaveAttribute("title", "Open Workspace");
   fireEvent.click(open); expect(openDepartment).toHaveBeenLastCalledWith("open-workspace");
   if (view !== "project") {

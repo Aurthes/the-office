@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Building2, X } from "lucide-react";
 import { OPEN_DEPARTMENT_ID, type OrganizationView } from "@/lib/office/organization";
-import { MAX_DEPARTMENT_DESCRIPTION, type OrganizationDepartment } from "@/lib/office/departments";
+import { departmentButtonLabel, MAX_DEPARTMENT_DESCRIPTION, type OrganizationDepartment } from "@/lib/office/departments";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { needsFollowUp, type DirectoryTaskSummary } from "@/features/office/operations/agentDirectory";
 import "./scheduled-tasks.css";
@@ -36,13 +36,13 @@ export function DepartmentPanel({ organization, state, onSelect, onClose, tasks,
       <header className="schedules-header"><Building2 size={19} /><strong id="department-panel-title">{t("Departments")}</strong><button type="button" aria-label={t("Close departments")} onClick={onClose}><X size={19} /></button></header>
       <nav className="department-tabs" role="tablist" aria-label={t("Departments")}>
         <button type="button" role="tab" aria-selected={state.selectedId === null} onClick={() => onSelect()}>{t("Company overview")}</button>
-        {state.tabs.map(id => <button type="button" key={id} role="tab" data-department-id={id} aria-selected={state.selectedId === id} onClick={() => onSelect(id)}>{departmentName(id)}</button>)}
+        {state.tabs.map(id => <button type="button" key={id} role="tab" title={departmentName(id)} data-department-id={id} aria-selected={state.selectedId === id} onClick={() => onSelect(id)}>{departmentButtonLabel(id, departmentName(id))}</button>)}
       </nav>
       <div className="department-content">
         <section role="tabpanel" hidden={state.selectedId !== null} aria-label={t("Company overview")}>
           <h1>{t("Company overview")}</h1>
           <div className="department-overview">{departments.map(department => <article key={department.id}>
-            <h2><button type="button" data-department-id={department.id} onClick={() => onSelect(department.id)}>{departmentName(department.id)}</button></h2>
+            <h2><button type="button" data-department-id={department.id} title={departmentName(department.id)} onClick={() => onSelect(department.id)}>{departmentButtonLabel(department.id, departmentName(department.id))}</button></h2>
             <p>{department.description || t("No responsibilities recorded.")}</p>
             <small>{t("Department Head")}: {department.heads.map(head => head.name).join(", ") || t("Head position vacant")}</small>
             <MemberList department={department} organization={organization} onClose={onClose} />

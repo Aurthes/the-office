@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { ArrowLeft, Check, ClipboardList, List, ListTree, MessageSquare, Pause, Play, Plus, RefreshCw, X } from "lucide-react";
 import { GatewayResponseError } from "@/lib/gateway/errors";
 import type { GatewayClient } from "@/lib/gateway/GatewayClient";
+import { departmentButtonLabel } from "@/lib/office/departments";
 import { useUiText } from "@/lib/i18n/ui-language";
 import "./task-board.css";
 
@@ -168,7 +169,7 @@ export function TaskBoard({ open, departmentId, taskId, phaseId, onClose, onOpen
       <div className="todo-body">
         <aside className="todo-departments" aria-label={t("Departments")}>
           <button type="button" aria-pressed={scope === ALL} onClick={() => { setScope(ALL); setOffset(0); setSelected(null); setDraft(null); }}>{t("All departments")}<b>{snapshot.departments.reduce((sum, dept) => sum + dept.total, 0)}</b></button>
-          {snapshot.departments.map(dept => <button key={dept.id || OPEN} type="button" aria-pressed={scope === (dept.id || OPEN)} onClick={() => { setScope(dept.id || OPEN); setOffset(0); setSelected(null); setDraft(null); }}><span>{dept.name}<small>{t("{count} running", { count: dept.running })} · {t("{count} unassigned", { count: dept.unassigned })}</small></span><b>{dept.total}</b></button>)}
+          {snapshot.departments.map(dept => <button key={dept.id || OPEN} type="button" title={dept.name} aria-pressed={scope === (dept.id || OPEN)} onClick={() => { setScope(dept.id || OPEN); setOffset(0); setSelected(null); setDraft(null); }}><span>{departmentButtonLabel(dept.id, dept.name)}<small>{t("{count} running", { count: dept.running })} · {t("{count} unassigned", { count: dept.unassigned })}</small></span><b>{dept.total}</b></button>)}
         </aside>
         <main className="todo-main" aria-busy={loading || saving}>
           {!online ? <p className="todo-notice">{t("Connect the Office gateway to manage tasks.")}</p> : null}

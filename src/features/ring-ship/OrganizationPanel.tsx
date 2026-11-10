@@ -1,6 +1,7 @@
 "use client";
 import { useState, type ReactNode } from "react";
 import { CEO_ID, OPEN_DEPARTMENT_ID, delegationMode, type DelegationMode, type OrganizationView } from "@/lib/office/organization";
+import { departmentButtonLabel } from "@/lib/office/departments";
 import { useUiText } from "@/lib/i18n/ui-language";
 import "./organization.css";
 
@@ -22,7 +23,7 @@ export function OrganizationPanel({ organization, personId, browse = false }: { 
   return <section className="organization-panel" aria-label={t("Organization")}>
     {browse ? <ul className="organization-tree" aria-label={t("Department reporting structure")}>
       {[...departments].map(([id, people]) => <li key={id}>
-        <strong>{organization.openDepartment ? <button type="button" onClick={() => organization.openDepartment?.(id)}>{department(people[0])}</button> : department(people[0])}</strong>
+        <strong>{organization.openDepartment ? <button type="button" title={department(people[0])} onClick={() => organization.openDepartment?.(id)}>{departmentButtonLabel(id, department(people[0]))}</button> : department(people[0])}</strong>
         {branches(people, [CEO_ID])}
       </li>)}
     </ul> : null}
@@ -41,7 +42,7 @@ function PersonPosition({ organization, person }: { organization: OrganizationVi
   const reports = organization.people.filter(value => value.reportsTo.includes(person.id));
   const managers = person.reportsTo.map(id => organization.people.find(value => value.id === id)).filter(value => !!value);
   return <>
-    <dl><div><dt>{t("Department")}</dt><dd>{organization.openDepartment ? <button type="button" onClick={() => organization.openDepartment?.(person.id === CEO_ID ? undefined : person.departmentId || OPEN_DEPARTMENT_ID)}>{department(person)}</button> : department(person)}</dd></div><div><dt>{t("Title")}</dt><dd>{displayTitle(person.title)}</dd></div>
+    <dl><div><dt>{t("Department")}</dt><dd>{organization.openDepartment ? <button type="button" title={department(person)} onClick={() => organization.openDepartment?.(person.id === CEO_ID ? undefined : person.departmentId || OPEN_DEPARTMENT_ID)}>{person.id === CEO_ID ? department(person) : departmentButtonLabel(person.departmentId, department(person))}</button> : department(person)}</dd></div><div><dt>{t("Title")}</dt><dd>{displayTitle(person.title)}</dd></div>
       <div><dt>{t("Reports to")}</dt><dd className="organization-person-links">{managers.length ? managers.map(manager => <button key={manager.id} type="button" disabled={!organization.focusPerson} aria-label={t("Focus on {name}", { name: manager.name })} onClick={() => organization.focusPerson?.(manager.id)}>{manager.name}</button>) : "—"}</dd></div>
       <div><dt>{t("Direct reports")}</dt><dd className="organization-person-links">{reports.length ? reports.map(value => <button key={value.id} type="button" disabled={!organization.focusPerson} aria-label={t("Focus on {name}", { name: value.name })} onClick={() => organization.focusPerson?.(value.id)}>{value.name} ({displayTitle(value.title)} · {department(value)})</button>) : "—"}</dd></div>
       <div><dt>{t("Work strategy")}</dt><dd>{t(modeLabels[delegationMode(person.id, person, !!reports.length)])}{!person.delegationMode ? ` · ${t("Role default")}` : ""}</dd></div></dl>
