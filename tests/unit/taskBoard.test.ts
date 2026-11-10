@@ -309,3 +309,24 @@ it("opens the selected completed phase without changing task data", async () => 
   await waitFor(() => expect(document.activeElement).toHaveAttribute("data-phase-id", "next-phase"));
   expect(f.call.mock.calls.every(([method]) => ["todo.list", "todo.get"].includes(method))).toBe(true);
 });
+
+it("shows automatic Owner and saves only watcher metadata, retaining unavailable watchers", async () => {
+  const f = fixture(undefined, { ownerId: "alice", ownerName: "Alice", watcherIds: ["unavailable"] }, "todo");
+  const group = await screen.findByRole("group", { name: "Watchers" });
+  expect(within(group).getByRole("checkbox", { name: /Alice/ })).toBeDisabled();
+  const unavailable = within(group).getByRole("checkbox", { name: /unavailable/ });
+  expect(unavailable).toBeChecked(); fireEvent.click(unavailable);
+  fireEvent.click(within(group).getByRole("button", { name: "Save watchers" }));
+  await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.edit", { id: "todo", revision: 4, watcherIds: [], requestId: expect.any(String) }));
+});
+it("keeps watcher changes visible after a rejected save and uses the captured revision", async () => {
+  const f = fixture(undefined, { ownerId: null, watcherIds: [] }, "todo");
+  const group = await screen.findByRole("group", { name: "Watchers" });
+  fireEvent.click(within(group).getByRole("checkbox", { name: "Alice" }));
+  f.call.mockImplementation(async method => { if (method === "todo.edit") throw new GatewayResponseError({ code: "INVALID_REQUEST", message: "This to-do changed. Refresh it before saving" }); return method === "todo.list" ? { todos: [f.todo], total: 1, agents: [{ id: "alice", name: "Alice" }], departments: [], serverTime: Date.now() } : { todo: { ...f.todo, revision: 5 }, serverTime: Date.now() }; });
+  fireEvent.click(within(group).getByRole("button", { name: "Save watchers" }));
+  await screen.findByText(/This to-do changed/);
+  expect(within(group).getByRole("checkbox", { name: "Alice" })).toBeChecked();
+  expect(within(group).getByRole("button", { name: "Save watchers" })).toBeEnabled();
+  expect(f.call).toHaveBeenCalledWith("todo.edit", expect.objectContaining({ revision: 4, watcherIds: ["alice"] }));
+});

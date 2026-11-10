@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { HeadTaskOverview } from "@/features/office/components/HeadTaskOverview";
 import { AgentInterfaceActions } from "@/features/office/components/AgentInterfaceActions";
-import { departmentManagerIds, headTaskRows } from "@/features/office/operations/headTaskOverview";
+import { taskProgressAgentIds, headTaskRows } from "@/features/office/operations/headTaskOverview";
 import type { DirectoryTaskSummary } from "@/features/office/operations/agentDirectory";
 import { CEO_ID, type OrganizationView } from "@/lib/office/organization";
 import { setUiLanguage } from "@/lib/i18n/ui-language";
@@ -52,11 +52,11 @@ it("shows queued and unknown parent work honestly without selecting the first ph
   expect(headTaskRows("head", [{ ...phased, phases: undefined }])[0].work[0].title).toBe("Current work not recorded");
 });
 it("recognizes role changes and actual department Head IDs without depending on names", () => {
-  expect([...departmentManagerIds(organization)]).toEqual(["head"]);
+  expect([...taskProgressAgentIds(organization)]).toEqual([CEO_ID, "head"]);
   const promoted = { ...organization, people: organization.people.map(p => ({ ...p, title: p.id === "worker" ? "Head" : "Worker", name: "Renamed" })) };
-  expect([...departmentManagerIds(promoted)]).toEqual(["worker"]);
+  expect([...taskProgressAgentIds(promoted)]).toEqual([CEO_ID, "worker"]);
   const directoryHead = { ...organization, people: [], departments: [{ id: "open-workspace", name: "Open Workspace", description: "", heads: [organization.people[0]], members: [] }] };
-  expect([...departmentManagerIds(directoryHead)]).toEqual(["head"]);
+  expect([...taskProgressAgentIds(directoryHead)]).toEqual([CEO_ID, "head"]);
 });
 const tracking = { recent: [{ action: "Completed", at: 10000, actorId: "worker", phaseId: "done", detail: "Completed implementation" }], current: [{ phaseId: "a1234567", status: "running", since: 20000, reason: null, waitingForId: null }, { phaseId: "b1234567", status: "review", since: 30000, reason: null, reasonCode: "Submitted for manager acceptance", waitingForId: "reviewer" }], unscopedNote: null };
 const names = new Map([["head", "Renamable Head"], ["worker", "Employee"], ["reviewer", "Reviewer"]]);
@@ -122,4 +122,16 @@ it("distinguishes loading, failure, empty, unsupported progress and recorded unk
 it("translates application text, retaining task and actor wording as data", () => {
   setUiLanguage("zh-CN"); render(createElement(HeadTaskOverview, { name: "Head", rows: headTaskRows("head", [{ ...task, tracking }]), names, loading: false, error: "", onOpenTask: vi.fn(), onClose: vi.fn() }));
   expect(screen.getByRole("table")).toHaveTextContent("最近进展"); expect(screen.getByRole("table")).toHaveTextContent("Parent task"); expect(screen.getByRole("table")).toHaveTextContent("Employee");
+});
+
+it("unions automatic Owner with explicit watchers without changing parent counts or execution attribution", () => {
+  const watched = { ...phased, watcherIds: [CEO_ID, "observer", "observer"] };
+  for (const id of ["head", CEO_ID, "observer"]) expect(headTaskRows(id, [watched, watched])).toHaveLength(1);
+  expect(headTaskRows("worker", [watched])).toHaveLength(0);
+  expect(headTaskRows("head", [{ ...watched, ownerId: "new-owner" }])).toHaveLength(0);
+  expect(headTaskRows("new-owner", [{ ...watched, ownerId: "new-owner", watcherIds: [] }])).toHaveLength(1);
+  expect(headTaskRows(CEO_ID, [{ ...watched, status: "done" }, { ...watched, archived: true }])).toHaveLength(0);
+  expect(headTaskRows("observer", [watched])[0].work).toEqual(headTaskRows("head", [watched])[0].work);
+  expect(taskProgressAgentIds(organization).has(CEO_ID)).toBe(true);
+  expect(taskProgressAgentIds(organization).has("worker")).toBe(false);
 });

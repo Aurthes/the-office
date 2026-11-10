@@ -18,7 +18,7 @@ const { readAiCenter } = require("./ai-center");
 const { OfficeTokenUsage, userUsage } = require("./office-token-usage");
 const { consumeOpenAiResetCredit } = require("./ai-center-openai");
 const { questionReplyMessage } = require("./codex-session-questions");
-const { OfficeTodos, activeDelegation, handlingAgentId, isPhaseTask } = require("./office-todos");
+const { OfficeTodos, activeDelegation, handlingAgentId, isPhaseTask, isWatcherOnlyEdit } = require("./office-todos");
 const { OfficeSchedules } = require("./office-schedules");
 const { CodexSessionComposer } = require("./codex-session-composer");
 const { CodexMessageSearch } = require("./codex-message-search");
@@ -173,7 +173,7 @@ const methods = {
   },
   ...Object.fromEntries(["edit", "start", "pause", "complete", "reopen", "archive", "restore"].map(action => [`todo.${action}`, p => {
     const result = todos.change(p, action);
-    if (p.actorId && result.todo.status === "running" && (action === "start" || !isPhaseTask(result.todo))) {
+    if (p.actorId && result.todo.status === "running" && !(action === "edit" && isWatcherOnlyEdit(p)) && (action === "start" || !isPhaseTask(result.todo))) {
       const context = todos.context(p.actorId), turnId = controls.state(p.actorId).activeTurnId;
       if (context.todoId === result.todo.id && (!isPhaseTask(result.todo) || context.runningPhaseId === p.phaseId) && turnId) {
         todos.recordTurn({ agentId: p.actorId, taskId: result.todo.id, phaseId: isPhaseTask(result.todo) ? p.phaseId : undefined, ...context, activityRole: context.activityRole, turnId });

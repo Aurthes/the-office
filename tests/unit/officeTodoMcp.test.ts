@@ -9,6 +9,17 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
 const { createGatewayClient } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");
+it("guides colleague-style handoffs without changing delegation or submission schemas", () => {
+  const { tools } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");
+  const delegate = tools.find((tool: { name: string }) => tool.name === "todo_delegate");
+  const submit = tools.find((tool: { name: string }) => tool.name === "todo_submit");
+  expect(delegate.description).toContain("leaving implementation to the executor");
+  expect(delegate.inputSchema.properties.instructions).toMatchObject({ minLength: 1, maxLength: 6000, description: expect.stringContaining("executor chooses implementation") });
+  expect(delegate.inputSchema.properties.acceptanceCriteria).toMatchObject({ minLength: 1, maxLength: 3000, description: "Observable success for the assigned question" });
+  expect(submit.inputSchema.properties.report).toMatchObject({ minLength: 1, maxLength: 6000, description: expect.stringContaining("important limits") });
+  expect(delegate.inputSchema.required).toEqual(["id", "revision", "actorId", "assigneeId", "instructions", "acceptanceCriteria", "requestId"]);
+  expect(submit.inputSchema.required).toEqual(["id", "revision", "actorId", "report", "requestId"]);
+});
 it("exposes nullable Owner metadata independently on create/edit/list without changing delegation inputs", () => {
   const { tools } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");
   for (const name of ["todo_create", "todo_edit", "todo_list"]) {
@@ -210,4 +221,20 @@ describe("Office task MCP transport", () => {
     const [output] = await once(child.stdout, "data"); expect(JSON.parse(String(output)).result.content[0].text).toBe('"ok"');
     const exited = once(child, "exit"); child.stdin.end(); expect((await exited)[0]).toBe(0);
   });
+});
+
+it("exposes and preserves watchers through actual MCP create/edit/get/list compact receipts", async () => {
+  const { tools, } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");
+  for (const name of ["todo_create", "todo_edit"]) expect(tools.find((t: { name: string }) => t.name === name).inputSchema.properties.watcherIds).toMatchObject({ type: "array", items: { type: "string" } });
+  const directory = mkdtempSync(path.join(os.tmpdir(), "office-mcp-watchers-")); cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+  const { OfficeTodos } = createRequire(import.meta.url)("../../server/office-todos.js");
+  const todos = new OfficeTodos(directory, { agents: () => ["alice", "bob"].map(id => ({ id, name: id })), projects: () => [] });
+  const f = await fixture((ws, frame) => { const action = frame.method.slice(5); reply(ws, frame, ["create", "get", "list"].includes(action) ? todos[action](frame.params) : todos.change(frame.params, action)); });
+  const call = await mcp(f.url);
+  const created = (await call("todo_create", { actorId: "alice", title: "Watched", watcherIds: ["bob", "bob"], requestId: "watcher-create", phases: [{ title: "Work" }] })).todo;
+  expect(created.watcherIds).toEqual(["bob"]);
+  const edited = (await call("todo_edit", { actorId: "alice", id: created.id, revision: created.revision, watcherIds: [] })).todo;
+  expect(edited).toMatchObject({ ownerId: "alice", watcherIds: [] });
+  expect((await call("todo_get", { id: created.id })).todo.watcherIds).toEqual([]);
+  expect((await call("todo_list", {})).todos[0].watcherIds).toEqual([]);
 });
