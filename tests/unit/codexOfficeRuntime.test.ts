@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import path from "node:path";
@@ -7,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const require = createRequire(import.meta.url);
 const { officeEnvironment } = require("../../server/codex-office-client.js");
 const { prepareOfficeProfile } = require("../../server/codex-office-profile.js");
-const { WORKFLOW, TASK_WORKFLOW } = require("../../server/office-company.js");
+const { WORKFLOW, TASK_WORKFLOW, QUESTION_REPLY_RULE } = require("../../server/office-company.js");
 const { CodexOfficeStore } = require("../../server/codex-office-store.js");
 const { CodexSessionControls } = require("../../server/codex-session-controls.js");
 const { OFFICE_COLLABORATION_GUIDELINE, DEPARTMENT_HEAD_GUIDELINE } = require("../../server/office-head-guideline.js");
@@ -126,7 +127,8 @@ describe("independent Office runtime", () => {
     f.store.companyContext = vi.fn(() => company);
     await f.store.call("turn/start", { threadId: id, input: [] });
     const injection = f.client.call.mock.calls.find(([method]) => method === "thread/inject_items")![1] as { items: Array<{ role: string; content: Array<{ text: string }> }> };
-    expect(injection.items).toHaveLength(1); expect(injection.items[0].role).toBe("developer");
+    expect(injection.items).toHaveLength(2); expect(injection.items[0].role).toBe("developer");
+    expect(injection.items[1].content[0].text).toContain(QUESTION_REPLY_RULE);
     const text = injection.items[0].content[0].text;
     expect(JSON.parse(text.split("\n")[1]).company).toEqual(company);
     expect(text.endsWith("\n" + DEPARTMENT_HEAD_GUIDELINE)).toBe(true);
@@ -235,6 +237,44 @@ describe("independent Office runtime", () => {
     restored.companyContext = f.store.companyContext; restored.questionContext = f.store.questionContext;
     await restored.call("turn/start", { threadId: id, input: [] }); expect(injections()).toHaveLength(3);
     expect(f.client.call.mock.calls.every(([method]) => ["thread/start", "thread/inject_items", "turn/start"].includes(method))).toBe(true);
+  });
+
+  it("refreshes an existing thread's stale Q expression rule through the original hash and keeps provenance data intact", async () => {
+    const f = fixture(), id = await session(f);
+    const questions = { answering: ["q-known"], context: { questions: [{ id: "q-known", summary: "Real question", sources: [{ threadId: "source-thread", turnId: "source-turn", itemId: "source-item" }] }] } };
+    f.store.questionContext = () => questions;
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+    const first = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[1].content[0].text;
+    const oldRule = "Office question workflow: every public response must identify the concrete semantic question (Q) or step it answers and link to the original user message.";
+    const oldText = first.replace(QUESTION_REPLY_RULE, oldRule);
+    f.store.get(id).questionContextHash = createHash("sha256").update(oldText).digest("hex"); f.store.save();
+    const restored = new CodexOfficeStore(f.directory, f.client); restored.questionContext = () => questions;
+    const before = f.client.call.mock.calls.length;
+    await restored.call("turn/start", { threadId: id, input: [] });
+    expect(f.client.call.mock.calls.slice(before).map(([method]) => method)).toEqual(["thread/inject_items", "turn/start"]);
+    const update = (injections().at(-1)![1] as { items: Array<{ content: Array<{ text: string }> }> }).items;
+    expect(update).toHaveLength(1);
+    expect(update[0].content[0].text).toContain("replaces earlier Office Q reply-expression requirements");
+    expect(update[0].content[0].text).toContain(QUESTION_REPLY_RULE);
+    expect(update[0].content[0].text).not.toContain(oldRule);
+    expect(update[0].content[0].text).toContain(JSON.stringify({ questions }));
+    expect(restored.get(id).questionContextHash).toBe(createHash("sha256").update(update[0].content[0].text).digest("hex"));
+    expect(WORKFLOW.split(QUESTION_REPLY_RULE)).toHaveLength(2);
+    const count = injections().length;
+    await restored.call("turn/start", { threadId: id, input: [] }); expect(injections()).toHaveLength(count);
+  });
+  it.each(["no hook", "null context", "no selection"])("injects the canonical Q rule with %s and reuses its hash across restart", async mode => {
+    const f = fixture(), id = await session(f);
+    if (mode !== "no hook") f.store.questionContext = () => mode === "null context" ? null : { answering: [], knownQuestions: [] };
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+    const items = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items;
+    expect(items.map(item => item.content[0].text).filter(text => text.includes(QUESTION_REPLY_RULE))).toHaveLength(1);
+    expect(items[1].content[0].text).toContain("Do not copy their UUIDs or URLs into prose");
+    expect(items[1].content[0].text).not.toContain("Office company workflow:");
+    const restored = new CodexOfficeStore(f.directory, f.client); restored.questionContext = f.store.questionContext;
+    await restored.call("turn/start", { threadId: id, input: [] }); expect(injections()).toHaveLength(1);
   });
 
   it("forwards an explicit historical fork boundary to Codex once and keeps the source configuration",async()=>{

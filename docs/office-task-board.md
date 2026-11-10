@@ -88,3 +88,10 @@ Reopening a completed phase preserves its time and accepted handoff history.
 The task Owner or that phase's recorded acceptance manager can reopen it once
 its active handoffs are resolved. Reopening leaves the phase queued; it does
 not start work, change its executor, or grant completion/review authority.
+
+`acceptanceCriteria` on a delegation is optional additional criteria. Omission,
+an empty string, or whitespace means there are no additional conditions; the
+instructions and task's existing success conditions and manager review still
+apply. New records store a string (empty when omitted), old records remain
+unchanged, and empty criteria sections are hidden. Null and non-string values
+are rejected. Deploy the updated Gateway before using the optional schema.

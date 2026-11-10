@@ -19,9 +19,10 @@ it("guides colleague-style handoffs without changing delegation or submission sc
   expect(delegate.description).toContain("leaving implementation to the executor");
   expect(delegate.inputSchema.properties.instructions).toMatchObject({ minLength: 1, maxLength: 6000, description: expect.stringContaining("executor chooses implementation") });
   expect(delegate.inputSchema.properties.instructions.description).toContain("refer to already shared context rather than restating it");
-  expect(delegate.inputSchema.properties.acceptanceCriteria).toMatchObject({ minLength: 1, maxLength: 3000, description: expect.stringContaining("not already stated in instructions") });
-  expect(submit.inputSchema.properties.report).toMatchObject({ minLength: 1, maxLength: 6000, description: expect.stringContaining("important limits") });
-  expect(delegate.inputSchema.required).toEqual(["id", "revision", "actorId", "assigneeId", "instructions", "acceptanceCriteria", "requestId"]);
+  expect(delegate.inputSchema.properties.acceptanceCriteria).toMatchObject({ type: "string", maxLength: 3000, description: expect.stringContaining("Optional additional") });
+  expect(delegate.inputSchema.properties.acceptanceCriteria).not.toHaveProperty("minLength");
+  expect(submit.inputSchema.properties.report).toMatchObject({ minLength: 1, maxLength: 6000, description: expect.stringContaining("unless requested, exceptional or decision-relevant") });
+  expect(delegate.inputSchema.required).toEqual(["id", "revision", "actorId", "assigneeId", "instructions", "requestId"]);
   expect(submit.inputSchema.required).toEqual(["id", "revision", "actorId", "report", "requestId"]);
 });
 it("exposes nullable Owner metadata independently on create/edit/list without changing delegation inputs", () => {

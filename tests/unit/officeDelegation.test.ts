@@ -398,3 +398,38 @@ it("persists legacy attribution and timer recovery atomically across process los
   const restored = new OfficeTodos(path.join(f.root, "office"), { ...f.deps, now: () => 1999000 });
   expect(restored.get({ id: task.id }).todo).toMatchObject({ status: "paused", elapsedMs: 1500, assigneeId: f.worker });
 });
+
+
+describe("optional additional acceptance conditions through both delegation paths", () => {
+  it.each(["legacy", "phases"])("normalizes omitted/empty/whitespace and preserves old nonempty conditions in %s", async mode => {
+    const f = await fixture();
+    for (const value of [undefined, "", " \n\t ", "Keep this independent acceptance condition"]) {
+      const task = mode === "phases" ? f.todos.create({ requestId: crypto.randomUUID(), actorId: f.manager, title: "Optional extra condition", executionMode: "phases", phases: [{ title: "Execute", assigneeId: f.manager }, { title: "Final acceptance", assigneeId: f.manager }] }).todo : f.create();
+      const scope = mode === "phases" ? { phaseId: task.phases[0].id } : {};
+      await f.runtime.delegate(f.input(task.id, f.manager, { ...scope, assigneeId: f.worker, instructions: "Deliver the bounded result with its existing success conditions", ...(value === undefined ? {} : { acceptanceCriteria: value }) }));
+      const entry = activeDelegation(f.todos.raw(task.id), scope.phaseId), expected = value?.trim() || "";
+      expect(entry.acceptanceCriteria).toBe(expected); expect(typeof entry.acceptanceCriteria).toBe("string");
+      const body = f.send.mock.calls.at(-1)![1];
+      expect(body).toContain("Deliver the bounded result with its existing success conditions");
+      expect(body.endsWith(expected || entry.instructions)).toBe(true);
+      expect(body).not.toContain("Acceptance criteria");
+      await f.runtime.submit(f.input(task.id, f.worker, { ...scope, handoffId: entry.id, report: "Result and decisive evidence" })); await f.settle();
+      expect(activeDelegation(f.todos.raw(task.id), scope.phaseId).state).toBe("review");
+      await expect(f.runtime.review(f.input(task.id, f.worker, { ...scope, handoffId: entry.id, accept: true, notes: "Not the manager" }))).rejects.toThrow(/manager/);
+      await f.runtime.review(f.input(task.id, f.manager, { ...scope, handoffId: entry.id, accept: true, notes: "Verified the original conditions" }));
+      const restored = new OfficeTodos(path.join(f.root, "office"), f.deps);
+      expect(restored.raw(task.id).delegations.at(-1)).toMatchObject({ id: entry.id, acceptanceCriteria: expected, state: "accepted" });
+      expect(restored.raw(task.id).phases.at(-1).completedAt).toBeNull();
+    }
+  });
+  it.each(["legacy", "phases"])("rejects null, invalid types and oversized conditions atomically in %s", async mode => {
+    const f = await fixture();
+    const task = mode === "phases" ? f.todos.create({ requestId: crypto.randomUUID(), actorId: f.manager, title: "Invalid extra conditions", executionMode: "phases", phases: [{ title: "Execute", assigneeId: f.manager }] }).todo : f.create();
+    const scope = mode === "phases" ? { phaseId: task.phases[0].id } : {};
+    for (const value of [null, 0, false, {}, [], "x".repeat(3001)]) {
+      const before = structuredClone(f.todos.raw(task.id));
+      await expect(f.runtime.delegate(f.input(task.id, f.manager, { ...scope, assigneeId: f.worker, instructions: "Same conditions", acceptanceCriteria: value }))).rejects.toThrow(/Acceptance criteria/);
+      expect(f.todos.raw(task.id)).toEqual(before); expect(f.send).not.toHaveBeenCalled();
+    }
+  });
+});

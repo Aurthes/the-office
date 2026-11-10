@@ -330,3 +330,15 @@ it("keeps watcher changes visible after a rejected save and uses the captured re
   expect(within(group).getByRole("button", { name: "Save watchers" })).toBeEnabled();
   expect(f.call).toHaveBeenCalledWith("todo.edit", expect.objectContaining({ revision: 4, watcherIds: ["alice"] }));
 });
+
+
+it.each(["", " \t ", "An independent observable condition"])("shows the acceptance detail only for nonempty extra conditions (%j)", async criteria => {
+  fixture(undefined, { delegations: [{ id: "handoff", managerId: "alice", workerId: "bob", state: "review", instructions: "Existing task goals remain valid", acceptanceCriteria: criteria, report: "Decisive result" }] }, "todo");
+  const region = await screen.findByRole("region", { name: "Delegation and acceptance" });
+  expect(within(region).getByText("Existing task goals remain valid")).toBeTruthy();
+  expect(within(region).getByText("Decisive result")).toBeTruthy();
+  if (criteria.trim()) {
+    expect(within(region).getByRole("heading", { name: "Acceptance criteria" })).toBeTruthy();
+    expect(within(region).getByText(criteria)).toBeTruthy();
+  } else expect(within(region).queryByRole("heading", { name: "Acceptance criteria" })).toBeNull();
+});

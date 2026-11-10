@@ -280,7 +280,7 @@ class OfficeTodos {
       if (!entry && manager !== handlingAgentId(row, phase.id) && phase.startedAt != null) throw new Error("Pause this phase before changing its execution handoff");
       if (entry?.state === "review") throw new Error("Review this phase's submitted result before delegating again");
       if (!input.assigneeId || input.assigneeId === manager || openDelegations(row).some(e => e.phaseId === phase.id && e.managerId === input.assigneeId)) throw new Error("Choose another employee outside this phase's handoff chain");
-      const instructions = text(input.instructions, "Delegation scope", 6000), acceptanceCriteria = text(input.acceptanceCriteria, "Acceptance criteria", 3000);
+      const instructions = text(input.instructions, "Delegation scope", 6000), acceptanceCriteria = text(input.acceptanceCriteria === undefined ? "" : input.acceptanceCriteria, "Acceptance criteria", 3000, true);
       this.stopClock(row, this.now(), phase.id); delete phase.activity;
       const candidate = actor.id ? this.replyContext(actor.id) : null;
       if (!row.replyContext && candidate && (!candidate.taskId || candidate.taskId === row.id)) row.replyContext = candidate;
@@ -463,7 +463,7 @@ class OfficeTodos {
       if (actor.id !== handlingAgentId(row) || !actor.id) throw new Error("Only the current responsible agent can delegate this task");
       if (delegation?.state === "review") throw new Error("Review the submitted result before delegating again");
       if (!input.assigneeId || input.assigneeId === actor.id || (row.delegations || []).some(entry => !["accepted", "recalled"].includes(entry.state) && entry.managerId === input.assigneeId)) throw new Error("Choose another employee outside the active handoff chain");
-      const instructions = text(input.instructions, "Delegation scope", 6000), acceptanceCriteria = text(input.acceptanceCriteria, "Acceptance criteria", 3000);
+      const instructions = text(input.instructions, "Delegation scope", 6000), acceptanceCriteria = text(input.acceptanceCriteria === undefined ? "" : input.acceptanceCriteria, "Acceptance criteria", 3000, true);
       this.stopClock(row);
       if (!delegation) row.acceptanceManagerId = actor.id;
       const candidate = this.replyContext(actor.id);
