@@ -1,5 +1,11 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Watchers": "关注者",
+  "Automatic watcher (Owner)": "自动关注（Owner）",
+  "Save watchers": "保存关注者",
+  "Watched tasks": "关注的任务",
+  "Unfinished tasks watched by this agent. Watching is separate from responsibility and execution.": "该员工关注的未完成任务。关注与负责跟进、实际执行相互独立。",
+
   "System": "系统",
   "Owner follow-up": "Owner 跟进任务",
   "Progress details": "展开记录",

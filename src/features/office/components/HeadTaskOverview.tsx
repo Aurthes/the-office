@@ -31,7 +31,7 @@ export function HeadTaskOverview({ name, rows, names, loading, error, observedAt
   return createPortal(<dialog ref={dialog} className="head-task-overview" aria-labelledby={id}
     onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
     <header><h2 id={id}>{t("Task progress for {name}", { name })}</h2><button type="button" aria-label={t("Close task overview")} onClick={onClose}><X size={20} /></button></header>
-    <p className="head-task-scope" title={t("Unfinished tasks followed up by this Owner. Responsibility is separate from execution.")}>{t("Owner follow-up")} · {t("As of {time}", { time: new Date(now).toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit", hour12: false }) })}</p>
+    <p className="head-task-scope" title={t("Unfinished tasks watched by this agent. Watching is separate from responsibility and execution.")}>{t("Watched tasks")} · {t("As of {time}", { time: new Date(now).toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit", hour12: false }) })}</p>
     {loading ? <p role="status">{t("Loading tasks…")}</p> : null}
     {error ? <p role="alert">{t(error)}</p> : null}
     {!loading && !error && !rows.length ? <p>{t("No tasks need follow-up.")}</p> : null}

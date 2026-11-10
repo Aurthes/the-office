@@ -9,3 +9,12 @@
 .todo-progress>.todo-phase-total{white-space:normal;text-align:right}
 
 .todo-phase-list li[data-targeted=true]{outline:2px solid #e9cf9b;outline-offset:3px;border-radius:4px}
+
+/* Task watchers are metadata; the Owner is always included automatically. */
+.todo-watchers { border: 1px solid #a4c6c52c; border-radius: 8px; margin: 12px 0; padding: 10px; min-width: 0; }
+.todo-watchers legend { font-weight: 600; padding: 0 4px; }
+.todo-watcher-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); gap: 6px 12px; max-height: 180px; overflow: auto; }
+.todo-watcher-choices label { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px; cursor: pointer; }
+.todo-watcher-choices input { flex: none; width: 16px; height: 16px; }
+.todo-watcher-choices span { min-width: 0; overflow-wrap: anywhere; }
+.todo-watcher-choices small { display: block; font-size: 11px; opacity: .7; }

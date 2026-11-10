@@ -211,3 +211,19 @@ describe("Office task MCP transport", () => {
     const exited = once(child, "exit"); child.stdin.end(); expect((await exited)[0]).toBe(0);
   });
 });
+
+it("exposes and preserves watchers through actual MCP create/edit/get/list compact receipts", async () => {
+  const { tools, } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");
+  for (const name of ["todo_create", "todo_edit"]) expect(tools.find((t: { name: string }) => t.name === name).inputSchema.properties.watcherIds).toMatchObject({ type: "array", items: { type: "string" } });
+  const directory = mkdtempSync(path.join(os.tmpdir(), "office-mcp-watchers-")); cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+  const { OfficeTodos } = createRequire(import.meta.url)("../../server/office-todos.js");
+  const todos = new OfficeTodos(directory, { agents: () => ["alice", "bob"].map(id => ({ id, name: id })), projects: () => [] });
+  const f = await fixture((ws, frame) => { const action = frame.method.slice(5); reply(ws, frame, ["create", "get", "list"].includes(action) ? todos[action](frame.params) : todos.change(frame.params, action)); });
+  const call = await mcp(f.url);
+  const created = (await call("todo_create", { actorId: "alice", title: "Watched", watcherIds: ["bob", "bob"], requestId: "watcher-create", phases: [{ title: "Work" }] })).todo;
+  expect(created.watcherIds).toEqual(["bob"]);
+  const edited = (await call("todo_edit", { actorId: "alice", id: created.id, revision: created.revision, watcherIds: [] })).todo;
+  expect(edited).toMatchObject({ ownerId: "alice", watcherIds: [] });
+  expect((await call("todo_get", { id: created.id })).todo.watcherIds).toEqual([]);
+  expect((await call("todo_list", {})).todos[0].watcherIds).toEqual([]);
+});

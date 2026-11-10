@@ -19,7 +19,7 @@ import { ScheduledTaskIndicator } from "@/features/office/components/ScheduledTa
 import { OfficeConnectionScreen } from "@/features/office/components/OfficeConnectionScreen";
 import { AgentDirectory } from "@/features/office/components/AgentDirectory";
 import { HeadTaskOverview } from "@/features/office/components/HeadTaskOverview";
-import { departmentManagerIds, headTaskRows } from "@/features/office/operations/headTaskOverview";
+import { taskProgressAgentIds, headTaskRows } from "@/features/office/operations/headTaskOverview";
 import { useCurrentAgentTasks } from "@/features/office/hooks/useCurrentAgentTasks";
 import type { AgentDirectoryView, DirectoryAgent } from "@/features/office/operations/agentDirectory";
 import { TeaserDashboard } from "@/features/ring-ship/TeaserDashboard";
@@ -3777,7 +3777,7 @@ export function OfficeScreen({
 
       {sessionView ? <DepartmentPanel key={gatewayUrl} organization={organization} state={departmentPanel} onSelect={openDepartment} onClose={() => setDepartmentPanel(previous => ({ ...previous, open: false }))} tasks={{ ...currentTasks, error: status === "connected" ? currentTasks.error : "Current tasks are unavailable." }} onOpenTask={id => setTaskBoardRequest({ id })} /> : null}
       {sessionView && teaserBoardOpen ? <TeaserDashboard onClose={() => setTeaserBoardOpen(false)} target={teaserTarget} unavailableReason={status === "connected" ? teaserResolution.reason : "Connection unavailable. Please reconnect before sending."} solutionSender={teaserSolutions} onOpenSession={handleOpenAgentChat} /> : null}
-      {sessionView && headProgressId && departmentManagerIds(organization).has(headProgressId) ? <HeadTaskOverview name={organizationNames.get(headProgressId) || headProgressId} rows={headTaskRows(headProgressId, currentTasks.summaries)} names={organizationNames} observedAt={currentTasks.observedAt} loading={currentTasks.loading} error={status === "connected" ? currentTasks.error : "Current tasks are unavailable."} onClose={() => setHeadProgressId(null)} onOpenTask={openTaskDetails} /> : null}
+      {sessionView && headProgressId && taskProgressAgentIds(organization).has(headProgressId) ? <HeadTaskOverview name={organizationNames.get(headProgressId) || headProgressId} rows={headTaskRows(headProgressId, currentTasks.summaries)} names={organizationNames} observedAt={currentTasks.observedAt} loading={currentTasks.loading} error={status === "connected" ? currentTasks.error : "Current tasks are unavailable."} onClose={() => setHeadProgressId(null)} onOpenTask={openTaskDetails} /> : null}
       {sessionView ? <TaskBoard open={!!taskBoardRequest} taskId={taskBoardRequest?.id} phaseId={taskBoardRequest?.phaseId} onClose={() => setTaskBoardRequest(null)} onOpenSession={handleOpenAgentChat} client={client} connected={status === "connected"} /> : null}
       {sessionView && chatOpen ? <button type="button" aria-label={t("Click the office to close chat")} className="fixed inset-0 z-40 cursor-default bg-transparent" onClick={() => setChatOpen(false)} /> : null}
       <div
@@ -3916,7 +3916,7 @@ export function OfficeScreen({
                   return <ExistingSessionPanel onOpenWorkspace={openSessionWorkspace} active={cached.active} focusMode={cached.focusMode} onToggleFocus={cached.onToggleFocus} client={client} threadId={agent.agentId}
                   interfacePreset={resolveAgentInterface(agentInterfaces.interfaces[agent.agentId]).preset}
                   onOpenTeaserBoard={() => setTeaserBoardOpen(true)}
-                  onOpenTaskProgress={departmentManagerIds(organization).has(agent.agentId) ? () => setHeadProgressId(agent.agentId) : undefined}
+                  onOpenTaskProgress={taskProgressAgentIds(organization).has(agent.agentId) ? () => setHeadProgressId(agent.agentId) : undefined}
                   onSaveInterfacePreset={agentInterfaces.loaded && interfaceRoster.some(item => item.id === agent.agentId) ? preset => agentInterfaces.save(agent.agentId, preset) : undefined}
                   externalSends={teaserSolutions.forThread(agent.agentId)} onExternalReceipt={teaserSolutions.reconcile}
                   messageTarget={messageTarget?.threadId === agent.agentId && !messageTarget.archived ? messageTarget : null} onCloseMessage={() => setMessageSelection(null)}

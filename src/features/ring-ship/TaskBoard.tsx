@@ -6,12 +6,13 @@ import { ArrowLeft, Check, ClipboardList, List, ListTree, MessageSquare, Pause, 
 import { GatewayResponseError } from "@/lib/gateway/errors";
 import type { GatewayClient } from "@/lib/gateway/GatewayClient";
 import { departmentButtonLabel } from "@/lib/office/departments";
+import { taskWatcherIds } from "@/features/office/operations/agentDirectory";
 import { useUiText } from "@/lib/i18n/ui-language";
 import "./task-board.css";
 
 type Phase = { assigneeId?: string | null; assigneeName?: string | null; assigneeAvailable?: boolean; handlingAgentId?: string | null; reviewerId?: string | null; handoffId?: string | null; status?: "queued" | "running" | "paused" | "review" | "done"; id: string; title: string; notes?: string; elapsedMs: number; startedAt: number | null; completedAt: number | null };
 type Delegation = { phaseId?: string; id: string; managerId: string; workerId: string; state: "working" | "review" | "accepted" | "recalled"; instructions: string; acceptanceCriteria: string; report?: string; review?: { accepted: boolean; notes: string }; delivery?: { state: string; error?: string } };
-export type OfficeTodo = { executionMode?: "phases"; id: string; code?: string; revision: number; title: string; documentation?: string; departmentId: string | null; departmentName: string; ownerId?: string | null; ownerName?: string | null; assigneeId: string | null; assigneeName: string | null; assigneeAvailable: boolean; handlingAgentId?: string | null; handlingAgentName?: string | null; handlingAgentAvailable?: boolean; reviewerId?: string | null; status: "queued" | "running" | "paused" | "done"; archived: boolean; completedAt?: number | null; phases: Phase[]; progress: number; delegations?: Delegation[]; events?: { at: number; message: string; actor: { name?: string } }[] };
+export type OfficeTodo = { executionMode?: "phases"; id: string; code?: string; revision: number; title: string; documentation?: string; departmentId: string | null; departmentName: string; ownerId?: string | null; watcherIds?: string[]; ownerName?: string | null; assigneeId: string | null; assigneeName: string | null; assigneeAvailable: boolean; handlingAgentId?: string | null; handlingAgentName?: string | null; handlingAgentAvailable?: boolean; reviewerId?: string | null; status: "queued" | "running" | "paused" | "done"; archived: boolean; completedAt?: number | null; phases: Phase[]; progress: number; delegations?: Delegation[]; events?: { at: number; message: string; actor: { name?: string } }[] };
 type Snapshot = { todos: OfficeTodo[]; total: number; departments: { id: string | null; name: string; total: number; running: number; unassigned: number }[]; agents: { id: string; name: string; projectId: string | null }[]; serverTime: number };
 type Draft = { executionMode?: "phases"; id?: string; revision?: number; title: string; documentation: string; departmentId: string; ownerId: string; assigneeId: string; phases: { id?: string; title: string; notes: string; assigneeId?: string | null }[] };
 const ALL = "__all__", OPEN = "__open__", UNASSIGNED = "__unassigned__";
@@ -40,6 +41,22 @@ function TaskPhases({ phases, className, children }: { phases: Phase[]; classNam
     {completed.length ? <details className="todo-completed-phases"><summary>{t("Completed phases ({count})", { count: completed.length })}</summary><ol className={className}>{completed.map(children)}</ol></details> : null}
     {unfinished.length ? <ol className={className}>{unfinished.map(children)}</ol> : null}
   </>;
+}
+
+function TaskWatchers({ todo, agents, disabled, save }: { todo: OfficeTodo; agents: Snapshot["agents"]; disabled: boolean; save: (revision: number, ids: string[]) => Promise<unknown> }) {
+  const t = useUiText();
+  const [draft, setDraft] = useState<{ revision: number; ids: string[] } | null>(null);
+  const explicit = draft?.ids ?? todo.watcherIds ?? [];
+  const ids = taskWatcherIds({ ownerId: todo.ownerId, watcherIds: explicit });
+  const options = [...new Map([...agents, ...ids.filter(id => !agents.some(a => a.id === id)).map(id => ({ id, name: id === todo.ownerId ? todo.ownerName || id : id, projectId: null }))].map(agent => [agent.id, agent])).values()];
+  return <fieldset className="todo-watchers" disabled={disabled || todo.archived && todo.status !== "done"}>
+    <legend>{t("Watchers")}</legend>
+    <div className="todo-watcher-choices">{options.map(agent => <label key={agent.id}>
+      <input type="checkbox" checked={ids.includes(agent.id)} disabled={agent.id === todo.ownerId} onChange={event => setDraft({ revision: draft?.revision ?? todo.revision, ids: event.target.checked ? [...explicit, agent.id] : explicit.filter(id => id !== agent.id) })} />
+      <span>{agent.name}{agent.id === todo.ownerId ? <small>{t("Automatic watcher (Owner)")}</small> : !agents.some(a => a.id === agent.id) ? <small>{t("Unavailable")}</small> : null}</span>
+    </label>)}</div>
+    {draft ? <div className="todo-actions"><button type="button" className="todo-primary" onClick={async () => { if (await save(draft.revision, draft.ids)) setDraft(null); }}>{t("Save watchers")}</button><button type="button" onClick={() => setDraft(null)}>{t("Cancel")}</button></div> : null}
+  </fieldset>;
 }
 
 export function TaskBoard({ open, departmentId, taskId, phaseId, onClose, onOpenSession, client, connected }: {
@@ -189,6 +206,7 @@ export function TaskBoard({ open, departmentId, taskId, phaseId, onClose, onOpen
             <button type="button" onClick={() => { setSelected(null); setDetail(null); }}><ArrowLeft size={14} />{t("Task list")}</button>
             {!detail ? <p>{t("Loading…")}</p> : <article className="todo-detail">
               <span className="todo-status" data-status={detail.status}>{t(pendingReview(detail) ? "Awaiting manager review" : labels[detail.status])}{detail.archived ? ` · ${t("Archived")}` : ""}</span><h2>{detail.code ? <><span className="font-mono text-cyan-200">{detail.code}</span> · </> : null}{detail.title}</h2><p className="todo-meta">{detail.departmentName} · {t("Owner")}: {detail.ownerName || t(detail.ownerId === undefined ? "Not recorded" : "Unassigned")} · {detail.executionMode !== "phases" ? <>{t("Assignee")}: {detail.assigneeName || t("Unassigned")}</> : null}{detail.reviewerId ? ` · ${t("Review by {name}", { name: detail.handlingAgentName || detail.reviewerId })}` : ""}</p>
+              <TaskWatchers key={detail.id} todo={detail} agents={snapshot.agents} disabled={disabled} save={(revision, watcherIds) => mutate("todo.edit", { id: detail.id, revision, watcherIds })} />
               <div className="todo-progress"><progress max={detail.phases.length} value={detail.progress} /><span className={detail.executionMode === "phases" ? "todo-phase-total" : undefined}>{detail.progress}/{detail.phases.length} · {taskDuration(totalTime(detail, now))}{detail.executionMode === "phases" ? ` · ${t("Cumulative phase time")}` : ""}</span></div>
               {detail.status === "done" ? <CompletionTime at={taskCompletionTime(detail)} kind="task" /> : null}
               <div className="todo-actions">{!detail.archived ? <><button type="button" disabled={disabled} onClick={() => edit(detail)}>{t("Edit")}</button>{detail.executionMode !== "phases" ? <><button type="button" disabled={disabled || detail.status === "done"} onClick={() => action(detail.status === "running" ? "pause" : "start")}>{detail.status === "running" ? <Pause size={14} /> : <Play size={14} />}{t(detail.status === "running" ? "Pause timer" : "Start timer")}</button><button className="todo-primary" type="button" disabled={disabled || !(detail.handlingAgentAvailable ?? detail.assigneeAvailable) || detail.status === "done"} onClick={() => action("run")}><Play size={14} />{t(detail.reviewerId ? "Open review with manager" : "Start with agent")}</button></> : null}<button type="button" disabled={disabled || !!anyHandoff(detail)} onClick={() => action("archive")}>{t("Archive")}</button></> : detail.status === "done" ? <><button type="button" disabled={disabled} onClick={() => edit(detail)}>{t("Edit")}</button><button type="button" className="todo-primary" disabled={disabled || detail.phases.length >= 20} onClick={() => edit(detail, true)}><Plus size={14} />{t("Add follow-up")}</button></> : <button type="button" disabled={disabled} onClick={() => action("restore")}>{t("Restore")}</button>}

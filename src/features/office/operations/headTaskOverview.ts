@@ -1,5 +1,5 @@
-import { isDepartmentManager, type OrganizationView } from "@/lib/office/organization";
-import { needsFollowUp, shortPhaseCode, type DirectoryTaskSummary, type TaskProgressState, type TaskTracking } from "./agentDirectory";
+import { CEO_ID, isDepartmentManager, type OrganizationView } from "@/lib/office/organization";
+import { taskWatcherIds, needsFollowUp, shortPhaseCode, type DirectoryTaskSummary, type TaskProgressState, type TaskTracking } from "./agentDirectory";
 
 export type HeadWork = {
   id: string; phaseId?: string; title: string; status: string;
@@ -7,17 +7,18 @@ export type HeadWork = {
 };
 export type HeadTaskRow = { id: string; code: string; title: string; work: HeadWork[]; tracking?: TaskTracking };
 
-export function departmentManagerIds(organization: OrganizationView): Set<string> {
+export function taskProgressAgentIds(organization: OrganizationView): Set<string> {
   return new Set([
+    CEO_ID,
     ...organization.people.filter(isDepartmentManager).map(person => person.id),
     ...(organization.departments || []).flatMap(department => department.heads.map(head => head.id)),
   ]);
 }
 
-// Management follows explicit parent Owner, independently of execution/department.
+// Progress follows explicit watchers plus the Owner, independently of execution/department.
 // Use the already loaded raw list; never infer work from chat, busy or updatedAt.
 export function headTaskRows(headId: string, tasks: readonly DirectoryTaskSummary[]): HeadTaskRow[] {
-  return [...new Map(tasks.filter(task => task.ownerId === headId && needsFollowUp(task)).map(task => [task.id, task])).values()].map(task => {
+  return [...new Map(tasks.filter(task => taskWatcherIds(task).includes(headId) && needsFollowUp(task)).map(task => [task.id, task])).values()].map(task => {
     let work: HeadWork[];
     if (task.executionMode !== "phases") {
       work = [{ id: task.id, title: "Specific phase not recorded", status: task.reviewerId ? "Awaiting manager review" : task.status === "running" ? "Running" : task.status === "paused" ? "Paused" : task.status === "queued" ? "Not started" : "Not recorded",

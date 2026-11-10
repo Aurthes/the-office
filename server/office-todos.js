@@ -19,6 +19,7 @@ const completionTime = row => {
 const openDelegations = row => (row.delegations || []).filter(entry => !["accepted", "recalled"].includes(entry.state));
 const activeDelegation = (row, phaseId) => openDelegations(row).findLast(entry => entry.phaseId === phaseId);
 const isPhaseTask = row => row.executionMode === "phases";
+const isWatcherOnlyEdit = input => Object.hasOwn(input, "watcherIds") && Object.keys(input).every(key => ["id", "revision", "actorId", "source", "requestId", "watcherIds"].includes(key));
 // Legacy owners need recorded acceptance or one connected original handoff.
 // Missing evidence stays missing; an explicitly cleared owner stays cleared.
 const taskOwnerId = row => {
@@ -138,7 +139,13 @@ class OfficeTodos {
     if (assigneeId != null && !agent && assigneeId !== previous?.assigneeId) throw new Error("Choose an existing agent or Unassigned");
     const owner = ownerId == null ? null : this.agents().find(a => a.id === ownerId);
     if (ownerId != null && !owner && ownerId !== taskOwnerId(previous)) throw new Error("Choose an existing owner or Unassigned");
-    return { departmentId, departmentName: department?.name || previous.departmentName, assigneeId, assigneeName: agent?.name || (assigneeId ? previous?.assigneeName : null),
+    let watcherIds = previous?.watcherIds;
+    if (input.watcherIds !== undefined) {
+      const known = new Set(this.agents().map(agent => agent.id));
+      if (!Array.isArray(input.watcherIds) || input.watcherIds.some(id => typeof id !== "string" || !id || !known.has(id) && !previous?.watcherIds?.includes(id))) throw new Error("Choose existing task watchers");
+      watcherIds = [...new Set(input.watcherIds)];
+    }
+    return { ...(watcherIds !== undefined ? { watcherIds } : {}), departmentId, departmentName: department?.name || previous.departmentName, assigneeId, assigneeName: agent?.name || (assigneeId ? previous?.assigneeName : null),
       ...(ownerId !== undefined ? { ownerId, ownerName: owner?.name || (ownerId ? previous?.ownerName || ownerId : null) } : {}) };
   }
   plan(input, previous = [], mode = false) {
@@ -411,6 +418,16 @@ class OfficeTodos {
   }
   change(input, action) {
     const previous = this.raw(input.id);
+    if (action === "edit" && isWatcherOnlyEdit(input)) {
+      if (input.revision !== previous.revision) throw new Error("This to-do changed. Refresh it before saving");
+      const actor = this.actor(input);
+      if (previous.archived && previous.status !== "done") throw new Error("Restore this archived to-do first");
+      const { watcherIds } = this.references(input, previous), row = structuredClone(previous);
+      row.watcherIds = watcherIds;
+      row.revision++; row.updatedAt = this.now();
+      this.event(row, "Plan, watchers updated", actor); this.save(row); this.changed(row.id);
+      return this.get({ id: row.id });
+    }
     if (isPhaseTask(previous) || input.executionMode === "phases") return this.changePhase(input, action);
     if (action === "complete" && previous.phases.find(p => p.id === input.phaseId)?.completedAt != null) return this.get(input);
     if (input.revision !== previous.revision) throw new Error("This to-do changed. Refresh it before saving");
@@ -575,4 +592,4 @@ class OfficeTodos {
     else this.change({ id: row.id, revision: row.revision, source: "system", reason: "Office stopped; timer paused" }, "pause");
   } }
 }
-module.exports = { OfficeTodos, phaseDuration: duration, activeDelegation, openDelegations, handlingAgentId, isPhaseTask };
+module.exports = { OfficeTodos, phaseDuration: duration, activeDelegation, openDelegations, handlingAgentId, isPhaseTask, isWatcherOnlyEdit };
