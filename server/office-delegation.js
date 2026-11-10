@@ -2,7 +2,7 @@
 const { activeDelegation, handlingAgentId, isPhaseTask } = require("./office-todos");
 const { taskReplyContext } = require("./office-reply-context");
 
-function taskNotification(row, entry = activeDelegation(row), phaseId = entry?.phaseId) {
+function taskNotification(row, entry = activeDelegation(row), phaseId = entry?.phaseId, sender = entry?.delivery?.sender) {
   const phase = phaseId && row.phases.find(p => p.id === phaseId);
   const reviewing = entry?.state === "review";
   const finalAcceptance = !isPhaseTask(row) && row.acceptanceManagerId && !entry;
@@ -12,7 +12,11 @@ function taskNotification(row, entry = activeDelegation(row), phaseId = entry?.p
   const update = { revision: row.revision, ...(phase ? { phaseId: phase.id, phaseTitle: phase.title, ...(entry ? { handoffId: entry.id } : {}) } : {}),
     ...(reviewing ? { report: entry.report } : entry?.review?.accepted === false ? { feedback: entry.review.notes } : entry ? { instructions: entry.instructions, acceptanceCriteria: entry.acceptanceCriteria } : {}),
   };
-  return `${heading} ${row.id}: ${row.title}\n` +
+  // Use the validated action's recorded actor, never the task's current assignee.
+  // The first line survives native history, reloads and existing browser bundles.
+  const name = String(sender?.name || sender?.id || "Sender not recorded").replace(/\s+/g, " ").trim().slice(0, 120).replace(/[\\`*_[\]<>]/g, "\\$&");
+  const from = sender?.source === "agent" ? `From agent: ${name}` : `From: ${sender?.source === "user" ? "User" : sender?.source === "system" ? "Office" : name}`;
+  return `**${from}**\n\n${heading} ${row.id}: ${row.title}\n` +
     `Task update: ${JSON.stringify(update)}\n` +
     "Reuse known task context; office_tasks.todo_get only for missing information or a revision conflict.\n" +
     (reviewing ? "Verify report and artifacts against acceptance criteria, then todo_review with evidence; submission is not acceptance.\n" : finalAcceptance ? "Complete only verified remaining phases; preserve the execution assignee.\n" : entry ? "Follow the task's current scope and genuine user/system constraints; todo_submit evidence to your manager, leaving final acceptance open.\n" : "Keep phase progress and evidence current; finish only verified work.\n") +
@@ -112,6 +116,7 @@ class OfficeDelegation {
   async run(input) {
     if (Object.hasOwn(this.store.data.requests, input.requestId || "")) return this.store.once(input, () => {});
     const row = this.todos.raw(input.id), phase = row.phases.find(p => p.id === input.phaseId), entry = activeDelegation(row, input.phaseId);
+    const sender = this.todos.actor(input);
     if (!isPhaseTask(row) || !phase) throw new Error("Choose an explicit task phase");
     if (!row.ownerId) throw new Error("Assign an Owner before starting work");
     const recipient = entry ? handlingAgentId(row, phase.id) : phase.assigneeId;
@@ -132,9 +137,9 @@ class OfficeDelegation {
         this.todos.assertPhaseAvailable(recipient, row.id, phase.id);
         this.todos.change({ ...input, activityId: input.requestId }, "start");
         const started = this.todos.raw(row.id);
-        if (entry) { const next = structuredClone(started); activeDelegation(next, phase.id).delivery = { recipientId: recipient, requestId: input.requestId, state: "sending" }; this.todos.save(next); }
+        if (entry) { const next = structuredClone(started); activeDelegation(next, phase.id).delivery = { recipientId: recipient, requestId: input.requestId, state: "sending", sender }; this.todos.save(next); }
         try {
-          const result = await this.send(recipient, taskNotification(started, currentEntry, phase.id), input.requestId, taskReplyContext(started, currentEntry?.replyContext, phase.id), { purpose: "collaboration_mixed", trigger: "todoRun", originId: entry?.id || row.id });
+          const result = await this.send(recipient, taskNotification(started, currentEntry, phase.id, sender), input.requestId, taskReplyContext(started, currentEntry?.replyContext, phase.id), { purpose: "collaboration_mixed", trigger: "todoRun", originId: entry?.id || row.id });
           if (result.status === "busy") throw new Error("Agent became busy; the phase was not sent");
           this.bindResult(row.id, phase.id, recipient, input.requestId, result);
           if (entry) this.todos.delivery(row.id, input.requestId, "sent");

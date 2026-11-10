@@ -196,7 +196,7 @@ const methods = {
     if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "sending");
     todos.startForAgent(recipient, row.id, undefined, p.requestId);
     try {
-      const result = await controls.send(recipient, taskNotification(todos.raw(row.id)), p.requestId, [], { onlyIfIdle: true, replyContext: entry?.replyContext || taskReplyContext(row), usage: { purpose: "collaboration_mixed", trigger: "todoRun", originId: entry?.id || row.id } });
+      const result = await controls.send(recipient, taskNotification(todos.raw(row.id), undefined, undefined, todos.actor(p)), p.requestId, [], { onlyIfIdle: true, replyContext: entry?.replyContext || taskReplyContext(row), usage: { purpose: "collaboration_mixed", trigger: "todoRun", originId: entry?.id || row.id } });
       if (result.status === "busy") throw new Error("Agent became busy; the task was not sent");
       if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "sent");
       return { id: row.id, threadId: recipient };

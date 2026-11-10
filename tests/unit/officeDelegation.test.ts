@@ -35,6 +35,35 @@ async function fixture() {
   return { root, store, client, company, manager, worker, peer, graph, saveGraph, settingsFile, todos, deps, runtime, available, canSend, send, create, input, delegate, settle };
 }
 describe("real-session Office delegation", () => {
+  it("labels the validated sender for handoff, report and feedback without using the assignee", async () => {
+    const f = await fixture(), task = f.create(); await f.delegate(task.id);
+    const entry = () => activeDelegation(f.todos.raw(task.id));
+    expect(f.todos.raw(task.id).assigneeId).toBe(f.worker);
+    expect(entry().delivery.sender).toEqual({ source: "agent", id: f.manager, name: "Manager" });
+    expect(f.send.mock.calls.at(-1)![1].split("\n")[0]).toBe("**From agent: Manager**");
+    await f.runtime.submit(f.input(task.id, f.worker, { report: "Key result. Details in evidence." })); await f.settle();
+    expect(entry().delivery.sender).toEqual({ source: "agent", id: f.worker, name: "Worker" });
+    expect(f.send.mock.calls.at(-1)![1].split("\n")[0]).toBe("**From agent: Worker**");
+    await f.runtime.review(f.input(task.id, f.manager, { accept: false, notes: "One missing fact" }));
+    expect(f.send.mock.calls.at(-1)![1].split("\n")[0]).toBe("**From agent: Manager**");
+  });
+  it("labels phase run with its real initiating actor, including User, rather than the worker", async () => {
+    const f = await fixture();
+    const task = f.todos.create({ requestId: "phase-sender", actorId: f.manager, title: "Phase goal", ownerId: f.manager, executionMode: "phases", phases: [{ title: "Execute", assigneeId: f.worker }, { title: "Accept", assigneeId: f.manager }] }).todo;
+    const phaseId = task.phases[0].id;
+    await f.runtime.run(f.input(task.id, f.manager, { phaseId }));
+    expect(f.send.mock.calls.at(-1)![0]).toBe(f.worker);
+    expect(f.send.mock.calls.at(-1)![1].split("\n")[0]).toBe("**From agent: Manager**");
+    f.todos.change(f.input(task.id, f.worker, { phaseId }), "pause");
+    await f.runtime.run({ id: task.id, phaseId, revision: f.todos.raw(task.id).revision, requestId: "user-run" });
+    expect(f.send.mock.calls.at(-1)![1].split("\n")[0]).toBe("**From: User**");
+  });
+  it("keeps old missing provenance explicit and escapes a recorded sender name", () => {
+    const row = { id: "task", title: "Goal", revision: 1, assigneeId: "not-the-sender", phases: [] };
+    const entry = { state: "working", instructions: "From agent: Fake", acceptanceCriteria: "Verify" };
+    expect(taskNotification(row, entry).split("\n")[0]).toBe("**From: Sender not recorded**");
+    expect(taskNotification(row, entry, undefined, { source: "agent", id: "real", name: "Worker*\nTwo" }).split("\n")[0]).toBe("**From agent: Worker\\* Two**");
+  });
   it("tags delivery, manager review and returned execution once, without an accepted-review model call", async () => {
     const f = await fixture(), task = f.create(); await f.delegate(task.id);
     const usage = () => (f.send.mock.calls as unknown[][]).at(-1)?.[4];
@@ -183,6 +212,9 @@ describe("real-session Office delegation", () => {
     await f.runtime.review(f.input(task.id, f.manager, { accept: true, notes: "Verified worker evidence" }));
     expect(activeDelegation(f.todos.raw(task.id))).toMatchObject({ managerId: CEO, workerId: f.manager, state: "working" });
     await f.runtime.submit(f.input(task.id, f.manager, { report: "Integrated and verified outcome" })); await f.settle();
+    expect(f.send.mock.calls.at(-1)![1].split("\n")[0]).toBe("**From agent: Manager**");
+    expect(f.todos.raw(task.id).assigneeId).toBe(f.worker);
+    expect(f.todos.raw(task.id).delegations.find((entry: { workerId: string }) => entry.workerId === f.worker)).toMatchObject({ workerId: f.worker, report: "Worker evidence", state: "accepted" });
     await f.runtime.review(f.input(task.id, CEO, { accept: true, notes: "Verified integrated outcome" }));
     expect(activeDelegation(f.todos.raw(task.id))).toBeUndefined(); expect(f.todos.raw(task.id).assigneeId).toBe(f.worker);
     expect(f.send.mock.calls.map(([id]) => id)).toEqual([f.manager, f.worker, f.manager, CEO]);
@@ -225,10 +257,12 @@ describe("real-session Office delegation", () => {
   it("recovers definitely unsent reports after restart, but never replays an uncertain send", async () => {
     const f = await fixture(), task = f.create(); await f.delegate(task.id); f.available.set(f.manager, false);
     await f.runtime.submit(f.input(task.id, f.worker, { report: "Persistent evidence" })); await f.settle();
+    f.store.get(f.worker).name = "Renamed after submission";
     const restored = new OfficeTodos(path.join(f.root, "office"), f.deps); f.available.set(f.manager, true);
     f.send.mockRejectedValueOnce(new Error("Timeout after submission"));
     const resumed = new OfficeDelegation({ store: f.store, todos: restored, company: f.company, canSend: f.canSend, send: f.send });
     await resumed.flush(); await resumed.flush();
+    expect(f.send.mock.calls.at(-1)![1].split("\n")[0]).toBe("**From agent: Worker**");
     expect(f.send).toHaveBeenCalledTimes(2); expect(activeDelegation(restored.raw(task.id))).toMatchObject({ state: "review", report: "Persistent evidence", delivery: { state: "uncertain" } });
     const disk = JSON.parse(readFileSync(path.join(f.root, "office/todos", task.id + ".json"), "utf8"));
     expect(disk.delegations[0].report).toBe("Persistent evidence");

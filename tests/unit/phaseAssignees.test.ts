@@ -55,6 +55,16 @@ async function fixture() {
   return { root, store, client, company, todos, deps, runtime, nativeFrame, owner, a, b, c, task, pa, pb, pc, input, delegate, entry, phase, submit, review, available, send, settle, advance: (ms: number) => { now += ms; } };
 }
 describe("independent phase execution through actual dispatch callbacks", () => {
+  it("keeps phase sender provenance for owner handoff, worker report and human return", async () => {
+    const f = await fixture(); await f.delegate(f.pa, f.a);
+    expect(f.entry(f.pa).delivery.sender).toEqual({ source: "agent", id: f.owner, name: "Owner" });
+    expect(f.send.mock.calls.at(-1)![1].split("\n")[0]).toBe("**From agent: Owner**");
+    await f.submit(f.pa, f.a); await f.settle();
+    expect(f.send.mock.calls.at(-1)![1].split("\n")[0]).toBe("**From agent: A**");
+    await f.runtime.review(f.input(f.pa, f.owner, { actorId: undefined, handoffId: f.entry(f.pa).id, accept: false, notes: "One missing fact" }));
+    expect(f.entry(f.pa).delivery.sender).toEqual({ source: "user", name: "User" });
+    expect(f.send.mock.calls.at(-1)![1].split("\n")[0]).toBe("**From: User**");
+  });
   it("lets a directly assigned worker start its phase without a Head handoff or an extra model message", async () => {
     const f = await fixture();
     f.todos.change(f.input(f.pa, f.a), "start");

@@ -2,7 +2,17 @@ import React from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { SessionTranscript } from "../../src/features/office/components/SessionTranscript";
+import { createRequire } from "node:module";
 afterEach(cleanup);
+
+it("keeps the system-generated sender visible before a collapsed long handoff", () => {
+  const { taskNotification } = createRequire(import.meta.url)("../../server/office-delegation");
+  const content = taskNotification({ id: "task", title: "Goal", revision: 1, phases: [] }, { state: "review", report: "Result. ".repeat(120), delivery: { sender: { source: "agent", id: "worker-id", name: "Worker name" } } });
+  const view = render(React.createElement(SessionTranscript, { messages: [{ id: "handoff", role: "user", content }] }));
+  expect(screen.getByText("From agent: Worker name").tagName).toBe("STRONG");
+  expect(screen.getByRole("button", { name: "Expand message" })).toHaveAttribute("aria-expanded", "false");
+  expect(view.container.textContent).not.toContain("Sender not recorded");
+});
 
 it("shows one origin per continuous work run, including A to B to A, while retaining final citations", () => {
   const source = { threadId: "ceo", turnId: "original", itemId: "prompt", excerpt: "Q1 memory, Q2 capacity" };

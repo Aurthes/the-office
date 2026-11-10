@@ -286,13 +286,13 @@ class OfficeTodos {
       if (!row.replyContext && candidate && (!candidate.taskId || candidate.taskId === row.id)) row.replyContext = candidate;
       if (!entry) phase.acceptanceManagerId = manager;
       row.delegations ||= [];
-      row.delegations.push({ id: uuid(), phaseId: phase.id, ...(input.usageTrigger === "todoRun" ? { trigger: "todoRun" } : {}), managerId: manager, workerId: input.assigneeId, instructions, acceptanceCriteria, state: "working", createdAt: this.now(), replyContext: taskReplyContext(row, candidate, phase.id), delivery: { recipientId: input.assigneeId, requestId: `delegation-${uuid()}`, state: "pending" } });
+      row.delegations.push({ id: uuid(), phaseId: phase.id, ...(input.usageTrigger === "todoRun" ? { trigger: "todoRun" } : {}), managerId: manager, workerId: input.assigneeId, instructions, acceptanceCriteria, state: "working", createdAt: this.now(), replyContext: taskReplyContext(row, candidate, phase.id), delivery: { recipientId: input.assigneeId, requestId: `delegation-${uuid()}`, state: "pending", sender: actor } });
       phase.assigneeId = input.assigneeId; phase.assigneeName = this.agents().find(a => a.id === input.assigneeId)?.name || input.assigneeId; phase.status = "queued";
       message = `Delegated phase: ${phase.title}`;
     } else if (action === "submit") {
       if (entry.state !== "working" || actor.id !== entry.workerId) throw new Error("Only this handoff's worker can submit");
       entry.report = text(input.report, "Delivery report and evidence", 6000); entry.submittedAt = this.now(); entry.state = "review";
-      entry.delivery = { recipientId: entry.managerId, requestId: `delegation-${uuid()}`, state: "pending" };
+      entry.delivery = { recipientId: entry.managerId, requestId: `delegation-${uuid()}`, state: "pending", sender: actor };
       this.stopClock(row, this.now(), phase.id); delete phase.activity; phase.status = "review";
       message = `Submitted phase for manager acceptance: ${phase.title}`;
     } else if (action === "review" || action === "recall") {
@@ -310,7 +310,7 @@ class OfficeTodos {
         entry.review = { accepted: input.accept, notes, at: this.now(), managerId: entry.managerId, actor };
         entry.state = input.accept ? "accepted" : "working";
         phase.status = input.accept ? "paused" : "queued";
-        if (!input.accept) entry.delivery = { recipientId: entry.workerId, requestId: `delegation-${uuid()}`, state: "pending" };
+        if (!input.accept) entry.delivery = { recipientId: entry.workerId, requestId: `delegation-${uuid()}`, state: "pending", sender: actor };
         else if (!activeDelegation(row, phase.id)) { phase.completedAt = this.now(); phase.status = "done"; }
         message = `Manager ${input.accept ? "accepted" : "returned"} phase ${phase.title}: ${notes}`;
       }
@@ -463,7 +463,7 @@ class OfficeTodos {
       row.delegations ||= [];
       row.delegations.push({ id: uuid(), managerId: actor.id, workerId: input.assigneeId, instructions, acceptanceCriteria, state: "working", createdAt: this.now(),
         replyContext: taskReplyContext(row, candidate),
-        delivery: { recipientId: input.assigneeId, requestId: `delegation-${uuid()}`, state: "pending" } });
+        delivery: { recipientId: input.assigneeId, requestId: `delegation-${uuid()}`, state: "pending", sender: actor } });
       Object.assign(row, this.references({ assigneeId: input.assigneeId }, row)); row.status = "queued";
       message = `Delegated to ${row.assigneeName}; manager retains acceptance responsibility`;
     } else if (action === "recall") {
@@ -475,7 +475,7 @@ class OfficeTodos {
     } else if (action === "submit") {
       if (!delegation || delegation.state !== "working" || actor.id !== delegation.workerId) throw new Error("Only the assigned worker can submit the active delegation");
       delegation.report = text(input.report, "Delivery report and evidence", 6000); delegation.submittedAt = this.now(); delegation.state = "review";
-      delegation.delivery = { recipientId: delegation.managerId, requestId: `delegation-${uuid()}`, state: "pending" };
+      delegation.delivery = { recipientId: delegation.managerId, requestId: `delegation-${uuid()}`, state: "pending", sender: actor };
       this.stopClock(row); row.status = "paused";
       message = `Submitted for manager acceptance: ${delegation.report}`;
     } else if (action === "review") {
@@ -486,7 +486,7 @@ class OfficeTodos {
       delegation.state = input.accept ? "accepted" : "working";
       delete delegation.delivery;
       if (!input.accept) {
-        delegation.delivery = { recipientId: delegation.workerId, requestId: `delegation-${uuid()}`, state: "pending" };
+        delegation.delivery = { recipientId: delegation.workerId, requestId: `delegation-${uuid()}`, state: "pending", sender: actor };
       }
       row.status = input.accept ? "paused" : "queued";
       message = `${input.accept ? "Manager accepted" : "Manager returned for changes"}: ${notes}`;
