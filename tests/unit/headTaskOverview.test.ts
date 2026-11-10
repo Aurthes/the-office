@@ -135,3 +135,17 @@ it("unions automatic Owner with explicit watchers without changing parent counts
   expect(taskProgressAgentIds(organization).has(CEO_ID)).toBe(true);
   expect(taskProgressAgentIds(organization).has("worker")).toBe(false);
 });
+
+it.each(["Accepted", "Submitted"])("keeps an unscoped %s report in the short preview and collapsed original excerpt", action => {
+  const report = "Accepted delivery with important limits; this task is still awaiting the remaining phases. ".repeat(3);
+  const onOpenTask = vi.fn();
+  const recorded = { recent: [{ action, at: 40000, actorId: "head", phaseId: null, detail: report }], current: [], unscopedNote: null };
+  render(createElement(HeadTaskOverview, { name: "Head", rows: headTaskRows("head", [{ ...task, tracking: recorded }]), names, loading: false, error: "", onOpenTask, onClose: vi.fn() }));
+  const latest = document.querySelector(".head-latest-progress")!, preview = latest.querySelector(".head-short-text")!, details = document.querySelector(".head-progress-details")!;
+  expect(latest).toHaveTextContent(action); expect(latest).not.toHaveTextContent("Completed");
+  expect(preview.tagName).toBe("SPAN"); expect(preview.textContent).toBe(report);
+  expect(details).not.toHaveAttribute("open"); expect(details.querySelector(".head-progress-event p")).not.toBeVisible();
+  fireEvent.click(screen.getByText("Progress details"));
+  expect(details.querySelector(".head-progress-event p")).toBeVisible(); expect(details.querySelector(".head-progress-event p")?.textContent).toBe(report);
+  fireEvent.click(screen.getByRole("button", { name: "Open full task record" })); expect(onOpenTask).toHaveBeenCalledWith("parent", undefined);
+});
