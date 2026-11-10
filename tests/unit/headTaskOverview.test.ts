@@ -1,10 +1,10 @@
-import { createElement } from "react";
+import { createElement, useState } from "react";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { AgentDirectory } from "@/features/office/components/AgentDirectory";
-import { getAgentActivity } from "@/features/retro-office/core/agentActivity";
+import { HeadTaskOverview } from "@/features/office/components/HeadTaskOverview";
+import { AgentInterfaceActions } from "@/features/office/components/AgentInterfaceActions";
 import { departmentManagerIds, headTaskRows } from "@/features/office/operations/headTaskOverview";
-import type { DirectoryAgent, DirectoryTaskSummary } from "@/features/office/operations/agentDirectory";
+import type { DirectoryTaskSummary } from "@/features/office/operations/agentDirectory";
 import { CEO_ID, type OrganizationView } from "@/lib/office/organization";
 import { setUiLanguage } from "@/lib/i18n/ui-language";
 
@@ -20,7 +20,6 @@ const organization: OrganizationView = { ceoAvatar: null, savePosition: vi.fn(),
   { id: "head", name: "Renamable Head", title: "Manager", department: "Open Workspace", departmentId: null, reportsTo: [CEO_ID] },
   { id: "worker", name: "Employee", title: "Worker", department: "Open Workspace", departmentId: null, reportsTo: ["head"] },
 ] };
-const agents: DirectoryAgent[] = organization.people.map(person => ({ ...person, projectId: null, projectName: "Open Workspace", color: "#aaa", updatedAt: null, activity: getAgentActivity({ status: "idle" }) }));
 const phased: DirectoryTaskSummary = { ...task, executionMode: "phases", phases: [
   { id: "a1234567", title: "Parallel implementation", status: "running", assigneeId: "stale", activity: { agentId: "worker", role: "worker" } },
   { id: "b1234567", title: "Parallel review", status: "review", assigneeId: "submitter", reviewerId: "reviewer" },
@@ -46,7 +45,7 @@ it("does not replace missing execution with parent Owner, task/phase Assignee, h
   expect(headTaskRows("head", [unknown])[0].work[0].people).toEqual([{ role: "Executing", agentId: undefined }]);
   const reviewing = { ...phased, phases: [{ id: "r", title: "Acceptance", status: "running", assigneeId: "worker", activity: { agentId: "head", role: "reviewer" } }] };
   expect(headTaskRows("head", [reviewing])[0].work[0]).toMatchObject({ status: "Reviewing", people: [{ role: "Reviewing", agentId: "head" }] });
-  expect(headTaskRows("head", [{ ...task, phases: phased.phases }])[0].work).toEqual([{ id: "parent", title: "Specific phase not recorded", status: "Running", people: [{ role: "Task-level responsibility", agentId: "worker" }] }]);
+  expect(headTaskRows("head", [{ ...task, phases: phased.phases }])[0].work).toMatchObject([{ id: "parent", title: "Specific phase not recorded", status: "Running", people: [{ role: "Task-level responsibility", agentId: "worker" }] }]);
 });
 it("shows queued and unknown parent work honestly without selecting the first phase", () => {
   expect(headTaskRows("head", [{ ...phased, phases: [{ id: "future", title: "Not current", status: "queued" }] }])[0].work[0]).toMatchObject({ title: "No phase started", status: "Not started", people: [] });
@@ -59,36 +58,43 @@ it("recognizes role changes and actual department Head IDs without depending on 
   const directoryHead = { ...organization, people: [], departments: [{ id: "open-workspace", name: "Open Workspace", description: "", heads: [organization.people[0]], members: [] }] };
   expect([...departmentManagerIds(directoryHead)]).toEqual(["head"]);
 });
-function props(view: "project" | "activity" | "organization" = "project") {
-  return { agents, organization, taskSummaries: [phased], view, onViewChange: vi.fn(), search: "", onSearchChange: vi.fn(), selectedId: null, onOpenChat: vi.fn(), onOpenTask: vi.fn() };
-}
-it.each(["project", "activity", "organization"] as const)("opens the Head overview from the original card position in %s, preserves each paired phase and detail route", view => {
-  const p = props(view); render(createElement(AgentDirectory, p));
-  const trigger = screen.getByRole("button", { name: "Managed tasks for Renamable Head" });
-  expect(trigger).toHaveTextContent("Manage 1 tasks"); trigger.focus(); fireEvent.click(trigger);
+const tracking = { recent: [{ action: "Completed", at: 10000, actorId: "worker", phaseId: "done", detail: "Completed implementation" }], current: [{ phaseId: "a1234567", status: "running", since: 20000, reason: null, waitingForId: null }, { phaseId: "b1234567", status: "review", since: 30000, reason: null, reasonCode: "Submitted for manager acceptance", waitingForId: "reviewer" }], unscopedNote: null };
+const names = new Map([["head", "Renamable Head"], ["worker", "Employee"], ["reviewer", "Reviewer"]]);
+it("shows recorded progress separately from each current phase/person/wait state and navigates original IDs", () => {
+  const onOpenTask = vi.fn(), onClose = vi.fn();
+  render(createElement(HeadTaskOverview, { name: "Renamable Head", rows: headTaskRows("head", [{ ...phased, tracking }]), names, loading: false, error: "", onOpenTask, onClose }));
   const table = screen.getByRole("table"); expect(table.querySelectorAll("tbody tr")).toHaveLength(1);
-  expect(within(table).getAllByRole("columnheader").map(n => n.textContent)).toEqual(["Task", "Current work", "Who is working"]);
-  const pair = table.querySelector('[data-head-work-id="a1234567"]')!;
-  expect(pair).toHaveTextContent("Parallel implementation"); expect(pair).toHaveTextContent("Employee"); expect(pair).not.toHaveTextContent("Renamable Head");
-  fireEvent.click(within(table).getByRole("button", { name: "P-b1234567 · Parallel review" }));
-  expect(p.onOpenTask).toHaveBeenCalledExactlyOnceWith("parent", "b1234567"); expect(p.onOpenChat).not.toHaveBeenCalled();
-  expect(document.querySelector("dialog")).toBeNull(); expect(trigger).toHaveFocus();
+  expect(within(table).getAllByRole("columnheader").map(n => n.textContent)).toEqual(["Task", "Recent progress", "Current position"]);
+  expect(table.querySelector(".head-recent")).toHaveTextContent("EmployeeCompletedCompleted implementation");
+  expect(table.querySelector('[data-head-work-id="a1234567"]')).toHaveTextContent("Employee");
+  expect(table.querySelector('[data-head-work-id="b1234567"]')).toHaveTextContent("Waiting for Reviewer");
+  expect(table.querySelector('[data-head-work-id="c1234567"]')).toHaveTextContent("Pause reason not recorded");
+  expect(table.querySelector('time[datetime="1970-01-01T00:00:10.000Z"]')).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Completed implementation" })); expect(onOpenTask).toHaveBeenCalledWith("parent", "done");
 });
-it("distinguishes loading/error from an accepted empty list, restores focus, and updates Owner/name/role without a new fetch", () => {
-  const p = props(); const r = render(createElement(AgentDirectory, { ...p, taskSummaries: [], tasksLoading: true }));
-  const trigger = screen.getByRole("button", { name: "Managed tasks for Renamable Head" }); trigger.focus(); fireEvent.click(trigger);
-  expect(screen.getByRole("status")).toHaveTextContent("Loading tasks"); expect(screen.queryByText("No tasks need follow-up.")).toBeNull();
-  r.rerender(createElement(AgentDirectory, { ...p, taskSummaries: [], taskError: "Current tasks are unavailable." }));
-  expect(within(screen.getByRole("dialog")).getByRole("alert")).toHaveTextContent("unavailable"); expect(screen.queryByText("No tasks need follow-up.")).toBeNull();
-  r.rerender(createElement(AgentDirectory, { ...p, taskSummaries: [] })); expect(screen.getByText("No tasks need follow-up.")).toBeTruthy();
-  fireEvent(screen.getByRole("dialog"), new Event("cancel", { bubbles: true, cancelable: true })); expect(trigger).toHaveFocus();
-  const changed = { ...organization, people: organization.people.map(person => ({ ...person, name: `${person.name} new`, title: person.id === "worker" ? "Head" : "Worker" })) };
-  r.rerender(createElement(AgentDirectory, { ...p, organization: changed, taskSummaries: [{ ...task, ownerId: "worker" }] }));
-  expect(screen.queryByRole("button", { name: "Managed tasks for Renamable Head" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Managed tasks for Employee" })).toHaveTextContent("Manage 1 tasks");
+it("keeps prior draft DOM mounted and returns focus when the header action closes the same overview", () => {
+  function Harness() {
+    const [open, setOpen] = useState(false);
+    return createElement("div", null, createElement("textarea", { "aria-label": "existing draft", defaultValue: "Text, @reference and attachments stay with chat" }), createElement(AgentInterfaceActions, { preset: "standard", placement: "inline", onOpenTaskProgress: () => setOpen(true) }), open ? createElement(HeadTaskOverview, { name: "Head", rows: [], names, loading: false, error: "", onOpenTask: vi.fn(), onClose: () => setOpen(false) }) : null);
+  }
+  render(createElement(Harness)); const draft = screen.getByRole("textbox"), trigger = screen.getByRole("button", { name: "Task progress" }); trigger.focus(); fireEvent.click(trigger);
+  expect(screen.getByText("No tasks need follow-up.")).toBeTruthy(); fireEvent(screen.getByRole("dialog"), new Event("cancel", { bubbles: true, cancelable: true }));
+  expect(screen.getByRole("textbox")).toBe(draft); expect(draft).toHaveValue("Text, @reference and attachments stay with chat"); expect(trigger).toHaveFocus();
 });
-it("translates app-owned text but preserves task/person names", () => {
-  setUiLanguage("zh-CN"); render(createElement(AgentDirectory, props()));
-  fireEvent.click(screen.getByRole("button", { name: "Renamable Head 的管理任务" }));
-  expect(screen.getByRole("table")).toHaveTextContent("当前在做什么"); expect(screen.getByRole("table")).toHaveTextContent("Parent task");
+it("keeps Teaser and Head actions compatible and moves the same callback to the existing More menu", () => {
+  const progress = vi.fn(), teaser = vi.fn();
+  const r = render(createElement("details", { open: true }, createElement(AgentInterfaceActions, { preset: "teaser", placement: "menu", onOpenTaskProgress: progress, onOpenBoard: teaser })));
+  expect(screen.getByRole("button", { name: "Teaser board" })).toBeTruthy(); fireEvent.click(screen.getByRole("button", { name: "Task progress" })); expect(progress).toHaveBeenCalledOnce(); expect(document.querySelector("details")).not.toHaveAttribute("open");
+  r.rerender(createElement(AgentInterfaceActions, { preset: "standard", placement: "inline" })); expect(screen.queryByRole("button", { name: "Task progress" })).toBeNull();
+});
+it("distinguishes loading, failure, empty, unsupported progress and recorded unknown fields", () => {
+  const props = { name: "Head", rows: [], names, loading: true, error: "", onOpenTask: vi.fn(), onClose: vi.fn() };
+  const r = render(createElement(HeadTaskOverview, props)); expect(screen.getByRole("status")).toHaveTextContent("Loading tasks"); expect(screen.queryByText("No tasks need follow-up.")).toBeNull();
+  r.rerender(createElement(HeadTaskOverview, { ...props, loading: false, error: "Current tasks are unavailable." })); expect(screen.getByRole("alert")).toBeTruthy(); expect(screen.queryByText("No tasks need follow-up.")).toBeNull();
+  r.rerender(createElement(HeadTaskOverview, { ...props, loading: false })); expect(screen.getByText("No tasks need follow-up.")).toBeTruthy();
+  r.rerender(createElement(HeadTaskOverview, { ...props, loading: false, rows: headTaskRows("head", [task]) })); expect(screen.getByText("Progress records unavailable.")).toBeTruthy(); expect(screen.getByText("Specific phase not recorded")).toBeTruthy();
+});
+it("translates application text, retaining task and actor wording as data", () => {
+  setUiLanguage("zh-CN"); render(createElement(HeadTaskOverview, { name: "Head", rows: headTaskRows("head", [{ ...task, tracking }]), names, loading: false, error: "", onOpenTask: vi.fn(), onClose: vi.fn() }));
+  expect(screen.getByRole("table")).toHaveTextContent("最近进展"); expect(screen.getByRole("table")).toHaveTextContent("Parent task"); expect(screen.getByRole("table")).toHaveTextContent("Employee");
 });

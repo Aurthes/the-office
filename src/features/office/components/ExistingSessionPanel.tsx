@@ -37,7 +37,7 @@ function reconcileLocalSends(messages: Message[]) {
   return messages.filter(message => !message.delivery || !received.has(message.clientId));
 }
 
-export function ExistingSessionPanel({ client, threadId, active = true, focusMode = false, onToggleFocus, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, onOpenThread, onFork, forkDisabled, headerStart, headerEnd, projects = [], voice, organization, messageTarget, onCloseMessage, interfacePreset = "standard", onSaveInterfacePreset, onOpenTeaserBoard, externalSends, onExternalReceipt }: {
+export function ExistingSessionPanel({ client, threadId, active = true, focusMode = false, onToggleFocus, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, onOpenThread, onFork, forkDisabled, headerStart, headerEnd, projects = [], voice, organization, messageTarget, onCloseMessage, interfacePreset = "standard", onSaveInterfacePreset, onOpenTeaserBoard, onOpenTaskProgress, externalSends, onExternalReceipt }: {
   client: SessionClient;
   active?: boolean;
   focusMode?: boolean;
@@ -65,6 +65,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   interfacePreset?: AgentInterfacePreset;
   onSaveInterfacePreset?: (preset: AgentInterfacePreset) => Promise<void>;
   onOpenTeaserBoard?: () => void;
+  onOpenTaskProgress?: () => void;
   externalSends?: readonly LiveSessionItem[];
   onExternalReceipt?: (threadId: string, clientId: string) => void;
 }) {
@@ -313,7 +314,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
         {onToggleFocus ? <button type="button" aria-label={t("Focus mode")} aria-pressed={focusMode} onClick={onToggleFocus}
           title={t(focusMode ? "Focus on: keep this session until switched off" : "Keep this session open beyond the 15-minute cache")}
           className="session-action-back session-focus-toggle"><Focus size={15} /><span className="hidden sm:inline">{t("Focus")}</span></button> : null}
-        <AgentInterfaceActions preset={interfacePreset} onOpenBoard={onOpenTeaserBoard} placement="inline" />
+        <AgentInterfaceActions preset={interfacePreset} onOpenBoard={onOpenTeaserBoard} onOpenTaskProgress={onOpenTaskProgress} placement="inline" />
         {characterOpen ? <button type="button" onClick={() => setCharacterMode("chat")} className="session-action-back"><ArrowLeft size={14} />{t("Back to chat")}</button> : null}
         {!characterOpen ? <button type="button" aria-label={t(workspaceOpen ? "Close workspace" : "Open workspace")} aria-expanded={workspaceOpen} title={t("Workspace")}
           disabled={!data?.controlsAvailable} className="session-action-back session-workspace-toggle" onClick={() => { setWorkspaceOpen(value => !value); if (!workspaceOpen) onOpenWorkspace?.(); }}><PanelRight size={15} /><span>{t("Workspace")}</span></button> : null}
@@ -321,7 +322,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
           <summary aria-label={t("Session information")} className="session-actions-trigger"><MoreHorizontal size={18} aria-hidden="true" /></summary>
           <div className="session-actions-popover">
             <div className="session-actions-list">
-            <AgentInterfaceActions preset={interfacePreset} onOpenBoard={onOpenTeaserBoard} placement="menu" />
+            <AgentInterfaceActions preset={interfacePreset} onOpenBoard={onOpenTeaserBoard} onOpenTaskProgress={onOpenTaskProgress} placement="menu" />
             {onSaveInterfacePreset ? <AgentInterfacePresetEditor key={`${threadId}:${interfacePreset}`} preset={interfacePreset} onSave={onSaveInterfacePreset} /> : null}
             {onSaveCharacter ? <>
               <button type="button" disabled={!data} onClick={event => openCharacter(event, "view")} className="session-action session-action--view"><span className="session-action-icon"><UserRound size={16} aria-hidden="true" /></span><span className="session-action-label">{t("Character")}</span><ChevronRight className="session-action-chevron" size={14} aria-hidden="true" /></button>

@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { taskReplyContext } = require("./office-reply-context");
+const { taskTracking } = require("./office-todo-progress");
 const uuid = () => crypto.randomUUID();
 const text = (value, name, max, empty = false) => {
   if (typeof value !== "string" || (!empty && !value.trim()) || value.length > max) throw new Error(`${name} must contain ${empty ? "0" : "1"}–${max} characters`);
@@ -193,7 +194,7 @@ class OfficeTodos {
     if (input.query) { const query = text(input.query, "Search", 200).toLowerCase(); rows = rows.filter(r => `${r.code}\n${r.title}\n${r.documentation}\n${r.assigneeName || ""}`.toLowerCase().includes(query)); }
     rows.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
     const offset = Math.max(0, Number.isInteger(input.offset) ? input.offset : 0), limit = Math.min(25, Math.max(1, Number.isInteger(input.limit) ? input.limit : 25));
-    return { todos: rows.slice(offset, offset + limit).map(row => this.view(row, false, sources)), total: rows.length, offset, limit, ...catalog, departments, serverTime: this.now() };
+    return { todos: rows.slice(offset, offset + limit).map(row => ({ ...this.view(row, false, sources), ...(input.includeProgress === true ? { tracking: taskTracking(row) } : {}) })), total: rows.length, offset, limit, ...catalog, departments, serverTime: this.now() };
   }
   create(input) {
     const requestId = text(input.requestId, "Creation request ID", 160), hash = crypto.createHash("sha256").update(JSON.stringify({ ...input, requestId: undefined })).digest("hex");

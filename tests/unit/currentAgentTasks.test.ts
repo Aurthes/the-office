@@ -11,7 +11,7 @@ it("reads every open-assignment page, refreshes on task events, and clears a fin
   const client = { call, onEvent: vi.fn(callback => { onEvent = callback; return off; }) } as unknown as Pick<GatewayClient, "call" | "onEvent">;
   const { result, unmount } = renderHook(() => useCurrentAgentTasks(client, true, "gateway"));
   await waitFor(() => expect(result.current.tasks.size).toBe(2));
-  expect(call).toHaveBeenNthCalledWith(2, "todo.list", { status: "all", offset: 1, limit: 25 });
+  expect(call).toHaveBeenNthCalledWith(2, "todo.list", { status: "all", offset: 1, limit: 25, includeProgress: true });
   finished = true;
   act(() => onEvent?.({ event: "todos.updated" }));
   await waitFor(() => expect(result.current.tasks.size).toBe(0));
@@ -44,7 +44,7 @@ it("updates active work on transitions, retains last snapshot on read failure an
     task = { ...task, status };
     act(() => onEvent?.({ event: "todos.updated" }));
     await waitFor(() => expect(call.mock.calls.length).toBeGreaterThan(before));
-    expect(result.current.tasks.has("agent")).toBe(status === "running");
+    await waitFor(() => expect(result.current.tasks.has("agent")).toBe(status === "running"));
   }
   fail = true;
   act(() => onEvent?.({ event: "todos.updated" }));
