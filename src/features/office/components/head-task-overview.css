@@ -38,3 +38,5 @@
 @media (max-width: 480px) { .head-task-overview { padding: 10px; font-size: 12px; } .head-task-overview h2 { font-size: 15px; } .head-task-overview th, .head-task-overview td, .head-work-pair { padding: 6px 5px; } }
 
 .head-work-pair > small, .head-operation-note > small { display: block; }
+
+.head-work-status[data-active=true]{color:var(--foreground);font-weight:700}.head-work-pair:has(.head-work-status[data-active=true]){border-left:2px solid var(--ring);padding-left:8px}.head-work-pair:has(.head-work-status[data-active=true]) .head-task-link{font-weight:600}

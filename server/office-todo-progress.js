@@ -4,7 +4,7 @@
 // No events are added, history is not backfilled, and edits are not progress.
 const short = value => typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 180) : null;
 const time = value => Number.isFinite(value) && value >= 0 ? value : null;
-const metadata = /^(Plan, .*updated$|Removed phase:|Separated execution assignment|Completed task automatically archived|To-do archived$|To-do restored$)/;
+const metadata = /^(Agent turn .*; activity timer stopped$|Agent switched task; activity timer stopped$|Office (stopped; activity timers stopped$|restarted; activity timers stopped at the last checkpoint$)|Plan, .*updated$|Removed phase:|Separated execution assignment|Completed task automatically archived|To-do archived$|To-do restored$)/;
 function taskTracking(row) {
   const phases = row.phases || [], mode = row.executionMode === "phases";
   const handoffs = (row.delegations || []).slice(-100), events = (row.events || []).slice(-100);
@@ -20,6 +20,10 @@ function taskTracking(row) {
   }
   for (const event of events) {
     const message = event.message || "";
+    if (time(event.at) !== null && Array.isArray(event.followup)) {
+      for (const change of event.followup) if (["running", "paused"].includes(change.status) && (!mode && change.phaseId === null || mode && phases.some(p => p.id === change.phaseId))) add(change.status === "running" ? "Following resumed" : "Paused", event.at, event.actor, change.phaseId, null, "event");
+      continue;
+    }
     if (time(event.at) === null || metadata.test(message)) continue;
     const match = /^(Started phase: |Completed phase: |Reopened phase: |Delegated phase: |Submitted phase for manager acceptance: |Manager accepted phase |Manager returned phase |Paused phase: )/.exec(message);
     const matches = match ? phases.filter(p => message === match[0] + p.title || message.startsWith(match[0] + p.title + ": ") || message.startsWith(match[0] + p.title + ";")) : [];
@@ -52,22 +56,28 @@ function taskTracking(row) {
     let key = entry.phaseId;
     if (mode && !key && entry.action === "Paused" && running.size === 1) key = [...running][0];
     if (mode && !key) continue; // Old ambiguous events cannot bind a phase.
-    if (entry.action === "Started") running.add(key);
+    if (["Started", "Following resumed"].includes(entry.action)) running.add(key);
     if (["Paused", "Submitted", "Completed", "Accepted", "Returned", "Recalled", "Reopened", "Delegated"].includes(entry.action)) running.delete(key);
     if (entry.action !== "Created") states.set(key, entry);
   }
   const current = (mode ? phases.filter(p => p.completedAt == null) : [row]).map(p => {
     const phaseId = mode ? p.id : null, entry = [...handoffs].reverse().find(e => (e.phaseId || null) === phaseId && !["accepted", "recalled"].includes(e.state));
-    const previous = states.get(phaseId), status = entry?.state === "review" && p.status !== "running" ? "review" : p.status;
+    const previous = states.get(phaseId), clockActive = mode ? p.startedAt != null : phases.some(phase => phase.startedAt != null);
+    const pausedExplicitly = p.status === "paused" && (p.pauseContext || previous?.action === "Paused" && previous.actorSource !== "system" && (!entry?.submittedAt || previous.at >= entry.submittedAt));
+    const status = entry?.state === "review" && !clockActive && !pausedExplicitly ? "review" : p.status;
     let since = null, reason = null, reasonCode = null, waitingForId = null;
-    if (status === "running") since = (mode ? time(p.activity?.startedAt) ?? time(p.lastStartedAt) : null) ?? (previous?.action === "Started" ? previous.at : null);
+    if (status === "running") since = previous?.action === "Following resumed" ? previous.at : (mode ? time(p.activity?.startedAt) ?? time(p.lastStartedAt) : null) ?? (previous?.action === "Started" ? previous.at : null);
     else if (status === "review") { since = time(entry?.submittedAt); reasonCode = "Submitted for manager acceptance"; waitingForId = entry?.managerId || null; }
     else if (status === "paused" && previous && ["Paused", "Accepted", "Recalled"].includes(previous.action)) { since = previous.at; reason = ["Paused", "Recalled"].includes(previous.action) && !/^(Work paused$|Paused phase: )/.test(previous.detail || "") ? previous.detail : null; }
     else if (status === "queued" && entry) {
       since = entry.review?.accepted === false ? time(entry.review.at) : time(entry.createdAt);
       reason = entry.review?.accepted === false ? short(entry.review.notes) : null; reasonCode = reason ? null : "Assigned; not started"; waitingForId = entry.workerId;
     }
-    return { phaseId, status: status || "unknown", since, reason, reasonCode, waitingForId };
+    if (status === "paused" && p.pauseContext) { since = time(p.pauseContext.at); reason = short(p.pauseContext.reason); }
+    const legacyTimerPause = status === "paused" && !p.pauseContext && previous?.action === "Paused" && previous.actorSource === "system" && /^(Agent turn |Office (stopped|restarted))/.test(previous.detail || "");
+    if (legacyTimerPause) { reason = null; reasonCode = "Legacy timer stop; follow-up not recorded"; }
+    return { phaseId, status: status || "unknown", since, reason, reasonCode, waitingForId,
+      needsUserDecision: status === "paused" ? p.pauseContext?.needsUserDecision ?? null : null };
   });
   return { recent: entries.filter(e => e.action !== "Paused").slice(-3).reverse(), current,
     unscopedNote: notes.at(-1) || null, historyLimited: events.length >= 100 || handoffs.length >= 100 };

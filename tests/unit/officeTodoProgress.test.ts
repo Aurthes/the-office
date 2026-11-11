@@ -40,7 +40,7 @@ it("keeps legacy task-level progress and real stop reasons without using edited 
   ] };
   const tracking = taskTracking(row);
   expect(tracking.recent[0]).toMatchObject({ action: "Completed", at: 1000, phaseId: "p" });
-  expect(tracking.current[0]).toMatchObject({ phaseId: null, since: 2000, reason: "Agent turn ended; waiting for follow-up or a phase update" });
+  expect(tracking.current[0]).toMatchObject({ phaseId: null, since: 2000, reason: null, reasonCode: "Legacy timer stop; follow-up not recorded" });
   expect(taskTracking({ ...row, status: "running", events: [] }).current[0].since).toBeNull();
   const metadataOnly = taskTracking({ ...row, status: "running", activity: { agentId: "worker", startedAt: 9000 }, events: [{ at: 9000, message: "Plan, assignment or documentation updated", actor }] });
   expect(metadataOnly.recent).toEqual([]); expect(metadataOnly.current[0].since).toBeNull();

@@ -77,11 +77,9 @@ class OfficeTodos {
         }
         row.revision++; this.event(row, "Separated execution assignment from manager acceptance", { source: "system", name: "Office" }); separated = true;
       }
-      if (row.status === "running") {
-        this.stopClock(row, checkpointAt);
-        if (isPhaseTask(row)) for (const phase of row.phases) if (phase.status === "running") phase.status = activeDelegation(row, phase.id)?.state === "review" ? "review" : "paused";
-        row.status = "paused"; row.revision++;
-        this.event(row, "Office restarted; timer paused at the last checkpoint", { source: "system" }); this.save(row);
+      if (row.phases.some(p => p.startedAt != null)) {
+        this.stopClock(row, checkpointAt); row.revision++;
+        this.event(row, "Office restarted; activity timers stopped at the last checkpoint", { source: "system" }); this.save(row);
       } else if (separated) this.save(row);
       if (row.status === "done" && (!row.archived || row.completedAt !== completionTime(row))) {
         const needsArchive = !row.archived;
@@ -109,7 +107,7 @@ class OfficeTodos {
     if (input.actorId) { const agent = this.agents().find(a => a.id === input.actorId); if (!agent) throw new Error("Choose an existing Office agent"); return { source: "agent", id: agent.id, name: agent.name }; }
     return { source: input.source === "system" ? "system" : "user", name: input.source === "system" ? "Office" : "User" };
   }
-  event(row, message, actor) { row.events.push({ at: this.now(), message, actor }); row.events = row.events.slice(-100); }
+  event(row, message, actor, details = {}) { row.events.push({ at: this.now(), message, actor, ...details }); row.events = row.events.slice(-100); }
   materializeOwner(row, writing = false) {
     if (Object.hasOwn(row, "ownerId")) return;
     const ownerId = taskOwnerId(row);
@@ -228,11 +226,11 @@ class OfficeTodos {
     if (!row.phases.length || row.phases.length > 20 || new Set(row.phases.map(p => p.id)).size !== row.phases.length) throw new Error("Invalid phase plan");
     for (const phase of row.phases) {
       if (!phase.id || !["queued", "running", "paused", "review", "done"].includes(phase.status) || (phase.assigneeId != null && typeof phase.assigneeId !== "string")) throw new Error("Invalid phase execution state");
-      if (typeof phase.id !== "string" || !Number.isFinite(phase.elapsedMs) || phase.elapsedMs < 0 || [phase.startedAt, phase.completedAt].some(t => t != null && !Number.isFinite(t)) || (phase.completedAt != null) !== (phase.status === "done") || (phase.startedAt != null) !== (phase.status === "running")) throw new Error("Invalid phase timing or status");
+      if (typeof phase.id !== "string" || !Number.isFinite(phase.elapsedMs) || phase.elapsedMs < 0 || [phase.startedAt, phase.completedAt].some(t => t != null && !Number.isFinite(t)) || (phase.completedAt != null) !== (phase.status === "done") || phase.startedAt != null && phase.status !== "running") throw new Error("Invalid phase timing or status");
       const entry = activeDelegation(row, phase.id);
       if (phase.completedAt != null && entry || phase.status === "review" && entry?.state !== "review") throw new Error("Invalid phase acceptance state");
       const a = phase.activity;
-      if (phase.startedAt != null && !a) throw new Error("Running phase needs its execution identity");
+      if (phase.status === "running" && !a && (phase.startedAt != null || entry?.state !== "working" || !entry.workerId)) throw new Error("Running phase needs its execution identity");
       if (a && (typeof a.agentId !== "string" || !["worker", "reviewer", "self"].includes(a.role) || typeof a.requestId !== "string" || (a.turnId != null && typeof a.turnId !== "string") || (a.handoffId != null && !(row.delegations || []).some(e => e.id === a.handoffId && e.phaseId === phase.id)))) throw new Error("Invalid phase activity");
       if (a?.startedAt !== undefined && !Number.isFinite(a.startedAt)) throw new Error("Invalid activity start time");
       if (a && (a.role === "self" ? a.handoffId != null : entry?.id !== a.handoffId || a.agentId !== (a.role === "worker" ? entry?.workerId : entry?.managerId))) throw new Error("Invalid phase activity handoff");
@@ -241,8 +239,41 @@ class OfficeTodos {
   }
   summarizePhases(row) {
     row.status = row.phases.every(p => p.completedAt != null) && !openDelegations(row).length ? "done"
-      : row.phases.some(p => p.startedAt != null) ? "running"
+      : row.phases.some(p => ["running", "review"].includes(p.status)) ? "running"
       : row.phases.some(p => ["paused", "review"].includes(p.status)) ? "paused" : "queued";
+  }
+  followUp(row, input, actor) {
+    if (!["running", "paused"].includes(input.status)) throw new Error("Choose Running or Paused for follow-up");
+    if (input.phases !== undefined) throw new Error("Update follow-up separately from the phase plan");
+    const phased = isPhaseTask(row), scope = phased ? row.phases.find(p => p.id === input.phaseId) : row;
+    if (!scope || !phased && input.phaseId) throw new Error("Choose the explicit phase, or omit phaseId for a legacy task");
+    if (row.archived || row.status === "done" || scope.completedAt != null) throw new Error("Reopen completed work before changing follow-up");
+    const entry = activeDelegation(row, phased ? scope.id : undefined);
+    if (entry?.state === "review" || scope.status === "review") throw new Error("Use the existing review controls for submitted work");
+    const clocks = phased ? scope.startedAt != null : row.phases.some(p => p.startedAt != null);
+    if (clocks && scope.status !== input.status) throw new Error("Use the responsible execution controls to pause an active turn");
+    const activity = scope.activity;
+    const recordedExecutor = activity && activity.agentId === handlingAgentId(row, phased ? scope.id : undefined) && activity.handoffId === (entry?.id || null) && activity.role !== "reviewer";
+    const workingHandoff = entry?.state === "working" && entry.workerId === handlingAgentId(row, phased ? scope.id : undefined);
+    if (input.status === "running" && !recordedExecutor && !workingHandoff) throw new Error("An existing execution identity is required; assignment alone does not establish follow-up");
+    scope.status = input.status;
+    if (input.status === "running") delete scope.pauseContext;
+    else scope.pauseContext = { at: this.now(), actor, reason: null, needsUserDecision: null };
+    return [{ phaseId: phased ? scope.id : null, status: input.status }];
+  }
+  pauseContext(input, actor) {
+    if (input.needsUserDecision !== undefined && typeof input.needsUserDecision !== "boolean") throw new Error("needsUserDecision must be a boolean");
+    const reason = input.reason ? text(input.reason, "Pause reason", 500) : null;
+    if (input.needsUserDecision === true && !reason) throw new Error("Describe the decision needed from the user");
+    return { at: this.now(), actor, reason, needsUserDecision: input.needsUserDecision ?? null };
+  }
+  settleTimer(previous, reason, phaseId) {
+    const row = structuredClone(previous), scope = phaseId ? row.phases.find(p => p.id === phaseId) : row;
+    if (!scope || !(phaseId ? scope.startedAt != null : row.phases.some(p => p.startedAt != null))) return;
+    this.stopClock(row, this.now(), phaseId);
+    row.revision++; row.updatedAt = this.now();
+    this.event(row, reason, { source: "system", name: "Office" }, phaseId ? { phaseId } : {});
+    this.save(row); this.changed(row.id);
   }
   changePhase(input, action) {
     const previous = this.raw(input.id);
@@ -261,7 +292,7 @@ class OfficeTodos {
     const entry = phase && activeDelegation(row, phase.id), owner = taskOwnerId(row);
     if (["submit", "review", "recall"].includes(action) && (!input.handoffId || entry?.id !== input.handoffId)) throw new Error("Choose the exact active phase handoff; refresh the task");
     if (phase && actor.id && !["delegate", "submit", "review", "recall", "reopen"].includes(action) && actor.id !== handlingAgentId(row, phase.id) && actor.id !== owner) throw new Error("Only this phase's responsible agent or Owner can change its execution");
-    let message;
+    let message, followup;
     if (action === "edit") {
       if (input.title !== undefined) row.title = text(input.title, "To-do title", 200);
       if (input.documentation !== undefined) row.documentation = text(input.documentation, "Documentation", 24000, true);
@@ -272,13 +303,14 @@ class OfficeTodos {
           const updated = next.find(p => p.id === old.id);
           if (!updated && (row.delegations || []).some(e => e.phaseId === old.id)) throw new Error("Keep phases with recorded handoff history");
           if ((!updated || updated.assigneeId !== old.assigneeId) && (old.startedAt != null || activeDelegation(row, old.id))) throw new Error("Pause and finish or recall this phase's handoff before reassigning or removing it");
-          if (updated && updated.assigneeId !== old.assigneeId) delete updated.activity;
+          if (updated && updated.assigneeId !== old.assigneeId) { delete updated.activity; delete updated.pauseContext; if (updated.completedAt == null) updated.status = "queued"; }
           if (!updated) this.event(row, `Removed phase: ${old.title} (${Math.round(old.elapsedMs / 1000)}s)`, actor);
         }
         row.phases = next;
         if (row.acceptanceManagerId) for (const p of row.phases) if (p.completedAt == null) p.acceptanceManagerId ||= row.acceptanceManagerId;
       }
-      message = "Plan, phase assignments or documentation updated";
+      if (input.status !== undefined) followup = this.followUp(row, input, actor);
+      message = followup ? "Follow-up status updated" : "Plan, phase assignments or documentation updated";
     } else if (action === "delegate") {
       const manager = actor.id || (!entry && owner) || handlingAgentId(row, phase.id);
       if (!manager || manager !== handlingAgentId(row, phase.id) && (entry || manager !== owner)) throw new Error("Only this phase's responsible agent or Owner can coordinate its handoff");
@@ -334,13 +366,14 @@ class OfficeTodos {
       const agentId = handlingAgentId(row, phase.id);
       if (!agentId) throw new Error("Assign an Owner before starting");
       this.assertPhaseAvailable(agentId, row.id, phase.id);
-      this.stopClock(row, this.now(), phase.id); phase.startedAt = this.now(); phase.lastStartedAt = this.now(); phase.status = "running";
+      this.stopClock(row, this.now(), phase.id); phase.startedAt = this.now(); phase.lastStartedAt = this.now(); phase.status = "running"; delete phase.pauseContext;
       const noticeRevision = input.notice ? row.revision + 1 : phase.activity?.agentId === agentId && phase.activity.handoffId === (entry?.id || null) ? phase.activity.noticeRevision : undefined;
       phase.activity = { agentId, role: entry ? entry.state === "review" ? "reviewer" : "worker" : "self", handoffId: entry?.id || null, requestId: input.activityId || uuid(), turnId: null, startedAt: phase.lastStartedAt, ...(noticeRevision === undefined ? {} : { noticeRevision }) };
       message = `Started phase: ${phase.title}`;
     } else if (action === "pause") {
       if (input.activityId && phase.activity?.requestId !== input.activityId) return this.get(input);
-      this.stopClock(row, this.now(), phase.id); phase.status = entry?.state === "review" ? "review" : "paused";
+      const pause = this.pauseContext(input, actor);
+      this.stopClock(row, this.now(), phase.id); phase.status = "paused"; phase.pauseContext = pause;
       message = input.reason ? text(input.reason, "Pause reason", 500) : `Paused phase: ${phase.title}`;
     } else if (action === "complete" || action === "reopen") {
       if (entry) throw new Error("Submit and obtain this phase's manager acceptance before checking it complete or reopening it");
@@ -361,16 +394,17 @@ class OfficeTodos {
       if (previous.status !== "done" && actor.id && actor.id !== owner && actor.id !== phase?.acceptanceManagerId && !(action === "review" && input.accept && actor.id === entry?.managerId)) throw new Error("Only the root manager or Owner can close this goal");
       row.completedAt = previous.status === "done" ? completionTime(previous) : this.now(); row.archived = true;
     } else { row.completedAt = null; if (previous.status === "done") row.archived = false; }
+    for (const p of row.phases) if (p.status !== "paused") delete p.pauseContext;
     this.validatePhases(row);
     if (action === "start") this.bindings.set(phase.activity.agentId, { taskId: row.id, phaseId: phase.id, activityId: phase.activity.requestId });
-    row.revision++; row.updatedAt = this.now(); this.event(row, message, actor); this.save(row); this.changed(row.id);
+    row.revision++; row.updatedAt = this.now(); this.event(row, message, actor, followup ? { followup } : {}); this.save(row); this.changed(row.id);
     return this.get({ id: row.id });
   }
   assertPhaseAvailable(agentId, taskId, phaseId) {
     for (const row of this.rows.values()) if (isPhaseTask(row) && !row.archived) for (const p of row.phases) {
       if ((row.id !== taskId || p.id !== phaseId) && p.activity?.agentId === agentId && p.startedAt != null) throw new Error("This agent is already working on another phase");
     }
-    const legacy = [...this.rows.values()].find(r => !isPhaseTask(r) && !r.archived && r.status === "running" && handlingAgentId(r) === agentId);
+    const legacy = [...this.rows.values()].find(r => !isPhaseTask(r) && !r.archived && r.phases.some(p => p.startedAt != null) && handlingAgentId(r) === agentId);
     if (legacy && phaseId) throw new Error("This agent is already working on another task");
   }
   executionScope(agentId) {
@@ -382,7 +416,7 @@ class OfficeTodos {
         || (phase ? !["self", "worker", "reviewer"].includes(activity.role) : activity.role !== "legacy")) return null;
       // Phase lastStartedAt has always represented an explicit start. Legacy
       // lastStartedAt also changes on plan edits, so it cannot date an activity.
-      const at = Number.isFinite(activity.startedAt) ? activity.startedAt : phase && Number.isFinite(phase.lastStartedAt) ? phase.lastStartedAt : null;
+      const at = Number.isFinite(activity.lastTurnAt) ? activity.lastTurnAt : Number.isFinite(activity.startedAt) ? activity.startedAt : phase && Number.isFinite(phase.lastStartedAt) ? phase.lastStartedAt : null;
       return { row, phase, at };
     };
     const binding = this.bindings.get(agentId);
@@ -424,18 +458,30 @@ class OfficeTodos {
       // This is the received notice's CAS revision, not a per-turn clock nonce.
       ...(noticeRevision === undefined ? {} : { notice: { revision: noticeRevision } }),
       handlingAgentId: row ? handlingAgentId(row, phase?.id) : null, reviewerId: entry?.state === "review" ? entry.managerId : null,
-      ...(phase ? { runningPhaseId: phase.id, phaseTitle: phase.title, handoffId: entry?.id || null, activityId: phase.activity?.requestId, activityRole: phase.activity?.role } : row?.activity ? { activityId: row.activity.requestId, activityRole: "legacy", handoffId: entry?.id || null } : {}), delegatedTasks: this.delegated(agentId) };
+      ...(phase ? { runningPhaseId: phase.id, phaseTitle: phase.title, handoffId: entry?.id || null, activityId: phase.activity?.requestId, activityRole: phase.activity?.role, activityTurnId: phase.activity?.turnId ?? null } : row?.activity ? { activityId: row.activity.requestId, activityRole: "legacy", activityTurnId: row.activity.turnId ?? null, handoffId: entry?.id || null } : {}), delegatedTasks: this.delegated(agentId) };
   }
   recordTurn(value, session) {
     const row = value.taskId && this.rows.get(value.taskId), phased = isPhaseTask(row || {});
     const phase = phased && row.phases.find(p => p.id === value.phaseId), activity = phased ? phase?.activity : row?.activity;
-    if (!row || row.archived || !activity || (phased ? phase.startedAt == null : row.status !== "running" || value.phaseId != null)
+    const current = this.executionScope(value.agentId);
+    if (!row || row.archived || !activity || (phased ? phase.status !== "running" : row.status !== "running" || value.phaseId != null)
+      || current?.row.id !== row.id || (current.phase?.id || null) !== (phase?.id || null)
       || activity.agentId !== value.agentId || activity.requestId !== value.activityId || activity.handoffId !== (value.handoffId || null)
-      || activity.role !== value.activityRole || handlingAgentId(row, phased ? phase.id : undefined) !== value.agentId
-      || !value.turnId || activity.turnId && activity.turnId !== value.turnId) return;
-    const next = structuredClone(row);
-    (phased ? next.phases.find(p => p.id === phase.id).activity : next.activity).turnId = value.turnId;
-    this.save(next);
+      || activity.role !== value.activityRole || handlingAgentId(row, phased ? phase.id : undefined) !== value.agentId || !value.turnId) return;
+    if (activity.turnId === value.turnId) {
+      if (session?.lastTurnId === value.turnId && ["completed", "failed", "interrupted"].includes(session.turnStatus)) this.finishTurn(value.agentId, session.turnStatus, value.turnId);
+      return;
+    }
+    // The real dispatch captures the previous turn before awaiting native ACK.
+    // A late/duplicate callback cannot overwrite a newer turn or re-open its clock.
+    if (activity.turnId && activity.turnId !== value.previousTurnId) return;
+    const next = structuredClone(row), target = phased ? next.phases.find(p => p.id === phase.id) : next;
+    target.activity.turnId = value.turnId; target.activity.lastTurnAt = this.now();
+    if (value.mode === "start") {
+      const clock = phased ? target : next.phases.find(p => p.completedAt == null);
+      if (clock && clock.startedAt == null) clock.startedAt = Number.isFinite(value.dispatchedAt) ? Math.min(this.now(), value.dispatchedAt) : this.now();
+    }
+    this.save(next); this.changed(row.id);
     if (session?.lastTurnId === value.turnId && ["completed", "failed", "interrupted"].includes(session.turnStatus)) this.finishTurn(value.agentId, session.turnStatus, value.turnId);
   }
   change(input, action) {
@@ -453,13 +499,14 @@ class OfficeTodos {
     if (isPhaseTask(previous) || input.executionMode === "phases") return this.changePhase(input, action);
     if (action === "complete" && previous.phases.find(p => p.id === input.phaseId)?.completedAt != null) return this.get(input);
     if (input.revision !== previous.revision) throw new Error("This to-do changed. Refresh it before saving");
-    const row = structuredClone(previous), actor = this.actor(input), delegation = activeDelegation(row); let message;
+    const row = structuredClone(previous), actor = this.actor(input), delegation = activeDelegation(row); let message, followup;
     this.materializeOwner(row, true);
     if (delegation && ["edit", "archive"].includes(action) && (action === "archive" || input.assigneeId !== undefined && input.assigneeId !== row.assigneeId)) throw new Error("Finish or review the active delegation before reassigning or archiving this task");
     if (row.archived && action !== "restore" && !(row.status === "done" && ["edit", "reopen"].includes(action))) throw new Error("Restore this archived to-do first");
     if (action === "restore" && row.status === "done") throw new Error("Completed tasks stay archived. Add a phase or reopen a completed phase to follow up");
     if (action === "edit") {
-      this.stopClock(row);
+      const wasTiming = row.phases.some(p => p.startedAt != null);
+      if (input.status === undefined) this.stopClock(row);
       if (input.title !== undefined) row.title = text(input.title, "To-do title", 200);
       if (input.documentation !== undefined) row.documentation = text(input.documentation, "Documentation", 24000, true);
       if (input.assigneeId !== undefined && input.assigneeId !== row.assigneeId) row.acceptanceManagerId = null;
@@ -470,9 +517,11 @@ class OfficeTodos {
         row.phases = next;
       }
       if (row.phases.every(p => p.completedAt != null)) row.status = "done";
-      else if (row.status === "running") this.run(row);
+      else if (row.status === "running" && wasTiming && input.status === undefined) this.run(row);
       else if (row.status === "done") row.status = "queued";
-      message = "Plan, assignment or documentation updated";
+      if (input.status !== undefined) followup = this.followUp(row, input, actor);
+      if (input.assigneeId !== undefined && input.assigneeId !== previous.assigneeId) { delete row.activity; delete row.pauseContext; this.stopClock(row); if (row.status !== "done") row.status = "queued"; }
+      message = followup ? "Follow-up status updated" : "Plan, assignment or documentation updated";
     } else if (action === "delegate") {
       if (actor.id !== handlingAgentId(row) || !actor.id) throw new Error("Only the current responsible agent can delegate this task");
       if (delegation?.state === "review") throw new Error("Review the submitted result before delegating again");
@@ -498,7 +547,7 @@ class OfficeTodos {
       if (!delegation || delegation.state !== "working" || actor.id !== delegation.workerId) throw new Error("Only the assigned worker can submit the active delegation");
       delegation.report = text(input.report, "Delivery report and evidence", 6000); delegation.submittedAt = this.now(); delegation.state = "review";
       delegation.delivery = { recipientId: delegation.managerId, requestId: `delegation-${uuid()}`, state: "pending", sender: actor };
-      this.stopClock(row); row.status = "paused";
+      this.stopClock(row); row.status = "running";
       message = `Submitted for manager acceptance: ${delegation.report}`;
     } else if (action === "review") {
       if (!delegation || delegation.state !== "review" || actor.id !== delegation.managerId) throw new Error("Only the delegating manager can review this submission");
@@ -510,14 +559,15 @@ class OfficeTodos {
       if (!input.accept) {
         delegation.delivery = { recipientId: delegation.workerId, requestId: `delegation-${uuid()}`, state: "pending", sender: actor };
       }
-      row.status = input.accept ? "paused" : "queued";
+      row.status = input.accept ? "running" : "queued";
       message = `${input.accept ? "Manager accepted" : "Manager returned for changes"}: ${notes}`;
     } else if (action === "start") {
       if (row.phases.every(p => p.completedAt != null)) throw new Error("Reopen a completed phase before starting");
       if ((input.execute === true || actor.id) && delegation?.state === "working") Object.assign(row, this.references({ assigneeId: handlingAgentId(row) }, row));
-      this.run(row); message = "Work started";
+      this.run(row); delete row.pauseContext; message = "Work started";
     } else if (action === "pause") {
-      this.stopClock(row); if (row.status !== "done") row.status = "paused";
+      const pause = this.pauseContext(input, actor);
+      this.stopClock(row); if (row.status !== "done") { row.status = "paused"; row.pauseContext = pause; }
       message = input.reason ? text(input.reason, "Pause reason", 500) : "Work paused";
     } else if (action === "complete" || action === "reopen") {
       const phase = row.phases.find(p => p.id === input.phaseId); if (!phase) throw new Error("Phase is missing");
@@ -542,19 +592,20 @@ class OfficeTodos {
       row.completedAt = null;
       if (previous.status === "done") row.archived = false;
     }
-    const handler = handlingAgentId(row);
-    if (row.status === "running" && handler) {
+    if (row.status !== "paused") delete row.pauseContext;
+    const handler = handlingAgentId(row), clockActive = row.phases.some(p => p.startedAt != null);
+    if (clockActive && handler) {
       this.assertPhaseAvailable(handler, row.id, null);
       if (!row.activity || row.activity.agentId !== handler || previous.status !== "running" || action === "start" || input.activityId && row.activity.requestId !== input.activityId) {
         const handoffId = activeDelegation(row)?.id || null;
         const noticeRevision = input.notice ? row.revision + 1 : row.activity?.agentId === handler && row.activity.handoffId === handoffId ? row.activity.noticeRevision : undefined;
         row.activity = { agentId: handler, role: "legacy", handoffId, requestId: input.activityId || uuid(), turnId: null, startedAt: row.lastStartedAt, ...(noticeRevision === undefined ? {} : { noticeRevision }) };
       }
-      for (const other of this.rows.values()) if (!isPhaseTask(other) && other.id !== row.id && handlingAgentId(other) === handler && other.status === "running") this.change({ id: other.id, revision: other.revision, source: "system", reason: "Agent switched to another to-do" }, "pause");
+      for (const other of this.rows.values()) if (!isPhaseTask(other) && other.id !== row.id && handlingAgentId(other) === handler && other.status === "running") this.settleTimer(other, "Agent switched task; activity timer stopped");
     }
-    row.revision++; row.updatedAt = this.now(); this.event(row, message, actor); this.save(row);
+    row.revision++; row.updatedAt = this.now(); this.event(row, message, actor, followup ? { followup } : {}); this.save(row);
     for (const [agentId, id] of this.bindings) if (id === row.id && (row.archived || row.status === "done" || handler !== agentId)) this.bindings.delete(agentId);
-    if (row.status === "running" && handler) this.bindings.set(handler, row.id);
+    if (clockActive && handler) this.bindings.set(handler, row.id);
     this.changed(row.id); return { todo: this.view(row, true), serverTime: this.now() };
   }
   delivery(id, requestId, state, error) {
@@ -588,7 +639,7 @@ class OfficeTodos {
     id = row.id;
     if (handlingAgentId(row) !== agentId || row.archived || row.status === "done") throw new Error("Choose an unfinished to-do assigned to this agent's execution or acceptance workflow");
     this.assertPhaseAvailable(agentId, row.id, null);
-    for (const other of this.rows.values()) if (!isPhaseTask(other) && other.id !== id && handlingAgentId(other) === agentId && other.status === "running") this.change({ id: other.id, revision: other.revision, source: "system", reason: "Agent switched to another to-do" }, "pause");
+    for (const other of this.rows.values()) if (!isPhaseTask(other) && other.id !== id && handlingAgentId(other) === agentId && other.status === "running") this.settleTimer(other, "Agent switched task; activity timer stopped");
     const requestId = activityId || uuid();
     if (row.status !== "running" || activeDelegation(row)?.state === "working" && row.assigneeId !== agentId) this.change({ id, revision: row.revision, activityId: requestId, source: "system", execute: true, notice }, "start");
     if (this.raw(id).activity?.requestId !== requestId || notice && this.raw(id).activity?.noticeRevision === undefined) {
@@ -602,22 +653,19 @@ class OfficeTodos {
     const scope = this.executionScope(agentId);
     if (scope?.phase) {
       const { row, phase } = scope;
-      if (turnId && phase.activity?.turnId === turnId && phase.startedAt != null) this.change({ id: row.id, revision: row.revision, phaseId: phase.id, activityId: phase.activity.requestId, source: "system", reason: `Agent turn ${status}; phase timer paused` }, "pause");
+      if (turnId && phase.activity?.turnId === turnId) this.settleTimer(row, `Agent turn ${status}; activity timer stopped`, phase.id);
       return;
     }
     const row = scope?.row;
     if (turnId && row?.activity && (row.activity.agentId !== agentId || row.activity.turnId !== turnId)) return;
-    if (row?.status === "running") this.change({ id: row.id, revision: row.revision, source: "system", reason: status === "completed" ? "Agent turn ended; waiting for follow-up or a phase update" : `Agent turn ${status}; timer paused` }, "pause");
+    if (row?.status === "running") this.settleTimer(row, `Agent turn ${status}; activity timer stopped`);
   }
-  checkpoint() { for (const row of this.rows.values()) if (row.status === "running") {
+  checkpoint() { for (const row of this.rows.values()) if (row.phases.some(p => p.startedAt != null)) {
     const next = structuredClone(row), running = next.phases.filter(p => p.startedAt != null).map(p => p.id); this.stopClock(next);
-    if (isPhaseTask(next)) { for (const p of next.phases) if (running.includes(p.id)) p.startedAt = this.now(); }
-    else { const phase = next.phases.find(p => p.completedAt == null); if (phase) phase.startedAt = this.now(); }
+    for (const p of next.phases) if (running.includes(p.id)) p.startedAt = this.now();
     this.save(next);
   } }
-  close() { for (const row of [...this.rows.values()]) if (row.status === "running") {
-    if (isPhaseTask(row)) { for (const p of row.phases.filter(p => p.startedAt != null)) this.change({ id: row.id, phaseId: p.id, revision: this.raw(row.id).revision, source: "system", reason: "Office stopped; timer paused" }, "pause"); }
-    else this.change({ id: row.id, revision: row.revision, source: "system", reason: "Office stopped; timer paused" }, "pause");
-  } }
+  close() { for (const row of [...this.rows.values()]) this.settleTimer(row, "Office stopped; activity timers stopped"); }
+
 }
 module.exports = { OfficeTodos, phaseDuration: duration, activeDelegation, openDelegations, handlingAgentId, isPhaseTask, isWatcherOnlyEdit, canTransferOwnHandoff };

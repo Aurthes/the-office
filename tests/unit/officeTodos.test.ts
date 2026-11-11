@@ -189,15 +189,15 @@ describe("central Office task records", () => {
   it("checkpoints timer progress and excludes time Office was offline", () => {
     const f = fixture(), row = f.create(); f.change(row.id, "start"); f.advance(15000); f.todos.checkpoint(); f.advance(3600000);
     const restored = new OfficeTodos(f.directory, f.deps), current = restored.get({ id: row.id }).todo;
-    expect(current.status).toBe("paused"); expect(current.elapsedMs).toBe(15000); expect(current.revision).toBe(3);
-    expect(JSON.parse(readFileSync(path.join(f.directory, "todos", row.id + ".json"), "utf8")).status).toBe("paused");
+    expect(current.status).toBe("running"); expect(current.phases[0].startedAt).toBeNull(); expect(current.elapsedMs).toBe(15000); expect(current.revision).toBe(3);
+    expect(JSON.parse(readFileSync(path.join(f.directory, "todos", row.id + ".json"), "utf8")).status).toBe("running");
   });
   it("resumes the last active assignment after restart instead of a newer queued task", () => {
     const f = fixture(), active = f.create(); f.change(active.id, "start"); f.advance(5000); f.todos.checkpoint();
     f.advance(1000); f.create();
     const restored = new OfficeTodos(f.directory, f.deps);
     expect(restored.bound("alice").id).toBe(active.id);
-    expect(restored.bound("alice").status).toBe("paused");
+    expect(restored.bound("alice").status).toBe("running");
   });
   it("freezes timing at graceful shutdown and preserves archive history", () => {
     const f = fixture(), row = f.create(); f.change(row.id, "start"); f.advance(2500); f.todos.close();
@@ -213,13 +213,13 @@ describe("central Office task records", () => {
   it("pauses after an agent turn without mistaking the reply for task completion", () => {
     const f = fixture(), row = f.create(); f.todos.startForAgent("alice", row.id); f.advance(5000);
     f.todos.finishTurn("alice", "completed");
-    expect(f.todos.raw(row.id).status).toBe("paused"); expect(f.todos.raw(row.id).phases[0].completedAt).toBeNull();
+    expect(f.todos.raw(row.id).status).toBe("running"); expect(f.todos.raw(row.id).phases[0].startedAt).toBeNull(); expect(f.todos.raw(row.id).phases[0].completedAt).toBeNull();
     expect(f.todos.get({ id: row.id }).todo.elapsedMs).toBe(5000);
   });
   it("runs one phase per owner and leaves unrelated agents untouched", () => {
     const f = fixture(), first = f.create(), second = f.create(), other = f.create({ assigneeId: "bob" });
     f.change(first.id, "start"); f.change(other.id, "start"); f.advance(1000); f.change(second.id, "start");
-    expect(f.todos.raw(first.id).status).toBe("paused"); expect(f.todos.raw(other.id).status).toBe("running");
+    expect(f.todos.raw(first.id).status).toBe("running"); expect(f.todos.raw(first.id).phases[0].startedAt).toBeNull(); expect(f.todos.raw(other.id).status).toBe("running");
     expect(f.todos.bound("alice").id).toBe(second.id);
     expect(() => f.todos.startForAgent("bob", second.id)).toThrow(/assigned/);
   });

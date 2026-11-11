@@ -382,7 +382,7 @@ it("does not count offline time when migrating a legacy running review", async (
   delete old.acceptanceManagerId; old.assigneeId = f.manager; old.status = "running"; old.savedAt = 2000;
   old.phases[0].startedAt = 1000; old.phases[0].elapsedMs = 500; writeFileSync(file, JSON.stringify(old));
   const restored = new OfficeTodos(path.join(f.root, "office"), { ...f.deps, now: () => 999000 });
-  expect(restored.get({ id: task.id }).todo).toMatchObject({ status: "paused", elapsedMs: 1500, assigneeId: f.worker });
+  expect(restored.get({ id: task.id }).todo).toMatchObject({ status: "running", elapsedMs: 1500, assigneeId: f.worker });
 });
 
 it("persists legacy attribution and timer recovery atomically across process loss", async () => {
@@ -396,7 +396,7 @@ it("persists legacy attribution and timer recovery atomically across process los
   expect(() => new OfficeTodos(path.join(f.root, "office"), { ...f.deps, now: () => 999000 })).toThrow(/Process lost/);
   crash.mockRestore();
   const restored = new OfficeTodos(path.join(f.root, "office"), { ...f.deps, now: () => 1999000 });
-  expect(restored.get({ id: task.id }).todo).toMatchObject({ status: "paused", elapsedMs: 1500, assigneeId: f.worker });
+  expect(restored.get({ id: task.id }).todo).toMatchObject({ status: "running", elapsedMs: 1500, assigneeId: f.worker });
 });
 
 

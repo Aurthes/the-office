@@ -40,9 +40,10 @@ export function currentFieldworkTask(tasks: readonly FieldworkTaskSummary[], age
   const active = tasks.flatMap(t => {
     if (t.archived || t.status !== "running") return [];
     if (t.executionMode !== "phases") return t.handlingAgentId === agentId ? [t] : [];
-    return (t.phases || []).filter(p => p.startedAt != null && p.handlingAgentId === agentId).map(p => ({ ...t, activePhaseId: p.id, handlingAgentId: agentId, phases: [p], lastStartedAt: p.lastStartedAt }));
+    return (t.phases || []).filter(p => p.status === "running" && p.handlingAgentId === agentId).map(p => ({ ...t, activePhaseId: p.id, handlingAgentId: agentId, phases: [p], lastStartedAt: p.lastStartedAt }));
   });
-  return active.length === 1 ? active[0] : undefined;
+  const clocked = active.filter(t => t.phases?.some(p => p.startedAt != null));
+  return clocked.length === 1 ? clocked[0] : !clocked.length && active.length === 1 ? active[0] : undefined;
 }
 
 // Conservative target clauses, not arbitrary mentions in instructions/logs.

@@ -5,7 +5,7 @@ export type HeadWork = {
   id: string; phaseId?: string; title: string; status: string;
   people: { role: string; agentId?: string | null }[]; state?: TaskProgressState;
 };
-export type HeadTaskRow = { id: string; code: string; title: string; work: HeadWork[]; tracking?: TaskTracking };
+export type HeadTaskRow = { id: string; code: string; title: string; work: HeadWork[]; tracking?: TaskTracking; completed?: { id: string; title: string; at: number | null }[] };
 
 export function taskProgressAgentIds(organization: OrganizationView): Set<string> {
   return new Set([
@@ -27,12 +27,14 @@ export function headTaskRows(headId: string, tasks: readonly DirectoryTaskSummar
       work = (task.phases || []).flatMap(phase => {
         const state = task.tracking?.current.find(item => item.phaseId === phase.id);
         if (!phase.id || phase.completedAt != null || !["running", "paused", "review"].includes(phase.status || "") && !(phase.status === "queued" && state?.waitingForId)) return [];
+        const handoff = [...(task.delegations || [])].reverse().find(e => e.phaseId === phase.id && !["accepted", "recalled"].includes(e.state));
         const reviewing = phase.status === "running" && phase.activity?.role === "reviewer";
         return [{ id: phase.id, phaseId: phase.id, title: `${shortPhaseCode(phase.id)} · ${phase.title}`,
           status: phase.status === "review" ? "Awaiting manager review" : phase.status === "paused" ? "Paused" : phase.status === "queued" ? "Not started" : reviewing ? "Reviewing" : "Running", state,
           people: phase.status === "review" ? [{ role: "Reviewer", agentId: phase.reviewerId }, { role: "Submitted by", agentId: phase.assigneeId }]
             : ["paused", "queued"].includes(phase.status || "") ? [{ role: "Responsible", agentId: phase.assigneeId }]
-              : [{ role: reviewing ? "Reviewing" : "Executing", agentId: phase.activity?.agentId }],
+              : phase.activity?.agentId ? [{ role: reviewing ? "Reviewing" : "Executing", agentId: phase.activity.agentId }]
+                : handoff?.state === "working" ? [{ role: "Responsible", agentId: handoff.workerId }] : [{ role: "Executing", agentId: undefined }],
         }];
       });
       if (!work.length) {
@@ -41,6 +43,14 @@ export function headTaskRows(headId: string, tasks: readonly DirectoryTaskSummar
         work = [{ id: task.id, title: queued ? "No phase started" : "Current work not recorded", status: queued ? "Not started" : "Not recorded", people: [] }];
       }
     }
-    return { id: task.id, code: task.code || task.id, title: task.title, work, tracking: task.tracking };
-  });
+    for (const item of work) {
+      if (item.state?.status === "paused") item.status = item.state.needsUserDecision === true ? "Needs user decision" : "Paused";
+      else if (item.state?.status === "review") item.status = "Awaiting manager review";
+    }
+    // Keep every real current phase, ordered ahead of parked/queued history.
+    const rank = (w: HeadWork) => ["Running", "Reviewing"].includes(w.status) ? 0 : w.status === "Awaiting manager review" ? 1 : w.status === "Needs user decision" ? 2 : 3;
+    work.sort((a, b) => rank(a) - rank(b));
+    const completed = (task.phases || []).filter(p => p.id && p.completedAt != null).map(p => ({ id: p.id!, title: p.title || shortPhaseCode(p.id!), at: p.completedAt ?? null }));
+    return { id: task.id, code: task.code || task.id, title: task.title, work, tracking: task.tracking, ...(completed.length ? { completed } : {}) };
+  }).sort((a, b) => Number(b.work.some(w => ["Running", "Reviewing"].includes(w.status))) - Number(a.work.some(w => ["Running", "Reviewing"].includes(w.status))));
 }

@@ -48,7 +48,8 @@ export function HeadTaskOverview({ name, rows, names, loading, error, observedAt
             {recordedTime(event.at)}
           </div>;
         })()}
-          {row.tracking && (row.tracking.recent.length > 0 || row.tracking.unscopedNote) ? <details className="head-progress-details"><summary>{t("Progress details")}</summary>
+          {row.tracking && (row.tracking.recent.length > 0 || row.tracking.unscopedNote || row.completed?.length) ? <details className="head-progress-details"><summary>{t("Progress details")}</summary>
+            {row.completed?.length ? <section aria-label={t("Completed phases")}><h3>{t("Completed phases")}</h3>{row.completed.map(phase => <div className="head-progress-event" key={phase.id}><button type="button" className="head-task-link" onClick={() => open(row.id, phase.id)}>{phase.title}</button>{recordedTime(phase.at, true)}</div>)}</section> : null}
             <p className="head-excerpt-note">{t("Recorded excerpts. Open the task record for full reports and context.")}</p>
             {row.tracking.recent.map((event, index) => <div className="head-progress-event" key={`${event.at}:${index}`}>
               <strong>{eventActor(event)}</strong><span>{t(event.action)}</span>
@@ -61,8 +62,9 @@ export function HeadTaskOverview({ name, rows, names, loading, error, observedAt
           </details> : null}
         </td>
         <td className="head-work-pairs">{row.work.map(work => <div key={work.id} className="head-work-pair" data-head-work-id={work.id}>
-          <div><small className="head-work-status">{t(work.status)}</small>{work.phaseId ? <button type="button" className="head-task-link head-short-text" title={work.title} onClick={() => open(row.id, work.phaseId)}>{work.title}</button> : <span className="head-short-text">{t(work.title)}</span>}</div>
+          <div><small className="head-work-status" data-active={["Running", "Reviewing"].includes(work.status)}>{t(work.status)}</small>{work.phaseId ? <button type="button" className="head-task-link head-short-text" title={work.title} onClick={() => open(row.id, work.phaseId)}>{work.title}</button> : <span className="head-short-text">{t(work.title)}</span>}</div>
           <div className="head-work-people">{work.people.length ? work.people.map((person, index) => <p key={`${person.role}:${index}`}><small>{t(person.role)}: </small><span title={person.agentId || undefined}>{person.agentId ? personName(person.agentId) : t(person.role === "Executing" || person.role === "Reviewing" ? "Execution not recorded" : "Unassigned")}</span></p>) : <span>{t("Not recorded")}</span>}</div>
+          {work.status === "Paused" && work.state?.needsUserDecision == null ? <small>{t("User decision need not recorded")}</small> : null}
           {work.state?.waitingForId ? <p className="head-short-text">{t("Waiting for {name}", { name: personName(work.state.waitingForId) })}</p> : null}
           {work.state?.reason || work.state?.reasonCode && work.state.reasonCode !== "Submitted for manager acceptance" ? <p className="head-short-text" title={work.state.reason || undefined}>{work.state.reasonCode ? t(work.state.reasonCode) : work.state.reason}</p> : work.status === "Paused" ? <small>{t("Pause reason not recorded")}</small> : null}
           <div className="head-state-age" aria-label={t("State since")}>{recordedTime(work.state?.since)}</div>

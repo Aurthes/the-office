@@ -149,3 +149,22 @@ it.each(["Accepted", "Submitted"])("keeps an unscoped %s report in the short pre
   expect(details.querySelector(".head-progress-event p")).toBeVisible(); expect(details.querySelector(".head-progress-event p")?.textContent).toBe(report);
   fireEvent.click(screen.getByRole("button", { name: "Open full task record" })); expect(onOpenTask).toHaveBeenCalledWith("parent", undefined);
 });
+
+it("puts actual following work first, distinguishes explicit decisions and folds completed history", () => {
+  const input = { ...phased, phases: [phased.phases![2], phased.phases![0], phased.phases![4]], tracking: { ...tracking, current: [{ phaseId: "c1234567", status: "paused", since: 1, needsUserDecision: true, reason: "Choose scope", waitingForId: null }] } };
+  const rows = headTaskRows("head", [input]);
+  expect(rows[0].work.map(w => [w.id, w.status])).toEqual([["a1234567", "Running"], ["c1234567", "Needs user decision"]]);
+  expect(rows[0].work[0].people).toEqual([{ role: "Executing", agentId: "worker" }]);
+  render(createElement(HeadTaskOverview, { name: "Head", rows, names, loading: false, error: "", onOpenTask: vi.fn(), onClose: vi.fn() }));
+  expect(screen.getByText("Past work")).not.toBeVisible();
+  fireEvent.click(screen.getByText("Progress details"));
+  expect(screen.getByText("Past work")).toBeVisible();
+});
+
+it("uses a real remaining nested handoff as responsibility, never stale accepted executor or guessed Owner", () => {
+  const t = { ...phased, phases: [{ id: "fix", title: "Generic tick fix", status: "running", assigneeId: "dev" }], delegations: [
+    { phaseId: "fix", managerId: "head", workerId: "quant", state: "working" },
+    { phaseId: "fix", managerId: "quant", workerId: "dev", state: "accepted" },
+  ] };
+  expect(headTaskRows("head", [t])[0].work[0].people).toEqual([{ role: "Responsible", agentId: "quant" }]);
+});

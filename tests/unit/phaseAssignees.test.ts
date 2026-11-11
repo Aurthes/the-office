@@ -99,7 +99,7 @@ describe("independent phase execution through actual dispatch callbacks", () => 
     const turnId = f.phase(f.pa).activity.turnId;
     expect(turnId).toMatch(/^turn-/); expect(f.entry(f.pa)).toBeUndefined();
     f.advance(700); f.nativeFrame("turn/completed", f.a, turnId);
-    expect(f.phase(f.pa)).toMatchObject({ status: "paused", elapsedMs: 700 });
+    expect(f.phase(f.pa)).toMatchObject({ status: "running", startedAt: null, elapsedMs: 700 });
     expect(WORKFLOW).toContain("Direct user instructions authorize the addressed agent");
     expect(WORKFLOW).not.toContain("target is not your direct report, explain the routing gap");
   });
@@ -312,7 +312,7 @@ it("lets an Owner run legacy work while its report executes a phase, at both leg
   const b = legacy("Legacy B"); f.todos.startForAgent(f.owner, b.id);
   expect(f.todos.raw(b.id).status).toBe("running"); expect(f.phase(f.pa)).toEqual(worker);
   const c = legacy("Legacy C"); f.todos.change({ id: c.id, revision: c.revision, actorId: f.owner }, "start");
-  expect(f.todos.raw(c.id).status).toBe("running"); expect(f.todos.raw(b.id).status).toBe("paused"); expect(f.phase(f.pa)).toEqual(worker);
+  expect(f.todos.raw(c.id).status).toBe("running"); expect(f.todos.raw(b.id).status).toBe("running"); expect(f.todos.raw(b.id).phases[0].startedAt).toBeNull(); expect(f.phase(f.pa)).toEqual(worker);
   const a = legacy("Legacy A", f.a);
   expect(() => f.todos.startForAgent(f.a, a.id)).toThrow(/already working on another phase/);
   expect(() => f.todos.change({ id: a.id, revision: a.revision, actorId: f.a }, "start")).toThrow(/already working on another phase/);
@@ -334,7 +334,7 @@ it.each(["before ACK", "after ACK"])("ignores an old phase completion %s of a la
   if (order === "after ACK") complete(oldTurn);
   expect(f.todos.context(f.owner).todoId).toBe(legacy.id); expect(f.todos.raw(legacy.id).status).toBe("running");
   expect(f.todos.raw(legacy.id).activity.turnId).toBe(result.turn.id);
-  complete(result.turn.id); expect(f.todos.raw(legacy.id).status).toBe("paused"); expect(f.phase(f.pc).startedAt).toBeNull();
+  complete(result.turn.id); expect(f.todos.raw(legacy.id).status).toBe("running"); expect(f.todos.raw(legacy.id).phases[0].startedAt).toBeNull(); expect(f.phase(f.pc).startedAt).toBeNull();
   expect(f.todos.context(f.owner).todoId).toBe(legacy.id);
 });
 it("records legacy completion before ACK, then rejects its old dispatch failure after another legacy switch", async () => {
@@ -353,7 +353,7 @@ it("records legacy completion before ACK, then rejects its old dispatch failure 
     return result;
   });
   await f.store.call("turn/start", { threadId: f.owner, input: [] });
-  expect(f.todos.raw(legacy.id).status).toBe("paused"); expect(f.phase(f.pa)).toEqual(worker);
+  expect(f.todos.raw(legacy.id).status).toBe("running"); expect(f.todos.raw(legacy.id).phases[0].startedAt).toBeNull(); expect(f.phase(f.pa)).toEqual(worker);
   const newer = create("newer-legacy"); f.todos.startForAgent(f.owner, newer.id, undefined, "new-request");
   f.runtime.pauseAttempt(legacy.id, undefined, f.owner, "fast-request", "Late old dispatch failure");
   expect(f.todos.raw(newer.id).status).toBe("running"); expect(f.phase(f.pa)).toEqual(worker);
@@ -373,7 +373,7 @@ it("changes local legacy dispatch identity without adding another context inject
   f.todos.change({ id: task.id, revision: f.todos.raw(task.id).revision, actorId: f.owner }, "start");
   const context = f.todos.context(f.owner); expect(context.activityId).not.toBe("second-request");
   f.todos.recordTurn({ ...context, taskId: task.id, turnId: secondTurn }); f.todos.finishTurn(f.owner, "completed", secondTurn);
-  expect(f.todos.raw(task.id).status).toBe("paused");
+  expect(f.todos.raw(task.id).status).toBe("running"); expect(f.todos.raw(task.id).phases[0].startedAt).toBeNull();
 });
 
 it.each([
@@ -448,7 +448,7 @@ it("does not date an older legacy activity from doc/timer metadata; missing actu
   expect(f.todos.raw(legacy.id).activity.startedAt).toBe(at); expect(f.todos.raw(legacy.id).lastStartedAt).toBeGreaterThan(at);
   f.todos.change({ id: legacy.id, revision: f.todos.raw(legacy.id).revision }, "pause");
   f.advance(100); await f.runtime.run(f.input(f.pc)); f.todos.change(f.input(f.pc), "pause");
-  const old = f.todos.raw(legacy.id); delete old.activity.startedAt; f.todos.save(old);
+  const old = f.todos.raw(legacy.id); delete old.activity.startedAt; delete old.activity.lastTurnAt; f.todos.save(old);
   const restored = new OfficeTodos(path.join(f.root, "office"), f.deps);
   expect(restored.bound(f.owner)).toBeNull(); expect(restored.context(f.owner).todoId).toBeNull(); expect(restored.phaseScope(f.owner)).toBeNull();
 });
@@ -565,4 +565,67 @@ describe("explicit Owner takeover of their own old upstream", () => {
     expect(f.phase(f.pa)).toMatchObject({ assigneeId: f.owner, acceptanceManagerId: f.owner });
     expect(f.todos.raw(f.task.id).delegations[0].ownerTransfer).toBeUndefined();
   });
+});
+
+
+describe("following state is independent of actual turn timing", () => {
+  it.each(["completed", "failed", "interrupted"])("keeps following after %s, resumes only on a real next dispatch and ignores stale ACKs", async status => {
+    const f = await fixture(); await f.runtime.run(f.input(f.pa));
+    const first = structuredClone(f.phase(f.pa).activity);
+    f.advance(700); f.nativeFrame("turn/completed", f.a, first.turnId, status);
+    expect(f.phase(f.pa)).toMatchObject({ status: "running", startedAt: null, elapsedMs: 700 });
+    f.advance(5000); f.todos.checkpoint();
+    const restored = new OfficeTodos(path.join(f.root, "office"), f.deps);
+    expect(restored.raw(f.task.id).phases.find((p: { id: string }) => p.id === f.pa)).toMatchObject({ status: "running", startedAt: null, elapsedMs: 700 });
+    await f.store.call("turn/start", { threadId: f.a, input: [] });
+    const next = structuredClone(f.phase(f.pa));
+    expect(next.startedAt).not.toBeNull(); expect(next.activity.turnId).not.toBe(first.turnId);
+    f.todos.recordTurn({ agentId: f.a, taskId: f.task.id, phaseId: f.pa, activityId: first.requestId, activityRole: first.role, handoffId: first.handoffId, previousTurnId: null, mode: "start", turnId: first.turnId });
+    f.nativeFrame("turn/completed", f.a, first.turnId);
+    expect(f.phase(f.pa)).toEqual(next);
+    f.advance(300); f.nativeFrame("turn/completed", f.a, next.activity.turnId);
+    expect(f.phase(f.pa)).toMatchObject({ status: "running", startedAt: null, elapsedMs: 1000 });
+    f.todos.close(); expect(f.phase(f.pa).status).toBe("running");
+  });
+  it("lets a real member restore confirmed following without changing executor, history, time or dispatch", async () => {
+    const f = await fixture(); await f.runtime.run(f.input(f.pa));
+    f.advance(600); f.todos.change(f.input(f.pa, f.a, { reason: "Explicitly parked", needsUserDecision: false }), "pause");
+    const before = structuredClone(f.phase(f.pa)), calls = f.client.call.mock.calls.length;
+    f.todos.change(f.input(f.pa, f.b, { status: "running" }), "edit");
+    const after = structuredClone(f.phase(f.pa)); delete before.pauseContext;
+    expect(after).toEqual({ ...before, status: "running" }); expect(f.client.call).toHaveBeenCalledTimes(calls);
+    expect(f.todos.context(f.a).runningPhaseId).toBe(f.pa); expect(f.todos.context(f.b).todoId).toBeNull();
+    const restarted = new OfficeTodos(path.join(f.root, "office"), f.deps);
+    expect(restarted.raw(f.task.id).phases.find((p: { id: string }) => p.id === f.pa)).toEqual(after);
+    expect(() => f.todos.change(f.input(f.pb, f.b, { status: "running" }), "edit")).toThrow(/execution identity/);
+    expect(() => f.todos.change(f.input(f.pa, f.b, { status: "review" }), "edit")).toThrow(/Running or Paused/);
+    const stale = f.input(f.pa, f.b, { status: "paused" });
+    f.todos.change(f.input(f.pa, f.b, { documentation: "A real edit" }), "edit");
+    expect(() => f.todos.change(stale, "edit")).toThrow(/changed/);
+  });
+  it("records user decisions only explicitly and keeps real active-turn/review protections", async () => {
+    const f = await fixture(); await f.delegate(f.pa, f.a);
+    expect(() => f.todos.change(f.input(f.pa, f.b, { status: "paused" }), "edit")).toThrow(/active turn/);
+    expect(() => f.todos.change(f.input(f.pa, f.a, { needsUserDecision: true }), "pause")).toThrow(/decision/);
+    expect(() => f.todos.change(f.input(f.pa, f.a, { needsUserDecision: "yes" }), "pause")).toThrow(/boolean/);
+    f.todos.change(f.input(f.pa, f.a, { reason: "Choose release scope", needsUserDecision: true }), "pause");
+    expect(require("../../server/office-todo-progress").taskTracking(f.todos.raw(f.task.id)).current.find((p: { phaseId: string }) => p.phaseId === f.pa)).toMatchObject({ status: "paused", needsUserDecision: true, reason: "Choose release scope" });
+    f.todos.change(f.input(f.pa, f.a), "start");
+    await f.submit(f.pa, f.a);
+    expect(() => f.todos.change(f.input(f.pa, f.b, { status: "running" }), "edit")).toThrow(/review/);
+  });
+});
+
+it("restores real nested handoff follow-up after acceptance without inventing a new activity or timer", async () => {
+  const f = await fixture(); await f.delegate(f.pa, f.a);
+  await f.runtime.delegate(f.input(f.pa, f.a, { assigneeId: f.c, instructions: "Implement", acceptanceCriteria: "" }));
+  await f.submit(f.pa, f.c); await f.settle();
+  await f.review(f.pa, f.a, true);
+  expect(f.phase(f.pa).activity).toBeUndefined();
+  const before = structuredClone(f.phase(f.pa)), sends = f.send.mock.calls.length;
+  f.todos.change(f.input(f.pa, f.b, { status: "running" }), "edit");
+  expect(f.phase(f.pa)).toEqual({ ...before, status: "running" });
+  expect(f.phase(f.pa).startedAt).toBeNull(); expect(f.send).toHaveBeenCalledTimes(sends);
+  expect(f.todos.get({ id: f.task.id }).todo.phases.find((p: { id: string }) => p.id === f.pa).handlingAgentId).toBe(f.a);
+  await f.settle();
 });

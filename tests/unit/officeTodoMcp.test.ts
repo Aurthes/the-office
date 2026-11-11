@@ -350,3 +350,12 @@ it("makes scheduler CRUD discoverable and usable from two actual department cont
   expect(nativeCalls.filter(c => c.method === "turn/start")).toHaveLength(2);
   scheduler.close();
 });
+
+it("exposes follow-up updates and explicit decisions without changing the list filter or execution controls", () => {
+  const { tools } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");
+  const schema = (name: string) => tools.find((t: {name: string}) => t.name === name).inputSchema;
+  expect(schema("todo_edit").properties.status).toMatchObject({ type: "string", enum: ["running", "paused"] });
+  expect(schema("todo_edit").properties.phaseId).toBeTruthy();
+  expect(schema("todo_pause").properties.needsUserDecision).toMatchObject({type:"boolean"});
+  expect(schema("todo_list").properties.status.enum).toContain("all");
+});
