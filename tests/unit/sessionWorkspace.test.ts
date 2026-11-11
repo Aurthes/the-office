@@ -52,3 +52,37 @@ describe("session side workspace", () => {
     expect(screen.queryByText("Reading file…")).toBeNull();
   });
 });
+
+it("exposes progress only when supplied, shares keyboard tabs and switches repeated header requests without new RPC", async () => {
+  const client={call:vi.fn(async(method:string)=>{if(method!=="session.workspace.list")throw new Error("Unexpected RPC");return {path:"",entries:[]};})};
+  const props={client,threadId:"head",asset:null,assets:[],onSelectAsset:vi.fn(),onClose:vi.fn()};
+  const view=render(React.createElement(SessionWorkspace,props));
+  expect(screen.queryByRole("tab",{name:"Task progress"})).toBeNull();
+  view.rerender(React.createElement(SessionWorkspace,{...props,taskProgress:React.createElement("p",null,"Head current work"),progressRequest:1}));
+  expect(screen.getByRole("tab",{name:"Task progress"})).toHaveAttribute("aria-selected","true");
+  expect(screen.getByText("Head current work")).toBeVisible();
+  fireEvent.keyDown(screen.getByRole("tablist"),{key:"Home"});
+  expect(screen.getByRole("tab",{name:"Files"})).toHaveFocus();
+  fireEvent.keyDown(screen.getByRole("tablist"),{key:"End"});
+  expect(screen.getByRole("tab",{name:"Task progress"})).toHaveFocus();
+  fireEvent.click(screen.getByRole("tab",{name:"Browser"}));
+  view.rerender(React.createElement(SessionWorkspace,{...props,taskProgress:React.createElement("p",null,"Updated Head work"),progressRequest:2}));
+  expect(screen.getByRole("tab",{name:"Task progress"})).toHaveAttribute("aria-selected","true");
+  expect(screen.getByText("Updated Head work")).toBeVisible();
+  view.rerender(React.createElement(SessionWorkspace,props));
+  expect(screen.queryByRole("tab",{name:"Task progress"})).toBeNull();
+  expect(screen.getByRole("tab",{name:"Files"})).toHaveAttribute("aria-selected","true");
+  await waitFor(()=>expect(client.call).toHaveBeenCalled());
+  expect(client.call.mock.calls.every(([method])=>method==="session.workspace.list")).toBe(true);
+});
+it("keeps progress selected when an older file response arrives and permits a later preview attachment", async () => {
+  let resolve!: (v: unknown)=>void;const pending=new Promise(r=>resolve=r);
+  const client={call:vi.fn(async()=>pending)},props={client,threadId:"head",asset:null,assets:[],onSelectAsset:vi.fn(),onClose:vi.fn(),taskProgress:React.createElement("p",null,"Bound Head tasks")};
+  const view=render(React.createElement(SessionWorkspace,props));
+  fireEvent.click(screen.getByRole("tab",{name:"Task progress"}));
+  await React.act(async()=>resolve({path:"old",entries:[{name:"stale-file.ts",directory:false}]}));
+  expect(screen.getByText("Bound Head tasks")).toBeVisible();expect(screen.queryByText("stale-file.ts")).toBeNull();
+  const asset={source:"report.pdf",url:"/api/session-assets?ref=synthetic",name:"report.pdf",kind:"file" as const};
+  view.rerender(React.createElement(SessionWorkspace,{...props,asset}));
+  expect(screen.getByRole("tab",{name:"Preview"})).toHaveAttribute("aria-selected","true");
+});

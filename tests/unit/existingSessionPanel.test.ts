@@ -389,3 +389,36 @@ it("merges external echoes only on exact clientId and reports a matching native 
   await waitFor(() => expect(onReceipt).toHaveBeenCalledWith("original", "external-id"));
   expect(screen.getAllByText("External solution")).toHaveLength(2); expect(screen.queryByText(/Delivery not confirmed/)).toBeNull();
 });
+
+it("opens both progress actions in the same Workspace while preserving the real composer draft and attachment",async()=>{
+  const state={connected:true,version:1,activeTurnId:null,items:[],approvals:[],features:{prediction:false,dictation:false,voice:false}};
+  const call=vi.fn(async(method:string)=>method==="session.inspect"?{...metadata("workspace-progress-head"),controlsAvailable:true}:method==="session.history"?page("Synthetic history",null,"workspace-progress-head"):method==="session.workspace.list"?{path:"",entries:[]}:state);
+  vi.stubGlobal("fetch",vi.fn(async()=>({ok:true,json:async()=>({ref:"synthetic-attachment"})})));
+  try{
+    render(React.createElement(ExistingSessionPanel,{client:{call},threadId:"workspace-progress-head",taskProgress:React.createElement("p",null,"Actual progress content"),onOpenWorkspace:vi.fn()}));
+    const input=await screen.findByRole("textbox",{name:"Send to session"});await waitFor(()=>expect(input).toBeEnabled());
+    fireEvent.change(input,{target:{value:"Draft with @reference remains"}});
+    fireEvent.change(screen.getByLabelText("Choose attachments"),{target:{files:[new File(["fixture"],"retained.txt",{type:"text/plain"})]}});
+    await screen.findByRole("button",{name:"Remove attachment retained.txt"});
+    const triggers=screen.getAllByRole("button",{name:"Task progress"});fireEvent.click(triggers[0]);
+    expect(screen.getByRole("tab",{name:"Task progress"})).toHaveAttribute("aria-selected","true");
+    expect(screen.getByText("Actual progress content")).toBeVisible();expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("textbox",{name:"Send to session"})).toBe(input);expect(input).toHaveValue("Draft with @reference remains");
+    expect(screen.getByRole("button",{name:"Remove attachment retained.txt"})).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab",{name:"Files"}));fireEvent.click(triggers.at(-1)!);
+    expect(screen.getByRole("tab",{name:"Task progress"})).toHaveAttribute("aria-selected","true");
+    fireEvent.click(screen.getAllByRole("button",{name:"Close workspace"}).at(-1)!);
+    expect(input).toHaveValue("Draft with @reference remains");expect(screen.queryByRole("tab",{name:"Task progress"})).toBeNull();
+    expect(call.mock.calls.some(([method])=>method==="session.send")).toBe(false);
+  }finally{vi.unstubAllGlobals()}
+});
+it("does not carry a previous Head's progress into a worker on thread switch or a late metadata result",async()=>{
+  const pending=deferred();const call=vi.fn(async(method:string,params:unknown)=>{const id=(params as {threadId?:string}).threadId;if(method==="session.inspect")return id==="old-head"?pending.promise:{...metadata(id),controlsAvailable:true};if(method==="session.history")return page("New history",null,id);if(method==="session.workspace.list")return {path:"",entries:[]};return {connected:true,items:[],approvals:[],activeTurnId:null};});
+  const view=render(React.createElement(ExistingSessionPanel,{client:{call},threadId:"old-head",taskProgress:React.createElement("p",null,"Old Head private progress")}));
+  fireEvent.click(screen.getAllByRole("button",{name:"Task progress"})[0]);
+  view.rerender(React.createElement(ExistingSessionPanel,{client:{call},threadId:"ordinary-worker"}));
+  await act(async()=>pending.resolve({...metadata("old-head"),controlsAvailable:true}));
+  await waitFor(()=>expect(screen.queryByText("Old Head private progress")).toBeNull());
+  expect(screen.queryByRole("tab",{name:"Task progress"})).toBeNull();
+  expect(screen.queryByRole("button",{name:"Task progress"})).toBeNull();
+});

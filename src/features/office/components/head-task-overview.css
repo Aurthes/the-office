@@ -55,3 +55,18 @@
   .head-task-overview tbody th .head-task-link { flex-direction: row; gap: 8px; }
   .head-task-overview .head-recent { font-size: 11px; }
 }
+
+.head-task-overview--embedded { width: 100%; max-height: none; min-height: 0; margin: 0; padding: 12px; border: 0; border-radius: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.head-task-overview--embedded > header, .head-task-overview--embedded > .head-task-scope { flex-shrink: 0; }
+.head-task-overview--embedded > .head-task-scroll { min-height: 0; flex: 1; }
+/* Workspace can be narrow beside chat even on a desktop. */
+.head-task-overview--embedded { container-type: inline-size; }
+@container (max-width: 600px) {
+  .head-task-overview--embedded colgroup, .head-task-overview--embedded thead { display: none; }
+  .head-task-overview--embedded table, .head-task-overview--embedded tbody { display: block; }
+  .head-task-overview--embedded tbody tr { display: grid; grid-template-columns: minmax(0, 1fr); border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 8px; }
+  .head-task-overview--embedded tbody th, .head-task-overview--embedded tbody td { display: block; border: 0; }
+  .head-task-overview--embedded .head-work-pairs { grid-row: 2; }
+  .head-task-overview--embedded .head-recent { grid-row: 3; font-size: 11px; }
+  .head-task-overview--embedded tbody th .head-task-link { flex-direction: row; gap: 8px; }
+}

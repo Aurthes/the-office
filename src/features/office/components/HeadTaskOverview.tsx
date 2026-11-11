@@ -7,18 +7,19 @@ import { shortPhaseCode } from "../operations/agentDirectory";
 import type { HeadTaskRow, HeadWork } from "../operations/headTaskOverview";
 import "./head-task-overview.css";
 
-export function HeadTaskOverview({ name, rows, names, loading, error, observedAt, onClose, onOpenTask }: {
+export function HeadTaskOverview({ name, rows, names, loading, error, observedAt, onClose, onOpenTask, embedded = false }: {
   name: string; rows: HeadTaskRow[]; names: ReadonlyMap<string, string>; loading: boolean; error: string;
-  observedAt?: number | null; onClose: () => void; onOpenTask: (id: string, phaseId?: string) => void;
+  observedAt?: number | null; embedded?: boolean; onClose?: () => void; onOpenTask: (id: string, phaseId?: string) => void;
 }) {
   const t = useUiText(), { language } = useUiLanguage(), id = useId(), dialog = useRef<HTMLDialogElement>(null);
   const [openedAt] = useState(() => Date.now()), now = Math.max(openedAt, observedAt || 0);
   useEffect(() => {
+    if (embedded) return;
     const node = dialog.current, previous = document.activeElement;
     node?.showModal();
     return () => { node?.close(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
-  }, []);
-  const open = (taskId: string, phaseId?: string) => { onClose(); onOpenTask(taskId, phaseId); };
+  }, [embedded]);
+  const open = (taskId: string, phaseId?: string) => { onClose?.(); onOpenTask(taskId, phaseId); };
   const personName = (agentId?: string | null, recordedName?: string | null) => agentId ? names.get(agentId) || recordedName || `${t("Not recorded")} (${agentId.slice(0, 8)})` : recordedName || t("Not recorded");
   const recordedTime = (at?: number | null, full = false) => {
     if (at == null) return <small>{t("Time not recorded")}</small>;
@@ -36,9 +37,8 @@ export function HeadTaskOverview({ name, rows, names, loading, error, observedAt
           {work.state?.reason || work.state?.reasonCode && work.state.reasonCode !== "Submitted for manager acceptance" ? <p className="head-short-text" title={work.state.reason || undefined}>{work.state.reasonCode ? t(work.state.reasonCode) : work.state.reason}</p> : work.status === "Paused" ? <small>{t("Pause reason not recorded")}</small> : null}
           {work.state?.since != null ? <div className="head-state-age" aria-label={t("State since")}>{recordedTime(work.state.since)}</div> : work.status === "Paused" ? <small>{t("Time not recorded")}</small> : null}
         </div>;
-  return createPortal(<dialog ref={dialog} className="head-task-overview" aria-labelledby={id}
-    onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <header><h2 id={id}>{t("Task progress for {name}", { name })}</h2><button type="button" aria-label={t("Close task overview")} onClick={onClose}><X size={20} /></button></header>
+  const content = <>
+    <header><h2 id={id}>{t("Task progress for {name}", { name })}</h2>{!embedded ? <button type="button" aria-label={t("Close task overview")} onClick={onClose}><X size={20} /></button> : null}</header>
     <p className="head-task-scope" title={t("Unfinished tasks watched by this agent. Watching is separate from responsibility and execution.")}>{t("Watched tasks")} · {t("As of {time}", { time: new Date(now).toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit", hour12: false }) })}</p>
     {loading ? <p role="status">{t("Loading tasks…")}</p> : null}
     {error ? <p role="alert">{t(error)}</p> : null}
@@ -75,5 +75,7 @@ export function HeadTaskOverview({ name, rows, names, loading, error, observedAt
           </details> : null}</td>
       </tr>)}</tbody>
     </table></div> : null}
-  </dialog>, document.body);
+  </>;
+  return embedded ? <section className="head-task-overview head-task-overview--embedded" aria-labelledby={id}>{content}</section> : createPortal(<dialog ref={dialog} className="head-task-overview" aria-labelledby={id}
+    onCancel={event => { event.preventDefault(); onClose?.(); }} onClick={event => { if (event.target === event.currentTarget) onClose?.(); }}>{content}</dialog>, document.body);
 }

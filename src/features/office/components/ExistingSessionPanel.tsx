@@ -37,7 +37,7 @@ function reconcileLocalSends(messages: Message[]) {
   return messages.filter(message => !message.delivery || !received.has(message.clientId));
 }
 
-export function ExistingSessionPanel({ client, threadId, active = true, focusMode = false, onToggleFocus, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, onOpenThread, onFork, forkDisabled, headerStart, headerEnd, projects = [], voice, organization, messageTarget, onCloseMessage, interfacePreset = "standard", onSaveInterfacePreset, onOpenTeaserBoard, onOpenTaskProgress, externalSends, onExternalReceipt }: {
+export function ExistingSessionPanel({ client, threadId, active = true, focusMode = false, onToggleFocus, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, onOpenThread, onFork, forkDisabled, headerStart, headerEnd, projects = [], voice, organization, messageTarget, onCloseMessage, interfacePreset = "standard", onSaveInterfacePreset, onOpenTeaserBoard, taskProgress, externalSends, onExternalReceipt }: {
   client: SessionClient;
   active?: boolean;
   focusMode?: boolean;
@@ -65,7 +65,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   interfacePreset?: AgentInterfacePreset;
   onSaveInterfacePreset?: (preset: AgentInterfacePreset) => Promise<void>;
   onOpenTeaserBoard?: () => void;
-  onOpenTaskProgress?: () => void;
+  taskProgress?: ReactNode;
   externalSends?: readonly LiveSessionItem[];
   onExternalReceipt?: (threadId: string, clientId: string) => void;
 }) {
@@ -74,6 +74,8 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   const shownMessageTarget = messageTarget || (questionTarget?.ownerId === threadId ? questionTarget.target : null);
 
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [progressRequest, setProgressRequest] = useState(0);
+  const openTaskProgress = taskProgress ? () => { setPreviewAsset(null); setProgressRequest(value => value + 1); setWorkspaceOpen(true); onOpenWorkspace?.(); } : undefined;
   const [previewAsset, setPreviewAsset] = useState<SessionAsset | null>(null);
   const openPreview = useCallback((asset: SessionAsset) => { setPreviewAsset(asset); setWorkspaceOpen(true); onOpenWorkspace?.(); }, [onOpenWorkspace]);
   const [characterMode, setCharacterMode] = useState<CharacterMode | "chat">("chat");
@@ -314,7 +316,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
         {onToggleFocus ? <button type="button" aria-label={t("Focus mode")} aria-pressed={focusMode} onClick={onToggleFocus}
           title={t(focusMode ? "Focus on: keep this session until switched off" : "Keep this session open beyond the 15-minute cache")}
           className="session-action-back session-focus-toggle"><Focus size={15} /><span className="hidden sm:inline">{t("Focus")}</span></button> : null}
-        <AgentInterfaceActions preset={interfacePreset} onOpenBoard={onOpenTeaserBoard} onOpenTaskProgress={onOpenTaskProgress} placement="inline" />
+        <AgentInterfaceActions preset={interfacePreset} onOpenBoard={onOpenTeaserBoard} onOpenTaskProgress={openTaskProgress} placement="inline" />
         {characterOpen ? <button type="button" onClick={() => setCharacterMode("chat")} className="session-action-back"><ArrowLeft size={14} />{t("Back to chat")}</button> : null}
         {!characterOpen ? <button type="button" aria-label={t(workspaceOpen ? "Close workspace" : "Open workspace")} aria-expanded={workspaceOpen} title={t("Workspace")}
           disabled={!data?.controlsAvailable} className="session-action-back session-workspace-toggle" onClick={() => { setWorkspaceOpen(value => !value); if (!workspaceOpen) onOpenWorkspace?.(); }}><PanelRight size={15} /><span>{t("Workspace")}</span></button> : null}
@@ -322,7 +324,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
           <summary aria-label={t("Session information")} className="session-actions-trigger"><MoreHorizontal size={18} aria-hidden="true" /></summary>
           <div className="session-actions-popover">
             <div className="session-actions-list">
-            <AgentInterfaceActions preset={interfacePreset} onOpenBoard={onOpenTeaserBoard} onOpenTaskProgress={onOpenTaskProgress} placement="menu" />
+            <AgentInterfaceActions preset={interfacePreset} onOpenBoard={onOpenTeaserBoard} onOpenTaskProgress={openTaskProgress} placement="menu" />
             {onSaveInterfacePreset ? <AgentInterfacePresetEditor key={`${threadId}:${interfacePreset}`} preset={interfacePreset} onSave={onSaveInterfacePreset} /> : null}
             {onSaveCharacter ? <>
               <button type="button" disabled={!data} onClick={event => openCharacter(event, "view")} className="session-action session-action--view"><span className="session-action-icon"><UserRound size={16} aria-hidden="true" /></span><span className="session-action-label">{t("Character")}</span><ChevronRight className="session-action-chevron" size={14} aria-hidden="true" /></button>
@@ -383,7 +385,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     {data?.runtime === "office" ? <OfficeCodexAccount client={client} quiet /> : null}
     {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onHistoryReset={onHistoryReset} onActiveTurnChange={setActiveTurnId} onSendState={onSendState} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
     </div>
-    {workspaceOpen ? <SessionWorkspace key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
+    {workspaceOpen ? <SessionWorkspace key={threadId} taskProgress={taskProgress} progressRequest={progressRequest} active={active && !shownMessageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
       assets={[...new Map(messages.flatMap(message => message.assets || []).map(asset => [asset.url, asset])).values()].slice(-40)}
       onSelectAsset={setPreviewAsset} onClose={() => setWorkspaceOpen(false)} /> : null}
     </div>

@@ -1,7 +1,7 @@
 "use client";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { ArrowUp, CalendarClock, ExternalLink, File, Files, Folder, Globe, Image, RefreshCw, Terminal, X } from "lucide-react";
+import { ArrowUp, CalendarClock, ExternalLink, File, Files, Folder, Globe, Image, ListChecks, RefreshCw, Terminal, X } from "lucide-react";
 import type { SessionAsset, SessionClient } from "./SessionControls";
 import { SessionSchedules } from "./SessionSchedules";
 import { SessionAssetPreview } from "./SessionMarkdown";
@@ -10,16 +10,22 @@ import { useUiText } from "@/lib/i18n/ui-language";
 const SessionTerminal = dynamic(() => import("./SessionTerminal").then(module => module.SessionTerminal), { ssr: false });
 type Listing = { root?: string; roots?: string[]; path: string; entries: { name: string; directory: boolean }[]; truncated: boolean };
 type FileRead = { path: string; content?: string; asset?: SessionAsset };
-type Tab = "files" | "preview" | "terminal" | "browser" | "schedules";
+type Tab = "files" | "preview" | "terminal" | "browser" | "schedules" | "progress";
 
-export function SessionWorkspace({ client, threadId, active = true, asset, assets, onSelectAsset, onClose, terminalAvailable = true }: {
+export function SessionWorkspace({ client, threadId, active = true, asset, assets, onSelectAsset, onClose, terminalAvailable = true, taskProgress, progressRequest = 0 }: {
   client: SessionClient; threadId: string; asset: SessionAsset | null; assets: SessionAsset[];
-  active?: boolean;
+  active?: boolean; taskProgress?: ReactNode; progressRequest?: number;
   onSelectAsset: (asset: SessionAsset | null) => void; onClose: () => void; terminalAvailable?: boolean;
 }) {
   const t = useUiText();
   const workspaceId = useId();
-  const [tab, setTab] = useState<Tab>(asset ? "preview" : "files");
+  const hasTaskProgress = !!taskProgress;
+  const [selection, setSelection] = useState({ tab: (asset ? "preview" : hasTaskProgress && progressRequest ? "progress" : "files") as Tab, progressRequest, hasTaskProgress });
+  if (selection.progressRequest !== progressRequest || selection.hasTaskProgress !== hasTaskProgress) {
+    setSelection(previous => ({ progressRequest, hasTaskProgress, tab: !hasTaskProgress && previous.tab === "progress" ? "files" : hasTaskProgress && progressRequest !== previous.progressRequest ? "progress" : previous.tab }));
+  }
+  const tab = selection.tab;
+  const setTab = (tab: Tab) => setSelection(previous => ({ ...previous, tab }));
   const [listing, setListing] = useState<Listing | null>(null);
   const [file, setFile] = useState<FileRead | null>(null);
   const [busy, setBusy] = useState(false);
@@ -47,7 +53,7 @@ export function SessionWorkspace({ client, threadId, active = true, asset, asset
     } catch (cause) { if (id === request.current) setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { if (id === request.current) setBusy(false); }
   };
-  const tabs = ([["files", Files, "Files"], ["preview", Image, "Preview"], ["terminal", Terminal, "Terminal"], ["browser", Globe, "Browser"], ["schedules", CalendarClock, "Schedule Task"]] as const).filter(([key]) => terminalAvailable || key !== "terminal");
+  const tabs = ([["files", Files, "Files"], ["preview", Image, "Preview"], ["terminal", Terminal, "Terminal"], ["browser", Globe, "Browser"], ["schedules", CalendarClock, "Schedule Task"], ["progress", ListChecks, "Task progress"]] as const).filter(([key]) => (terminalAvailable || key !== "terminal") && (hasTaskProgress || key !== "progress"));
   return <aside className="session-workspace flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" aria-label={t("Session workspace")}>
     <div className="session-workspace-tabs" role="tablist" aria-label={t("Workspace views")} onKeyDown={event => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -61,7 +67,7 @@ export function SessionWorkspace({ client, threadId, active = true, asset, asset
     </div>
     {error ? <p role="alert" className="px-4 py-3 text-xs text-amber-200">{t(error)}</p> : null}
     <div role="tabpanel" id={`${workspaceId}-panel-${tab}`} aria-labelledby={`${workspaceId}-tab-${tab}`} className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {tab === "files" ? <>
+      {tab === "progress" ? taskProgress : tab === "files" ? <>
         {listing?.roots && listing.roots.length > 1 ? <label className="px-3 pt-2 text-xs text-white/60">{t("Project folder")}<select aria-label={t("Project folder")} className="mt-1 min-h-10 w-full min-w-0 rounded bg-[#152b35] px-2 text-xs" value={root || ""} disabled={busy} onChange={e => { setFile(null); onSelectAsset(null); void list("", e.target.value); }}>
           {listing.roots.map(folder => <option key={folder} value={folder}>{folder}</option>)}
         </select></label> : null}

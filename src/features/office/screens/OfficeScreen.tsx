@@ -843,7 +843,6 @@ export function OfficeScreen({
   };
   const [directoryView, setDirectoryView] = useState<AgentDirectoryView>("organization");
   const [teaserBoardOpen, setTeaserBoardOpen] = useState(false);
-  const [headProgressId, setHeadProgressId] = useState<string | null>(null);
   const [taskBoardRequest, setTaskBoardRequest] = useState<{ id?: string; phaseId?: string } | null>(null);
   const openTaskDetails = useCallback((id: string, phaseId?: string) => setTaskBoardRequest({ id, phaseId }), [setTaskBoardRequest]);
   const [messageSelection, setMessageSelection] = useState<{ gateway: string; target: MessageSearchTarget } | null>(null);
@@ -3777,7 +3776,7 @@ export function OfficeScreen({
 
       {sessionView ? <DepartmentPanel key={gatewayUrl} organization={organization} state={departmentPanel} onSelect={openDepartment} onClose={() => setDepartmentPanel(previous => ({ ...previous, open: false }))} tasks={{ ...currentTasks, error: status === "connected" ? currentTasks.error : "Current tasks are unavailable." }} onOpenTask={id => setTaskBoardRequest({ id })} /> : null}
       {sessionView && teaserBoardOpen ? <TeaserDashboard onClose={() => setTeaserBoardOpen(false)} target={teaserTarget} unavailableReason={status === "connected" ? teaserResolution.reason : "Connection unavailable. Please reconnect before sending."} solutionSender={teaserSolutions} onOpenSession={handleOpenAgentChat} /> : null}
-      {sessionView && headProgressId && taskProgressAgentIds(organization).has(headProgressId) ? <HeadTaskOverview name={organizationNames.get(headProgressId) || headProgressId} rows={headTaskRows(headProgressId, currentTasks.summaries)} names={organizationNames} observedAt={currentTasks.observedAt} loading={currentTasks.loading} error={status === "connected" ? currentTasks.error : "Current tasks are unavailable."} onClose={() => setHeadProgressId(null)} onOpenTask={openTaskDetails} /> : null}
+
       {sessionView ? <TaskBoard open={!!taskBoardRequest} taskId={taskBoardRequest?.id} phaseId={taskBoardRequest?.phaseId} onClose={() => setTaskBoardRequest(null)} onOpenSession={handleOpenAgentChat} client={client} connected={status === "connected"} /> : null}
       {sessionView && chatOpen ? <button type="button" aria-label={t("Click the office to close chat")} className="fixed inset-0 z-40 cursor-default bg-transparent" onClick={() => setChatOpen(false)} /> : null}
       <div
@@ -3916,7 +3915,7 @@ export function OfficeScreen({
                   return <ExistingSessionPanel onOpenWorkspace={openSessionWorkspace} active={cached.active} focusMode={cached.focusMode} onToggleFocus={cached.onToggleFocus} client={client} threadId={agent.agentId}
                   interfacePreset={resolveAgentInterface(agentInterfaces.interfaces[agent.agentId]).preset}
                   onOpenTeaserBoard={() => setTeaserBoardOpen(true)}
-                  onOpenTaskProgress={taskProgressAgentIds(organization).has(agent.agentId) ? () => setHeadProgressId(agent.agentId) : undefined}
+                  taskProgress={taskProgressAgentIds(organization).has(agent.agentId) ? <HeadTaskOverview embedded name={organizationNames.get(agent.agentId) || agent.agentId} rows={headTaskRows(agent.agentId, currentTasks.summaries)} names={organizationNames} observedAt={currentTasks.observedAt} loading={currentTasks.loading} error={status === "connected" ? currentTasks.error : "Current tasks are unavailable."} onOpenTask={openTaskDetails} /> : undefined}
                   onSaveInterfacePreset={agentInterfaces.loaded && interfaceRoster.some(item => item.id === agent.agentId) ? preset => agentInterfaces.save(agent.agentId, preset) : undefined}
                   externalSends={teaserSolutions.forThread(agent.agentId)} onExternalReceipt={teaserSolutions.reconcile}
                   messageTarget={messageTarget?.threadId === agent.agentId && !messageTarget.archived ? messageTarget : null} onCloseMessage={() => setMessageSelection(null)}
