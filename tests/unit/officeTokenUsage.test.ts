@@ -319,3 +319,36 @@ it("keeps old day clients safe from new enum labels while v2/day and rolling ret
   const legacy = await f.detail(); expect(legacy.purposeSummary.purposes.some(p => p.id === "dictation")).toBe(false); expect(legacy.rows[0].purpose).toBe("unknown");
   const next = await f.detail({ schemaVersion: 2 }); expect(next.rows[0].purpose).toBe("dictation"); expect(next.purposeSummary.denominatorTokens).toBe(legacy.purposeSummary.denominatorTokens);
 });
+
+it("rechecks the canonical resolver after rotation while the old file still exists, deduplicates copies and rejects identity changes", async () => {
+  let clock = NOW;
+  const f = await fixture({ now: () => clock });
+  await writeFile(f.file, meta() + record("old")); await f.collect();
+  const rotated = path.join(path.dirname(f.file), "rollout-fixture-native-one_segment-2.jsonl");
+  await writeFile(rotated, meta() + record("old") + record("new")); f.paths["native-one"] = rotated;
+  clock += 61000; await f.collect(); expect((await f.detail()).count).toBe(2); expect(f.collector.sources['native-one'].file).toContain('segment-2');
+  await writeFile(rotated, meta('other-native') + record('forged')); clock += 61000; await f.collect(); expect(f.collector.sources['native-one'].status).toBe('unavailable'); expect((await f.detail()).count).toBe(2);
+});
+
+it("keeps sender/request/start-steer entries idempotent, frozen per snapshot and durable without multiplying shared responses", async () => {
+  const f = await fixture(); await writeFile(f.file, meta() + context() + record('one') + record('two')); await f.collect();
+  const dispatch = (senderId: string, requestId: string, mode='steer') => f.collector.bindTurn({agentId:'agent-one',nativeThreadId:'native-one',turnId:'turn-one',mode,usage:{purpose:'chat_work',trigger:'agentMessage',senderId,entryId:requestId}});
+  f.collector.observeNative({method:'item/completed',params:{threadId:'native-one',turnId:'turn-one',item:{id:'user-item',clientId:'request-a',type:'userMessage',content:'DO_NOT_RETAIN'}}}); await f.collector.running;
+  dispatch('sender-a','request-a','start'); await f.collector.running;
+  const frozen = await f.detail({schemaVersion:2});
+  dispatch('sender-b','request-b'); dispatch('sender-b','request-b'); await f.collector.running;
+  f.collector.observeNative({method:'item/completed',params:{threadId:'native-one',turnId:'turn-one',item:{id:'tool-one',type:'commandExecution',stdout:'DO_NOT_RETAIN'}}}); await f.collector.running;
+  const latest = await f.detail({schemaVersion:2}); expect(latest.messageChains!.turns).toHaveLength(1);const chain=latest.messageChains!.turns[0];
+  expect(chain.entries.map(e=>[e.senderId,e.mode])).toEqual([['sender-a','start'],['sender-b','steer']]);expect(chain.observedResponses).toBe(2);expect(chain.components.total.knownSubtotal).toBe(240);expect(chain.entries[0].itemId).toBe('user-item');expect(chain.activities).toEqual([{itemId:'tool-one',type:'commandExecution'}]);
+  expect((await f.detail({schemaVersion:2,snapshot:frozen.snapshot})).messageChains!.turns[0].entries).toHaveLength(1);
+  const filtered=await f.detail({schemaVersion:2,snapshot:latest.snapshot,turnId:'turn-one',nativeThreadId:'native-one'});expect(filtered.rows).toHaveLength(2);
+  await f.collector.close();const restored=f.create();expect((await f.detail({schemaVersion:2},restored)).messageChains!.turns[0].entries).toHaveLength(2);
+  expect(JSON.stringify(latest.messageChains)).not.toContain('DO_NOT_RETAIN');
+});
+
+it('backs off unresolved official paths without advertising stale EOF as ready or resolving per response', async()=>{
+ let clock=NOW,unavailable=false,file='';const resolve=vi.fn(async()=>{if(unavailable)throw Error('offline');return file;});const f=await fixture({now:()=>clock,resolveSource:resolve});file=f.file;await writeFile(file,meta()+record('one'));await f.collect();
+ clock+=61000;unavailable=true;await f.collect();expect(f.collector.sources['native-one'].status).toBe('unavailable');const calls=resolve.mock.calls.length;
+ for(let i=0;i<5;i++)await f.collect();expect(resolve).toHaveBeenCalledTimes(calls);expect((await f.detail()).coverage.readySources).toBe(0);
+ clock+=61000;unavailable=false;await f.collect();expect(f.collector.sources['native-one'].status).toBe('ready');expect((await f.detail()).count).toBe(1);
+});

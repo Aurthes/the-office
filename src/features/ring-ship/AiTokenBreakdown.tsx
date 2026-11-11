@@ -4,8 +4,9 @@ import { useUiText } from "@/lib/i18n/ui-language";
 import { apiCostLabel, topContributors, type UsageDetail } from "./ai-center";
 import { PURPOSE_LABELS, tokenNumber } from "./AiPurposeSummary";
 
-export function AiTokenBreakdown({ value, onSelect, onRecords }: { value: UsageDetail; onSelect: (dimension: "agents" | "tasks" | "sources", id: string) => void; onRecords: () => void }) {
+export function AiTokenBreakdown({ value, onSelect, onRecords, onChain, onOpenSession, readMessage }: { value: UsageDetail; readMessage?: (threadId: string, turnId: string, itemId: string) => Promise<string>; onChain?: (value: { nativeThreadId: string; turnId: string }) => void; onOpenSession?: (id: string) => void; onSelect: (dimension: "agents" | "tasks" | "sources", id: string) => void; onRecords: () => void }) {
   const t = useUiText(), [dimension, setDimension] = useState<"agents" | "tasks" | "sources">("tasks"), [order, setOrder] = useState<"tokens" | "cost">("tokens"), [all, setAll] = useState(false);
+  const [original, setOriginal] = useState<{key: string; text: string} | null>(null);
   const b = value.breakdown;
   if (!b) return <p className="ai-notice" role="status">{t("Token breakdown is unavailable on this gateway. Refresh after updating it.")}</p>;
   const c = b.measuredComponents, n = value.purposeSummary.measuredResponses, cost = b.cost;
@@ -37,6 +38,16 @@ export function AiTokenBreakdown({ value, onSelect, onRecords }: { value: UsageD
         <span><b>{tokenNumber(row.knownTokens)}</b> {t("tokens")}<small>{t("{count} measured responses", { count: row.measuredResponses })} · {t("{count} unknown usage", { count: row.unknownUsageResults })}</small></span>
         <span>{apiCostLabel(row.cost)}<small>{t("{count} unpriced responses", { count: row.cost.unpricedResponses })}</small></span></div>)}</div>
       {b.contributors[dimension].length > 5 ? <button type="button" className="ai-coupon-apply" onClick={() => setAll(!all)}>{t(all ? "Show top 5" : "Show all groups")}</button> : null}
+    </section>
+    <section aria-label={t("Agent message chains")}><h2>{t("Agent message chains")}</h2>
+      <p className="ai-card-caption">{t("One receiving turn is counted once, even with multiple messages. Per-message incremental cost is unknown. Unconfirmed deliveries are not counted as starts. Historical messages without a ledger are not inferred.")}</p>
+      {!value.messageChains?.turns.length ? <p>{t("No recorded sender-linked turns in this snapshot. This is not zero communication cost.")}</p> : value.messageChains.turns.map(chain => <details key={chain.nativeThreadId + chain.turnId} className="ai-response"><summary>{chain.entries.filter(entry => entry.senderId).length} {t("messages")} · {chain.entries.filter(entry => entry.senderId && entry.mode === "start").length} {t("new receiving turns")} / {chain.entries.filter(entry => entry.senderId && entry.mode === "steer").length} {t("same-turn additions")} · {chain.observedResponses} {t("responses")}</summary>
+        <div className="ai-response-body"><p>{t("Shared turn usage; do not multiply by message count.")}</p><dl className="ai-response-numbers">{([ ["cachedInput", "Cached input"], ["uncachedInput", "Uncached input"], ["output", "Output tokens"], ["total", "Total tokens"] ] as const).map(([key,label]) => <div key={key}><dt>{t(label)}</dt><dd>{tokenNumber(chain.components[key].knownSubtotal)}</dd></div>)}</dl>
+        <p>{chain.activities.length ? `${t("Observed turn tool items")}: ${chain.activities.length}` : t("No observed tool evidence; this does not prove waste.")}{chain.activityTruncated || chain.truncatedEntries ? ` · ${t("Metadata retention limit reached; partial evidence.")}` : ""}</p>
+        <ul>{chain.entries.map(entry => <li key={entry.requestId}><span>{entry.senderId || t("Unknown")} → {entry.recipientId || t("Unknown")} · {entry.mode} · {entry.trigger}</span><small>{entry.requestId} · {new Date(entry.acceptedAt).toLocaleString()}</small>{entry.itemId && chain.recipientId && readMessage ? <button type="button" className="ai-coupon-apply" onClick={() => { setOriginal({key:entry.requestId,text:t("Loading…")}); void readMessage(chain.recipientId!,chain.turnId,entry.itemId!).then(text => setOriginal(current => current?.key === entry.requestId ? {key:entry.requestId,text} : current)).catch(() => setOriginal(current => current?.key === entry.requestId ? {key:entry.requestId,text:t("Original message unavailable")} : current)); }}>{t("Read original message")}</button> : <small>{t("Original message identity not recorded")}</small>}{original?.key === entry.requestId ? <pre style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{original.text}</pre> : null}</li>)}</ul>
+        <button type="button" className="ai-coupon-apply" onClick={() => onChain?.({nativeThreadId: chain.nativeThreadId, turnId: chain.turnId})}>{t("View response records")}</button>
+        {onOpenSession && chain.recipientId ? <button type="button" className="ai-coupon-apply" onClick={() => onOpenSession(chain.recipientId!)}>{t("Open receiving session and tool history")}</button> : null}
+        </div></details>)}
     </section>
     <p className="ai-notice">{t("Work versus communication: not collected. Trigger sources include execution and cannot prove a pure coordination cost.")}</p>
     <button type="button" className="ai-coupon-apply" onClick={onRecords}>{t("View response records")}</button>

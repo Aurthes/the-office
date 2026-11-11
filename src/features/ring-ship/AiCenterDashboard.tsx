@@ -29,8 +29,8 @@ function UsageWindow({ value }: { value: QuotaWindow | null }) {
   </div>;
 }
 
-export function AiCenterDashboard({ open, onClose, client, connected }: {
-  open: boolean; onClose: () => void; client?: Pick<GatewayClient, "call">; connected: boolean;
+export function AiCenterDashboard({ open, onClose, client, connected, onOpenSession }: {
+  onOpenSession?: (id: string) => void; open: boolean; onClose: () => void; client?: Pick<GatewayClient, "call">; connected: boolean;
 }) {
   const t = useUiText(), dialog = useRef<HTMLDialogElement>(null);
   const [snapshot, setSnapshot] = useState<AiCenterSnapshot | null>(null), [loading, setLoading] = useState(false);
@@ -140,7 +140,7 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
         <button type="button" data-breakdown-tab aria-current={detailDate === "rolling24h" ? "page" : undefined} disabled={!client || !connected} onClick={() => { if (detailDate === "rolling24h") return; const value = rollingValue.current; setSelectedWindow(value?.window || undefined); setPurposeEntry(value ? { snapshot: value.snapshot } : null); setDetailDate("rolling24h"); }}>{t("Token breakdown")}</button>
       </nav>
       <div className="ai-content">
-        {open && detailDate && client ? <AiUsageDetail key={detailDate === "rolling24h" ? `rolling:${rollingEpoch}` : detailDate} date={detailDate} rolling={detailDate === "rolling24h"} initialWindow={detailDate === "rolling24h" ? selectedWindow : undefined} onWindow={acceptDetailWindow} accountTokens={daily?.find(day => day.date === detailDate)?.tokens ?? null} client={client}
+        {open && detailDate && client ? <AiUsageDetail onOpenSession={onOpenSession ? id => { close(); onOpenSession(id); } : undefined} key={detailDate === "rolling24h" ? `rolling:${rollingEpoch}` : detailDate} date={detailDate} rolling={detailDate === "rolling24h"} initialWindow={detailDate === "rolling24h" ? selectedWindow : undefined} onWindow={acceptDetailWindow} accountTokens={daily?.find(day => day.date === detailDate)?.tokens ?? null} client={client}
           initialPurpose={purposeEntry?.purpose} initialSnapshot={purposeEntry?.snapshot}
           onDateChange={date => { setDetailDate(date); setPurposeEntry(null); }} onBack={() => { setDetailDate(null); setPurposeEntry(null); requestAnimationFrame(() => detailDate === "rolling24h" ? (dialog.current?.querySelector<HTMLButtonElement>("[data-breakdown-entry]") || dialog.current?.querySelector<HTMLButtonElement>("[data-breakdown-tab]"))?.focus() : dayButton.current?.focus()); }} /> : null}
         <div hidden={!!detailDate}>

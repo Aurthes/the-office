@@ -268,3 +268,17 @@ it("makes snapshot expiry explicit and refreshes the same anchor without reusing
   expect(await screen.findByRole("alert")).toHaveTextContent("This snapshot expired"); failed = false; fireEvent.click(screen.getByRole("button", { name: "Refresh response detail" }));
   await screen.findByRole("region", { name: "Token composition" }); expect(call.mock.lastCall?.[1]).toMatchObject({ end: value.window!.end, refresh: true }); expect(call.mock.lastCall?.[1]).not.toHaveProperty("snapshot");
 });
+
+it('drills sender-linked shared-turn responses without multiplying messages and opens the receiving session', async () => {
+  const value=detail(),onOpenSession=vi.fn();
+  value.messageChains={scope:'sharedTurnObservedResponses',incrementalMessageTokens:null,historicalLedger:'notBackfilled',turns:[{nativeThreadId:'native',turnId:'turn',recipientId:'agent',entries:[{itemId:'native-user',requestId:'one',senderId:'a',recipientId:'agent',mode:'start',trigger:'agentMessage',acceptedAt:0},{requestId:'two',senderId:'b',recipientId:'agent',mode:'steer',trigger:'agentMessage',acceptedAt:1}],truncatedEntries:0,activities:[],activityTruncated:false,observedResponses:1,components:value.purposeSummary.components,activityBasis:'observedTurnToolsOnly'}]};
+  const call=vi.fn().mockImplementation(async method=>method==='session.messageContext'?{messages:[{id:'turn:native-user',role:'user',content:'Fixture original text'}]}:value);
+  render(createElement(AiUsageDetail,{rolling:true,date:'rolling24h',accountTokens:null,client:{call},onBack:vi.fn(),onDateChange:vi.fn(),onOpenSession}));
+  const chain=await screen.findByRole('region',{name:'Agent message chains'});fireEvent.click(chain.querySelector('summary')!);
+  expect(chain).toHaveTextContent('1 new receiving turns / 1 same-turn additions');expect(chain).toHaveTextContent('does not prove waste');
+  expect(call.mock.calls.some(([method])=>method==='session.messageContext')).toBe(false);
+  fireEvent.click(within(chain).getByRole('button',{name:'Read original message'}));await screen.findByText('Fixture original text');
+  fireEvent.click(within(chain).getByRole('button',{name:'Open receiving session and tool history'}));expect(onOpenSession).toHaveBeenCalledWith('agent');
+  fireEvent.click(within(chain).getByRole('button',{name:'View response records'}));
+  await waitFor(()=>expect(call.mock.lastCall?.[1]).toMatchObject({nativeThreadId:'native',turnId:'turn',includeRecords:true,snapshot:'stable-snapshot'}));
+});

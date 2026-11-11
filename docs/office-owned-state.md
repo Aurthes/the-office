@@ -477,3 +477,29 @@ prediction implementations have been removed. The independent gateway retains
 the shared session controls, history, stream, uploads, assets and workspace modules.
 
 Turn-state recovery tracks turn lifecycle revisions separately from token usage, questions and item updates. An unrelated streamed update must not discard the latest-turn read; a newer turn start/completion must still win.
+
+## Agent message-chain diagnostics
+
+The usage reader revalidates canonical rollout paths through the existing official
+resolver at most once per minute (and on a normal turn start), even if the old
+file remains. Canonical_segment filenames require the same allowlisted real
+path, non-symlink regular file, canonical session_meta ID and supported version.
+An unresolved current path is unavailable, not an old EOF advertised as ready.
+Rotation replays numeric records safely through existing response-ID deduplication.
+
+Accepted dispatches retain registered sender metadata, receiving Office identity,
+request ID and the actual start/steer result. Metadata is not personal identity
+proof on the shared authenticated service. Immutable multi-entry bindings keep
+old snapshots stable. Each receiving turn's observed responses are summed once;
+multiple messages never multiply that pool. Per-message incremental tokens and
+net savings remain unknown. Unconfirmed dispatches are not invented as starts.
+
+A bounded private communication.json sidecar shares the numeric index lifecycle:
+64 entries per turn, 2,048 entries globally, bounded message-item identities and
+turn tool metadata, and the existing metadata byte limit. Truncation/recovery gaps
+are explicit and do not stop numeric metering. No message, command, output or
+reasoning body is stored in this diagnostic ledger. Exact native clientId/itemId
+joins permit an explicit click to use the existing protected message-context API.
+Tool evidence is turn-level; absence is not proof of waste, and MCP activity is
+not automatically classified as engineering. Original receiving-session history
+remains available. Old history without a captured ledger is not guessed/backfilled.

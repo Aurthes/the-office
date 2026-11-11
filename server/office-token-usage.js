@@ -62,7 +62,7 @@ function usageOf(value) {
   return { ...result, uncachedInput: result.input - result.cachedInput, otherOutput: result.output - result.reasoningOutput };
 }
 function parameters(p, now) {
-  if (!p || typeof p !== "object" || Array.isArray(p) || Object.keys(p).some(k => !["schemaVersion", "window", "end", "date", "timeZone", "sort", "order", "agentId", "configuredModel", "taskId", "cursor", "snapshot", "purpose", "includeRecords", "limit", "refresh"].includes(k))) throw new Error("Invalid usage query");
+  if (!p || typeof p !== "object" || Array.isArray(p) || Object.keys(p).some(k => !["nativeThreadId", "turnId", "schemaVersion", "window", "end", "date", "timeZone", "sort", "order", "agentId", "configuredModel", "taskId", "cursor", "snapshot", "purpose", "includeRecords", "limit", "refresh"].includes(k))) throw new Error("Invalid usage query");
   if (p.schemaVersion !== undefined && p.schemaVersion !== 2) throw new Error("Invalid usage schema");
   let window = null;
   if (p.window !== undefined) {
@@ -78,13 +78,13 @@ function parameters(p, now) {
   }
   const sort = p.sort ?? "total", order = p.order ?? "desc", limit = p.limit ?? 50;
   if (!["total", "input", "uncachedInput", "output", "time"].includes(sort) || !["asc", "desc"].includes(order) || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("Invalid usage ordering or page size");
-  for (const field of ["agentId", "configuredModel", "taskId"]) if (p[field] !== undefined && !(field === "configuredModel" ? label(p[field]) : id(p[field]))) throw new Error("Invalid usage filter");
+  for (const field of ["nativeThreadId", "turnId", "agentId", "configuredModel", "taskId"]) if (p[field] !== undefined && !(field === "configuredModel" ? label(p[field]) : id(p[field]))) throw new Error("Invalid usage filter");
   for (const field of ["cursor", "snapshot"]) if (p[field] !== undefined && (typeof p[field] !== "string" || !p[field] || p[field].length > 512)) throw new Error("Invalid usage cursor");
   if (p.cursor !== undefined && p.snapshot !== undefined) throw new Error("Invalid usage cursor");
   if (p.purpose !== undefined && !PURPOSES.includes(p.purpose)) throw new Error("Invalid usage purpose");
   if (p.includeRecords !== undefined && typeof p.includeRecords !== "boolean") throw new Error("Invalid record selection");
   if (p.refresh !== undefined && typeof p.refresh !== "boolean") throw new Error("Invalid refresh");
-  return { schemaVersion: window || p.schemaVersion === 2 ? 2 : 1, date: window ? null : p.date, timeZone: window ? "UTC" : p.timeZone, window, sort, order, limit, agentId: p.agentId ?? null, configuredModel: p.configuredModel ?? null, taskId: p.taskId ?? null, purpose: p.purpose ?? null, includeRecords: p.includeRecords !== false };
+  return { schemaVersion: window || p.schemaVersion === 2 ? 2 : 1, date: window ? null : p.date, timeZone: window ? "UTC" : p.timeZone, window, sort, order, limit, agentId: p.agentId ?? null, configuredModel: p.configuredModel ?? null, taskId: p.taskId ?? null, nativeThreadId: p.nativeThreadId ?? null, turnId: p.turnId ?? null, purpose: p.purpose ?? null, includeRecords: p.includeRecords !== false };
 }
 
 class OfficeTokenUsage {
@@ -94,7 +94,8 @@ class OfficeTokenUsage {
     this.maxBytes = maxBytes; this.reserve = Math.min(2 * 1024 * 1024, Math.floor(maxBytes / 4));
     this.chunkBytes = chunkBytes; this.lineBytes = lineBytes;
     this.rows = new Map(); this.sources = {}; this.bindings = {}; this.shards = new Map(); this.pending = new Map(); this.deleted = new Set();
-    this.responses = new Map(); this.sourceQueue = []; this.dictationQueue = []; this.discoveryPending = false; this.lastDiscovery = -Infinity; this.bindingQueue = []; this.sampleQueue = []; this.bindingCount = 0; this.purposesRecordedFrom = new Date(now()).toISOString();
+    this.responses = new Map(); this.sourceQueue = []; this.activityQueue = []; this.dictationQueue = []; this.discoveryPending = false; this.lastDiscovery = -Infinity; this.bindingQueue = []; this.sampleQueue = []; this.bindingCount = 0; this.entryCount = 0; this.activityCount = 0; this.purposesRecordedFrom = new Date(now()).toISOString();
+    this.communicationRecordedFrom = new Date(now()).toISOString();
     this.adaptersEnabledAt = new Date(now()).toISOString();
     this.dayBytes = new Map(); this.pendingBytes = 0;
     this.queue = new Set(); this.snapshots = new Map(); this.secret = crypto.randomBytes(32);
@@ -123,6 +124,11 @@ class OfficeTokenUsage {
   observeNative(frame) {
     if (this.closed || this.unavailable) return;
     const put = value => { if (!id(value?.nativeThreadId)) return; if (this.sourceQueue.length >= 1024) { this.gap("sourceBackpressure"); return; } this.sourceQueue.push({ nativeThreadId: id(value.nativeThreadId), parentNativeThreadId: id(value.parentNativeThreadId), helperKind: ["review", "compact", "memory_consolidation", "other", "thread_spawn"].includes(value.helperKind) ? value.helperKind : null }); };
+    if (frame.method === "item/completed" && ["commandExecution", "mcpToolCall", "fileChange", "userMessage"].includes(frame.params?.item?.type) && id(frame.params?.threadId) && id(frame.params?.turnId) && id(frame.params?.item?.id)) {
+      if (this.activityQueue.length < 1024) this.activityQueue.push({ nativeThreadId: frame.params.threadId, turnId: frame.params.turnId, itemId: frame.params.item.id, clientId: id(frame.params.item.clientId), type: frame.params.item.type });
+      else this.gap("activityBackpressure");
+      this.kick();
+    }
     if (frame.method === "thread/started") put(nativeMetadata(frame.params?.thread));
     const item = frame.params?.item;
     if (["item/started", "item/completed"].includes(frame.method) && item?.type === "collabAgentToolCall")
@@ -172,10 +178,15 @@ class OfficeTokenUsage {
     try { state = await this.readJson("state.json", this.reserve); } catch (error) { if (error.code !== "ENOENT") this.gap("stateRecovery"); }
     if (state?.format === FORMAT) {
       this.sources = state.sources || {}; this.bindings = { ...state.bindings, ...this.bindings }; this.gaps = { ...state.gaps, ...this.gaps }; this.floor = state.floor || "";
+      this.communicationRecordedFrom = state.communicationRecordedFrom || this.communicationRecordedFrom;
       this.purposesRecordedFrom = state.purposesRecordedFrom || this.purposesRecordedFrom;
       this.adaptersEnabledAt = state.adaptersEnabledAt || this.adaptersEnabledAt;
     } else if (state) this.gap("unsupportedIndex");
-    this.bindingCount = Object.keys(this.bindings).length;
+    try {
+      const ledger = await this.readJson("communication.json", this.reserve);
+      if (ledger.format === 1) for (const [key, value] of Object.entries(ledger.turns || {})) if (this.bindings[key]) this.bindings[key] = { ...this.bindings[key], ...value };
+    } catch (error) { if (error.code !== "ENOENT") this.gap("communicationRecovery"); }
+    this.bindingCount = Object.keys(this.bindings).length; this.entryCount = Object.values(this.bindings).reduce((sum, value) => sum + (value.entries?.length || 0), 0); this.activityCount = Object.values(this.bindings).reduce((sum, value) => sum + (value.activities?.length || 0) + (value.messageItems?.length || 0), 0);
     const files = (await fs.readdir(this.directory)).filter(name => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(name)).sort();
     for (const file of files) {
       try {
@@ -292,7 +303,7 @@ class OfficeTokenUsage {
     const cutoff = dateShift(utcDay(this.now()), -15);
     for (const day of this.shards.keys()) if (day < cutoff) this.evict(day);
     for (const [key, binding] of Object.entries(this.bindings)) if (binding.at < this.now() - 16 * DAY) delete this.bindings[key];
-    this.bindingCount = Object.keys(this.bindings).length;
+    this.bindingCount = Object.keys(this.bindings).length; this.entryCount = Object.values(this.bindings).reduce((sum, value) => sum + (value.entries?.length || 0), 0); this.activityCount = Object.values(this.bindings).reduce((sum, value) => sum + (value.activities?.length || 0) + (value.messageItems?.length || 0), 0);
     await this.flush();
   }
   async atomic(name, value) {
@@ -308,7 +319,16 @@ class OfficeTokenUsage {
       try { await handle.writeFile(lines.join("")); await handle.sync(); } finally { await handle.close(); }
     }
     this.pending.clear(); this.pendingBytes = 0;
-    const state = { format: FORMAT, sources: this.sources, bindings: this.bindings, gaps: this.gaps, floor: this.floor, purposesRecordedFrom: this.purposesRecordedFrom, adaptersEnabledAt: this.adaptersEnabledAt };
+    const turns = {}, bindings = {};
+    for (const [key, binding] of Object.entries(this.bindings)) {
+      const { entries, truncatedEntries, activities, activityTruncated, messageItems, ...base } = binding;
+      bindings[key] = base;
+      if (entries || activities || messageItems) turns[key] = { entries, truncatedEntries, activities, activityTruncated, messageItems };
+    }
+    const ledger = { format: 1, turns };
+    if (Buffer.byteLength(JSON.stringify(ledger)) <= this.reserve) await this.atomic("communication.json", ledger);
+    else this.gap("communicationMetadataLimit"); // Never stop numeric metering for a diagnostic limit.
+    const state = { communicationRecordedFrom: this.communicationRecordedFrom, format: FORMAT, sources: this.sources, bindings, gaps: this.gaps, floor: this.floor, purposesRecordedFrom: this.purposesRecordedFrom, adaptersEnabledAt: this.adaptersEnabledAt };
     if (Buffer.byteLength(JSON.stringify(state)) > this.reserve) { this.storageLimit = true; this.gap("metadataLimit"); return; }
     await this.atomic("state.json", state);
     // Retention floor is durable before removing old shards. A crash never
@@ -324,13 +344,13 @@ class OfficeTokenUsage {
   }
   refresh() { if (this.closed || this.unavailable) return; for (const nativeId of [...this.known().keys()].slice(0, 2048)) this.queue.add(nativeId); if (this.known().size > 2048) this.gap("sourceLimit"); this.discoveryPending = true; this.kick(); }
   kick() {
-    if (this.running || this.closed || this.unavailable || this.storageLimit || !(this.queue.size || this.bindingQueue.length || this.sampleQueue.length || this.dictationQueue.length || this.sourceQueue.length || this.discoveryPending || this.gapPending)) return;
+    if (this.running || this.closed || this.unavailable || this.storageLimit || !(this.activityQueue.length || this.queue.size || this.bindingQueue.length || this.sampleQueue.length || this.dictationQueue.length || this.sourceQueue.length || this.discoveryPending || this.gapPending)) return;
     this.running = this.run().finally(() => { this.running = null; this.kick(); });
   }
   async run() {
     await this.init(); if (this.unavailable) return;
     try {
-      while ((this.queue.size || this.bindingQueue.length || this.sampleQueue.length || this.dictationQueue.length || this.sourceQueue.length || this.discoveryPending || this.gapPending) && !this.closed && !this.storageLimit) {
+      while ((this.activityQueue.length || this.queue.size || this.bindingQueue.length || this.sampleQueue.length || this.dictationQueue.length || this.sourceQueue.length || this.discoveryPending || this.gapPending) && !this.closed && !this.storageLimit) {
         this.gapPending = false;
         if (this.discoveryPending) await this.discover();
         await this.drainMetadata();
@@ -343,19 +363,29 @@ class OfficeTokenUsage {
     } catch { this.unavailable = true; this.gap("indexUnavailable"); }
   }
   async sourceFile(nativeId, state) {
+    if (state.resolveFailed && this.now() - state.resolveAttemptAt < 60000) throw new Error("Current source unresolved");
     let candidate = state.file ? path.join(this.home, state.file) : null;
-    if (candidate) {
-      try { await fs.access(candidate); } catch { candidate = path.join(this.home, "archived_sessions", path.basename(candidate)); }
+    if (!candidate || !state.resolvedAt || this.now() - state.resolvedAt >= 60000) {
+      state.resolveAttemptAt = this.now(); state.resolveFailed = true;
+      candidate = await this.resolveSource(nativeId);
+      if (!candidate) throw new Error("Current source unresolved");
+      state.resolvedAt = this.now(); state.resolveFailed = false;
     }
-    if (!candidate || !await fs.access(candidate).then(() => true, () => false)) candidate = await this.resolveSource(nativeId);
+    if (!await fs.access(candidate).then(() => true, () => false)) candidate = path.join(this.home, "archived_sessions", path.basename(candidate));
+    if (candidate && (await fs.lstat(candidate)).isSymbolicLink()) throw new Error("Symlink source");
     if (!candidate || !path.isAbsolute(candidate)) throw new Error("Source missing");
     const realHome = await fs.realpath(this.home), real = await fs.realpath(candidate);
     const relative = path.relative(realHome, real);
-    if (!["sessions", "archived_sessions"].includes(relative.split(path.sep)[0]) || relative.split(path.sep).includes("..") || !path.basename(real).endsWith(`-${nativeId}.jsonl`)) throw new Error("Source outside Office allowlist");
+    if (!["sessions", "archived_sessions"].includes(relative.split(path.sep)[0]) || relative.split(path.sep).includes("..") || !(path.basename(real).endsWith(`-${nativeId}.jsonl`) || path.basename(real).includes(`-${nativeId}_`) && /^[a-zA-Z0-9-]{1,160}\.jsonl$/.test(path.basename(real).split(`-${nativeId}_`).at(-1)))) throw new Error("Source outside Office allowlist");
     // Do not follow a swapped symlink between validation and opening.
     const handle = await fs.open(real, require("node:fs").constants.O_RDONLY | require("node:fs").constants.O_NOFOLLOW);
     const stat = await handle.stat();
     if (!stat.isFile()) { await handle.close(); throw new Error("Invalid source"); }
+    const prefix = Buffer.alloc(Math.min(65536, stat.size));
+    await handle.read(prefix, 0, prefix.length, 0);
+    let metadata;
+    try { metadata = sessionMetadata(prefix.toString("utf8")); } catch (error) { await handle.close(); throw error; }
+    if (metadata?.id !== nativeId || metadata.cli_version !== VERSION) { state.version = metadata?.id === nativeId ? "unsupported" : "unknown"; await handle.close(); throw new Error("Source identity/version mismatch"); }
     return { handle, stat, relative };
   }
   async collect(nativeId) {
@@ -363,7 +393,7 @@ class OfficeTokenUsage {
     if (!this.sources[nativeId] && Object.keys(this.sources).length >= 2048) { this.gap("sourceLimit"); return; }
     const state = this.sources[nativeId] ||= { offset: 0, gaps: {} };
     let source;
-    try { source = await this.sourceFile(nativeId, state); } catch { state.status = "unavailable"; this.gap("sourceUnavailable", state); return; }
+    try { source = await this.sourceFile(nativeId, state); } catch { state.status = state.version === "unsupported" ? "unsupported" : "unavailable"; this.gap("sourceUnavailable", state); return; }
     const { handle, stat, relative } = source;
     try {
       const inode = `${stat.dev}:${stat.ino}`;
@@ -453,10 +483,10 @@ class OfficeTokenUsage {
     // happen on the existing async reader, never in send's acknowledgement path.
     const u = value.usage;
     this.bindingQueue.push({ nativeThreadId: value.nativeThreadId, turnId: value.turnId, taskId: id(value.taskId), phaseId: id(value.phaseId),
-      questionIds: Array.isArray(value.questionIds) ? value.questionIds.slice(0, 32).filter(id) : [], mode: value.mode === "steer" ? "steer" : "start",
+      questionIds: Array.isArray(value.questionIds) ? value.questionIds.slice(0, 32).filter(id) : [], recipientId: id(value.agentId), mode: value.mode === "steer" ? "steer" : "start",
       usage: u ? { purpose: PURPOSES.includes(u.purpose) && u.purpose !== "suggestion" ? u.purpose : "unknown",
-        trigger: ["userMessage", "questionReply", "edit", "continue", "automaticRetry", "schedule", "delegate", "managerReview", "returned", "todoRun", "firefighter"].includes(u.trigger) ? u.trigger : "unknown",
-        entryId: id(u.entryId), originId: id(u.originId), deliveryId: id(u.deliveryId), inheritTurnId: id(u.inheritTurnId), entryAt: Number.isSafeInteger(u.entryAt) ? u.entryAt : this.now() } : null });
+        trigger: ["agentMessage", "userMessage", "questionReply", "edit", "continue", "automaticRetry", "schedule", "delegate", "managerReview", "returned", "todoRun", "firefighter"].includes(u.trigger) ? u.trigger : "unknown",
+        senderId: id(u.senderId), entryId: id(u.entryId), originId: id(u.originId), deliveryId: id(u.deliveryId), inheritTurnId: id(u.inheritTurnId), entryAt: Number.isSafeInteger(u.entryAt) ? u.entryAt : this.now() } : null });
     this.kick();
   }
   recordSample(value) {
@@ -495,10 +525,36 @@ class OfficeTokenUsage {
         else if (previous.purpose) purpose = { ...previous.purpose, trigger: purpose.trigger };
       } else if (value.mode === "steer" && purpose.id !== "unknown") purpose = { ...purpose, id: "mixed", basis: "mixedEntries" };
       // Replace objects so already-issued snapshots never change attribution.
-      this.bindings[key] = { ...(previous || { taskId: value.taskId, phaseId: value.phaseId, questionIds: value.questionIds, at: this.now() }), purpose };
+      const entries = [...(previous?.entries || [])];
+      if (u?.entryId && !entries.some(entry => entry.requestId === u.entryId) && this.entryCount < 2048) { this.entryCount++; entries.push({ requestId: u.entryId, senderId: u.senderId, recipientId: value.recipientId, mode: value.mode, trigger: u.trigger, acceptedAt: this.now(), taskId: value.taskId, phaseId: value.phaseId, questionIds: value.questionIds, originId: u.originId, deliveryId: u.deliveryId }); }
+      if (u?.entryId && !entries.some(entry => entry.requestId === u.entryId)) this.gap("entryRetentionLimit");
+      const truncatedEntries = (previous?.truncatedEntries || 0) + Math.max(0, entries.length - 64) + (u?.entryId && !entries.some(entry => entry.requestId === u.entryId) ? 1 : 0);
+      this.entryCount -= Math.max(0, entries.length - 64);
+      this.bindings[key] = { ...previous, ...(!previous?.purpose ? { taskId: value.taskId, phaseId: value.phaseId, questionIds: value.questionIds, at: this.now() } : {}), purpose, entries: entries.slice(-64), truncatedEntries };
       if (!previous) this.bindingCount++;
-      if (value.mode !== "steer") this.queue.add(value.nativeThreadId);
+      if (value.mode !== "steer") { if (this.sources[value.nativeThreadId]) this.sources[value.nativeThreadId].resolvedAt = 0; this.queue.add(value.nativeThreadId); }
       if (++count % 256 === 0) await yieldLoop();
+    }
+    for (const value of this.activityQueue.splice(0)) {
+      if (!known.has(value.nativeThreadId)) continue;
+      const key = `${value.nativeThreadId}:${value.turnId}`, previous = this.bindings[key];
+      if (!previous && this.bindingCount >= 8192) { this.gap("bindingLimit"); continue; }
+      if (value.type === "userMessage") {
+        if (!value.clientId) continue;
+        const items = previous?.messageItems || [];
+        if (items.some(item => item.itemId === value.itemId)) continue;
+        if (items.length >= 64 || this.activityCount >= 2048) { this.gap("messageIdentityLimit"); continue; }
+        this.activityCount++;
+        this.bindings[key] = { ...previous, at: previous?.at || this.now(), messageItems: [...items, {itemId:value.itemId,clientId:value.clientId}] };
+        if (!previous) this.bindingCount++;
+        continue;
+      }
+      if (!previous) continue;
+      const activities = previous.activities || [];
+      if (activities.some(item => item.itemId === value.itemId)) continue;
+      if (activities.length >= 128 || this.activityCount >= 2048) { this.bindings[key] = { ...previous, activityTruncated: true }; continue; }
+      this.activityCount++;
+      this.bindings[key] = { ...previous, activities: [...activities, { itemId: value.itemId, type: value.type }] };
     }
     for (const value of this.dictationQueue.splice(0)) {
       if (!this.sessions().some(s => s.id === value.officeAgentId) || !value.attemptId || !["openaiApi", "chatgptSubscription"].includes(value.providerKind) || !dictationUsageOf(value)) { this.gap("invalidDictationUsage"); continue; }
@@ -584,7 +640,7 @@ class OfficeTokenUsage {
       snapshotId = crypto.randomBytes(16).toString("hex"); this.snapshots.set(snapshotId, snapshot);
       while (this.snapshots.size > 8) this.snapshots.delete(this.snapshots.keys().next().value);
     }
-    const rows = snapshot.rows.filter(row => !query.purpose || row.purpose === query.purpose);
+    const rows = snapshot.rows.filter(row => (!query.purpose || row.purpose === query.purpose) && (!query.nativeThreadId || row.nativeThreadId === query.nativeThreadId) && (!query.turnId || row.turnId === query.turnId));
     const value = row => query.sort === "time" ? row.observedAt : row.usage[query.sort];
     rows.sort((a, b) => { const av = value(a), bv = value(b); return av == null && bv != null ? 1 : bv == null && av != null ? -1
       : (av < bv ? -1 : av > bv ? 1 : 0) * (query.order === "desc" ? -1 : 1) || a.observedAt.localeCompare(b.observedAt) || keyOf(a).localeCompare(keyOf(b)); });
@@ -632,13 +688,24 @@ class OfficeTokenUsage {
         contributors: Object.fromEntries(Object.entries(contributors).map(([key, groups]) => [key, [...groups.values()]])),
         cost, pricing: PRICING, activity: { status: "notRecorded", reason: "noReliableResponseActionJoin" } };
     }
+    if (query.schemaVersion === 2 && !snapshot.messageChains) {
+      const turns = new Map(); let scanned = 0;
+      for (const row of snapshot.rows) {
+        if (++scanned % 1000 === 0) await yieldLoop();
+        const key = `${row.nativeThreadId}:${row.turnId}`, binding = snapshot.bindings[key];
+        if (!binding?.entries?.some(entry => entry.senderId)) continue;
+        if (!turns.has(key)) turns.set(key, { nativeThreadId: row.nativeThreadId, turnId: row.turnId, recipientId: row.officeAgentId, entries: binding.entries.map(entry => ({...entry, itemId: binding.messageItems?.find(item => item.clientId === entry.requestId)?.itemId || null})), truncatedEntries: binding.truncatedEntries || 0, activities: binding.activities || [], activityTruncated: !!binding.activityTruncated, rows: [] });
+        turns.get(key).rows.push(row);
+      }
+      snapshot.messageChains = { recordedFrom: this.communicationRecordedFrom, scope: "sharedTurnObservedResponses", incrementalMessageTokens: null, historicalLedger: "notBackfilled", turns: [...turns.values()].map(({ rows, ...turn }) => ({ ...turn, observedResponses: rows.length, components: components(rows), activityBasis: "observedTurnToolsOnly" })) };
+    }
     const publicRows = (query.includeRecords ? rows.slice(offset, offset + query.limit) : []).map(row => {
       const sample = isSample(row) || isDictation(row), turnKey = `${row.nativeThreadId}:${row.turnId}`, binding = sample ? null : snapshot.bindings[turnKey];
       const siblings = sample ? [] : snapshot.turns.get(turnKey) || [];
       const index = siblings.findIndex(s => keyOf(s) === keyOf(row)), previous = siblings[index - 1];
       return { id: keyOf(row), nativeThreadId: row.nativeThreadId, officeAgentId: row.officeAgentId,
         agentName: staff.get(row.officeAgentId)?.name || queryOwners.get(row.nativeThreadId || row.contextNativeThreadId)?.name || row.officeAgentId || "Unattributed native helper",
-        responseId: row.responseId, turnId: row.turnId, rootTurnId: row.rootTurnId, observedAt: row.observedAt, usage: row.usage, ...(row.cost ? { cost: row.cost } : {}),
+        dispatchEntries: binding?.entries || [], responseId: row.responseId, turnId: row.turnId, rootTurnId: row.rootTurnId, observedAt: row.observedAt, usage: row.usage, ...(row.cost ? { cost: row.cost } : {}),
         sourceKind: row.source?.kind || "nativeRollout", sourceKinds: row.sourceKinds || [row.source?.kind || "nativeRollout"],
         contextNativeThreadId: row.contextNativeThreadId || null, sourceTurnId: row.sourceTurnId || null, totalBasis: row.totalBasis || "reported",
         purpose: row.purpose, recordedPurpose: row.recordedPurpose, purposeBasis: row.recordedPurpose !== row.purpose ? "unsupportedLegacyCategory" : isDictation(row) ? "providerRequest" : sample ? "sampleResponse" : binding?.purpose?.basis || "unknown", trigger: isDictation(row) ? "dictation" : sample ? "threadSample" : binding?.purpose?.trigger || "unknown",
@@ -649,7 +716,7 @@ class OfficeTokenUsage {
         previousObservedInput: previous && row.usage.input !== null && previous.usage.input !== null && previous.configuredModel === row.configuredModel && row.configuredModel && !previous.conflict && !row.conflict ? { responseId: previous.responseId, input: previous.usage.input, change: row.usage.input - previous.usage.input, basis: "adjacentObservedSameTurnConfiguredModel" } : null };
     });
     return { date: query.date, timeZone: query.timeZone, window: snapshot.window, serverNow: new Date(this.now()).toISOString(), rows: publicRows, count: rows.length, totals: totalsOf(rows),
-      snapshot: this.cursor(snapshotId, 0), purposeSummary: snapshot.summary, selectedPurpose: query.purpose, ...(snapshot.breakdown ? { breakdown: snapshot.breakdown } : {}),
+      snapshot: this.cursor(snapshotId, 0), purposeSummary: snapshot.summary, ...(snapshot.messageChains ? { messageChains: snapshot.messageChains } : {}), selectedPurpose: query.purpose, ...(snapshot.breakdown ? { breakdown: snapshot.breakdown } : {}),
       nextCursor: query.includeRecords && offset + query.limit < rows.length ? this.cursor(snapshotId, offset + query.limit, fingerprint) : null,
       coverage, scope: "Office observed subset", outsideRetention: query.window ? Date.parse(query.window.end) <= Date.parse(coverage.retainedFrom + "T00:00:00Z") : query.date < coverage.retainedFrom || query.date > localDay(this.now(), query.timeZone),
       windowPartial: Boolean(query.window && Date.parse(query.window.start) < Date.parse(coverage.retainedFrom + "T00:00:00Z")),
@@ -659,7 +726,7 @@ class OfficeTokenUsage {
     this.closed = true; if (this.running) await this.running;
     // The sampler has no replayable rollout. Preserve already-returned numeric
     // results on a graceful stop without making its UI await persistence.
-    if (!this.unavailable && (this.bindingQueue.length || this.sampleQueue.length || this.dictationQueue.length || this.sourceQueue.length || this.discoveryPending || this.gapPending)) {
+    if (!this.unavailable && (this.activityQueue.length || this.bindingQueue.length || this.sampleQueue.length || this.dictationQueue.length || this.sourceQueue.length || this.discoveryPending || this.gapPending)) {
       try { await this.init(); await this.drainMetadata(); await this.prune(); } catch { this.gap("shutdownMeteringFailure"); }
     }
   }

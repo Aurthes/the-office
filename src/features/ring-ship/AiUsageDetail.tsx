@@ -49,13 +49,14 @@ function ResponseRow({ row, timeZone }: { row: ObservedResponse; timeZone: strin
   </details>;
 }
 
-export function AiUsageDetail({ date, accountTokens, client, onBack, onDateChange, initialPurpose, initialSnapshot, rolling = false, initialWindow, onWindow }: {
-  date: string; accountTokens: number | null; client: Pick<GatewayClient, "call">; onBack: () => void; onDateChange: (date: string) => void; initialPurpose?: UsagePurpose; initialSnapshot?: string; rolling?: boolean; initialWindow?: UsageWindow; onWindow?: (value: UsageDetail) => void;
+export function AiUsageDetail({ date, accountTokens, client, onBack, onDateChange, initialPurpose, initialSnapshot, rolling = false, initialWindow, onWindow, onOpenSession }: {
+  onOpenSession?: (id: string) => void; date: string; accountTokens: number | null; client: Pick<GatewayClient, "call">; onBack: () => void; onDateChange: (date: string) => void; initialPurpose?: UsagePurpose; initialSnapshot?: string; rolling?: boolean; initialWindow?: UsageWindow; onWindow?: (value: UsageDetail) => void;
 }) {
   const t = useUiText();
   const timeZone = USAGE_TIME_ZONE, anchor = useRef(initialWindow?.end);
   const [sort, setSort] = useState("total"), [agentId, setAgent] = useState(""), [configuredModel, setModel] = useState(""), [taskId, setTask] = useState("");
   const [purpose, setPurpose] = useState<UsagePurpose | null>(initialPurpose || null), [stage, setStage] = useState<"overview" | "components" | "records">(initialPurpose ? "components" : "overview");
+  const [chain, setChain] = useState<{ nativeThreadId: string; turnId: string } | null>(null);
   const [cursor, setCursor] = useState<string | null>(null), [previous, setPrevious] = useState<(string | null)[]>([]);
   const [result, setResult] = useState<UsageDetail | null>(null), [loading, setLoading] = useState(true), [error, setError] = useState(false), [expired, setExpired] = useState(false), [refresh, setRefresh] = useState(0);
   const requestRefresh = useRef(!initialSnapshot), snapshotRef = useRef<string | null>(initialSnapshot || null), heading = useRef<HTMLHeadingElement>(null);
@@ -65,7 +66,7 @@ export function AiUsageDetail({ date, accountTokens, client, onBack, onDateChang
     const load = async (refreshSources: boolean) => {
       setLoading(true); setError(false); setExpired(false);
       try {
-        const value = await client.call<UsageDetail>("office.usage.detail", { schemaVersion: 2, ...(rolling ? { window: "rolling24h", ...(anchor.current ? { end: anchor.current } : {}) } : { date, timeZone }), sort, includeRecords: stage === "records", ...(purpose ? { purpose } : {}), ...(agentId ? { agentId } : {}), ...(configuredModel ? { configuredModel } : {}), ...(taskId ? { taskId } : {}), ...(cursor ? { cursor } : snapshotRef.current ? { snapshot: snapshotRef.current } : {}), refresh: refreshSources });
+        const value = await client.call<UsageDetail>("office.usage.detail", { schemaVersion: 2, ...(rolling ? { window: "rolling24h", ...(anchor.current ? { end: anchor.current } : {}) } : { date, timeZone }), sort, ...(chain || {}), includeRecords: stage === "records", ...(purpose ? { purpose } : {}), ...(agentId ? { agentId } : {}), ...(configuredModel ? { configuredModel } : {}), ...(taskId ? { taskId } : {}), ...(cursor ? { cursor } : snapshotRef.current ? { snapshot: snapshotRef.current } : {}), refresh: refreshSources });
         if (!Array.isArray(value?.rows) || (rolling ? value.window?.kind !== "rolling24h" || anchor.current && value.window.end !== anchor.current : value.date !== date || value.timeZone !== timeZone) || !value.coverage || !value.purposeSummary) throw new Error("Unavailable detail");
         if (stopped) return;
         setResult(value); snapshotRef.current = value.snapshot;
@@ -79,8 +80,8 @@ export function AiUsageDetail({ date, accountTokens, client, onBack, onDateChang
     const refreshSources = requestRefresh.current; requestRefresh.current = false;
     void load(refreshSources);
     return () => { stopped = true; clearTimeout(timer); };
-  }, [client, date, timeZone, rolling, onWindow, sort, agentId, configuredModel, taskId, cursor, refresh, purpose, stage]);
-  const filtersChanged = (base = false) => { setCursor(null); setPrevious([]); if (base) snapshotRef.current = null; };
+  }, [client, date, timeZone, rolling, onWindow, sort, agentId, configuredModel, taskId, cursor, refresh, purpose, stage, chain]);
+  const filtersChanged = (base = false) => { setCursor(null); setPrevious([]); if (base) { snapshotRef.current = null; setChain(null); } };
   const reload = () => { requestRefresh.current = true; filtersChanged(true); setRefresh(value => value + 1); };
   const selected = result?.purposeSummary.purposes.find(bucket => bucket.id === purpose);
   return <section className="ai-usage-detail-view" aria-label={t(rolling ? "Token breakdown" : "Daily response detail")} aria-busy={loading}>
@@ -109,7 +110,7 @@ export function AiUsageDetail({ date, accountTokens, client, onBack, onDateChang
       {result.windowPartial ? <p className="ai-notice">{t("Retention limits cut this window; the subtotal is partial.")}</p> : null}
       {result.outsideRetention ? <p className="ai-notice">{t("This date is outside the currently retained detail range (age or capacity limit).")}</p> : !result.count && !loading ? <p className="ai-unavailable">{t("No recoverable response records for this selection. This does not mean zero consumption.")}</p> : null}
       </details>
-      {stage === "overview" && rolling ? <AiTokenBreakdown value={result} onRecords={() => { setStage("records"); filtersChanged(); }} onSelect={(dimension, id) => {
+      {stage === "overview" && rolling ? <AiTokenBreakdown value={result} onOpenSession={onOpenSession} readMessage={async (threadId, turnId, itemId) => { const response = await client.call<{messages: {id:string;role:string;content:string}[]}>("session.messageContext",{threadId,turnId,itemId});const item=response.messages.find(item=>item.id===`${turnId}:${itemId}`&&item.role==="user");if(!item)throw Error("Unavailable");return item.content; }} onChain={value => { setChain(value); setPurpose(null); setStage("records"); filtersChanged(); }} onRecords={() => { setChain(null); setStage("records"); filtersChanged(); }} onSelect={(dimension, id) => {
         if (dimension === "sources") { setPurpose(id as UsagePurpose); filtersChanged(); }
         else { if (dimension === "agents") setAgent(id); else setTask(id); setPurpose(null); filtersChanged(true); }
         setStage("components");

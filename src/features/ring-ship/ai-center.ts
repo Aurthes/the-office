@@ -59,7 +59,9 @@ export type ObservedResponse = {
   previousObservedInput: { responseId: string; input: number; change: number; basis: string } | null;
 };
 export type UsageWindow = { kind: "rolling24h"; start: string; end: string; timeZone: "UTC" };
+export type MessageChain = { nativeThreadId: string; turnId: string; recipientId: string | null; entries: { itemId?: string | null; requestId: string; senderId: string | null; recipientId: string | null; mode: "start" | "steer"; trigger: string; acceptedAt: number }[]; truncatedEntries: number; activities: { itemId: string; type: string }[]; activityTruncated: boolean; observedResponses: number; components: UsageComponents; activityBasis: string };
 export type UsageDetail = {
+  messageChains?: { scope: string; incrementalMessageTokens: null; historicalLedger: string; turns: MessageChain[] };
   window?: UsageWindow | null; serverNow?: string; windowPartial?: boolean;
   date: string | null; timeZone: string; rows: ObservedResponse[]; count: number; totals: ResponseUsage | null; nextCursor: string | null;
   snapshot: string; purposeSummary: PurposeSummary; selectedPurpose: UsagePurpose | null; breakdown?: TokenBreakdown;

@@ -97,7 +97,7 @@ class OfficeDelegation {
       const started = this.todos.startForAgent(recipient, id, phaseId, requestId, true);
       const message = taskNotification(started, activeDelegation(started, phaseId), phaseId);
       try {
-        const usage = { purpose: "collaboration_mixed", trigger: currentEntry.state === "review" ? "managerReview" : currentEntry.review?.accepted === false ? "returned" : currentEntry.trigger || "delegate", originId: currentEntry.id, deliveryId: requestId };
+        const usage = { senderId: currentEntry.delivery?.sender?.source === "agent" ? currentEntry.delivery.sender.id : null, purpose: "collaboration_mixed", trigger: currentEntry.state === "review" ? "managerReview" : currentEntry.review?.accepted === false ? "returned" : currentEntry.trigger || "delegate", originId: currentEntry.id, deliveryId: requestId };
         const result = await this.send(recipient, message, requestId, currentEntry.replyContext || taskReplyContext(current, null, phaseId), usage);
         if (result.status === "busy") { this.todos.delivery(id, requestId, "pending"); this.pauseAttempt(id, phaseId, recipient, requestId, "waiting for an available session"); }
         else { this.bindResult(id, phaseId, recipient, requestId, result); this.todos.delivery(id, requestId, "sent"); }
@@ -148,7 +148,7 @@ class OfficeDelegation {
         const started = this.todos.raw(row.id);
         if (entry) { const next = structuredClone(started); activeDelegation(next, phase.id).delivery = { recipientId: recipient, requestId: input.requestId, state: "sending", sender }; this.todos.save(next); }
         try {
-          const result = await this.send(recipient, taskNotification(started, currentEntry, phase.id, sender), input.requestId, taskReplyContext(started, currentEntry?.replyContext, phase.id), { purpose: "collaboration_mixed", trigger: "todoRun", originId: entry?.id || row.id });
+          const result = await this.send(recipient, taskNotification(started, currentEntry, phase.id, sender), input.requestId, taskReplyContext(started, currentEntry?.replyContext, phase.id), { senderId: sender?.source === "agent" ? sender.id : null, purpose: "collaboration_mixed", trigger: "todoRun", originId: entry?.id || row.id });
           if (result.status === "busy") throw new Error("Agent became busy; the phase was not sent");
           this.bindResult(row.id, phase.id, recipient, input.requestId, result);
           if (entry) this.todos.delivery(row.id, input.requestId, "sent");

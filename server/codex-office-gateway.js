@@ -206,7 +206,7 @@ const methods = {
     if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "sending");
     todos.startForAgent(recipient, row.id, undefined, p.requestId, true);
     try {
-      const result = await controls.send(recipient, taskNotification(todos.raw(row.id), undefined, undefined, todos.actor(p)), p.requestId, [], { onlyIfIdle: true, replyContext: entry?.replyContext || taskReplyContext(row), usage: { purpose: "collaboration_mixed", trigger: "todoRun", originId: entry?.id || row.id } });
+      const result = await controls.send(recipient, taskNotification(todos.raw(row.id), undefined, undefined, todos.actor(p)), p.requestId, [], { onlyIfIdle: true, replyContext: entry?.replyContext || taskReplyContext(row), usage: { senderId: todos.actor(p)?.source === "agent" ? todos.actor(p).id : null, purpose: "collaboration_mixed", trigger: "todoRun", originId: entry?.id || row.id } });
       if (result.status === "busy") throw new Error("Agent became busy; the task was not sent");
       if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "sent");
       return { id: row.id, threadId: recipient };
@@ -263,7 +263,7 @@ const methods = {
   "session.attach": async p => { store.get(p.threadId); await controls.attach(p.threadId); return controls.snapshot(p.threadId); },
   "session.subscribe": (p, ws) => { store.get(p.threadId); return stream.subscribe(ws, p.threadId, p.subscriptionId); },
   "session.unsubscribe": (p, ws) => stream.unsubscribe(ws, p.subscriptionId),
-  "session.send": async p => { const message = directMessage(store, p); const usage = userUsage(p.sourcePurpose); store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, message, p.requestId, p.attachments, { references: p.references || [], usage }); store.clearQuestions(p.threadId, pending); return result; },
+  "session.send": async p => { const message = directMessage(store, p); const usage = { ...userUsage(p.sourcePurpose), ...(p.actorId ? { senderId: p.actorId, trigger: "agentMessage" } : {}) }; store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, message, p.requestId, p.attachments, { references: p.references || [], usage }); store.clearQuestions(p.threadId, pending); return result; },
   "session.edit.prepare": p => { store.get(p.threadId); return controls.prepareEdit(p.threadId); },
   "session.edit.commit": async p => {
     store.get(p.threadId);
