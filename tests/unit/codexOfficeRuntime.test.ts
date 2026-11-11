@@ -709,3 +709,24 @@ it.each(["Worker", "Head"])("refreshes unchanged-progress %s guidance through th
   expect(f.client.call.mock.calls.slice(startAt).map(([method]) => method)).toEqual(["thread/inject_items", "turn/start", "turn/start", "turn/start"]);
   expect(f.store.companyContext).toHaveBeenCalledTimes(4);
 });
+
+
+it.each(["Worker", "Head"])("refreshes goal-mismatch %s guidance once and retains the cached context", async title => {
+  const f = fixture(), id = await session(f);
+  f.store.companyContext = () => ({ agentId: id, title });
+  await f.store.call("turn/start", { threadId: id, input: [] });
+  const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+  const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
+  const rule = "If the work clearly no longer matches the stated task or subtask goal, flag the mismatch rather than fitting it into the existing grouping. Heads correct the task definition or grouping; workers raise it with their Head.";
+  expect(payload.split(rule)).toHaveLength(2);
+  const prior = payload.replace(" " + rule, "");
+  expect(prior).not.toBe(payload);
+  f.store.get(id).projectContext = createHash("sha256").update(prior).digest("hex"); f.store.save();
+  const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
+  await restored.call("turn/start", { threadId: id, input: [] });
+  expect((injections()[1][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text).toBe(payload);
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const restarted = new CodexOfficeStore(f.directory, f.client); restarted.companyContext = f.store.companyContext;
+  await restarted.call("turn/start", { threadId: id, input: [] });
+  expect(injections()).toHaveLength(2);
+});
