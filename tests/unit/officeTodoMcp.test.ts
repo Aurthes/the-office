@@ -243,3 +243,20 @@ it("exposes and preserves watchers through actual MCP create/edit/get/list compa
   expect((await call("todo_get", { id: created.id })).todo.watcherIds).toEqual([]);
   expect((await call("todo_list", {})).todos[0].watcherIds).toEqual([]);
 });
+
+
+it("reads a bounded department catalog and exact current details through the actual MCP bridge without task creation", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "department-assets-mcp-"));cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+  const { writeFileSync } = await import("node:fs");
+  const { OfficeCompany } = createRequire(import.meta.url)("../../server/office-company");
+  const entry = { kind: "tool", name: "Existing checker", summary: "Use for health checks", instructions: "example --readonly", source: "https://example.com", version: "1", status: "active" };
+  const file = path.join(root, "settings.json");writeFileSync(file, JSON.stringify({ office: { "ws://localhost:18790": { departmentAssets: { dept: { checker: entry } } } } }));
+  const store = { list: () => [{ id: "alice", name: "Alice", projectId: "dept" }], projects: () => [{ id: "dept", name: "Team" }], get: () => ({ id: "alice" }) };
+  const company = new OfficeCompany(store, { settingsFile: file });
+  const f = await fixture((ws, frame) => { try { expect(frame.method).toBe("todo.department_assets");reply(ws, frame, company.departmentAssets(frame.params)); } catch(error) { ws.send(JSON.stringify({ type: "res", id: frame.id, ok: false, error: { message: String(error) } })); } });
+  const call = await mcp(f.url), args = { actorId: "alice", departmentId: "dept" };
+  const catalog = await call("todo_department_assets", args);expect(catalog.entries).toMatchObject([{ id: "checker", version: "1" }]);expect(catalog.entries[0]).not.toHaveProperty("instructions");
+  expect((await call("todo_department_assets", { ...args, assetId: "checker" })).entry).toEqual(entry);
+  await expect(call("todo_department_assets", { ...args, assetId: "missing" })).rejects.toThrow(/not found/);
+  const { tools } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");expect(tools.find((t: { name: string }) => t.name === "todo_department_assets").annotations.readOnlyHint).toBe(true);
+});

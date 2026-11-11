@@ -14,9 +14,9 @@ function fixture() {
   const props = { roster, names: new Map([["ranger", "Ranger"], ["firefighter", "Firefighter"]]), coordinator, gatewayUrl: "gateway", enabled: true };
   return { props, coordinator, updateSettings, fetchSettings };
 }
-it("persists one randomized CEO appearance and reuses it after remount without creating an agent", async () => {
+it("persists one default CEO appearance and reuses it after remount without creating an agent", async () => {
   const f = fixture(), first = renderHook(() => useOfficeOrganization(f.props));
-  await waitFor(() => expect(first.result.current.ceoAvatar?.duck).toBeDefined());
+  await waitFor(() => expect(first.result.current.ceoAvatar?.seed).toBe(CEO_ID));
   const avatar = first.result.current.ceoAvatar;
   expect(first.result.current.people.find(person => person.id === "firefighter")?.reportsTo).toEqual(["ranger"]);
   expect(f.updateSettings).toHaveBeenCalledTimes(1);
@@ -72,4 +72,17 @@ it("persists a restored Manager and its new reports together, then retains them 
   const writes = f.updateSettings.mock.calls.length;
   await act(async () => window.dispatchEvent(new Event("focus"))); expect(f.updateSettings).toHaveBeenCalledTimes(writes);
   next.unmount(); f.coordinator.dispose();
+});
+
+
+it("saves department assets through the real coordinator, preserves siblings and reloads on a new member view", async () => {
+  const f=fixture(), hook=renderHook(()=>useOfficeOrganization(f.props));
+  await waitFor(()=>expect(hook.result.current.departments?.length).toBeGreaterThan(0));
+  const asset={kind:"workflow" as const,name:"Existing workflow",summary:"When needed",instructions:"Read only",source:"inline",version:"1",status:"active" as const};
+  await act(async()=>{await hook.result.current.saveDepartmentAsset!(OPEN_DEPARTMENT_ID,"one",asset);});
+  await act(async()=>{await hook.result.current.saveDepartmentAsset!(OPEN_DEPARTMENT_ID,"two",{...asset,name:"Other"});});
+  expect(hook.result.current.departmentAssets?.[OPEN_DEPARTMENT_ID]).toEqual({one:asset,two:{...asset,name:"Other"}});
+  expect(f.updateSettings).toHaveBeenLastCalledWith({office:{gateway:{departmentAssets:{[OPEN_DEPARTMENT_ID]:{two:{...asset,name:"Other"}}}}}});
+  hook.unmount();const next=renderHook(()=>useOfficeOrganization(f.props));
+  await waitFor(()=>expect(next.result.current.departmentAssets?.[OPEN_DEPARTMENT_ID]?.one).toEqual(asset));
 });

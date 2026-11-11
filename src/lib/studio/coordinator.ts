@@ -1,3 +1,4 @@
+import { mergeDepartmentAssetPatches } from "@/lib/office/department-assets";
 import { fetchJson } from "@/lib/http";
 import type { AgentAvatarProfile } from "@/lib/avatars/profile";
 import type {
@@ -141,6 +142,7 @@ const mergeOfficePatch = (
         ...(value.agentInterfaces && existing.agentInterfaces ? { agentInterfaces: { ...existing.agentInterfaces, ...value.agentInterfaces } } : {}),
         ...(value.organization && existing.organization ? { organization: { ...existing.organization, ...value.organization } } : {}),
         ...(value.departmentDescriptions && existing.departmentDescriptions ? { departmentDescriptions: { ...existing.departmentDescriptions, ...value.departmentDescriptions } } : {}),
+        ...(value.departmentAssets !== undefined ? { departmentAssets: mergeDepartmentAssetPatches(existing.departmentAssets, value.departmentAssets) } : {}),
       };
       continue;
     }

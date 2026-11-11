@@ -1,3 +1,4 @@
+import type { DepartmentAsset } from "@/lib/office/department-assets";
 // @vitest-environment node
 import { createRequire } from "node:module";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -47,7 +48,7 @@ describe("department responsibilities in the actual company context", () => {
   it("reads the UI's saved descriptions and derives the same full directory for the CEO", async () => {
     const f = await fixture(), view = f.company.context(CEO);
     const saved = JSON.parse(readFileSync(f.file, "utf8"));
-    expect(view.departments).toEqual(organizationDepartments(f.store.projects(), f.company.organization(), saved.office[f.gateway].departmentDescriptions));
+    expect(view.departments).toEqual(organizationDepartments(f.store.projects(), f.company.organization(), saved.office[f.gateway].departmentDescriptions).map(department => ({ ...department, assets: expect.objectContaining({ departmentId: department.id, total: 0 }) })));
     expect(view.departmentScope).toBe("company"); expect(view.departments).toHaveLength(4);
     expect(view.departments.find((d: { id: string }) => d.id === f.product.id)).toMatchObject({ heads: [{ id: f.head }], members: [{ id: f.head }, { id: f.worker, title: "Engineer" }] });
     expect(view.departments.at(-1).members.map((p: { id: string }) => p.id)).toEqual([f.sharedHead]);
@@ -112,7 +113,7 @@ describe("department responsibilities in the actual company context", () => {
     expect(tool.inputSchema.required).toEqual(["actorId"]);
     expect(tool.inputSchema.properties.allDepartments.type).toBe("boolean");
     expect(tool.inputSchema.properties.departmentId.type).toEqual(["string", "null"]);
-    expect(tool.annotations.readOnlyHint).toBe(true); expect(tools).toHaveLength(17);
+    expect(tool.annotations.readOnlyHint).toBe(true); expect(tools).toHaveLength(18);
     expect(WORKFLOW).toContain("Open Workspace Head"); expect(WORKFLOW).toContain("explicit instruction");
     expect(WORKFLOW).toContain("Direct user instructions authorize the addressed agent");
   });
@@ -238,5 +239,43 @@ describe("specialized worker titles using the existing organization and turn con
     await restored.call("turn/start", { threadId: worker, input: [] }); expect(injected()).toHaveLength(count+1);
     expect(companyContext).toHaveBeenCalledTimes(8);
     expect(f.call.mock.calls.every(([method]) => ["thread/start", "thread/inject_items", "turn/start"].includes(method))).toBe(true);
+  });
+});
+
+describe("department registry discovery through real company/turn modules", () => {
+  const asset: DepartmentAsset = { kind: "tool", name: "Checker", summary: "When a health check is needed", instructions: "PRIVATE LONG BODY "+"x".repeat(9000), source: "https://example.com/document", version: "v1", status: "active" };
+  it("keeps assets with the department across turnover, new members and empty membership", async () => {
+    const f = await fixture();
+    f.patch({ office: { [f.gateway]: { departmentAssets: { [f.product.id]: { checker: asset }, [f.research.id]: { checker: { ...asset, name: "Different checker" } } } } } });
+    expect(f.company.departmentAssets({ actorId: f.worker, departmentId: f.product.id, assetId: "checker" }).entry.name).toBe("Checker");
+    f.store.get(f.worker).projectId = f.research.id; f.store.get(f.head).archived = true;
+    const fresh = (await f.store.createSession({ name: "New employee", projectId: f.product.id, requestId: crypto.randomUUID() })).threadId;
+    expect(f.company.forTurn(fresh).departments[0].assets).toMatchObject({ departmentId: f.product.id, total: 1, tool: "office_tasks.todo_department_assets" });
+    expect(f.company.departmentAssets({ actorId: fresh, departmentId: f.product.id, assetId: "checker" }).entry).toEqual(asset);
+    f.store.get(fresh).archived = true;
+    expect(f.company.context(CEO, { departmentId: f.product.id }).departments[0]).toMatchObject({ members: [], assets: { total: 1 } });
+    expect(f.company.departmentAssets({ actorId: f.worker, departmentId: f.product.id, assetId: "checker" }).entry.name).toBe("Checker");
+    expect(() => f.company.departmentAssets({ actorId: f.worker, departmentId: "missing", assetId: "checker" })).toThrow(/department/);
+    expect(() => f.company.departmentAssets({ actorId: f.worker, departmentId: f.product.id, assetId: "missing" })).toThrow(/not found/);
+  });
+  it("bounds default indexes and read pages, refreshes only changed indexes, and reads the latest body on demand", async () => {
+    const f = await fixture(), entries = Object.fromEntries(Array.from({ length: 31 }, (_, i) => [String(i).padStart(2, "0"), asset]));
+    f.patch({ office: { [f.gateway]: { departmentAssets: { [f.product.id]: entries } } } });
+    f.store.companyContext = (id: string) => f.company.forTurn(id);
+    const context = f.company.forTurn(f.worker);expect(context.departments[0].assets).toMatchObject({ total: 31, more: 26, counts: { tool: 31, guideline: 0, workflow: 0 } });
+    expect(context.departments[0].assets.entries).toHaveLength(5);expect(JSON.stringify(context)).not.toContain("PRIVATE LONG BODY");expect(JSON.stringify(context)).not.toContain(asset.source);
+    const list = f.company.departmentAssets({ actorId: f.worker, departmentId: f.product.id });expect(list.entries).toHaveLength(25);expect(list.total).toBe(31);expect(JSON.stringify(list)).not.toContain("instructions");
+    expect(f.company.departmentAssets({ actorId: f.worker, departmentId: f.product.id, offset: 25 }).entries).toHaveLength(6);
+    expect(f.company.departmentAssets({ actorId: f.worker, departmentId: f.product.id, query: "00" }).entries).toMatchObject([{ id: "00" }]);
+    for (const args of [{ limit: 26 }, { offset: -1 }, { kind: "bad" }, { query: null }]) expect(() => f.company.departmentAssets({ actorId: f.worker, departmentId: f.product.id, ...args })).toThrow();
+    await f.store.call("turn/start", { threadId: f.worker, input: [] });const injections = () => f.call.mock.calls.filter(([m]) => m === "thread/inject_items");const n = injections().length;
+    await f.store.call("turn/start", { threadId: f.worker, input: [] });expect(injections()).toHaveLength(n);
+    const changed = { ...asset, instructions: "Updated body only" };f.patch({ office: { [f.gateway]: { departmentAssets: { [f.product.id]: { "00": changed } } } } });
+    await f.store.call("turn/start", { threadId: f.worker, input: [] });expect(injections()).toHaveLength(n);
+    expect(f.company.departmentAssets({ actorId: f.worker, departmentId: f.product.id, assetId: "00" }).entry.instructions).toBe(changed.instructions);
+    f.patch({ office: { [f.gateway]: { departmentAssets: { [f.product.id]: { new: { ...asset, name: "New capability" } } } } } });
+    await f.store.call("turn/start", { threadId: f.worker, input: [] });expect(injections()).toHaveLength(n+1);
+    const restored = new CodexOfficeStore(path.join(f.root, "office"), { ready: true, call: f.call });restored.companyContext = (id: string) => f.company.forTurn(id);
+    await restored.call("turn/start", { threadId: f.worker, input: [] });expect(injections()).toHaveLength(n+1);
   });
 });

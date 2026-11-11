@@ -5,6 +5,7 @@ const os = require("node:os");
 const { normalizeOrganization, reconcileOrganization, delegationMode } = require("../src/lib/office/organization-structure");
 const { normalizeDepartmentDescriptions, organizationDepartments, OPEN_DEPARTMENT_ID } = require("../src/lib/office/department-structure");
 const { ceo: CEO_ID } = require("../src/lib/office/identities.json");
+const { normalizeDepartmentAssets, departmentAssetIndex, readDepartmentAssets } = require("../src/lib/office/department-assets-structure");
 
 const WORKER_SPECIALTIES = {
   Ops: "Daily running, monitoring and maintenance.",
@@ -39,6 +40,7 @@ class OfficeCompany {
       if (entries.length > 1) throw new Error("Ambiguous Office organization settings");
       this.saved = normalizeOrganization(entries[0]?.[1]?.organization);
       this.descriptions = normalizeDepartmentDescriptions(entries[0]?.[1]?.departmentDescriptions);
+      this.assetRegistry = normalizeDepartmentAssets(entries[0]?.[1]?.departmentAssets);
       this.fingerprint = fingerprint;
     }
     const sessions = this.store.list();
@@ -56,12 +58,17 @@ class OfficeCompany {
     const departmentId = selected ? options.departmentId ?? OPEN_DEPARTMENT_ID : directory.find(department => department.members.some(member => member.id === id))?.id;
     if (selected && (typeof departmentId !== "string" || !directory.some(department => department.id === departmentId))) throw new Error("Choose an existing department.");
     const companyScope = all || id === CEO_ID && !selected;
-    const departments = companyScope ? directory : directory.filter(department => department.id === departmentId);
+    const departments = (companyScope ? directory : directory.filter(department => department.id === departmentId)).map(department => ({ ...department, assets: departmentAssetIndex(this.assetRegistry, department.id) }));
     const directReports = people.filter(row => row.reportsTo.includes(id));
     const specialties = Object.fromEntries(Object.entries(WORKER_SPECIALTIES).filter(([title]) => person.title === title || directReports.some(report => report.title === title)));
     return { agentId: id, title: person.title, ...(Object.keys(specialties).length ? { specialties } : {}), canRecruit, delegationMode: delegationMode(id, person, !!directReports.length),
       managers: people.filter(row => person.reportsTo.includes(row.id)), directReports,
       departmentScope: companyScope ? "company" : selected ? "selected" : "own", departments };
+  }
+  departmentAssets(input) {
+    const context = this.context(input.actorId, { allDepartments: true });
+    if (!context.departments.some(d => d.id === input.departmentId)) throw new Error("Choose an existing department.");
+    return readDepartmentAssets(this.assetRegistry, input);
   }
   forTurn(id) {
     // Organization is optional context for ordinary chat, never a new send gate.

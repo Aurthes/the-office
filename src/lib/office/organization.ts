@@ -1,3 +1,4 @@
+import type { DepartmentAsset, DepartmentAssets } from "./department-assets";
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
 import type { AgentAvatarProfile } from "@/lib/avatars/profile";
 import { isDepartmentManager, reconcileOrganization, assertReportingStructure } from "./organization-structure";
@@ -11,7 +12,7 @@ export type DelegationMode = "self" | "auto" | "prefer";
 export type OfficePosition = { title: string; reportsTo: string[]; delegationMode?: DelegationMode | null };
 export type OfficeOrganization = Record<string, OfficePosition>;
 export type OrganizationPerson = OfficePosition & { id: string; name: string; department: string; departmentId: string | null };
-export type OrganizationView = { departments?: OrganizationDepartment[]; openDepartment?: (id?: string) => void; saveDepartmentDescription?: (id: string, description: string) => Promise<void>; focusPerson?: (id: string) => void; focusRequest?: { id: string; request: number } | null; people: OrganizationPerson[]; ceoAvatar: AgentAvatarProfile | null; savePosition: (id: string, position: OfficePosition) => Promise<void> };
+export type OrganizationView = { departmentAssets?: DepartmentAssets; saveDepartmentAsset?: (departmentId: string, assetId: string, entry: DepartmentAsset) => Promise<void>; departments?: OrganizationDepartment[]; openDepartment?: (id?: string) => void; saveDepartmentDescription?: (id: string, description: string) => Promise<void>; focusPerson?: (id: string) => void; focusRequest?: { id: string; request: number } | null; people: OrganizationPerson[]; ceoAvatar: AgentAvatarProfile | null; savePosition: (id: string, position: OfficePosition) => Promise<void> };
 
 export { isDepartmentManager, normalizeOrganization, assertReportingStructure, mergeOrganization, reconcileOrganization, delegationMode } from "./organization-structure";
 

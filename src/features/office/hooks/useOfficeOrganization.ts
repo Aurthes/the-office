@@ -1,4 +1,5 @@
 "use client";
+import { normalizeDepartmentAssets, mergeDepartmentAssets, type DepartmentAssets, type DepartmentAsset } from "@/lib/office/department-assets";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
 import { CEO_ID, OPEN_DEPARTMENT_ID, organizationPatch, organizationPeople, reconcileOrganization, updateOrganizationPosition, type OfficeOrganization, type OfficePosition, type OrganizationView } from "@/lib/office/organization";
@@ -11,6 +12,7 @@ export function useOfficeOrganization({ roster, names, coordinator, gatewayUrl, 
   roster: CompanyRoster | null; names: ReadonlyMap<string, string>; coordinator: StudioSettingsCoordinator; gatewayUrl: string; enabled: boolean;
 }): OrganizationView {
   const [positions, setPositions] = useState<OfficeOrganization>({});
+  const [departmentAssets, setDepartmentAssets] = useState<DepartmentAssets>({});
   const [descriptions, setDescriptions] = useState<DepartmentDescriptions>({});
   const generation = useRef(0);
   const [ceoAvatar, setCeoAvatar] = useState<AgentAvatarProfile | null>(null);
@@ -32,7 +34,7 @@ export function useOfficeOrganization({ roster, names, coordinator, gatewayUrl, 
           ...(changed ? { office: { [gatewayUrl]: { organization: patch } } } : {}),
           ...(!savedAvatar ? { avatars: { [gatewayUrl]: { [CEO_ID]: avatar } } } : {}),
         });
-        if (!stopped && request === generation.current) { setPositions(organization); setCeoAvatar(avatar); setDescriptions(preference.departmentDescriptions || {}); }
+        if (!stopped && request === generation.current) { setPositions(organization); setCeoAvatar(avatar); setDescriptions(preference.departmentDescriptions || {}); setDepartmentAssets(normalizeDepartmentAssets(preference.departmentAssets)); }
       } catch (error) { console.error("Could not load the Office organization.", error); }
     };
     const visible = () => { if (document.visibilityState === "visible") void load(); };
@@ -59,7 +61,15 @@ export function useOfficeOrganization({ roster, names, coordinator, gatewayUrl, 
     generation.current++;
     setDescriptions(previous => settings ? resolveOfficePreferencePublic(settings, gatewayUrl).departmentDescriptions || {} : mergeDepartmentDescriptions(previous, { [id]: description }));
   }, [roster, coordinator, gatewayUrl, enabled]);
+  const saveDepartmentAsset = useCallback(async (departmentId: string, assetId: string, entry: DepartmentAsset) => {
+    if (!roster || !enabled || !gatewayUrl.trim()) throw new Error("Connection unavailable. Please reconnect before saving.");
+    if (departmentId !== OPEN_DEPARTMENT_ID && !roster.projects.some(project => project.id === departmentId)) throw new Error("Department unavailable.");
+    generation.current++;
+    await coordinator.applyPatchNow({ office: { [gatewayUrl]: { departmentAssets: { [departmentId]: { [assetId]: entry } } } } });
+    generation.current++;
+    setDepartmentAssets(previous => mergeDepartmentAssets(previous, { [departmentId]: { [assetId]: entry } }));
+  }, [roster, coordinator, gatewayUrl, enabled]);
   const people = useMemo(() => roster ? organizationPeople(positions, roster, names) : [], [positions, roster, names]);
   const departments = useMemo(() => organizationDepartments(roster?.projects || [], people, descriptions), [roster, people, descriptions]);
-  return { people, ceoAvatar, savePosition, departments, saveDepartmentDescription };
+  return { people, ceoAvatar, savePosition, departments, saveDepartmentDescription, departmentAssets, saveDepartmentAsset };
 }

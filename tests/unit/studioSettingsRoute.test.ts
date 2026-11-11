@@ -18,6 +18,17 @@ describe("studio settings route", () => {
     }
   });
 
+  it("persists department assets through the existing route and preserves them when old clients omit the field", async () => {
+    tempDir = makeTempDir("studio-department-assets");process.env.OPENCLAW_STATE_DIR = tempDir;
+    const entry = { kind: "guideline", name: "Review", summary: "Use before a release", instructions: "Read the linked checks", source: "inline", version: "1", status: "active" };
+    const put = (patch: object) => PUT(new Request("http://localhost/api/studio", { method: "PUT", body: JSON.stringify(patch) }));
+    expect((await put({ office: { "ws://localhost:18790": { departmentAssets: { dept: { review: entry } } } } })).status).toBe(200);
+    await put({ office: { "ws://localhost:18790": { title: "Older client changed a label" } } });
+    const body = await (await GET()).json();expect(body.settings.office["ws://localhost:18790"].departmentAssets.dept.review).toEqual(entry);
+    expect((await put({ office: { "ws://localhost:18790": { departmentAssets: { dept: { review: { ...entry, instructions: null } } } } } })).status).toBe(500);
+    expect((await (await GET()).json()).settings.office["ws://localhost:18790"].departmentAssets.dept.review).toEqual(entry);
+  });
+
   it("GET returns default settings when missing", async () => {
     tempDir = makeTempDir("studio-settings-get-default");
     process.env.OPENCLAW_STATE_DIR = tempDir;

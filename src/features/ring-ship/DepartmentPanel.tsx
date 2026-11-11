@@ -6,6 +6,7 @@ import { OPEN_DEPARTMENT_ID, type OrganizationView } from "@/lib/office/organiza
 import { departmentButtonLabel, MAX_DEPARTMENT_DESCRIPTION, type OrganizationDepartment } from "@/lib/office/departments";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { needsFollowUp, type DirectoryTaskSummary } from "@/features/office/operations/agentDirectory";
+import { DepartmentAssetsPanel } from "./DepartmentAssetsPanel";
 import "./scheduled-tasks.css";
 import "./department-panel.css";
 
@@ -103,5 +104,6 @@ function DepartmentDetail({ department, organization, onClose }: { department: O
     </>}
     <h2>{t("Department Head")}</h2><p>{department.heads.map(head => `${head.name} · ${["Worker", "Head", "CEO"].includes(head.title) ? t(head.title) : head.title}`).join(", ") || t("Head position vacant")}</p>
     <h2>{t("Members")}</h2><MemberList department={department} organization={organization} onClose={onClose} />
+    <DepartmentAssetsPanel departmentId={department.id} entries={organization.departmentAssets?.[department.id] || {}} save={organization.saveDepartmentAsset} />
   </>;
 }
