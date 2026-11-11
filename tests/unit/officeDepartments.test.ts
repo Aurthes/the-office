@@ -42,7 +42,7 @@ describe("department responsibilities in the actual company context", () => {
     }
     expect(Buffer.byteLength(JSON.stringify(model))).toBeLessThan(Buffer.byteLength(JSON.stringify(full)));
     expect(f.company.context(CEO)).toEqual(full);
-    expect(() => f.company.assertDelegate(f.worker, f.researcher)).toThrow("direct report");
+    expect(() => f.company.assertDelegate(f.worker, f.researcher)).not.toThrow();
   });
   it("reads the UI's saved descriptions and derives the same full directory for the CEO", async () => {
     const f = await fixture(), view = f.company.context(CEO);
@@ -60,8 +60,10 @@ describe("department responsibilities in the actual company context", () => {
     expect(f.company.context(f.worker, { departmentId: f.research.id }).departments).toMatchObject([{ id: f.research.id, heads: [{ id: f.researcher }], description: "General feature and signal research." }]);
     expect(f.company.context(f.worker, { allDepartments: true }).departments).toHaveLength(4);
     expect(f.company.context(f.worker, { departmentId: null }).departments).toMatchObject([{ id: "open-workspace", heads: [{ id: f.sharedHead }] }]);
-    expect(() => f.company.assertDelegate(f.worker, f.researcher)).toThrow("direct report");
-    expect(() => f.company.assertDelegate(f.head, f.researcher)).toThrow("direct report");
+    expect(() => f.company.assertDelegate(f.worker, f.researcher)).not.toThrow();
+    expect(() => f.company.assertDelegate(f.head, f.researcher)).not.toThrow();
+    expect(() => f.company.assertDelegate(f.worker, f.worker)).toThrow(/your own work/);
+    expect(() => f.company.assertDelegate(f.worker, "missing")).toThrow(/missing/);
     expect(() => f.company.assertDelegate(CEO, f.head)).not.toThrow();
   });
   it("refreshes descriptions, roles, membership, names and Head vacancies from the current source", async () => {
@@ -96,11 +98,12 @@ describe("department responsibilities in the actual company context", () => {
     expect(injections).toHaveLength(2); expect(JSON.stringify(injections.at(-1))).toContain("Fresh scope");
     expect(f.call.mock.calls.some(([m]) => m === "thread/start")).toBe(false);
   });
-  it("keeps ordinary chat available when optional company settings fail and fails closed for delegation", async () => {
+  it("keeps ordinary chat and explicit existing recipients available when optional company settings fail", async () => {
     const f = await fixture(); f.company.context(f.head); writeFileSync(f.file, "invalid");
     expect(f.company.forTurn(f.worker)).toMatchObject({ unavailable: true, delegationMode: "self" });
     expect(() => f.company.context(f.worker, { allDepartments: true })).toThrow();
-    expect(() => f.company.assertDelegate(CEO, f.head)).toThrow();
+    expect(() => f.company.assertDelegate(CEO, f.head)).not.toThrow();
+    expect(() => f.company.assertDelegate(CEO, "missing")).toThrow(/missing/);
     f.store.companyContext = (id: string) => f.company.forTurn(id);
     await expect(f.store.call("turn/start", { threadId: f.worker, input: [] })).resolves.toBeDefined();
   });
@@ -111,7 +114,7 @@ describe("department responsibilities in the actual company context", () => {
     expect(tool.inputSchema.properties.departmentId.type).toEqual(["string", "null"]);
     expect(tool.annotations.readOnlyHint).toBe(true); expect(tools).toHaveLength(17);
     expect(WORKFLOW).toContain("Open Workspace Head"); expect(WORKFLOW).toContain("explicit instruction");
-    expect(WORKFLOW).toContain("never bypass reporting");
+    expect(WORKFLOW).toContain("Direct user instructions authorize the addressed agent");
   });
 });
 
@@ -175,5 +178,65 @@ describe("Head recruitment using persistent Office sessions", () => {
     expect(tool.inputSchema.required).toEqual(["actorId", "name", "reason", "requestId"]); expect(tool.inputSchema.properties).not.toHaveProperty("departmentId");
     expect(tool.annotations.readOnlyHint).toBe(false);
     expect(WORKFLOW).toContain("First check"); expect(WORKFLOW).toContain("If none is available");
+  });
+});
+
+
+describe("specialized worker titles using the existing organization and turn context", () => {
+  async function specialized() {
+    const f = await fixture();
+    const ids = await Promise.all(["Ops", "Dev", "Quant"].map(title => f.store.createSession({ name: "Same display name", projectId: f.product.id, requestId: crypto.randomUUID() }).then((r: { threadId: string }) => ({ id: r.threadId, title }))));
+    const saveTitles = () => f.patch({ office: { [f.gateway]: { organization: Object.fromEntries(ids.map(row => [row.id, { title: row.title, reportsTo: [f.head] }])) } } });
+    return { ...f, ids, saveTitles };
+  }
+  it("gives each title its own short meaning and a manager one deduplicated dictionary without new permissions", async () => {
+    const f = await specialized(), sessions = structuredClone(f.store.list()); f.saveTitles();
+    const descriptions = { Ops: "Daily running, monitoring and maintenance.", Dev: "Coding, implementation and software development.", Quant: "Mathematical/statistical research and analysis." };
+    for (const row of f.ids) {
+      const full = f.company.context(row.id), model = f.company.forTurn(row.id);
+      expect(full).toMatchObject({ title: row.title, canRecruit: false, specialties: { [row.title]: descriptions[row.title as keyof typeof descriptions] } });
+      expect(Object.keys(full.specialties)).toEqual([row.title]); expect(model.specialties).toEqual(full.specialties);
+      expect(model.managers).toMatchObject([{ id: f.head, title: "Head" }]);
+    }
+    const head = f.company.forTurn(f.head);
+    expect(head).toMatchObject({ title: "Head", canRecruit: true, specialties: descriptions });
+    for (const row of f.ids) expect(head.directReports).toContainEqual(expect.objectContaining({ id: row.id, name: "Same display name", title: row.title, reportsTo: [f.head] }));
+    expect(f.company.forTurn(f.worker)).not.toHaveProperty("specialties");
+    expect(f.company.forTurn(CEO)).not.toHaveProperty("specialties");
+    expect(f.store.list()).toEqual(sessions);
+    // Specialization describes work; explicit cross-department handoffs remain allowed.
+    expect(() => f.company.assertDelegate(f.ids[0].id, f.researcher)).not.toThrow();
+  });
+  it("does not infer a specialty from names, arbitrary titles, or unavailable organization data", async () => {
+    const f = await fixture();
+    const row = (await f.store.createSession({ name: "Ops/Dev/Quant", projectId: f.product.id, requestId: crypto.randomUUID() })).threadId;
+    for (const title of ["Worker", "Engineer", "constructor", "ops"]) {
+      f.patch({ office: { [f.gateway]: { organization: { [row]: { title, reportsTo: [f.head] } } } } });
+      expect(f.company.forTurn(row)).toMatchObject({ title, canRecruit: false }); expect(f.company.forTurn(row)).not.toHaveProperty("specialties");
+    }
+    writeFileSync(f.file, "invalid");expect(f.company.forTurn(row)).toMatchObject({ unavailable: true });expect(f.company.forTurn(row)).not.toHaveProperty("specialties");
+  });
+  it("refreshes existing worker and manager context on role/description changes, and reuses the same hash across restart", async () => {
+    const f = await specialized(); let changedDescription = false;
+    const companyContext = vi.fn((id: string) => {
+      const value = f.company.forTurn(id);
+      if (changedDescription && value.specialties?.Ops) value.specialties.Ops += " Updated wording.";
+      return value;
+    });f.store.companyContext = companyContext;
+    const worker = f.ids[0].id, injected = () => f.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+    await f.store.call("turn/start", { threadId: worker, input: [] }); await f.store.call("turn/start", { threadId: f.head, input: [] });
+    const before = [f.store.get(worker).projectContext, f.store.get(f.head).projectContext];
+    f.saveTitles();
+    for (const id of [worker, f.head]) await f.store.call("turn/start", { threadId: id, input: [] });
+    expect(f.store.get(worker).projectContext).not.toBe(before[0]); expect(f.store.get(f.head).projectContext).not.toBe(before[1]);
+    expect(JSON.stringify(injected().at(-1))).toContain("Daily running, monitoring and maintenance.");
+    const count = injected().length;
+    for (const id of [worker, f.head]) await f.store.call("turn/start", { threadId: id, input: [] }); expect(injected()).toHaveLength(count);
+    changedDescription = true; await f.store.call("turn/start", { threadId: worker, input: [] }); expect(injected()).toHaveLength(count+1);
+    expect(JSON.stringify(injected().at(-1))).toContain("Updated wording.");
+    const restored = new CodexOfficeStore(path.join(f.root, "office"), { ready: true, call: f.call }); restored.companyContext = companyContext;
+    await restored.call("turn/start", { threadId: worker, input: [] }); expect(injected()).toHaveLength(count+1);
+    expect(companyContext).toHaveBeenCalledTimes(8);
+    expect(f.call.mock.calls.every(([method]) => ["thread/start", "thread/inject_items", "turn/start"].includes(method))).toBe(true);
   });
 });

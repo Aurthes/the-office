@@ -6,6 +6,12 @@ const { normalizeOrganization, reconcileOrganization, delegationMode } = require
 const { normalizeDepartmentDescriptions, organizationDepartments, OPEN_DEPARTMENT_ID } = require("../src/lib/office/department-structure");
 const { ceo: CEO_ID } = require("../src/lib/office/identities.json");
 
+const WORKER_SPECIALTIES = {
+  Ops: "Daily running, monitoring and maintenance.",
+  Dev: "Coding, implementation and software development.",
+  Quant: "Mathematical/statistical research and analysis.",
+};
+
 const QUESTION_REPLY_RULE = "Office question workflow: select the concrete semantic Q or step and preserve its original-message link through question_context and reply metadata. Do not copy their UUIDs or URLs into prose unless needed to disambiguate.";
 
 const WORKFLOW = `${QUESTION_REPLY_RULE} Ensure the actual Q/step is selected before public responses. Use office_tasks.question_context with your own actorId when the selection is missing or the Q/step or task/phase binding changes. Reuse a confirmed selection for subsequent commentary and final answers; do not repeat the call before every response. A new user message clears selection, so select the actual Q again before responding; Continue/Play preserves it. A message is provenance, not a Q: one prompt can contain Q1 and Q2; define separate concise semantic summaries and select only those actually answered. A step can be a child Q using parentQuestionId. If answering several Qs, separate the body under matching brief Q headings. Ordinary knowledge/language questions still need Q metadata but never a task just for that. The selected Qs and known IDs are in questions.context/knownQuestions; question_context with actorId only returns current state and recentSources. For a new Q, register directly with questions:[{key,summary}], answering:[key], requestId when there is one current user message; its exact source is resolved by the tool. Do not do an actor-only discovery read first merely to obtain that source. Use supplied known IDs directly for existing Qs. Read discovery only for missing or ambiguous information; never guess source IDs. Original source IDs must be exact: use recentSources or a known parent's sources; multiple candidates require explicit source. A clarification may add its source to a child Q while retaining the original request. Optional taskId/phaseId attach actionable work; never infer the Q from the current task or the last prompt. Continue/Play/automatic retry is a control instruction: keep the existing Q ID, summary and original source; do not register it as a Q or use it as provenance. Delegation/report notifications carry the task's Qs: select the actual Q/step when replying; do not create Qs for the notification itself. Earlier reply bindings are frozen; choosing a different Q affects subsequent responses only. Legacy replies with only message provenance have no identified Q. Do not invent missing origins.
@@ -52,7 +58,8 @@ class OfficeCompany {
     const companyScope = all || id === CEO_ID && !selected;
     const departments = companyScope ? directory : directory.filter(department => department.id === departmentId);
     const directReports = people.filter(row => row.reportsTo.includes(id));
-    return { agentId: id, title: person.title, canRecruit, delegationMode: delegationMode(id, person, !!directReports.length),
+    const specialties = Object.fromEntries(Object.entries(WORKER_SPECIALTIES).filter(([title]) => person.title === title || directReports.some(report => report.title === title)));
+    return { agentId: id, title: person.title, ...(Object.keys(specialties).length ? { specialties } : {}), canRecruit, delegationMode: delegationMode(id, person, !!directReports.length),
       managers: people.filter(row => person.reportsTo.includes(row.id)), directReports,
       departmentScope: companyScope ? "company" : selected ? "selected" : "own", departments };
   }
