@@ -282,6 +282,37 @@ or account-day bar. Choosing a purpose keeps the same S until refresh or a base
 filter change. Missing-usage results are disclosed and excluded from S; these
 shares are therefore not percentages of all actual account consumption.
 
+AI Center keeps a compact Overview and a separate **Token breakdown** page in
+the same dialog. The v2 detail snapshot optionally adds `breakdown`: components
+of total-known responses only, complete Task/Agent/Source contributors, costs,
+and a pricing version. Partial fields from total-unknown rows do not become part
+of S. Top five plus Other uses the complete server aggregate, not a record page.
+The three groupings show the same consumption and must not be added together.
+Records are fetched only on request; changing a base filter creates a new
+snapshot at the same hour anchor. An expired snapshot requires explicit refresh.
+An older gateway without this projection shows the capability as unavailable.
+
+Costs are **USD Standard/global API equivalents**, using the model recorded in
+each response's configuration, not proof of its served model, subscription bill
+or quota consumption. A small versioned static table identifies the official
+sources and check date. Unknown models/aliases or missing required quantities
+remain unpriced. Each response gets its own applicable long-context tier before
+aggregation. Cache reads, ordinary input and writes are mutually exclusive;
+reasoning is already part of output. Never add either a second time.
+
+Native cache-write zero can come from `serde(default)`. Without presence or
+retention evidence it is not a verified zero. Existing raw telemetry is kept,
+but the new projection does not count such zeros as verified writes. Cost uses
+an explicitly labeled range for possible writes/retention; all-cached input can
+mathematically imply no writes. The page shows priced/unpriced coverage and the
+estimated portion's range. It excludes external tools, storage and compute.
+
+Source labels describe triggers. The current numeric collector has no reliable
+response-to-action join for general work versus communication. This capability
+is shown as not collected, without a fabricated percentage or new classifier.
+No prompt/body collection, producer change, model request or send-path work is
+introduced by the breakdown projection.
+
 Gray suggestions additionally retain the existing `thread/sample` response's
 `responseId`, source context turn and reported input/cache/output counters,
 including empty or unused suggestions. Cache hits do not count again; a new

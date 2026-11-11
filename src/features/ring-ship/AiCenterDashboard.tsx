@@ -38,12 +38,15 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
   const [providerId, setProviderId] = useState("");
   const [error, setError] = useState(false), [refresh, setRefresh] = useState(0);
   const [detailDate, setDetailDate] = useState<string | null>(null);
-  const [purposeEntry, setPurposeEntry] = useState<{ purpose: UsagePurpose; snapshot: string } | null>(null);
+  const [purposeEntry, setPurposeEntry] = useState<{ purpose?: UsagePurpose; snapshot: string } | null>(null);
   const [selectedWindow, setSelectedWindow] = useState<UsageWindow | undefined>(undefined);
   const rollingValue = useRef<UsageDetail | null>(null), rollingGeneration = useRef(0);
   const [rollingEpoch, setRollingEpoch] = useState(0), [rollingClock, setRollingClock] = useState<{ end: string; serverNow: string } | null>(null);
   const advanceWindow = useCallback(() => { rollingGeneration.current++; rollingValue.current = null; setSelectedWindow(undefined); setRollingClock(null); setPurposeEntry(null); setRollingEpoch(value => value + 1); }, []);
   const acceptWindow = useCallback((value: UsageDetail) => { if (!value.window || !value.serverNow) return; rollingValue.current = value; setRollingClock({ end: value.window.end, serverNow: value.serverNow }); }, []);
+  // A filtered detail has a different base snapshot. It advances the clock,
+  // but must never replace the unfiltered Overview navigation seed.
+  const acceptDetailWindow = useCallback((value: UsageDetail) => { if (value.window && value.serverNow) setRollingClock({ end: value.window.end, serverNow: value.serverNow }); }, []);
   useEffect(() => {
     if (!open || !rollingClock) return;
     const delay = Math.max(1, Date.parse(rollingClock.end) + 3600000 - Date.parse(rollingClock.serverNow));
@@ -56,7 +59,7 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
     const visible = () => {
       if (document.visibilityState !== "visible") return;
       const generation = rollingGeneration.current;
-      void client.call<UsageDetail>("office.usage.detail", { window: "rolling24h", includeRecords: false, refresh: false }).then(value => {
+      void client.call<UsageDetail>("office.usage.detail", { schemaVersion: 2, window: "rolling24h", includeRecords: false, refresh: false }).then(value => {
         if (stopped || generation !== rollingGeneration.current || !value.window) return;
         if (rollingValue.current?.window?.end !== value.window.end) advanceWindow();
         else acceptWindow(value);
@@ -132,16 +135,20 @@ export function AiCenterDashboard({ open, onClose, client, connected }: {
         <button type="button" className="ai-icon-button" disabled={loading || !connected || !client} aria-label={t("Refresh AI usage")} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={16} className={loading ? "ai-spinning" : ""} /></button>
         <button type="button" className="ai-icon-button" aria-label={t("Close AI Center")} onClick={close}><X size={19} /></button>
       </header>
+      <nav className="ai-page-tabs" aria-label={t("AI Center pages")}>
+        <button type="button" aria-current={!detailDate ? "page" : undefined} onClick={() => { setDetailDate(null); setPurposeEntry(null); }}>{t("Overview")}</button>
+        <button type="button" data-breakdown-tab aria-current={detailDate === "rolling24h" ? "page" : undefined} disabled={!client || !connected} onClick={() => { if (detailDate === "rolling24h") return; const value = rollingValue.current; setSelectedWindow(value?.window || undefined); setPurposeEntry(value ? { snapshot: value.snapshot } : null); setDetailDate("rolling24h"); }}>{t("Token breakdown")}</button>
+      </nav>
       <div className="ai-content">
-        {open && detailDate && client ? <AiUsageDetail key={detailDate === "rolling24h" ? `rolling:${rollingEpoch}` : detailDate} date={detailDate} rolling={detailDate === "rolling24h"} initialWindow={detailDate === "rolling24h" ? selectedWindow : undefined} onWindow={acceptWindow} accountTokens={daily?.find(day => day.date === detailDate)?.tokens ?? null} client={client}
+        {open && detailDate && client ? <AiUsageDetail key={detailDate === "rolling24h" ? `rolling:${rollingEpoch}` : detailDate} date={detailDate} rolling={detailDate === "rolling24h"} initialWindow={detailDate === "rolling24h" ? selectedWindow : undefined} onWindow={acceptDetailWindow} accountTokens={daily?.find(day => day.date === detailDate)?.tokens ?? null} client={client}
           initialPurpose={purposeEntry?.purpose} initialSnapshot={purposeEntry?.snapshot}
-          onDateChange={date => { setDetailDate(date); setPurposeEntry(null); }} onBack={() => { setDetailDate(null); setPurposeEntry(null); requestAnimationFrame(() => purposeEntry ? dialog.current?.querySelector<HTMLButtonElement>(`[data-purpose="${purposeEntry.purpose}"]`)?.focus() : dayButton.current?.focus()); }} /> : null}
+          onDateChange={date => { setDetailDate(date); setPurposeEntry(null); }} onBack={() => { setDetailDate(null); setPurposeEntry(null); requestAnimationFrame(() => detailDate === "rolling24h" ? (dialog.current?.querySelector<HTMLButtonElement>("[data-breakdown-entry]") || dialog.current?.querySelector<HTMLButtonElement>("[data-breakdown-tab]"))?.focus() : dayButton.current?.focus()); }} /> : null}
         <div hidden={!!detailDate}>
         <div className="ai-hero">
           <div><div className="ai-provider-picker"><span className="ai-eyebrow">{t("COMPUTATION CORE")}</span>{snapshot?.providers.length ? snapshot.providers.length > 1 ? <select aria-label={t("AI provider")} value={data?.id} onChange={event => setProviderId(event.target.value)}>{snapshot.providers.map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select> : <span className="ai-provider-name">{data?.name}</span> : null}</div><h1 id="ai-center-title">{t("Your AI, at a glance.")}</h1><p>{t("Subscriptions, tokens, and API capacity.")}</p></div>
           <div className="ai-core-art" aria-hidden="true"><div className="ai-art-orbit" /><div className="ai-art-orbit ai-art-orbit-two" /><div className="ai-art-crystal"><Cpu size={34} strokeWidth={1} /></div><div className="ai-art-plinth" /></div>
         </div>
-        {open && !detailDate && client && connected && (!data || data.id === "openai") ? <AiPurposePreview key={rollingEpoch} onWindow={acceptWindow} client={client} refresh={refresh} onSelect={(date, purpose, snapshot, window) => { setSelectedWindow(window); setPurposeEntry({ purpose, snapshot }); setDetailDate(window ? "rolling24h" : date); }} /> : null}
+        {open && !detailDate && client && connected && (!data || data.id === "openai") ? <AiPurposePreview key={rollingEpoch} onWindow={acceptWindow} client={client} refresh={refresh} onSelect={(date, _purpose, snapshot, window) => { setSelectedWindow(window); setPurposeEntry({ snapshot }); setDetailDate(window ? "rolling24h" : date); }} /> : null}
         {!client || !connected ? <p className="ai-notice" role="status">{t("Connect your AI gateway to view usage.")}</p> : null}
         {error ? <p className="ai-notice" role="alert">{t("Usage could not be refreshed. Try again or check the provider dashboard.")}</p> : null}
         <div className="ai-stats">

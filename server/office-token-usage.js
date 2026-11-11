@@ -4,7 +4,8 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const { PURPOSES, userUsage, sampleUsageOf, isSample, purposeOf, purposeSummary, totalsOf } = require("./office-usage-purpose");
+const { PURPOSES, userUsage, sampleUsageOf, isSample, purposeOf, purposeSummary, totalsOf, components } = require("./office-usage-purpose");
+const { PRICING, estimateResponseCost, emptyCostSummary, addCost } = require("./office-token-pricing");
 const { dictationUsageOf, nativeMetadata } = require("./office-usage-adapters");
 const isDictation = row => row.source?.kind === "dictation";
 const responseKeys = row => isDictation(row) ? [`dictation:${row.providerKind}:attempt:${row.attemptId}`, ...(row.providerRequestId ? [`dictation:${row.providerKind}:request:${row.providerRequestId}`] : [])] : [`codex:${row.responseId}`];
@@ -596,13 +597,48 @@ class OfficeTokenUsage {
         title: typeof row?.title === "string" ? row.title.trim().slice(0, 200) || null : null });
     }
     const queryOwners = this.known(), staff = new Map(this.sessions().map(s => [s.id, s]));
+    if (query.schemaVersion === 2 && !snapshot.breakdown) {
+      const contributors = { agents: new Map(), tasks: new Map(), sources: new Map() }, cost = emptyCostSummary();
+      let checked = 0;
+      for (const row of snapshot.rows) {
+        if (++checked % 1000 === 0) await yieldLoop();
+        row.cost = estimateResponseCost(row); addCost(cost, row, row.cost);
+        const binding = isSample(row) || isDictation(row) ? null : snapshot.bindings[`${row.nativeThreadId}:${row.turnId}`];
+        const agent = staff.get(row.officeAgentId) || queryOwners.get(row.nativeThreadId || row.contextNativeThreadId);
+        const task = taskLabels.get(binding?.taskId);
+        for (const [dimension, id, name] of [
+          ["agents", row.officeAgentId || "unattributed", agent?.name || row.officeAgentId || "Unattributed"],
+          ["tasks", binding?.taskId || "unattributed", task ? [task.code, task.title].filter(Boolean).join(" · ") || "Unavailable task" : "Unattributed"],
+          ["sources", row.purpose, row.purpose],
+        ]) {
+          const groups = contributors[dimension];
+          if (!groups.has(id)) groups.set(id, { id, name, knownTokens: null, observedResponses: 0, measuredResponses: 0, unknownUsageResults: 0, cost: emptyCostSummary() });
+          const group = groups.get(id); group.observedResponses++;
+          if (Number.isSafeInteger(row.usage.total) && row.usage.total >= 0) {
+            const sum = (group.knownTokens ?? 0) + row.usage.total;
+            if (group.measuredResponses === 0 || group.knownTokens !== null) group.knownTokens = Number.isSafeInteger(sum) ? sum : null;
+            group.measuredResponses++;
+          } else group.unknownUsageResults++;
+          addCost(group.cost, row, row.cost);
+        }
+      }
+      const measuredRows = snapshot.rows.filter(row => Number.isSafeInteger(row.usage.total) && row.usage.total >= 0), measuredComponents = components(measuredRows);
+      const writes = measuredRows.filter(row => row.usage.cacheWriteInput > 0), written = writes.reduce((sum, row) => sum + row.usage.cacheWriteInput, 0);
+      // Existing native zeros have no upstream-presence provenance. Keep their
+      // raw legacy fields, but do not promote them to verified breakdown counts.
+      measuredComponents.cacheWriteInput = { knownSubtotal: writes.length && Number.isSafeInteger(written) ? written : null, reportedRows: writes.length, unknownRows: measuredRows.length - writes.length };
+      snapshot.breakdown = { basis: "measuredResponseSnapshot", denominatorTokens: snapshot.summary.denominatorTokens,
+        measuredComponents,
+        contributors: Object.fromEntries(Object.entries(contributors).map(([key, groups]) => [key, [...groups.values()]])),
+        cost, pricing: PRICING, activity: { status: "notRecorded", reason: "noReliableResponseActionJoin" } };
+    }
     const publicRows = (query.includeRecords ? rows.slice(offset, offset + query.limit) : []).map(row => {
       const sample = isSample(row) || isDictation(row), turnKey = `${row.nativeThreadId}:${row.turnId}`, binding = sample ? null : snapshot.bindings[turnKey];
       const siblings = sample ? [] : snapshot.turns.get(turnKey) || [];
       const index = siblings.findIndex(s => keyOf(s) === keyOf(row)), previous = siblings[index - 1];
       return { id: keyOf(row), nativeThreadId: row.nativeThreadId, officeAgentId: row.officeAgentId,
         agentName: staff.get(row.officeAgentId)?.name || queryOwners.get(row.nativeThreadId || row.contextNativeThreadId)?.name || row.officeAgentId || "Unattributed native helper",
-        responseId: row.responseId, turnId: row.turnId, rootTurnId: row.rootTurnId, observedAt: row.observedAt, usage: row.usage,
+        responseId: row.responseId, turnId: row.turnId, rootTurnId: row.rootTurnId, observedAt: row.observedAt, usage: row.usage, ...(row.cost ? { cost: row.cost } : {}),
         sourceKind: row.source?.kind || "nativeRollout", sourceKinds: row.sourceKinds || [row.source?.kind || "nativeRollout"],
         contextNativeThreadId: row.contextNativeThreadId || null, sourceTurnId: row.sourceTurnId || null, totalBasis: row.totalBasis || "reported",
         purpose: row.purpose, recordedPurpose: row.recordedPurpose, purposeBasis: row.recordedPurpose !== row.purpose ? "unsupportedLegacyCategory" : isDictation(row) ? "providerRequest" : sample ? "sampleResponse" : binding?.purpose?.basis || "unknown", trigger: isDictation(row) ? "dictation" : sample ? "threadSample" : binding?.purpose?.trigger || "unknown",
@@ -613,7 +649,7 @@ class OfficeTokenUsage {
         previousObservedInput: previous && row.usage.input !== null && previous.usage.input !== null && previous.configuredModel === row.configuredModel && row.configuredModel && !previous.conflict && !row.conflict ? { responseId: previous.responseId, input: previous.usage.input, change: row.usage.input - previous.usage.input, basis: "adjacentObservedSameTurnConfiguredModel" } : null };
     });
     return { date: query.date, timeZone: query.timeZone, window: snapshot.window, serverNow: new Date(this.now()).toISOString(), rows: publicRows, count: rows.length, totals: totalsOf(rows),
-      snapshot: this.cursor(snapshotId, 0), purposeSummary: snapshot.summary, selectedPurpose: query.purpose,
+      snapshot: this.cursor(snapshotId, 0), purposeSummary: snapshot.summary, selectedPurpose: query.purpose, ...(snapshot.breakdown ? { breakdown: snapshot.breakdown } : {}),
       nextCursor: query.includeRecords && offset + query.limit < rows.length ? this.cursor(snapshotId, offset + query.limit, fingerprint) : null,
       coverage, scope: "Office observed subset", outsideRetention: query.window ? Date.parse(query.window.end) <= Date.parse(coverage.retainedFrom + "T00:00:00Z") : query.date < coverage.retainedFrom || query.date > localDay(this.now(), query.timeZone),
       windowPartial: Boolean(query.window && Date.parse(query.window.start) < Date.parse(coverage.retainedFrom + "T00:00:00Z")),

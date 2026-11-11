@@ -5,7 +5,7 @@ import { useUiText } from "@/lib/i18n/ui-language";
 import { USAGE_TIME_ZONE } from "./ai-center";
 import type { PurposeBucket, PurposeSummary, UsageDetail, UsagePurpose, UsageWindow } from "./ai-center";
 
-export const PURPOSE_LABELS: Record<UsagePurpose, string> = { chat_work: "Chat and user work", suggestion: "Gray suggestions", dictation: "Dictation", automation: "Scheduled work", operational_task: "Firefighter work", collaboration_mixed: "Collaboration-triggered work", mixed: "Mixed purposes", unknown: "Unknown purpose" };
+export const PURPOSE_LABELS: Record<UsagePurpose, string> = { chat_work: "Chat and user work", suggestion: "Gray suggestions", dictation: "Dictation", automation: "Scheduled work", operational_task: "Firefighter work", collaboration_mixed: "Delegation/report-triggered work (includes execution)", mixed: "Mixed entry continuation / earlier entry missing", unknown: "Unknown purpose" };
 export const tokenNumber = (value: number | null | undefined) => value == null ? "—" : new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value);
 
 export function AiPurposeSummary({ summary, onSelect }: { summary: PurposeSummary; onSelect: (purpose: UsagePurpose) => void }) {
@@ -67,13 +67,11 @@ export function AiPurposePreview({ client, refresh, onSelect, onWindow }: { clie
     return () => { stopped = true; clearTimeout(timer); clearInterval(interval); };
   }, [client, refresh, onWindow]);
   return <section className="ai-card ai-purpose-preview" aria-label={t("Office rolling 24-hour usage")}>
-    {value?.window ? <UsageWindowRange value={value.window} /> : null}
+    <h2>{t("Office · last 24 complete hours")}</h2>
     {failed ? <p className="ai-notice">{t("Purpose usage is unavailable. The account chart remains available.")}</p> : value ? <>
       <div className="ai-token-peak"><span>{t("Office observed subtotal")}</span><strong>{tokenNumber(value.purposeSummary.denominatorTokens)}</strong></div>
-      <AiPurposeSummary summary={value.purposeSummary} onSelect={purpose => onSelect(value.date || value.window?.end.slice(0, 10) || "", purpose, value.snapshot, value.window || undefined)} />
-      {value.coverage.unavailable || value.coverage.storageLimit || value.coverage.unsupportedSources || Object.keys(value.coverage.knownGaps).length ? <p className="ai-notice">{t("Coverage has gaps; unavailable or unsupported sources are not counted as zero.")}</p> : null}
-      {value.coverage.adaptersEnabledAt ? <p className="ai-card-note">{t("Additional source adapters enabled {time}; historical coverage may be partial.", { time: new Date(value.coverage.adaptersEnabledAt).toLocaleString() })}</p> : null}
-      {value.windowPartial ? <p className="ai-notice">{t("Retention limits cut this window; the subtotal is partial.")}</p> : null}
+      <p className="ai-card-caption">{t("{count} measured responses", { count: value.purposeSummary.measuredResponses })} · {t("{count} unknown usage", { count: value.purposeSummary.unknownUsageResults })}</p>
+      <button type="button" data-breakdown-entry className="ai-coupon-apply" onClick={() => onSelect(value.date || value.window?.end.slice(0, 10) || "", "unknown", value.snapshot, value.window || undefined)}>{t("View token breakdown")}</button>
       {value.coverage.indexing ? <p role="status">{t("Indexing Office metadata in the background…")}</p> : null}
     </> : <p role="status">{t("Loading purpose usage…")}</p>}
   </section>;

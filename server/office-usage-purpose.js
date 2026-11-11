@@ -53,4 +53,4 @@ function purposeSummary(rows, purposesRecordedFrom) {
       { id: "company_planning", status: "backendUnsupported", tokens: null, share: null },
     ].map(value => ({ ...value, measuredResponses: null })) };
 }
-module.exports = { PURPOSES, FIELDS, userUsage, sampleUsageOf, isSample, purposeOf, purposeSummary, totalsOf };
+module.exports = { PURPOSES, FIELDS, userUsage, sampleUsageOf, isSample, purposeOf, purposeSummary, totalsOf, components };

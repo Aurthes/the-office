@@ -29,6 +29,27 @@ async function fixture(options: Record<string, unknown> = {}) {
 }
 afterEach(async () => { for (const c of collectors.splice(0)) await c.close(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 
+it("keeps a full measured-only priced snapshot across sources, more than 100 rows, pagination and unknown usage", async () => {
+  const f = await fixture();
+  f.collector.bindTurn({ nativeThreadId: "native-one", turnId: "turn-one", taskId: "task-one", purpose: { id: "chat_work", trigger: "userMessage", basis: "businessEntry" } }); await f.collector.running;
+  await writeFile(f.file, meta() + context("turn-one", "gpt-6.1-sol") + Array.from({ length: 125 }, (_, i) => record(`breakdown-${i}`)).join("") + context("turn-one", "unknown-model") + record("unknown-price"));
+  await f.collect();
+  // Existing dictation adapter supports partial fields. Its input must not be
+  // mixed into the total-known composition denominator.
+  f.collector.rows.set("partial-fixture", { source: { kind: "dictation" }, providerKind: "openaiApi", attemptId: "partial", officeAgentId: "agent-one", observedAt: TS, usage: { input: 5000, cachedInput: null, uncachedInput: null, cacheWriteInput: null, output: null, reasoningOutput: null, otherOutput: null, total: null }, configuredModel: null });
+  const first = await f.detail({ schemaVersion: 2, includeRecords: false });
+  const b = first.breakdown!; expect(first.rows).toEqual([]); expect(b.denominatorTokens).toBe(126 * 120); expect(b.measuredComponents.input.knownSubtotal).toBe(126 * 100);
+  expect(b.measuredComponents.cacheWriteInput).toEqual({ knownSubtotal: null, reportedRows: 0, unknownRows: 126 });
+  expect(first.purposeSummary.components.input.knownSubtotal).toBe(12600 + 5000); expect(b.cost).toMatchObject({ rangeResponses: 125, unpricedResponses: 2, estimatedKnownTokens: 15000, unpricedKnownTokens: 120, unknownUsageResults: 1 });
+  for (const groups of Object.values(b.contributors)) { expect(groups.reduce((sum, group) => sum + (group.knownTokens || 0), 0)).toBe(b.denominatorTokens); expect(groups.reduce((sum, group) => sum + (group.cost.minUsd || 0), 0)).toBeCloseTo(b.cost.minUsd!, 10); expect(groups.reduce((sum, group) => sum + (group.cost.maxUsd || 0), 0)).toBeCloseTo(b.cost.maxUsd!, 10); }
+  expect(b.activity.status).toBe("notRecorded");
+  const page = await f.detail({ schemaVersion: 2, snapshot: first.snapshot, limit: 50 }); expect(page.rows).toHaveLength(50); expect(page.breakdown).toEqual(b); expect(page.rows.every(row => row.cost?.pricingVersion === b.pricing.version)).toBe(true);
+  const next = await f.detail({ schemaVersion: 2, cursor: page.nextCursor, limit: 50 }); expect(next.rows).toHaveLength(50); expect(next.breakdown).toEqual(b);
+  const source = await f.detail({ schemaVersion: 2, snapshot: first.snapshot, purpose: "dictation" }); expect(source.breakdown).toEqual(b); expect(source.count).toBe(1);
+  const narrowed = await f.detail({ schemaVersion: 2, taskId: "task-one" }); expect(narrowed.breakdown?.cost.unknownUsageResults).toBe(0); expect(narrowed.snapshot).not.toBe(first.snapshot);
+  expect((await f.detail()).breakdown).toBeUndefined();
+});
+
 describe("observed response projection", () => {
   it("counts three responses in one turn, equal usage at different IDs, and the four disjoint parts", async () => {
     const f = await fixture();

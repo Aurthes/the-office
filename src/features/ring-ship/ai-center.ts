@@ -25,8 +25,32 @@ export type PurposeBucket = { id: UsagePurpose; knownTokens: number | null; shar
 export type PurposeSummary = { basis: string; denominatorTokens: number | null; observedResponses: number; measuredResponses: number; unknownPurposeResponses: number; unknownUsageResults: number; purposesRecordedFrom: string | null; components: UsageComponents; purposes: PurposeBucket[];
   unmeasured: { id: string; status: string; tokens: null; share: null; measuredResponses: null }[] };
 export type UsageTaskLabel = { id: string; code: string | null; title: string | null };
+export type ResponseCost = { status: "point" | "range" | "unpriced"; minUsd: number | null; maxUsd: number | null; pricingVersion: string; priceModelId: string | null; configuredModelBasis: string; longContext: boolean | null; reasons: string[]; components: { cacheReadUsd: number; outputUsd: number; remainingInputMinUsd: number; remainingInputMaxUsd: number } | null };
+export type CostSummary = { pointResponses: number; rangeResponses: number; unpricedResponses: number; estimatedKnownTokens: number | null; unpricedKnownTokens: number | null; unknownUsageResults: number; minUsd: number | null; maxUsd: number | null };
+export type UsageContributor = { id: string; name: string; knownTokens: number | null; observedResponses: number; measuredResponses: number; unknownUsageResults: number; cost: CostSummary };
+export type TokenBreakdown = { basis: "measuredResponseSnapshot"; denominatorTokens: number | null; measuredComponents: UsageComponents;
+  contributors: Record<"agents" | "tasks" | "sources", UsageContributor[]>; cost: CostSummary;
+  activity: { status: "notRecorded"; reason: "noReliableResponseActionJoin" };
+  pricing: { version: string; checkedAt: string; currency: string; basis: string; sources: string[]; models: { id: string; input: number; cachedInput: number; write30m: number; write12h: number; output: number; longContextThreshold: number; longInputMultiplier: number; longOutputMultiplier: number }[] } };
+export const apiCostLabel = (cost: Pick<ResponseCost, "minUsd" | "maxUsd"> | CostSummary | undefined) => {
+  if (cost?.minUsd == null || cost.maxUsd == null) return "—";
+  const usd = (value: number) => value === 0 ? "$0" : value < 0.000001 ? `$${value.toExponential(2)}` : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 6 }).format(value);
+  return cost.minUsd === cost.maxUsd ? usd(cost.minUsd) : `${usd(cost.minUsd)} – ${usd(cost.maxUsd)}`;
+};
+export function topContributors(groups: UsageContributor[], order: "tokens" | "cost", all: boolean) {
+  const sorted = [...groups].sort((a, b) => ((order === "cost" ? b.cost.minUsd : b.knownTokens) ?? -1) - ((order === "cost" ? a.cost.minUsd : a.knownTokens) ?? -1) || a.id.localeCompare(b.id));
+  if (all || sorted.length <= 5) return sorted;
+  const rest = sorted.slice(5), cost: CostSummary = { pointResponses: 0, rangeResponses: 0, unpricedResponses: 0, estimatedKnownTokens: 0, unpricedKnownTokens: 0, unknownUsageResults: 0, minUsd: null, maxUsd: null };
+  for (const row of rest) {
+    for (const key of ["pointResponses", "rangeResponses", "unpricedResponses", "unknownUsageResults"] as const) cost[key] += row.cost[key];
+    for (const key of ["estimatedKnownTokens", "unpricedKnownTokens"] as const) { const sum = cost[key] == null || row.cost[key] == null ? null : cost[key]! + row.cost[key]!; cost[key] = sum !== null && Number.isSafeInteger(sum) ? sum : null; }
+    if (row.cost.minUsd != null) { cost.minUsd = (cost.minUsd ?? 0) + row.cost.minUsd; cost.maxUsd = (cost.maxUsd ?? 0) + row.cost.maxUsd!; }
+  }
+  const sum = rest.reduce((sum, row) => sum + (row.knownTokens ?? 0), 0), measured = rest.reduce((sum, row) => sum + row.measuredResponses, 0);
+  return [...sorted.slice(0, 5), { id: "other", name: "Other", cost, knownTokens: !measured || !Number.isSafeInteger(sum) || rest.some(row => row.measuredResponses && row.knownTokens == null) ? null : sum, observedResponses: rest.reduce((sum, row) => sum + row.observedResponses, 0), measuredResponses: measured, unknownUsageResults: rest.reduce((sum, row) => sum + row.unknownUsageResults, 0) }];
+}
 export type ObservedResponse = {
-  id: string; nativeThreadId: string | null; officeAgentId: string | null; agentName: string; responseId: string | null; turnId: string | null; rootTurnId: string | null;
+  id: string; cost?: ResponseCost; nativeThreadId: string | null; officeAgentId: string | null; agentName: string; responseId: string | null; turnId: string | null; rootTurnId: string | null;
   observedAt: string; usage: ResponseUsage; configuredModel: string | null; configuredEffort: string | null; modelBasis: "turnContext" | "requestConfiguration" | "unknown";
   actualModel: null; status: "unknown" | "completed" | "failed" | "interrupted";
   unit?: "tokens" | "seconds" | "unknown"; durationSeconds?: number | null; usageReason?: string | null; providerKind?: string | null; providerRequestId?: string | null; attemptId?: string | null; ownershipBasis?: string; taskId: string | null; task: UsageTaskLabel | null; phaseId: string | null; questionIds: string[]; attributionBasis: "turnDispatch" | "unknown";
@@ -38,7 +62,7 @@ export type UsageWindow = { kind: "rolling24h"; start: string; end: string; time
 export type UsageDetail = {
   window?: UsageWindow | null; serverNow?: string; windowPartial?: boolean;
   date: string | null; timeZone: string; rows: ObservedResponse[]; count: number; totals: ResponseUsage | null; nextCursor: string | null;
-  snapshot: string; purposeSummary: PurposeSummary; selectedPurpose: UsagePurpose | null;
+  snapshot: string; purposeSummary: PurposeSummary; selectedPurpose: UsagePurpose | null; breakdown?: TokenBreakdown;
   outsideRetention: boolean; scope: string;
   coverage: { source: string; supportedVersion: string; apiStability: string; partial: boolean; indexing: boolean; unavailable: boolean; storageLimit: boolean;
     adaptersEnabledAt?: string; producerDurability?: string; knownSources: number; scannedSources: number; readySources: number; unsupportedSources: number; partialLines: number;
