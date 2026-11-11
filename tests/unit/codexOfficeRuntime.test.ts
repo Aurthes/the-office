@@ -686,7 +686,7 @@ it.each(["Worker", "Head"])("refreshes unchanged-progress %s guidance through th
   await f.store.call("turn/start", { threadId: id, input: [] });
   const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
   const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
-  const current = "Record unchanged routine progress in the task instead of wakeup, acknowledgement or waiting messages. Proactively report completion/failure, new blockers or risks, needed decisions or material ETA changes; answer requested or agreed updates and preserve necessary handoffs. Keep full records in the task or linked evidence; send conclusions, decisive facts and material limits.";
+  const current = "Record unchanged routine progress in the task instead of wakeup, acknowledgement or waiting messages. Proactively report completion/failure, new blockers or risks, needed decisions or material ETA changes; answer explicit user progress questions and needed agreed updates, and preserve necessary handoffs. Keep full records in the task or linked evidence; send conclusions, decisive facts and material limits.";
   const previous = "Keep complete execution and verification records in the task or linked evidence; send the outcome, decisive facts, material limits and any needed decision.";
   const head = "Keep your own replies focused on decisions; do not relay routine status again.", oldHead = "Keep your own replies focused on what affects the decision.";
   expect(payload.split(current)).toHaveLength(2);
@@ -721,6 +721,31 @@ it.each(["Worker", "Head"])("refreshes goal-mismatch %s guidance once and retain
   expect(payload.split(rule)).toHaveLength(2);
   const prior = payload.replace(" " + rule, "");
   expect(prior).not.toBe(payload);
+  f.store.get(id).projectContext = createHash("sha256").update(prior).digest("hex"); f.store.save();
+  const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
+  await restored.call("turn/start", { threadId: id, input: [] });
+  expect((injections()[1][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text).toBe(payload);
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const restarted = new CodexOfficeStore(f.directory, f.client); restarted.companyContext = f.store.companyContext;
+  await restarted.call("turn/start", { threadId: id, input: [] });
+  expect(injections()).toHaveLength(2);
+});
+
+
+it.each(["Worker", "Head"])("refreshes purposeful intermediate-report %s guidance once without losing requested updates", async title => {
+  const f = fixture(), id = await session(f);
+  f.store.companyContext = () => ({ agentId: id, title });
+  await f.store.call("turn/start", { threadId: id, input: [] });
+  const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+  const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
+  const shared = "Before sending, distill what the recipient needs to decide or act, using shared context; send intermediate reports for a clear coordination need or next decision or action.";
+  const requested = "answer explicit user progress questions and needed agreed updates, and preserve necessary handoffs.";
+  const manager = "Require intermediate reports only for a clear follow-up decision or action; do not impose acknowledgement or status receipts without that purpose.";
+  expect(payload).toContain(shared); expect(payload).toContain(requested);
+  expect(payload.includes(manager)).toBe(title === "Head");
+  expect(payload).toContain("Proactively report completion/failure, new blockers or risks");
+  expect(payload).not.toContain("start receipt");
+  const prior = payload.replace(shared, "Before sending, distill what the recipient needs to decide or act, using shared context.").replace(requested, "answer requested or agreed updates and preserve necessary handoffs.").replace(" " + manager, "");
   f.store.get(id).projectContext = createHash("sha256").update(prior).digest("hex"); f.store.save();
   const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
   await restored.call("turn/start", { threadId: id, input: [] });
