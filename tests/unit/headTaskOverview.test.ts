@@ -168,3 +168,27 @@ it("uses a real remaining nested handoff as responsibility, never stale accepted
   ] };
   expect(headTaskRows("head", [t])[0].work[0].people).toEqual([{ role: "Responsible", agentId: "quant" }]);
 });
+
+it("keeps paused/unknown work collapsed, preserves detail and full active title with original links", () => {
+  const open = vi.fn();
+  render(createElement(HeadTaskOverview, { name: "Head", rows: headTaskRows("head", [{ ...phased, tracking }]), names, loading: false, error: "", onOpenTask: open, onClose: vi.fn() }));
+  const active = document.querySelector('[data-head-work-id="a1234567"]')!;
+  const title = active.querySelector('button')!;
+  expect(title).toHaveClass("head-current-title"); expect(title).not.toHaveClass("head-short-text");
+  expect(screen.getByText("Pause reason not recorded")).not.toBeVisible();
+  expect(screen.getByText("User decision need not recorded")).not.toBeVisible();
+  expect(document.querySelector('.head-parked-work')).not.toHaveAttribute('open');
+  fireEvent.click(screen.getByText("Paused / other work (1)"));
+  expect(screen.getByText("Pause reason not recorded")).toBeVisible();
+  expect(screen.getByText("User decision need not recorded")).toBeVisible();
+  expect(screen.queryByText("No user decision needed")).toBeNull();
+  fireEvent.click(title);expect(open).toHaveBeenCalledWith('parent','a1234567');
+});
+it("keeps an entirely parked task compact and allows keyboard access to recorded stop reason", () => {
+  const stopped = { ...phased, phases: [phased.phases![2]], tracking: { ...tracking, current: [{phaseId:'c1234567',status:'paused',since:20000,reason:'User explicitly stopped the run',needsUserDecision:false,waitingForId:null}] } };
+  render(createElement(HeadTaskOverview, { name: "Head", rows: headTaskRows("head", [stopped]), names, loading: false, error: "", onOpenTask: vi.fn(), onClose: vi.fn() }));
+  expect(screen.getByText('User explicitly stopped the run')).not.toBeVisible();
+  fireEvent.click(screen.getByText('Paused / other work (1)'));
+  expect(screen.getByText('User explicitly stopped the run')).toBeVisible();
+  expect(screen.queryByText('Needs user decision')).toBeNull();
+});

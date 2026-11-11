@@ -43,6 +43,7 @@ export const ZH_CN: Record<string, string> = {
   "Executing": "执行",
   "Reviewing": "验收中",
   "No phase started": "尚未开始任何阶段",
+  "Paused / other work ({count})": "暂停及其他工作（{count}）",
   "Current work not recorded": "当前工作未记录",
   "Execution not recorded": "执行未记录",
   "Not started": "未开始",

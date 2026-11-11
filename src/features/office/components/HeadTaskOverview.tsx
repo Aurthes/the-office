@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useUiLanguage, useUiText } from "@/lib/i18n/ui-language";
 import { shortPhaseCode } from "../operations/agentDirectory";
-import type { HeadTaskRow } from "../operations/headTaskOverview";
+import type { HeadTaskRow, HeadWork } from "../operations/headTaskOverview";
 import "./head-task-overview.css";
 
 export function HeadTaskOverview({ name, rows, names, loading, error, observedAt, onClose, onOpenTask }: {
@@ -28,6 +28,14 @@ export function HeadTaskOverview({ name, rows, names, loading, error, observedAt
     return <time dateTime={new Date(at).toISOString()} title={new Date(at).toLocaleString(language)}>{full ? <>{new Date(at).toLocaleString(language)} · </> : null}{relative}</time>;
   };
   const eventActor = (event: NonNullable<HeadTaskRow["tracking"]>["recent"][number]) => event.actorSource === "system" ? t("System") : personName(event.actorId, event.actorName || (event.actorSource === "user" ? t("User") : null));
+  const renderWork = (taskId: string, work: HeadWork) => <div key={work.id} className="head-work-pair" data-head-work-id={work.id}>
+          <div><small className="head-work-status" data-active={["Running", "Reviewing"].includes(work.status)}>{t(work.status)}</small>{work.phaseId ? <button type="button" className="head-task-link head-current-title" title={work.title} onClick={() => open(taskId, work.phaseId)}>{work.title}</button> : <span className="head-current-title">{t(work.title)}</span>}</div>
+          <div className="head-work-people">{work.people.length ? work.people.map((person, index) => <p key={`${person.role}:${index}`}><small>{t(person.role)}: </small><span title={person.agentId || undefined}>{person.agentId ? personName(person.agentId) : t(person.role === "Executing" || person.role === "Reviewing" ? "Execution not recorded" : "Unassigned")}</span></p>) : <span>{t("Not recorded")}</span>}</div>
+          {work.status === "Paused" && work.state?.needsUserDecision == null ? <small>{t("User decision need not recorded")}</small> : null}
+          {work.state?.waitingForId ? <p className="head-short-text">{t("Waiting for {name}", { name: personName(work.state.waitingForId) })}</p> : null}
+          {work.state?.reason || work.state?.reasonCode && work.state.reasonCode !== "Submitted for manager acceptance" ? <p className="head-short-text" title={work.state.reason || undefined}>{work.state.reasonCode ? t(work.state.reasonCode) : work.state.reason}</p> : work.status === "Paused" ? <small>{t("Pause reason not recorded")}</small> : null}
+          {work.state?.since != null ? <div className="head-state-age" aria-label={t("State since")}>{recordedTime(work.state.since)}</div> : work.status === "Paused" ? <small>{t("Time not recorded")}</small> : null}
+        </div>;
   return createPortal(<dialog ref={dialog} className="head-task-overview" aria-labelledby={id}
     onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
     <header><h2 id={id}>{t("Task progress for {name}", { name })}</h2><button type="button" aria-label={t("Close task overview")} onClick={onClose}><X size={20} /></button></header>
@@ -61,14 +69,10 @@ export function HeadTaskOverview({ name, rows, names, loading, error, observedAt
             <button type="button" className="head-task-link head-full-record" onClick={() => open(row.id)}>{t("Open full task record")}</button>
           </details> : null}
         </td>
-        <td className="head-work-pairs">{row.work.map(work => <div key={work.id} className="head-work-pair" data-head-work-id={work.id}>
-          <div><small className="head-work-status" data-active={["Running", "Reviewing"].includes(work.status)}>{t(work.status)}</small>{work.phaseId ? <button type="button" className="head-task-link head-short-text" title={work.title} onClick={() => open(row.id, work.phaseId)}>{work.title}</button> : <span className="head-short-text">{t(work.title)}</span>}</div>
-          <div className="head-work-people">{work.people.length ? work.people.map((person, index) => <p key={`${person.role}:${index}`}><small>{t(person.role)}: </small><span title={person.agentId || undefined}>{person.agentId ? personName(person.agentId) : t(person.role === "Executing" || person.role === "Reviewing" ? "Execution not recorded" : "Unassigned")}</span></p>) : <span>{t("Not recorded")}</span>}</div>
-          {work.status === "Paused" && work.state?.needsUserDecision == null ? <small>{t("User decision need not recorded")}</small> : null}
-          {work.state?.waitingForId ? <p className="head-short-text">{t("Waiting for {name}", { name: personName(work.state.waitingForId) })}</p> : null}
-          {work.state?.reason || work.state?.reasonCode && work.state.reasonCode !== "Submitted for manager acceptance" ? <p className="head-short-text" title={work.state.reason || undefined}>{work.state.reasonCode ? t(work.state.reasonCode) : work.state.reason}</p> : work.status === "Paused" ? <small>{t("Pause reason not recorded")}</small> : null}
-          <div className="head-state-age" aria-label={t("State since")}>{recordedTime(work.state?.since)}</div>
-        </div>)}</td>
+        <td className="head-work-pairs">{row.work.filter(work => !["Paused", "Not started"].includes(work.status)).map(work => renderWork(row.id, work))}
+          {row.work.some(work => ["Paused", "Not started"].includes(work.status)) ? <details className="head-parked-work"><summary>{t("Paused / other work ({count})", { count: row.work.filter(work => ["Paused", "Not started"].includes(work.status)).length })}</summary>
+            {row.work.filter(work => ["Paused", "Not started"].includes(work.status)).map(work => renderWork(row.id, work))}
+          </details> : null}</td>
       </tr>)}</tbody>
     </table></div> : null}
   </dialog>, document.body);
