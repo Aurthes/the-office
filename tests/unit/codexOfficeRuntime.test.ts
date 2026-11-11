@@ -240,6 +240,29 @@ describe("independent Office runtime", () => {
     expect(f.store.companyContext).toHaveBeenCalledTimes(4);
   });
 
+  it.each(["Worker", "Head"])("refreshes the prior %s context with direct-contact guidance once", async title => {
+    const f = fixture(), id = await session(f);
+    f.store.companyContext = vi.fn(() => ({ agentId: id, title }));
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+    const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
+    const rule = " To contact another Agent, use office_tasks.session_send with your own actorId rather than scripting raw session.send; ordinary contact does not require task delegation.";
+    expect(payload.split(rule)).toHaveLength(2);
+    expect(payload).toContain("launch is not delivery");
+    expect(payload.includes(DEPARTMENT_HEAD_GUIDELINE)).toBe(title === "Head");
+    f.store.get(id).projectContext = createHash("sha256").update(payload.replace(rule, "")).digest("hex"); f.store.save();
+    const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
+    const startAt = f.client.call.mock.calls.length;
+    await restored.call("turn/start", { threadId: id, input: [] });
+    expect((injections()[1][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text).toBe(payload);
+    await restored.call("turn/start", { threadId: id, input: [] });
+    const restarted = new CodexOfficeStore(f.directory, f.client); restarted.companyContext = f.store.companyContext;
+    await restarted.call("turn/start", { threadId: id, input: [] });
+    expect(injections()).toHaveLength(2);
+    expect(f.client.call.mock.calls.slice(startAt).map(([method]) => method)).toEqual(["thread/inject_items", "turn/start", "turn/start", "turn/start"]);
+    expect(f.store.companyContext).toHaveBeenCalledTimes(4);
+  });
+
   it("batches independently cached Q and project context without queries or repeated organization data", async () => {
     const f = fixture(), id = await session(f);
     let title = "Head", summary = "First question";
