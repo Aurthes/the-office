@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { once } from "node:events";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -66,9 +66,10 @@ async function mcp(url: string) {
   return async (name: string, args: object) => {
     const id = ++serial;
     const response = new Promise<{ content: Array<{ text: string }>; isError?: boolean }>(resolve => pending.set(id, resolve));
-    child.stdin.write(JSON.stringify({ id, method: "tools/call", params: { name, arguments: args } }) + "\n");
+    child.stdin.write(JSON.stringify({ id, method: name === "__list" ? "tools/list" : "tools/call", params: { name, arguments: args } }) + "\n");
     const result = await response;
     if (result.isError) throw new Error(result.content[0].text);
+    if (name === "__list") return result;
     return JSON.parse(result.content[0].text);
   };
 }
@@ -274,4 +275,67 @@ it("routes discoverable direct contact through session.send with an explicit act
   expect(received).toEqual([expect.objectContaining({ method: "session.send", params: args })]);
   await expect(call("session_send", { ...args, actorId: undefined })).rejects.toThrow(/actorId/);
   expect(received).toHaveLength(1);
+});
+
+it("makes scheduler CRUD discoverable and usable from two actual department contexts without extra model turns", async () => {
+  const require = createRequire(import.meta.url);
+  const { OfficeSchedules } = require("../../server/office-schedules.js");
+  const { CodexOfficeStore } = require("../../server/codex-office-store.js");
+  const { OfficeCompany } = require("../../server/office-company.js");
+  const directory = mkdtempSync(path.join(os.tmpdir(), "office-mcp-wakeup-")); cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+  let serial = 0;
+  const nativeCalls: Array<{ method: string; params: unknown }> = [];
+  const native = { ready: true, call: async (method: string, params: unknown) => { nativeCalls.push({ method, params }); return method === "thread/start" ? { thread: { id: "native-"+ ++serial } } : method === "turn/start" ? { turn: { id: "turn-"+ ++serial } } : {}; } };
+  const store = new CodexOfficeStore(directory, native), actors: string[] = [], graph: Record<string, object> = {};
+  for (const name of ["Department One", "Department Two"]) {
+    const workspace = path.join(directory, name); mkdirSync(workspace);
+    const project = (await store.createProject({ name, workspace, requestId: name })).project;
+    const actor = (await store.createSession({ name: name+" executor", projectId: project.id, requestId: name+"-agent" })).threadId;
+    actors.push(actor); graph[actor] = { title: "Worker", reportsTo: [] };
+  }
+  const settingsFile = path.join(directory, "settings.json"); writeFileSync(settingsFile, JSON.stringify({ office: { "ws://localhost:18790": { organization: graph } } }));
+  const company = new OfficeCompany(store, { settingsFile }); store.companyContext = (actor: string) => company.forTurn(actor);
+  const scheduler = new OfficeSchedules(directory, { getSession: (id: string) => store.get(id), canSend: async () => true, send: async () => ({ status: "started", turnId: "wake-turn" }) });
+  const f = await fixture((ws, frame) => {
+    void (async () => {
+      const p = frame.params as unknown as Record<string, unknown>; // Existing protocol fixture payload.
+      store.get(p.actorId);
+      let result;
+      if (frame.method === "schedule.list") result = { ...scheduler.list(), sessions: store.list() };
+      else result = await store.once(p, () => frame.method === "schedule.create" ? { id: scheduler.create(p).task.id } : frame.method === "schedule.update" ? { id: scheduler.update(p).task.id } : scheduler.remove(p));
+      reply(ws, frame, result);
+    })().catch(error => ws.send(JSON.stringify({ type: "res", id: frame.id, ok: false, error: { message: error.message } })));
+  });
+  const call = await mcp(f.url), config = { name: "Same job check", prompt: "job-unique checkpoint; original task and Q", intervalMinutes: 1, firstRunAt: Date.now()+60000, enabled: true };
+  for (const actor of actors) {
+    const context = company.forTurn(actor); expect(context.departments).toHaveLength(1);
+    await store.call("turn/start", { threadId: actor, input: [] });
+    const payload = JSON.stringify(nativeCalls.at(-2));
+    expect(payload).toContain(context.departments[0].name); expect(payload).toContain("recoverable job");
+    const discovered = await call("__list", {});
+    expect(discovered.tools.filter((t: { name: string }) => t.name.startsWith("schedule_")).map((t: { name: string }) => t.name)).toEqual(["schedule_list", "schedule_create", "schedule_update", "schedule_delete"]);
+    const input = { ...config, actorId: actor, threadId: actor, requestId: actor+"-create" };
+    const created = await call("schedule_create", input); expect(await call("schedule_create", input)).toEqual(created);
+    const own = await call("schedule_list", { actorId: actor }); expect(own.tasks).toHaveLength(1); expect(own).not.toHaveProperty("sessions");
+    expect(own.tasks[0]).toMatchObject({ id: created.id, threadId: actor, nextRunAt: config.firstRunAt });
+    const next = { ...input, id: created.id, firstRunAt: config.firstRunAt+30000, requestId: actor+"-rearm" };
+    await call("schedule_update", next);
+    expect((await call("schedule_list", { actorId: actor })).tasks[0].nextRunAt).toBe(next.firstRunAt);
+    await expect(call("schedule_update", { id: created.id, actorId: actor, enabled: false, requestId: actor+"-bad" })).rejects.toThrow();
+    await expect(call("schedule_create", { ...input, actorId: "unknown", requestId: actor+"-unknown" })).rejects.toThrow();
+  }
+  expect(scheduler.list().tasks).toHaveLength(2);
+  expect((await call("schedule_list", { actorId: actors[0], threadId: actors[1] })).tasks.map((t: { threadId: string }) => t.threadId)).toEqual([actors[1]]); // Existing target semantics, no new department ACL.
+  await expect(call("schedule_list", {})).rejects.toThrow(/actorId/);
+  await expect(call("schedule_list", { actorId: actors[0], threadId: null })).rejects.toThrow(/threadId/);
+  const own = (await call("schedule_list", { actorId: actors[0] })).tasks[0];
+  scheduler.runNow({ id: own.id }); await scheduler.tick();
+  await expect(call("schedule_delete", { actorId: actors[0], id: own.id, requestId: "early-delete" })).rejects.toThrow(/finish/);
+  await call("schedule_update", { ...config, actorId: actors[0], threadId: actors[0], id: own.id, enabled: false, requestId: "disable" });
+  expect(scheduler.get(own.id).runs.at(-1).status).toBe("running");
+  scheduler.handle({ method: "turn/completed", params: { threadId: actors[0], turn: { id: "wake-turn", status: "completed" } } });
+  await call("schedule_delete", { actorId: actors[0], id: own.id, requestId: "delete-after-turn" });
+  expect((await call("schedule_list", { actorId: actors[0] })).tasks).toEqual([]);
+  expect(nativeCalls.filter(c => c.method === "turn/start")).toHaveLength(2);
+  scheduler.close();
 });

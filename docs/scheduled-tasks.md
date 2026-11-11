@@ -107,3 +107,21 @@ The integration check uses the actual pinned CLI against a loopback synthetic
 model and disposable Office state. It covers scheduling with no browser attached,
 same-conversation output, management retry deduplication, manual execution,
 persistence and deletion without touching real accounts or native App state.
+
+## Agent access
+
+All Office departments discover the same `office_tasks.schedule_list`,
+`schedule_create`, `schedule_update` and `schedule_delete` MCP tools. Use your own
+Office `actorId`; it follows the existing shared-service actor convention and is
+not per-person authentication. Existing backend target permissions are unchanged.
+List defaults to that actor's target thread; an explicit `threadId` selects a
+conversation without returning other conversations' prompts.
+
+Create/update take the full `name`, `threadId`, `prompt`, `intervalMinutes`,
+`firstRunAt` (UTC epoch milliseconds), `enabled`, and stable `requestId`; update
+also takes `id`. Read list back before yielding. Retain the same job/checkpoint,
+original task and question in the prompt. Rearm the same id with a new measured
+remaining ETA and an explicit future first time; disable obsolete checks, then
+delete after their active turn ends. No run-now tool or new scheduler is added.
+This is timed inspection, not an immediate OS completion callback. Active runs
+interrupted by Gateway restart become unknown and disabled pending reconciliation.

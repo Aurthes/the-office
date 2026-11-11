@@ -220,7 +220,7 @@ describe("independent Office runtime", () => {
     await f.store.call("turn/start", { threadId: id, input: [] });
     const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
     const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
-    const asyncRule = " After starting asynchronous work, ensure a completion notification or timed recheck, then use the result to continue or report a blocker; launch is not delivery.";
+    const asyncRule = " For background work, keep a recoverable job and a realistic remaining ETA. Before yielding, register and read back an Office schedule for the same executor at half the remaining ETA using office_tasks.schedule_create and schedule_list. On waking, inspect the same job without restarting it; revise the ETA from measured progress and rearm the same id with schedule_update, or continue from its result/failure. Disable obsolete wakeups and use schedule_delete after their active turn ends. Keep the original task and question; report unavailable tools or uncertain delivery rather than claiming a status file is a wakeup.";
     const dependencyRule = "For each dependency, specify the completion condition, successor, trigger owner and event, and handoff inputs; the trigger owner handles failure or uncertainty until a real handoff and worker-turn receipt confirm pickup. ";
     expect(payload.split(asyncRule)).toHaveLength(2);
     expect(payload.includes(dependencyRule)).toBe(title === "Head");
@@ -248,7 +248,7 @@ describe("independent Office runtime", () => {
     const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
     const rule = " To contact another Agent, use office_tasks.session_send with your own actorId rather than scripting raw session.send; ordinary contact does not require task delegation.";
     expect(payload.split(rule)).toHaveLength(2);
-    expect(payload).toContain("launch is not delivery");
+    expect(payload).toContain("recoverable job");
     expect(payload.includes(DEPARTMENT_HEAD_GUIDELINE)).toBe(title === "Head");
     f.store.get(id).projectContext = createHash("sha256").update(payload.replace(rule, "")).digest("hex"); f.store.save();
     const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
@@ -264,8 +264,9 @@ describe("independent Office runtime", () => {
   });
 
   it.each(["Worker", "Head"])("refreshes Head feedback only for %s while preserving shared Worker guidance", async title => {
-    // Explicit user boundary: the already-sufficient shared text is unchanged.
-    expect(createHash("sha256").update(OFFICE_COLLABORATION_GUIDELINE).digest("hex")).toBe("1f2c9929361c549f0460fb5eded06932cbd8ba806e0f9b666c27f651d8318c7c");
+    // Head feedback stays out of the shared Worker rule; later authorized
+    // shared changes (such as scheduled wakeups) need not freeze the old hash.
+    expect(OFFICE_COLLABORATION_GUIDELINE).not.toContain("point out the specific passages");
     const f = fixture(), id = await session(f);
     f.store.companyContext = vi.fn(() => ({ agentId: id, title }));
     await f.store.call("turn/start", { threadId: id, input: [] });
@@ -273,7 +274,7 @@ describe("independent Office runtime", () => {
     const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
     const rule = "Return gaps to workers and reuse valid checks; when reports contain irrelevant detail or repeated bookkeeping, point out the specific passages for their author to trim. Keep your own replies focused on what affects the decision.";
     expect(payload.includes(rule)).toBe(title === "Head");
-    expect(payload).toContain("office_tasks.session_send"); expect(payload).toContain("launch is not delivery");
+    expect(payload).toContain("office_tasks.session_send"); expect(payload).toContain("recoverable job");
     if (title === "Head") expect(payload.split(rule)).toHaveLength(2);
     const previous = payload.replace(rule, "Return gaps to workers and reuse valid checks.");
     f.store.get(id).projectContext = createHash("sha256").update(previous).digest("hex"); f.store.save();
@@ -287,6 +288,29 @@ describe("independent Office runtime", () => {
     expect(injections()).toHaveLength(title === "Head" ? 2 : 1);
     expect(f.client.call.mock.calls.slice(startAt).map(([method]) => method)).toEqual([...(title === "Head" ? ["thread/inject_items"] : []), "turn/start", "turn/start", "turn/start"]);
     expect(f.store.companyContext).toHaveBeenCalledTimes(4);
+  });
+
+  it.each(["Worker", "Head"])("refreshes the old asynchronous %s rule once with callable schedule guidance", async title => {
+    const f = fixture(), id = await session(f);
+    f.store.companyContext = vi.fn(() => ({ agentId: id, title }));
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+    const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
+    const current = "For background work, keep a recoverable job and a realistic remaining ETA. Before yielding, register and read back an Office schedule for the same executor at half the remaining ETA using office_tasks.schedule_create and schedule_list. On waking, inspect the same job without restarting it; revise the ETA from measured progress and rearm the same id with schedule_update, or continue from its result/failure. Disable obsolete wakeups and use schedule_delete after their active turn ends. Keep the original task and question; report unavailable tools or uncertain delivery rather than claiming a status file is a wakeup.";
+    expect(payload.split(current)).toHaveLength(2);
+    expect(payload).toContain("office_tasks.session_send");
+    expect(payload.includes(DEPARTMENT_HEAD_GUIDELINE)).toBe(title === "Head");
+    const old = "After starting asynchronous work, ensure a completion notification or timed recheck, then use the result to continue or report a blocker; launch is not delivery.";
+    f.store.get(id).projectContext = createHash("sha256").update(payload.replace(current, old)).digest("hex"); f.store.save();
+    const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
+    const startAt = f.client.call.mock.calls.length;
+    await restored.call("turn/start", { threadId: id, input: [] });
+    expect((injections()[1][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text).toBe(payload);
+    await restored.call("turn/start", { threadId: id, input: [] });
+    const restarted = new CodexOfficeStore(f.directory, f.client); restarted.companyContext = f.store.companyContext;
+    await restarted.call("turn/start", { threadId: id, input: [] });
+    expect(injections()).toHaveLength(2);
+    expect(f.client.call.mock.calls.slice(startAt).map(([method]) => method)).toEqual(["thread/inject_items", "turn/start", "turn/start", "turn/start"]);
   });
 
   it("batches independently cached Q and project context without queries or repeated organization data", async () => {

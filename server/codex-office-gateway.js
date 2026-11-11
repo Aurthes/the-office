@@ -120,6 +120,15 @@ const history = async (id, cursor, epoch) => {
   return { ...result, historyEpoch: current };
 };
 async function account(options) { const status = await accountContext.read(options); return { loggedIn: Boolean(status.account) || status.requiresOpenaiAuth === false, email: status.account?.email || null, requiresAuth: status.requiresOpenaiAuth !== false, loginFlow: process.env.CLAW3D_OFFICE_DESKTOP === "1" ? "browser" : "device", login }; }
+// Preserve existing UI/service callers without actors. Office MCP uses the
+// existing explicit actor convention, with no new target or department ACL.
+function scheduleInput(p) {
+  if (Object.hasOwn(p, "actorId")) {
+    if (typeof p.actorId !== "string" || !p.actorId.trim()) throw new Error("Choose an existing Office actor");
+    store.get(p.actorId);
+  }
+  return p;
+}
 schedules = new OfficeSchedules(directory, {
   getSession: id => store.get(id), changed: () => { broadcast("schedules.updated", {}); changed(); },
   canSend: async id => {
@@ -207,10 +216,10 @@ const methods = {
   "office.usage": () => readAiCenter(native),
   "office.usage.detail": p => tokenUsage.detail(p),
   "office.resetCredit.consume": p => consumeOpenAiResetCredit(native, p),
-  "schedule.list": () => ({ ...schedules.list(), sessions: store.list().map(({ id, name, project }) => ({ id, name, project })) }),
-  "schedule.create": p => store.once(p, () => ({ id: schedules.create(p).task.id })),
-  "schedule.update": p => store.once(p, () => ({ id: schedules.update(p).task.id })),
-  "schedule.delete": p => store.once(p, () => schedules.remove(p)),
+  "schedule.list": p => { scheduleInput(p); return { ...schedules.list(), sessions: store.list().map(({ id, name, project }) => ({ id, name, project })) }; },
+  "schedule.create": p => store.once(p, () => ({ id: schedules.create(scheduleInput(p)).task.id })),
+  "schedule.update": p => store.once(p, () => ({ id: schedules.update(scheduleInput(p)).task.id })),
+  "schedule.delete": p => store.once(p, () => schedules.remove(scheduleInput(p))),
   "schedule.run": p => store.once(p, () => schedules.runNow(p)),
   "office.login": async p => { if ((await account({ refresh: true })).loggedIn) return { loggedIn: true }; if (login?.loginId) await native.call("account/login/cancel", { loginId: login.loginId }); const browser = process.env.CLAW3D_OFFICE_DESKTOP === "1" && p.flow !== "device"; login = await native.call("account/login/start", { type: browser ? "chatgpt" : "chatgptDeviceCode" }, 30000); return login; },
   "office.snapshot": async () => { await restoredSessionStates; const listed = agents(); return { defaultId: listed[0]?.id, mainKey: "main", agents: listed, projects: store.projects(), creationAvailable: native.ready }; },

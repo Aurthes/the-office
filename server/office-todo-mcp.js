@@ -48,6 +48,24 @@ tools.push({ name: "todo_department_assets", description: "Read a department's r
 tools.push({ name: "session_send", description: "Contact an existing Office colleague directly using your own actorId and their threadId. The server resolves your current recorded name and labels the message. Reuse requestId on retry; this is a message, not task delegation or acceptance. The shared service credential does not authenticate an individual; actorId follows the existing Office tool convention. Never supply another employee's actorId.", annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }, inputSchema: { type: "object", properties: {
   actorId: properties.actorId, threadId: { type: "string", minLength: 1 }, message: { type: "string", minLength: 1 }, requestId: { type: "string", minLength: 1, maxLength: 100 },
 }, required: ["actorId", "threadId", "message", "requestId"], additionalProperties: false } });
+const scheduleConfig = {
+  name: { type: "string", minLength: 1, maxLength: 120 }, threadId: { type: "string", minLength: 1, description: "Existing Office executor session, not a native thread or OS process." },
+  prompt: { type: "string", minLength: 1, maxLength: 32768, description: "Same job/checkpoint, original task/phase and Q, and next action. Files alone do not wake an Agent." },
+  intervalMinutes: { type: "integer", minimum: 1, maximum: 525600 }, firstRunAt: { type: "integer", minimum: 0, maximum: 8000000000000000, description: "UTC epoch milliseconds. Rearm explicitly to now + half the measured remaining ETA; not a deadline." }, enabled: { type: "boolean" },
+};
+for (const action of ["list", "create", "update", "delete"]) {
+  const mutation = action !== "list", config = ["create", "update"].includes(action);
+  const properties = { actorId: { type: "string", minLength: 1, description: "Your own Office actorId; existing shared-service convention, not per-person authentication." },
+    ...(config ? scheduleConfig : action === "list" ? { threadId: scheduleConfig.threadId } : {}),
+    ...(["update", "delete"].includes(action) ? { id: { type: "string", minLength: 1 } } : {}),
+    ...(mutation ? { requestId: { type: "string", minLength: 1, maxLength: 160, description: "Stable mutation ID; reuse after uncertain outcomes, read back before creating again." } } : {}),
+  };
+  tools.push({ name: `schedule_${action}`, description: action === "list" ? "Read existing Office wakeups for threadId (defaults to your own actorId), including configuration, nextRunAt and recent runs. Check for the same job before registering. Available company-wide; does not change target permissions."
+    : action === "create" ? "Register a wakeup on an existing Office executor using the current scheduler. Read schedule_list back before yielding. This is timed model input when idle, not an OS completion callback; busy waits and unknown dispatches are not blindly replayed."
+    : action === "update" ? "Replace the complete wakeup configuration (not a partial patch). Rearm the same id using a revised measured ETA and future firstRunAt. Disable obsolete wakeups before ending; disabling does not cancel an active turn."
+    : "Delete an obsolete wakeup after its active turn finishes. Disable with schedule_update first; deletion while running is refused. This does not stop the original job.",
+    annotations: { readOnlyHint: !mutation, destructiveHint: action === "delete", openWorldHint: false }, inputSchema: { type: "object", properties, required: Object.keys(properties).filter(key => action !== "list" || key !== "threadId"), additionalProperties: false } });
+}
 const sourceSchema = { type: "object", properties: Object.fromEntries(["threadId", "turnId", "itemId"].map(key => [key, { type: "string" }])), required: ["threadId", "turnId", "itemId"], additionalProperties: false };
 tools.push({ name: "question_context", description: "Select the actual semantic Q/step when selection is missing or changes; new user messages clear selection. Reuse the selection for subsequent commentary/answers to that same Q; do not reselect before every response. Select/create returns selected IDs and opened aliases. For a new Q with one current user message, register directly without source; the tool resolves exact provenance. Reuse supplied known IDs. Read with actorId only when information is missing or ambiguous, not as a prerequisite to every selection. Define summaries (max 180 characters) using local keys; answering selects keys or Q IDs. A message may contain several Qs. A child uses parentQuestionId (ID or earlier key), inheriting its source. Specify exact source IDs when ambiguous. Continue/Play/retry preserves Q and source. Tasks/phases are optional; ordinary questions never require a task. Reuse requestId on definition retries.", annotations: { destructiveHint: false, openWorldHint: false }, inputSchema: { type: "object", properties: {
   actorId: properties.actorId, requestId: properties.requestId,
@@ -153,9 +171,14 @@ async function handle(frame) {
       const args = frame.params.arguments || {}, params = { ...args };
       delete params.includeHistory;
       if (tool.name === "todo_create") params.executionMode ||= "phases";
-      if (tool.name === "session_send" && (typeof params.actorId !== "string" || !params.actorId.trim())) throw new Error("Your Office actorId is required for a direct message");
-      const result = await gateway(tool.name === "session_send" ? "session.send" : tool.name === "question_context" ? "question.context" : `todo.${tool.name.slice(5)}`, params);
-      return { content: [{ type: "text", text: JSON.stringify(modelResult(tool.name, args, result)) }] };
+      if ((tool.name === "session_send" || tool.name.startsWith("schedule_")) && (typeof params.actorId !== "string" || !params.actorId.trim())) throw new Error("Your Office actorId is required");
+      if (tool.name === "schedule_list") {
+        if (params.threadId === undefined) params.threadId = params.actorId;
+        if (typeof params.threadId !== "string" || !params.threadId.trim()) throw new Error("Choose an Office target threadId");
+      }
+      const result = await gateway(tool.name.startsWith("schedule_") ? `schedule.${tool.name.slice(9)}` : tool.name === "session_send" ? "session.send" : tool.name === "question_context" ? "question.context" : `todo.${tool.name.slice(5)}`, params);
+      const visible = tool.name === "schedule_list" ? { tasks: result.tasks.filter(task => task.threadId === params.threadId) } : modelResult(tool.name, args, result);
+      return { content: [{ type: "text", text: JSON.stringify(visible) }] };
     }
     catch (error) { return { isError: true, content: [{ type: "text", text: error.message }] }; }
   }
