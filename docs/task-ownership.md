@@ -60,3 +60,13 @@ The existing paginated task loader is shared with the directory and runs when
 either chat or department details are open. Task events refresh it. Selecting a
 task closes the department panel and opens the existing TaskBoard detail for that
 same ID, without starting a conversation or sending a message.
+
+For a direct colleague message, `office_tasks.session_send` takes your own
+`actorId`, the recipient's `threadId`, content and a stable `requestId`. The
+server resolves the recorded employee name and uses the same sender heading as
+task notifications. This does not delegate a task or accept a report. Direct
+`session.send` also accepts that optional actor; omitting it preserves ordinary
+user/anonymous messages. Unknown or archived explicit actors are rejected.
+The shared service credential is not per-person authentication: this is the
+existing Office actor convention, not cryptographic proof of the author. Raw
+anonymous calls and older anonymous history cannot be attributed automatically.

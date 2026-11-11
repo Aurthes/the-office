@@ -196,3 +196,17 @@ it("hides a synthetic call-end handoff and preserves literal or unknown markup",
   expect(visibleUserText('<realtime_delegation><source>transcript_tail_flush</source><input>The user just ended their realtime session.</input><transcript_delta>user: Already delegated</transcript_delta></realtime_delegation>')).toBe("");
   for (const literal of ['Explain <realtime_delegation><input>example</input></realtime_delegation>', '```xml\n<realtime_delegation><input>example</input></realtime_delegation>\n```', '<realtime_delegation><unknown>Keep this</unknown></realtime_delegation>']) expect(visibleUserText(literal)).toBe(literal);
 });
+
+it("keeps an Agent direct-message sender visible when folded, expanded and remounted from history", async () => {
+  const { directMessage } = await import("../../server/office-delegation.js");
+  const content = directMessage({ get: () => ({ id: "alice", name: "Alice" }) }, { actorId: "alice", message: "Long work result. ".repeat(80)+"END_OF_RESULT" });
+  const view = render(React.createElement(SessionMarkdown, { user: true, content }));
+  expect(screen.getByText("From agent: Alice")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Expand message" }));
+  expect(screen.getByText("From agent: Alice")).toBeVisible();
+  expect(screen.getByText(/END_OF_RESULT/)).toBeVisible();
+  view.unmount();
+  render(React.createElement(SessionMarkdown, { user: true, content: JSON.parse(JSON.stringify({ content })).content }));
+  expect(screen.getByText("From agent: Alice")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Expand message" })).toBeVisible();
+});

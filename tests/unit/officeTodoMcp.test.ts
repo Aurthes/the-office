@@ -260,3 +260,18 @@ it("reads a bounded department catalog and exact current details through the act
   await expect(call("todo_department_assets", { ...args, assetId: "missing" })).rejects.toThrow(/not found/);
   const { tools } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");expect(tools.find((t: { name: string }) => t.name === "todo_department_assets").annotations.readOnlyHint).toBe(true);
 });
+
+it("routes discoverable direct contact through session.send with an explicit actor and no free sender name", async () => {
+  const { tools } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");
+  const tool = tools.find((t: { name: string }) => t.name === "session_send");
+  expect(tool.inputSchema.required).toEqual(["actorId", "threadId", "message", "requestId"]);
+  expect(tool.inputSchema.properties).not.toHaveProperty("senderName");
+  expect(tool.description).toContain("does not authenticate an individual");
+  const received: unknown[] = [];
+  const f = await fixture((ws, frame) => { received.push(frame); reply(ws, frame, { status: "started", turnId: "fixture-turn" }); });
+  const call = await mcp(f.url), args = { actorId: "alice", threadId: "bob", message: "Exact content", requestId: "direct-one" };
+  await expect(call("session_send", args)).resolves.toMatchObject({ turnId: "fixture-turn" });
+  expect(received).toEqual([expect.objectContaining({ method: "session.send", params: args })]);
+  await expect(call("session_send", { ...args, actorId: undefined })).rejects.toThrow(/actorId/);
+  expect(received).toHaveLength(1);
+});

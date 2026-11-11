@@ -23,7 +23,7 @@ const { OfficeSchedules } = require("./office-schedules");
 const { CodexSessionComposer } = require("./codex-session-composer");
 const { CodexMessageSearch } = require("./codex-message-search");
 const { OfficeCompany, WORKFLOW, TASK_WORKFLOW } = require("./office-company");
-const { OfficeDelegation, taskNotification } = require("./office-delegation");
+const { OfficeDelegation, taskNotification, directMessage } = require("./office-delegation");
 const { OfficeReplyContext, taskReplyContext, sourceOf } = require("./office-reply-context");
 
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
@@ -254,7 +254,7 @@ const methods = {
   "session.attach": async p => { store.get(p.threadId); await controls.attach(p.threadId); return controls.snapshot(p.threadId); },
   "session.subscribe": (p, ws) => { store.get(p.threadId); return stream.subscribe(ws, p.threadId, p.subscriptionId); },
   "session.unsubscribe": (p, ws) => stream.unsubscribe(ws, p.subscriptionId),
-  "session.send": async p => { const usage = userUsage(p.sourcePurpose); store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, p.message, p.requestId, p.attachments, { references: p.references || [], usage }); store.clearQuestions(p.threadId, pending); return result; },
+  "session.send": async p => { const message = directMessage(store, p); const usage = userUsage(p.sourcePurpose); store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, message, p.requestId, p.attachments, { references: p.references || [], usage }); store.clearQuestions(p.threadId, pending); return result; },
   "session.edit.prepare": p => { store.get(p.threadId); return controls.prepareEdit(p.threadId); },
   "session.edit.commit": async p => {
     store.get(p.threadId);

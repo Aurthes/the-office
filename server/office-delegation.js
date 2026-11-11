@@ -9,10 +9,24 @@ function taskNotification(row, entry = activeDelegation(row), _phaseId, sender =
     : entry ? [entry.instructions, entry.acceptanceCriteria].filter(Boolean).join("\n\n") : "";
   // Use the validated action's recorded actor, never the task's current assignee.
   // The first line survives native history, reloads and existing browser bundles.
+  const task = [row.code, row.title].filter(Boolean).join(" · ").replace(/\s+/g, " ").replace(/[\\`*_[\]<>]/g, "\\$&");
+  return `${senderHeading(sender)}\n\n[${task}](task://${row.id})${content ? `\n\n${content}` : ""}`;
+}
+
+// Shared display convention, not per-person authentication: Office tools use an
+// explicit actorId on the existing service-authenticated connection.
+function senderHeading(sender) {
   const name = String(sender?.name || sender?.id || "Sender not recorded").replace(/\s+/g, " ").trim().slice(0, 120).replace(/[\\`*_[\]<>]/g, "\\$&");
   const from = sender?.source === "agent" ? `From agent: ${name}` : `From: ${sender?.source === "user" ? "User" : sender?.source === "system" ? "Office" : name}`;
-  const task = [row.code, row.title].filter(Boolean).join(" · ").replace(/\s+/g, " ").replace(/[\\`*_[\]<>]/g, "\\$&");
-  return `**${from}**\n\n[${task}](task://${row.id})${content ? `\n\n${content}` : ""}`;
+  return `**${from}**`;
+}
+function directMessage(store, input) {
+  if (!Object.hasOwn(input, "actorId")) return input.message;
+  if (typeof input.actorId !== "string" || !input.actorId.trim()) throw new Error("Choose an existing Office sender actor");
+  const actor = store.get(input.actorId);
+  if (actor.archived) throw new Error("Choose an active Office sender actor");
+  if (typeof input.message !== "string" || !input.message.trim()) throw new Error("Enter a message");
+  return `${senderHeading({ source: "agent", id: actor.id, name: actor.name })}\n\n${input.message}`;
 }
 
 // Handoffs use the same task and normal session sender. The task itself is the
@@ -153,4 +167,4 @@ class OfficeDelegation {
     } catch (error) { console.warn("Office handoff remains in the task inbox:", error.message); }
   }
 }
-module.exports = { OfficeDelegation, taskNotification };
+module.exports = { OfficeDelegation, taskNotification, senderHeading, directMessage };
