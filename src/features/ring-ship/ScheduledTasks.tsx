@@ -11,13 +11,13 @@ type Run = { id: string; scheduledAt: number; status: "waiting" | "dispatching" 
 export type ScheduledTask = { id: string; name: string; threadId: string; prompt: string; intervalMinutes: number; firstRunAt: number; nextRunAt: number; enabled: boolean; sessionName: string | null; targetAvailable: boolean; runs: Run[] };
 type Snapshot = { tasks: ScheduledTask[]; sessions: { id: string; name: string; project: string }[] };
 type Draft = { id?: string; name: string; threadId: string; prompt: string; interval: number; unit: number; firstRun: string; enabled: boolean };
-const labels = { waiting: "Waiting", dispatching: "Sending", running: "Running", completed: "Completed", failed: "Failed", unknown: "Check conversation" };
-const inProgress = (run?: Run) => !!run && ["waiting", "dispatching", "running"].includes(run.status);
+export const labels = { waiting: "Waiting", dispatching: "Sending", running: "Running", completed: "Completed", failed: "Failed", unknown: "Check conversation" };
+export const inProgress = (run?: Run) => !!run && ["waiting", "dispatching", "running"].includes(run.status);
 const dateInput = (time: number) => {
   const date = new Date(time);
   return new Date(time - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 };
-const stamp = (time: number | null | undefined) => time == null ? "—" : dateInput(time).replace("T", " ");
+export const stamp = (time: number | null | undefined) => time == null ? "—" : dateInput(time).replace("T", " ");
 
 export function ScheduledTasks({ open, onClose, onOpenSession, client, connected }: {
   open: boolean; onClose: () => void; onOpenSession: (id: string) => void;

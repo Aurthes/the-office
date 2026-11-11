@@ -319,3 +319,19 @@
 
 .session-interface-overflow{display:none}.session-interface-preset{padding:10px;display:grid;gap:8px;font-size:11px;color:#bdd5d6}.session-interface-preset label{display:grid;gap:6px}.session-interface-preset select,.session-interface-preset button{min-height:36px;border:1px solid #ffffff26;border-radius:6px;background:#172330;color:inherit;padding:6px}.session-interface-preset p{color:#efc3bb}.session-interface-preset :disabled{opacity:.5}
 @container(max-width:440px){.session-interface-inline{display:none}.session-interface-overflow{display:flex}}
+
+.session-schedules { min-height: 0; overflow: auto; padding: 14px; color: #ccd3d9; font-size: 12px; line-height: 1.6; }
+.session-schedules header, .session-schedule-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.session-schedules header { margin-bottom: 12px; }
+.session-schedules h3, .session-schedules h4 { margin: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.session-schedules header button { display: flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; border: 1px solid #ffffff26; border-radius: 5px; }
+.session-schedules article { padding: 12px; margin-bottom: 12px; border: 1px solid #ffffff20; border-radius: 8px; background: #ffffff03; }
+.session-schedules p { margin: 6px 0; overflow-wrap: anywhere; }
+.session-schedules summary { cursor: pointer; padding-block: 8px; }
+.session-schedules summary:focus-visible { outline: 2px solid #c5b58c; outline-offset: 2px; }
+.session-schedules pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 4px 0; }
+.session-schedules [role=alert], .session-schedule-error { color: #f2b8b5; }
+@media (max-width: 600px) {
+  .session-workspace-tabs button[role=tab] { flex-direction: column; gap: 2px; padding: 4px; min-height: 52px; }
+  .session-workspace-tabs button[role=tab] span { white-space: normal; text-align: center; }
+}

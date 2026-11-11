@@ -1,15 +1,16 @@
 "use client";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ArrowUp, ExternalLink, File, Files, Folder, Globe, Image, RefreshCw, Terminal, X } from "lucide-react";
+import { ArrowUp, CalendarClock, ExternalLink, File, Files, Folder, Globe, Image, RefreshCw, Terminal, X } from "lucide-react";
 import type { SessionAsset, SessionClient } from "./SessionControls";
+import { SessionSchedules } from "./SessionSchedules";
 import { SessionAssetPreview } from "./SessionMarkdown";
 import { useUiText } from "@/lib/i18n/ui-language";
 
 const SessionTerminal = dynamic(() => import("./SessionTerminal").then(module => module.SessionTerminal), { ssr: false });
 type Listing = { root?: string; roots?: string[]; path: string; entries: { name: string; directory: boolean }[]; truncated: boolean };
 type FileRead = { path: string; content?: string; asset?: SessionAsset };
-type Tab = "files" | "preview" | "terminal" | "browser";
+type Tab = "files" | "preview" | "terminal" | "browser" | "schedules";
 
 export function SessionWorkspace({ client, threadId, active = true, asset, assets, onSelectAsset, onClose, terminalAvailable = true }: {
   client: SessionClient; threadId: string; asset: SessionAsset | null; assets: SessionAsset[];
@@ -46,7 +47,7 @@ export function SessionWorkspace({ client, threadId, active = true, asset, asset
     } catch (cause) { if (id === request.current) setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { if (id === request.current) setBusy(false); }
   };
-  const tabs = ([["files", Files, "Files"], ["preview", Image, "Preview"], ["terminal", Terminal, "Terminal"], ["browser", Globe, "Browser"]] as const).filter(([key]) => terminalAvailable || key !== "terminal");
+  const tabs = ([["files", Files, "Files"], ["preview", Image, "Preview"], ["terminal", Terminal, "Terminal"], ["browser", Globe, "Browser"], ["schedules", CalendarClock, "Schedule Task"]] as const).filter(([key]) => terminalAvailable || key !== "terminal");
   return <aside className="session-workspace flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" aria-label={t("Session workspace")}>
     <div className="session-workspace-tabs" role="tablist" aria-label={t("Workspace views")} onKeyDown={event => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -77,7 +78,7 @@ export function SessionWorkspace({ client, threadId, active = true, asset, asset
           {!busy && listing?.entries.length === 0 ? <p className="p-3 text-xs text-white/50">{t("This folder is empty.")}</p> : null}
           {listing?.truncated ? <p className="p-3 text-xs text-white/45">{t("Showing the first 300 entries.")}</p> : null}
         </div>
-      </> : tab === "terminal" ? <SessionTerminal active={active} client={client} threadId={threadId} /> : tab === "browser" ? <div className="flex flex-1 flex-col items-start justify-center gap-4 p-6">
+      </> : tab === "schedules" ? <SessionSchedules key={threadId} client={client} threadId={threadId} active={active} /> : tab === "terminal" ? <SessionTerminal active={active} client={client} threadId={threadId} /> : tab === "browser" ? <div className="flex flex-1 flex-col items-start justify-center gap-4 p-6">
         <Globe size={28} className="text-[#c9b58e]" />
         <h3 className="text-sm font-medium">{t("Use the original Codex browser")}</h3>
         <p className="text-sm leading-6 text-white/55">{t("Open this chat in Codex, then use its browser tabs. Your existing pages and sign-ins stay there.")}</p>
