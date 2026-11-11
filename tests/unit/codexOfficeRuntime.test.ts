@@ -263,6 +263,32 @@ describe("independent Office runtime", () => {
     expect(f.store.companyContext).toHaveBeenCalledTimes(4);
   });
 
+  it.each(["Worker", "Head"])("refreshes Head feedback only for %s while preserving shared Worker guidance", async title => {
+    // Explicit user boundary: the already-sufficient shared text is unchanged.
+    expect(createHash("sha256").update(OFFICE_COLLABORATION_GUIDELINE).digest("hex")).toBe("1f2c9929361c549f0460fb5eded06932cbd8ba806e0f9b666c27f651d8318c7c");
+    const f = fixture(), id = await session(f);
+    f.store.companyContext = vi.fn(() => ({ agentId: id, title }));
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+    const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
+    const rule = "Return gaps to workers and reuse valid checks; when reports contain irrelevant detail or repeated bookkeeping, point out the specific passages for their author to trim. Keep your own replies focused on what affects the decision.";
+    expect(payload.includes(rule)).toBe(title === "Head");
+    expect(payload).toContain("office_tasks.session_send"); expect(payload).toContain("launch is not delivery");
+    if (title === "Head") expect(payload.split(rule)).toHaveLength(2);
+    const previous = payload.replace(rule, "Return gaps to workers and reuse valid checks.");
+    f.store.get(id).projectContext = createHash("sha256").update(previous).digest("hex"); f.store.save();
+    const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
+    const startAt = f.client.call.mock.calls.length;
+    await restored.call("turn/start", { threadId: id, input: [] });
+    if (title === "Head") expect((injections()[1][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text).toBe(payload);
+    await restored.call("turn/start", { threadId: id, input: [] });
+    const restarted = new CodexOfficeStore(f.directory, f.client); restarted.companyContext = f.store.companyContext;
+    await restarted.call("turn/start", { threadId: id, input: [] });
+    expect(injections()).toHaveLength(title === "Head" ? 2 : 1);
+    expect(f.client.call.mock.calls.slice(startAt).map(([method]) => method)).toEqual([...(title === "Head" ? ["thread/inject_items"] : []), "turn/start", "turn/start", "turn/start"]);
+    expect(f.store.companyContext).toHaveBeenCalledTimes(4);
+  });
+
   it("batches independently cached Q and project context without queries or repeated organization data", async () => {
     const f = fixture(), id = await session(f);
     let title = "Head", summary = "First question";
