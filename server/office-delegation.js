@@ -1,5 +1,5 @@
 "use strict";
-const { activeDelegation, handlingAgentId, isPhaseTask } = require("./office-todos");
+const { activeDelegation, handlingAgentId, isPhaseTask, canTransferOwnHandoff } = require("./office-todos");
 const { taskReplyContext } = require("./office-reply-context");
 
 function taskNotification(row, entry = activeDelegation(row), _phaseId, sender = entry?.delivery?.sender) {
@@ -60,8 +60,11 @@ class OfficeDelegation {
   recall(input) {
     return this.store.once(input, async () => {
       const task = this.todos.raw(input.id), entry = activeDelegation(task, isPhaseTask(task) ? input.phaseId : undefined);
-      if (!entry || entry.managerId !== input.actorId || isPhaseTask(this.todos.raw(input.id)) && entry.id !== input.handoffId) throw new Error("Only the delegating manager can recall this handoff");
-      if (this.inflight.has(entry.workerId) || this.inflight.has(entry.managerId) || !await this.canRecall(entry.workerId) || this.inflight.has(entry.workerId) || this.store.starting.has(entry.workerId)) throw new Error("Stop the worker's active turn before recalling this handoff");
+      const transfer = canTransferOwnHandoff(task, entry, input.actorId);
+      if (!entry || entry.managerId !== input.actorId && !transfer || isPhaseTask(task) && entry.id !== input.handoffId) throw new Error("Only the delegating manager can recall this handoff");
+      // Transferring one's own responsibility does not stop another employee.
+      // Ordinary manager recall retains its existing active-turn safety gate.
+      if (this.inflight.has(entry.workerId) || this.inflight.has(entry.managerId) || !transfer && !await this.canRecall(entry.workerId) || this.inflight.has(entry.workerId) || this.store.starting.has(entry.workerId)) throw new Error("Stop the worker's active turn before recalling this handoff");
       return this.todos.change(input, "recall");
     });
   }

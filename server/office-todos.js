@@ -35,6 +35,11 @@ const taskOwnerId = row => {
   if (row.acceptanceManagerId && !connected.has(row.acceptanceManagerId)) return undefined;
   return root;
 };
+// A new Owner can relinquish only their own old upstream, after its children
+// have closed. This is a recorded transfer, never acceptance of another worker.
+const canTransferOwnHandoff = (row, entry, actorId) => isPhaseTask(row) && !!actorId && !!entry &&
+  taskOwnerId(row) === actorId && entry.workerId === actorId && entry.managerId !== actorId &&
+  activeDelegation(row, entry.phaseId)?.id === entry.id;
 // Execution attribution and the person handling the workflow are separate.
 const handlingAgentId = (row, phaseId) => {
   const entry = activeDelegation(row, phaseId);
@@ -296,14 +301,23 @@ class OfficeTodos {
       this.stopClock(row, this.now(), phase.id); delete phase.activity; phase.status = "review";
       message = `Submitted phase for manager acceptance: ${phase.title}`;
     } else if (action === "review" || action === "recall") {
-      if (actor.id && actor.id !== entry.managerId) throw new Error("Only this handoff's delegating manager can review or recall it");
+      const transfer = action === "recall" && canTransferOwnHandoff(row, entry, actor.id);
+      if (actor.id && actor.id !== entry.managerId && !transfer) throw new Error("Only this handoff's delegating manager can review or recall it");
+      if (transfer && ["sending", "uncertain"].includes(entry.delivery?.state)) throw new Error("Check the uncertain handoff delivery before transferring it");
       this.stopClock(row, this.now(), phase.id); delete phase.activity; delete entry.delivery;
       if (action === "recall") {
+        const reason = text(input.reason, "Recall reason", 500);
         entry.state = "recalled"; entry.recalledAt = this.now(); phase.status = "paused";
         const parent = activeDelegation(row, phase.id);
-        phase.assigneeId = parent?.workerId || entry.managerId;
-        phase.assigneeName = this.agents().find(a => a.id === phase.assigneeId)?.name || phase.assigneeId;
-        message = `Phase handoff recalled: ${text(input.reason, "Recall reason", 500)}`;
+        if (transfer) {
+          entry.ownerTransfer = { ownerId: actor.id, at: this.now(), reason, actor };
+          if (!parent) phase.acceptanceManagerId = actor.id;
+          message = `Owner ended their old upstream handoff by transfer: ${reason}`;
+        } else {
+          phase.assigneeId = parent?.workerId || entry.managerId;
+          phase.assigneeName = this.agents().find(a => a.id === phase.assigneeId)?.name || phase.assigneeId;
+          message = `Phase handoff recalled: ${reason}`;
+        }
       } else {
         if (entry.state !== "review" || typeof input.accept !== "boolean") throw new Error("Choose whether to accept this phase's submitted result");
         const notes = text(input.notes, "Acceptance evidence or return feedback", 6000);
@@ -606,4 +620,4 @@ class OfficeTodos {
     else this.change({ id: row.id, revision: row.revision, source: "system", reason: "Office stopped; timer paused" }, "pause");
   } }
 }
-module.exports = { OfficeTodos, phaseDuration: duration, activeDelegation, openDelegations, handlingAgentId, isPhaseTask, isWatcherOnlyEdit };
+module.exports = { OfficeTodos, phaseDuration: duration, activeDelegation, openDelegations, handlingAgentId, isPhaseTask, isWatcherOnlyEdit, canTransferOwnHandoff };

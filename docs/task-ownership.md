@@ -20,6 +20,15 @@ meaning and are not interchangeable with Owner. Delegating, submitting, acceptin
 recalling, reassigning execution, or adding follow-up phases preserves Owner.
 Changing Owner requires an explicit edit.
 
+After an explicit Owner change, the current Owner can use `todo_recall` with the
+exact phase and handoff IDs to end their own old upstream handoff once all deeper
+handoffs in that phase are closed. This records a recalled transfer, not an
+acceptance. The original manager, reports and actual execution Assignee remain
+recorded; when no upstream remains, this phase's subsequent acceptance belongs to
+the current Owner. It cannot recall or accept another worker's open handoff on
+their behalf, and uncertain deliveries must be resolved first. Ordinary manager
+recall keeps its active-worker safety checks.
+
 For independently assigned phases without an active handoff, the current phase
 Assignee can start its timer directly. **Start with agent** notifies that employee
 without manufacturing an Owner-to-worker handoff; starting one's own timer sends

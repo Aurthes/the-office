@@ -495,3 +495,74 @@ describe("reopening accepted phases with distinct Owner, executor and acceptance
     expect(f.todos.raw(f.task.id)).toEqual(before);
   });
 });
+
+
+describe("explicit Owner takeover of their own old upstream", () => {
+  const transferInput = (f: Awaited<ReturnType<typeof fixture>>, handoffId: string) => f.input(f.pa, f.a, { handoffId, reason: "User transferred responsibility to the current Owner" });
+  it.each(["working", "review"])("records %s upstream as transferred, keeps the real executor and survives restart", async state => {
+    const f = await fixture(); await f.delegate(f.pa, f.a);
+    const upstream = structuredClone(f.entry(f.pa));
+    await f.delegate(f.pa, f.c, f.a); f.available.set(f.a, false);
+    await f.submit(f.pa, f.c); await f.review(f.pa, f.a);
+    if (state === "review") { f.available.set(f.owner, false); await f.submit(f.pa, f.a); await f.settle(); }
+    const before = structuredClone(f.todos.raw(f.task.id));
+    f.todos.change({ id: f.task.id, revision: before.revision, actorId: f.a, ownerId: f.a }, "edit");
+    // The Owner can close their own upstream from this turn; no other employee
+    // is interrupted and no additional model message is sent.
+    const canRecall = vi.fn(async () => false); f.runtime.canRecall = canRecall;
+    const sent = f.send.mock.calls.length, unrelated = structuredClone(f.phase(f.pb));
+    const operation = transferInput(f, upstream.id);
+    const result = await f.runtime.recall(operation);
+    expect(await f.runtime.recall(operation)).toEqual(result);
+    expect(canRecall).not.toHaveBeenCalled(); expect(f.send).toHaveBeenCalledTimes(sent);
+    const row = f.todos.raw(f.task.id), old = row.delegations[0];
+    expect(old).toMatchObject({ id: upstream.id, managerId: f.owner, workerId: f.a, state: "recalled", ownerTransfer: { ownerId: f.a, actor: { id: f.a }, reason: "User transferred responsibility to the current Owner" } });
+    expect(old.review).toEqual(before.delegations[0].review); expect(old.report).toEqual(before.delegations[0].report);
+    expect(row.delegations[1]).toEqual(before.delegations[1]);
+    expect(f.phase(f.pa)).toMatchObject({ assigneeId: f.c, acceptanceManagerId: f.a, completedAt: null, status: "paused" });
+    expect(f.phase(f.pb)).toEqual(unrelated); expect(f.phase(f.pc).completedAt).toBeNull();
+    const restored = new OfficeTodos(path.join(f.root, "office"), f.deps);
+    expect(restored.raw(row.id).delegations).toEqual(row.delegations);
+    expect(() => restored.change({ ...f.input(f.pa, f.owner), revision: row.revision }, "complete")).toThrow(/responsible|manager/);
+    expect(() => restored.change({ ...f.input(f.pa, f.c), revision: row.revision }, "complete")).toThrow(/manager/);
+    restored.change({ ...f.input(f.pa, f.a), revision: row.revision }, "complete");
+    expect(restored.raw(row.id).phases[0]).toMatchObject({ assigneeId: f.c, status: "done" });
+    expect(restored.raw(row.id).archived).toBe(false);
+  });
+  it("cannot transfer another worker or skip a deeper open handoff, and cannot accept the old upstream", async () => {
+    const f = await fixture(); await f.delegate(f.pa, f.a);
+    const upstream = f.entry(f.pa).id;
+    f.todos.change({ id: f.task.id, revision: f.todos.raw(f.task.id).revision, ownerId: f.b }, "edit");
+    await expect(f.runtime.recall(f.input(f.pa, f.b, { handoffId: upstream, reason: "Not my upstream" }))).rejects.toThrow(/manager/);
+    f.todos.change({ id: f.task.id, revision: f.todos.raw(f.task.id).revision, ownerId: f.a }, "edit");
+    await f.delegate(f.pa, f.c, f.a);
+    const before = structuredClone(f.todos.raw(f.task.id));
+    await expect(f.runtime.recall(transferInput(f, upstream))).rejects.toThrow(/manager/);
+    expect(f.todos.raw(f.task.id)).toEqual(before);
+    // Being Owner does not allow acceptance on behalf of the original manager.
+    f.available.set(f.a, false); await f.submit(f.pa, f.c); await f.review(f.pa, f.a);
+    f.available.set(f.owner, false); await f.submit(f.pa, f.a); await f.settle();
+    await expect(f.review(f.pa, f.a)).rejects.toThrow(/delegating manager/);
+  });
+  it.each(["sending", "uncertain"])("preserves %s delivery, exact handoff, CAS and actor guards", async state => {
+    const f = await fixture(); await f.delegate(f.pa, f.a);
+    f.todos.change({ id: f.task.id, revision: f.todos.raw(f.task.id).revision, ownerId: f.a }, "edit");
+    const upstream = f.entry(f.pa).id;
+    f.todos.delivery(f.task.id, f.entry(f.pa).delivery.requestId, state);
+    const before = structuredClone(f.todos.raw(f.task.id));
+    await expect(f.runtime.recall(transferInput(f, upstream))).rejects.toThrow(/uncertain/);
+    await expect(f.runtime.recall(transferInput(f, "not-the-active-handoff"))).rejects.toThrow(/manager/);
+    expect(() => f.todos.change({ ...transferInput(f, upstream), revision: before.revision - 1 }, "recall")).toThrow(/changed/);
+    expect(() => f.todos.change({ ...transferInput(f, upstream), actorId: "missing" }, "recall")).toThrow(/existing/);
+    expect(f.todos.raw(f.task.id)).toEqual(before);
+  });
+  it("retains ordinary manager recall's busy gate and execution reassignment", async () => {
+    const f = await fixture(); await f.delegate(f.pa, f.a);
+    f.runtime.canRecall = vi.fn(async () => false);
+    await expect(f.runtime.recall(f.input(f.pa, f.owner, { handoffId: f.entry(f.pa).id, reason: "Take back" }))).rejects.toThrow(/Stop/);
+    f.runtime.canRecall = vi.fn(async () => true);
+    await f.runtime.recall(f.input(f.pa, f.owner, { handoffId: f.entry(f.pa).id, reason: "Worker stopped" }));
+    expect(f.phase(f.pa)).toMatchObject({ assigneeId: f.owner, acceptanceManagerId: f.owner });
+    expect(f.todos.raw(f.task.id).delegations[0].ownerTransfer).toBeUndefined();
+  });
+});
