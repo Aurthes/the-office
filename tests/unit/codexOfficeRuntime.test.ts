@@ -214,6 +214,32 @@ describe("independent Office runtime", () => {
     expect(injections()).toHaveLength(2);
   });
 
+  it.each(["Worker", "Head"])("refreshes the prior full %s rule hash once with closure responsibilities", async title => {
+    const f = fixture(), id = await session(f);
+    f.store.companyContext = vi.fn(() => ({ agentId: id, title }));
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+    const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
+    const asyncRule = " After starting asynchronous work, ensure a completion notification or timed recheck, then use the result to continue or report a blocker; launch is not delivery.";
+    const dependencyRule = "For each dependency, specify the completion condition, successor, trigger owner and event, and handoff inputs; the trigger owner handles failure or uncertainty until a real handoff and worker-turn receipt confirm pickup. ";
+    expect(payload.split(asyncRule)).toHaveLength(2);
+    expect(payload.includes(dependencyRule)).toBe(title === "Head");
+    const previous = payload.replace(asyncRule, "").replace(dependencyRule, "").replace("coordinate people and parallel work", "coordinate people, dependencies and parallel work");
+    expect(previous).not.toBe(payload);
+    f.store.get(id).projectContext = createHash("sha256").update(previous).digest("hex"); f.store.save();
+    const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
+    const startAt = f.client.call.mock.calls.length;
+    await restored.call("turn/start", { threadId: id, input: [] });
+    const refreshed = (injections()[1][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
+    expect(refreshed).toBe(payload);
+    await restored.call("turn/start", { threadId: id, input: [] });
+    const restarted = new CodexOfficeStore(f.directory, f.client); restarted.companyContext = f.store.companyContext;
+    await restarted.call("turn/start", { threadId: id, input: [] });
+    expect(injections()).toHaveLength(2);
+    expect(f.client.call.mock.calls.slice(startAt).map(([method]) => method)).toEqual(["thread/inject_items", "turn/start", "turn/start", "turn/start"]);
+    expect(f.store.companyContext).toHaveBeenCalledTimes(4);
+  });
+
   it("batches independently cached Q and project context without queries or repeated organization data", async () => {
     const f = fixture(), id = await session(f);
     let title = "Head", summary = "First question";
