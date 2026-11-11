@@ -5,6 +5,8 @@ const crypto = require("node:crypto");
 
 const active = run => ["waiting", "dispatching", "running"].includes(run?.status);
 const latest = task => task.runs.at(-1);
+const specified = task => Object.hasOwn(task, "invocations");
+const nextInvocation = task => task.invocations.find(time => task.lastInvocationAt == null || time > task.lastInvocationAt) ?? null;
 
 // One scheduler belongs to the Office gateway, independent of browser clients.
 // Persist the claim before sending. An ambiguous send is never retried blindly.
@@ -17,6 +19,10 @@ class OfficeSchedules {
     this.completions = new Map(); this.ticking = false; this.closed = false;
     let recovered = false;
     for (const task of this.data.tasks) {
+      if (specified(task)) {
+        task.lastInvocationAt ??= null;
+        task.nextRunAt = nextInvocation(task);
+      }
       if (["dispatching", "running"].includes(latest(task)?.status)) {
         Object.assign(latest(task), { status: "unknown", error: "Office restarted during this run. Check the conversation before resuming.", finishedAt: this.now() });
         task.enabled = false; recovered = true;
@@ -39,9 +45,9 @@ class OfficeSchedules {
   pendingThreadIds() {
     const ids = new Set();
     for (const task of this.data.tasks) {
-      if (task.enabled) ids.add(task.threadId);
+      if (task.enabled && (!specified(task) || task.nextRunAt != null)) ids.add(task.threadId);
       const run = latest(task);
-      if (["waiting", "dispatching"].includes(run?.status)) ids.add(run.threadId);
+      if (["waiting", "dispatching"].includes(run?.status) || (specified(task) && run?.status === "running")) ids.add(run.threadId);
     }
     return ids;
   }
@@ -55,10 +61,20 @@ class OfficeSchedules {
     if (typeof input.prompt !== "string" || !input.prompt.trim() || input.prompt.length > 32768) throw new Error("Task instructions must contain 1–32768 characters");
     if (typeof input.threadId !== "string") throw new Error("Choose an Office session");
     this.getSession(input.threadId);
-    if (!Number.isSafeInteger(input.intervalMinutes) || input.intervalMinutes < 1 || input.intervalMinutes > 525600) throw new Error("Repeat interval must be 1–525600 minutes");
-    if (!Number.isSafeInteger(input.firstRunAt) || input.firstRunAt < 0 || input.firstRunAt > 8e15) throw new Error("Choose a valid first run time");
     if (typeof input.enabled !== "boolean") throw new Error("Choose whether the task is enabled");
-    return { name: input.name.trim(), prompt: input.prompt.trim(), threadId: input.threadId, intervalMinutes: input.intervalMinutes, firstRunAt: input.firstRunAt, enabled: input.enabled };
+    let timing;
+    if (specified(input)) {
+      if (Object.hasOwn(input, "intervalMinutes") || Object.hasOwn(input, "firstRunAt")) throw new Error("Choose invocations or recurring fields, not both");
+      if (!Array.isArray(input.invocations) || input.invocations.length > 1000 || input.invocations.some(time => !Number.isSafeInteger(time) || time < 0 || time > 8e15)) throw new Error("Invocations must be at most 1000 UTC epoch millisecond times");
+      const invocations = [...input.invocations].sort((a, b) => a - b);
+      if (new Set(invocations).size !== invocations.length) throw new Error("Duplicate invocation time");
+      timing = { invocations };
+    } else {
+      if (!Number.isSafeInteger(input.intervalMinutes) || input.intervalMinutes < 1 || input.intervalMinutes > 525600) throw new Error("Repeat interval must be 1–525600 minutes");
+      if (!Number.isSafeInteger(input.firstRunAt) || input.firstRunAt < 0 || input.firstRunAt > 8e15) throw new Error("Choose a valid first run time");
+      timing = { intervalMinutes: input.intervalMinutes, firstRunAt: input.firstRunAt };
+    }
+    return { name: input.name.trim(), prompt: input.prompt.trim(), threadId: input.threadId, ...timing, enabled: input.enabled };
   }
   futureSlot(task) {
     const step = task.intervalMinutes * 60000;
@@ -67,18 +83,30 @@ class OfficeSchedules {
   create(input) {
     const config = this.validate(input);
     if (this.data.tasks.length >= 100) throw new Error("At most 100 scheduled tasks are supported");
-    const task = { ...config, id: crypto.randomUUID(), nextRunAt: config.firstRunAt, createdAt: this.now(), scheduleVersion: 0, runs: [] };
+    const task = { ...config, id: crypto.randomUUID(), ...(specified(config) ? { lastInvocationAt: null, nextRunAt: config.invocations[0] ?? null } : { nextRunAt: config.firstRunAt }), createdAt: this.now(), scheduleVersion: 0, runs: [] };
     this.data.tasks.push(task); this.save(); return { task };
   }
   update(input) {
-    const task = this.get(input.id), config = this.validate(input);
-    const timingChanged = config.firstRunAt !== task.firstRunAt || config.intervalMinutes !== task.intervalMinutes;
+    const task = this.get(input.id);
+    if (specified(task) && !specified(input)) throw new Error("Include invocations when updating a specified-time task");
+    const config = this.validate(input);
+    const timingChanged = specified(config)
+      ? !specified(task) || JSON.stringify(config.invocations) !== JSON.stringify(task.invocations)
+      : config.firstRunAt !== task.firstRunAt || config.intervalMinutes !== task.intervalMinutes;
+    const targetChanged = task.threadId !== config.threadId;
     const resumed = !task.enabled && config.enabled;
+    // Preserve an unsent specified occurrence (including a confirmed busy claim)
+    // on ordinary text edits. A changed plan or pause intentionally cancels it.
+    if (latest(task)?.status === "waiting" && (!specified(task) || timingChanged || targetChanged || !config.enabled)) task.runs.pop();
+    if (latest(task)?.status === "waiting") Object.assign(latest(task), { name: config.name, prompt: config.prompt });
     Object.assign(task, config);
-    if (timingChanged) { task.nextRunAt = config.firstRunAt; task.scheduleVersion++; }
+    if (specified(task)) {
+      delete task.firstRunAt; delete task.intervalMinutes;
+      task.lastInvocationAt ??= null;
+      task.nextRunAt = nextInvocation(task);
+      if (timingChanged || targetChanged || resumed) task.scheduleVersion++;
+    } else if (timingChanged) { task.nextRunAt = config.firstRunAt; task.scheduleVersion++; }
     else if (resumed) { task.nextRunAt = this.futureSlot(task); task.scheduleVersion++; }
-    // A queued occurrence has not sent anything yet; edits/pause replace it.
-    if (latest(task)?.status === "waiting") task.runs.pop();
     this.save(); return { task };
   }
   pauseForSession(threadId) {
@@ -131,7 +159,7 @@ class OfficeSchedules {
         let run = latest(task);
         if (run?.status === "running" || run?.status === "dispatching") continue;
         if (run?.status !== "waiting") {
-          if (!task.enabled || task.nextRunAt > this.now()) continue;
+          if (!task.enabled || task.nextRunAt == null || task.nextRunAt > this.now()) continue;
           run = this.enqueue(task, task.nextRunAt);
         }
         try { this.getSession(run.threadId); }
@@ -140,14 +168,23 @@ class OfficeSchedules {
         let ready;
         try { ready = await this.canSend(run.threadId); } catch { continue; }
         if (this.closed || !this.data.tasks.includes(task) || latest(task) !== run || !ready) continue;
-        run.status = "dispatching"; run.startedAt = this.now(); this.save();
+        run.status = "dispatching"; run.startedAt = this.now();
+        if (!run.manual && specified(task)) {
+          task.lastInvocationAt = Math.max(task.lastInvocationAt ?? -1, run.scheduledAt);
+          task.nextRunAt = nextInvocation(task);
+        }
+        this.save();
         try {
           const message = `[Scheduled task: ${run.name}]\nScheduled occurrence: ${new Date(run.scheduledAt).toISOString()}\nActual dispatch: ${new Date(this.now()).toISOString()}\n${run.manual ? "Manual run." : "Use the scheduled occurrence when determining the report window. Late delivery does not change that window."}\n\n${run.prompt}`;
           const result = await this.send(run.threadId, message, `schedule-${run.id}`, { purpose: "automation", trigger: "schedule", originId: run.id });
-          if (result.status === "busy") { run.status = "waiting"; run.startedAt = null; this.save(); continue; }
+          if (result.status === "busy") {
+            run.status = "waiting"; run.startedAt = null;
+            if (latest(task) === run && (task.scheduleVersion !== run.scheduleVersion || (!run.manual && !task.enabled))) task.runs.pop();
+            this.save(); continue;
+          }
           if (result.status !== "started" || !result.turnId) throw new Error("Scheduled message acceptance could not be confirmed");
           run.status = "running"; run.turnId = result.turnId;
-          if (!run.manual && task.scheduleVersion === run.scheduleVersion) task.nextRunAt = run.scheduledAt + task.intervalMinutes * 60000;
+          if (!run.manual && !specified(task) && task.scheduleVersion === run.scheduleVersion) task.nextRunAt = run.scheduledAt + task.intervalMinutes * 60000;
           this.save();
           const done = this.completions.get(`${run.threadId}:${run.turnId}`);
           if (done) this.finish(run, done.status, done.error);

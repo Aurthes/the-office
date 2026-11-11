@@ -192,3 +192,89 @@ describe("Office scheduled conversation tasks", () => {
     expect(readFileSync(file, "utf8")).toBe('{"version":99,"tasks":[]}');
   });
 });
+
+
+describe("specified Office invocation times", () => {
+  function once(f: ReturnType<typeof fixture>, invocations = [f.config.firstRunAt]) {
+    const { intervalMinutes, firstRunAt, ...config } = f.config; void intervalMinutes; void firstRunAt;
+    return { ...config, invocations };
+  }
+  it("claims durably before send, exhausts once, and does not replay after many ticks or restart", async () => {
+    const f = fixture(), config = once(f), task = f.scheduler.create(config).task;
+    f.deps.send.mockImplementationOnce(async () => {
+      const disk = JSON.parse(readFileSync(path.join(f.directory, "scheduled-tasks.json"), "utf8")).tasks[0];
+      expect(disk).toMatchObject({ lastInvocationAt: config.invocations[0], nextRunAt: null, runs: [{ status: "dispatching" }] });
+      return { status: "started", turnId: "one" };
+    });
+    await f.scheduler.tick(); expect([...f.scheduler.pendingThreadIds()]).toEqual(["chat"]);
+    f.complete("one"); expect([...f.scheduler.pendingThreadIds()]).toEqual([]);
+    f.advance(86400000); for (let i=0;i<4;i++) await f.scheduler.tick();
+    const restored = new OfficeSchedules(f.directory, f.deps); await restored.tick();
+    expect(task).toMatchObject({ enabled: true, nextRunAt: null }); expect(f.deps.send).toHaveBeenCalledTimes(1);
+  });
+  it("normalizes a past unordered list, drains busy backlog in order, persists beyond ten runs and never resets the claim", async () => {
+    const f = fixture(), times = Array.from({length:12}, (_,i)=>f.config.firstRunAt-12000+i*1000), config = once(f,[...times].reverse()), task=f.scheduler.create(config).task;
+    expect(task.invocations).toEqual(times);
+    f.deps.canSend.mockResolvedValueOnce(false); await f.scheduler.tick(); expect(task.lastInvocationAt).toBe(null);
+    f.deps.send.mockResolvedValueOnce({ status:"busy",turnId:"" }); await f.scheduler.tick();
+    const firstId=task.runs[0].id; const restored=new OfficeSchedules(f.directory,f.deps);
+    for(let i=0;i<12;i++){await restored.tick();const run=restored.get(task.id).runs.at(-1); if(i===0)expect(run.id).toBe(firstId);expect(run.scheduledAt).toBe(times[i]);restored.handle({method:"turn/completed",params:{threadId:"chat",turn:{id:run.turnId,status:"completed"}}});}
+    const done=restored.get(task.id);expect(done.runs).toHaveLength(10);expect(done.nextRunAt).toBe(null);
+    restored.update({...config,id:task.id,lastInvocationAt:null});await restored.tick();
+    const again=new OfficeSchedules(f.directory,f.deps);await again.tick();expect(again.get(task.id).lastInvocationAt).toBe(times.at(-1));expect(f.deps.send).toHaveBeenCalledTimes(13);
+  });
+  it("keeps waiting and confirmed-busy slots on text edits, but list/target edits or pause cancel unsent work", async()=>{
+    const f=fixture(),config=once(f),task=f.scheduler.create(config).task;
+    f.deps.canSend.mockResolvedValueOnce(false);await f.scheduler.tick();const id=task.runs[0].id;
+    f.scheduler.update({...config,id:task.id,prompt:"New instructions"});expect(task.runs[0].id).toBe(id);
+    f.deps.send.mockResolvedValueOnce({status:"busy",turnId:""});await f.scheduler.tick();expect(f.deps.send.mock.calls.at(-1)?.[1]).toContain("New instructions");
+    f.scheduler.update({...config,id:task.id,name:"Edited"});expect(task.runs[0].id).toBe(id);
+    await f.scheduler.tick();expect(task.runs[0].id).toBe(id);expect(task.runs[0].status).toBe("running");f.complete(task.runs[0].turnId);
+    f.scheduler.update({...config,id:task.id,invocations:[f.config.firstRunAt+1000]});f.advance(1000);f.deps.canSend.mockResolvedValueOnce(false);await f.scheduler.tick();
+    f.scheduler.update({...config,id:task.id,invocations:[f.config.firstRunAt+1000],threadId:"other"});expect(task.runs).toHaveLength(1);
+    await f.scheduler.tick();expect(task.runs.at(-1).threadId).toBe("other");
+  });
+  it("rearms the same id while running and preserves the new cursor through late ACK/completion", async()=>{
+    const f=fixture(),config=once(f),task=f.scheduler.create(config).task,next=f.config.firstRunAt+2000;
+    f.deps.send.mockImplementationOnce(async()=>{f.scheduler.update({...config,id:task.id,invocations:[next]});f.complete("late");return{status:"started",turnId:"late"};});
+    await f.scheduler.tick();expect(task.runs[0].status).toBe("completed");expect(task.nextRunAt).toBe(next);
+    f.advance(2000);await f.scheduler.tick();expect(f.deps.send).toHaveBeenCalledTimes(2);expect(task.nextRunAt).toBe(null);
+    f.scheduler.update({...config,id:task.id,invocations:[]});expect(task.runs.at(-1).status).toBe("running");
+    expect(()=>f.scheduler.remove({id:task.id})).toThrow(/finish/);f.complete(task.runs.at(-1).turnId);await f.scheduler.tick();expect(f.deps.send).toHaveBeenCalledTimes(2);
+  });
+  it("cancels an obsolete busy receipt after an in-flight edit without replacing the new plan",async()=>{
+    const f=fixture(),config=once(f),task=f.scheduler.create(config).task,next=f.config.firstRunAt+1000;
+    f.deps.send.mockImplementationOnce(async()=>{f.scheduler.update({...config,id:task.id,invocations:[next]});return{status:"busy",turnId:""};});
+    await f.scheduler.tick();expect(task.runs).toHaveLength(0);expect(task.nextRunAt).toBe(next);await f.scheduler.tick();expect(f.deps.send).toHaveBeenCalledTimes(1);
+    f.advance(1000);await f.scheduler.tick();expect(f.deps.send).toHaveBeenCalledTimes(2);
+  });
+  it("preserves a crash/unknown boundary, refuses automatic replay, and requires an explicit new time",async()=>{
+    const f=fixture(),config=once(f),task=f.scheduler.create(config).task;
+    f.deps.send.mockRejectedValueOnce(Error("Lost ACK"));await f.scheduler.tick();
+    expect(task).toMatchObject({enabled:false,lastInvocationAt:config.invocations[0],nextRunAt:null});
+    const restored=new OfficeSchedules(f.directory,f.deps);restored.update({...config,id:task.id,enabled:true});await restored.tick();expect(f.deps.send).toHaveBeenCalledTimes(1);
+    restored.update({...config,id:task.id,invocations:[f.config.firstRunAt+1]});f.advance(1);await restored.tick();
+    const crashed=new OfficeSchedules(f.directory,f.deps);expect(crashed.get(task.id)).toMatchObject({enabled:false,nextRunAt:null});expect(crashed.get(task.id).runs.at(-1).status).toBe("unknown");
+  });
+  it("supports clearing, pause/resume and manual runs without consuming/resetting the list",async()=>{
+    const f=fixture(),config=once(f,[f.config.firstRunAt+5000]),task=f.scheduler.create({...config,enabled:false}).task;
+    f.scheduler.runNow({id:task.id});await f.scheduler.tick();expect(task.lastInvocationAt).toBe(null);expect(task.nextRunAt).toBe(config.invocations[0]);f.complete(task.runs[0].turnId);
+    f.advance(5000);f.scheduler.update({...config,id:task.id});f.deps.canSend.mockResolvedValueOnce(false);await f.scheduler.tick();
+    f.scheduler.update({...config,id:task.id,enabled:false});expect(task.runs).toHaveLength(1);
+    f.scheduler.update({...config,id:task.id});await f.scheduler.tick();f.complete(task.runs.at(-1).turnId);
+    f.scheduler.update({...config,id:task.id,invocations:[]});expect(task.nextRunAt).toBe(null);expect(task.enabled).toBe(true);await f.scheduler.tick();expect(f.deps.send).toHaveBeenCalledTimes(2);
+    f.scheduler.remove({id:task.id});
+  });
+  it("rejects mixed/invalid/duplicate input and old-client conversion, permits explicit recurring-to-list conversion",()=>{
+    const f=fixture(),config=once(f);
+    for(const invocations of [null,"bad",[NaN],[-1],[8e15+1],[1.2],[1,1],Array(1001).fill(1)])expect(()=>f.scheduler.create({...config,invocations})).toThrow();
+    for(const mix of [{firstRunAt:0},{intervalMinutes:60}])expect(()=>f.scheduler.create({...config,...mix})).toThrow(/not both/);
+    const task=f.scheduler.create(config).task;expect(()=>f.scheduler.update({...f.config,id:task.id})).toThrow(/Include invocations/);
+    const old=f.scheduler.create(f.config).task;f.scheduler.update({...config,id:old.id});expect(old).not.toHaveProperty("intervalMinutes");expect(old).not.toHaveProperty("firstRunAt");expect(old.invocations).toEqual(config.invocations);
+  });
+  it("rechecks ownership after a readiness yield when the list is cleared or the task deleted",async()=>{
+    const f=fixture(),config=once(f),task=f.scheduler.create(config).task;
+    f.deps.canSend.mockImplementationOnce(async()=>{f.scheduler.update({...config,id:task.id,invocations:[]});return true;});await f.scheduler.tick();expect(f.deps.send).not.toHaveBeenCalled();
+    f.scheduler.update({...config,id:task.id});f.deps.canSend.mockImplementationOnce(async()=>{f.scheduler.remove({id:task.id});return true;});await f.scheduler.tick();expect(f.deps.send).not.toHaveBeenCalled();
+  });
+});

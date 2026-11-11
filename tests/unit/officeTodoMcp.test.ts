@@ -322,6 +322,17 @@ it("makes scheduler CRUD discoverable and usable from two actual department cont
     await call("schedule_update", next);
     expect((await call("schedule_list", { actorId: actor })).tasks[0].nextRunAt).toBe(next.firstRunAt);
     await expect(call("schedule_update", { id: created.id, actorId: actor, enabled: false, requestId: actor+"-bad" })).rejects.toThrow();
+    const { intervalMinutes, firstRunAt, ...shared } = config; void intervalMinutes; void firstRunAt;
+    const specified = { ...shared, actorId: actor, threadId: actor, id: created.id, invocations: [Date.now()+120000], requestId: actor+"-specified" };
+    await call("schedule_update", specified); await call("schedule_update", specified);
+    const read = (await call("schedule_list", { actorId: actor })).tasks[0];
+    expect(read).toMatchObject({ invocations: specified.invocations, nextRunAt: specified.invocations[0], lastInvocationAt: null });
+    expect(read).not.toHaveProperty("intervalMinutes"); expect(read).not.toHaveProperty("firstRunAt");
+    await expect(call("schedule_update", { ...next, requestId: actor+"-old-client" })).rejects.toThrow(/Include invocations/);
+    await expect(call("schedule_update", { ...specified, invocations: null, requestId: actor+"-invalid-times" })).rejects.toThrow(/Invocations/);
+    const schema = discovered.tools.find((t: { name: string }) => t.name === "schedule_create").inputSchema;
+    expect(schema.properties.invocations).toMatchObject({ type: "array", uniqueItems: true });
+    expect(schema.required).not.toContain("intervalMinutes"); expect(schema.oneOf).toHaveLength(2);
     await expect(call("schedule_create", { ...input, actorId: "unknown", requestId: actor+"-unknown" })).rejects.toThrow();
   }
   expect(scheduler.list().tasks).toHaveLength(2);
@@ -331,7 +342,7 @@ it("makes scheduler CRUD discoverable and usable from two actual department cont
   const own = (await call("schedule_list", { actorId: actors[0] })).tasks[0];
   scheduler.runNow({ id: own.id }); await scheduler.tick();
   await expect(call("schedule_delete", { actorId: actors[0], id: own.id, requestId: "early-delete" })).rejects.toThrow(/finish/);
-  await call("schedule_update", { ...config, actorId: actors[0], threadId: actors[0], id: own.id, enabled: false, requestId: "disable" });
+  await call("schedule_update", { name: config.name, prompt: config.prompt, invocations: own.invocations, actorId: actors[0], threadId: actors[0], id: own.id, enabled: false, requestId: "disable" });
   expect(scheduler.get(own.id).runs.at(-1).status).toBe("running");
   scheduler.handle({ method: "turn/completed", params: { threadId: actors[0], turn: { id: "wake-turn", status: "completed" } } });
   await call("schedule_delete", { actorId: actors[0], id: own.id, requestId: "delete-after-turn" });

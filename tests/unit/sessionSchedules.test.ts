@@ -78,3 +78,12 @@ it("handles GatewayClient's synchronous initial status without duplicate reads o
   expect(await screen.findByText("No scheduled tasks for this conversation.")).toBeVisible();
   expect(offline.client.call).toHaveBeenCalledTimes(1);
 });
+
+it("shows specified exhaustion separately from job success, and running wins over exhaustion", async () => {
+  const f=fixture(); const {intervalMinutes,firstRunAt,...base}=task("Exhausted"); void intervalMinutes; void firstRunAt;
+  f.client.call.mockResolvedValue({tasks:[{...base, invocations:[1794400000000],lastInvocationAt:1794400000000,nextRunAt:null,runs:[{id:"fail",scheduledAt:1794400000000,status:"failed",manual:false,error:"Job failed",finishedAt:1794400000010}]},{...base,id:"active",name:"Still running",invocations:[],nextRunAt:null,runs:[{id:"active",scheduledAt:1794400000000,status:"running",manual:false,error:null,finishedAt:null}]}]});
+  render(React.createElement(SessionSchedules,{client:f.client,threadId:"A",active:true}));
+  expect(await screen.findByText("No remaining times",{exact:true,selector:".schedule-status"})).toBeVisible();
+  expect(screen.getByText(/^One-time/)).toBeVisible();expect(screen.getByText("Running",{exact:true})).toBeVisible();expect(screen.getByText("Job failed")).toBeVisible();
+  expect(screen.queryByText("Completed",{exact:true})).toBeNull();expect(screen.queryByText(/Every undefined/)).toBeNull();
+});

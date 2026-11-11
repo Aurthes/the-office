@@ -28,6 +28,7 @@ it("creates a recurring task in an existing Office conversation without sending 
   const f = fixture();
   fireEvent.click(await screen.findByRole("button", { name: "New task" }));
   fireEvent.change(screen.getByLabelText("Task name"), { target: { value: "My hourly report" } });
+  fireEvent.change(screen.getByLabelText("Schedule mode"), { target: { value: "recurring" } });
   fireEvent.change(screen.getByLabelText("First run"), { target: { value: "2026-11-02T10:10" } });
   fireEvent.change(screen.getByLabelText("Task instructions"), { target: { value: "Use only the saved report script." } });
   fireEvent.click(screen.getByRole("button", { name: "Save scheduled task" }));
@@ -131,4 +132,43 @@ it("translates controls while preserving user-supplied names and instructions", 
   expect(within(card).getByRole("button", { name: "立即运行" })).toBeInTheDocument();
   expect(within(card).getByText("Keep user instructions exactly.")).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "到点，把事办好。" })).toBeInTheDocument();
+});
+
+
+it("creates one specified time without recurring fields, supports a list and explicit empty clearing", async () => {
+  const f = fixture(); fireEvent.click(await screen.findByRole("button", { name: "New task" }));
+  fireEvent.change(screen.getByLabelText("Task name"), { target: { value: "Once" } });
+  fireEvent.change(screen.getByLabelText("Task instructions"), { target: { value: "Check the same job." } });
+  fireEvent.change(screen.getByLabelText("Execution time 1"), { target: { value: "2026-11-12T10:00:00.123" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add time" }));
+  fireEvent.change(screen.getByLabelText("Execution time 2"), { target: { value: "2026-11-12T11:00" } });
+  fireEvent.click(screen.getByRole("button", { name: "Remove time 2" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save scheduled task" }));
+  await waitFor(() => expect(f.call.mock.calls.some(([m]) => m === "schedule.create")).toBe(true));
+  const params = f.call.mock.calls.find(([m]) => m === "schedule.create")![1];
+  expect(params).toMatchObject({ invocations: [new Date("2026-11-12T10:00:00.123").getTime()] });
+  expect(params).not.toHaveProperty("firstRunAt"); expect(params).not.toHaveProperty("intervalMinutes");
+});
+it("keeps exact specified timestamps when editing and pause/resume, rejects accidental conversion, and shows exhaustion honestly", async () => {
+  const { intervalMinutes, firstRunAt, ...base } = task(); void intervalMinutes; void firstRunAt;
+  const time = Date.UTC(2026, 10, 12, 10, 3, 27, 123);
+  const once = { ...base, invocations: [time], lastInvocationAt: time, nextRunAt: null };
+  const f = fixture([once]);
+  expect(await screen.findByText("No remaining times")).toBeVisible();
+  expect(screen.queryByText(/Every undefined/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+  await waitFor(() => expect(f.call.mock.calls.some(([m]) => m === "schedule.update")).toBe(true));
+  expect(f.call.mock.calls.find(([m]) => m === "schedule.update")![1]).toMatchObject({ invocations: [time], enabled: false });
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  expect(screen.getByRole("option", { name: "Repeating" })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Task name"), { target: { value: "Edited" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save scheduled task" }));
+  await waitFor(() => expect(f.call.mock.calls.filter(([m]) => m === "schedule.update")).toHaveLength(2));
+  expect(f.call.mock.calls.filter(([m]) => m === "schedule.update")[1][1]).toMatchObject({ invocations: [time] });
+  await waitFor(() => expect(screen.getByRole("button", { name: "Edit" })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  fireEvent.click(screen.getByRole("button", { name: "Remove time 1" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save scheduled task" }));
+  await waitFor(() => expect(f.call.mock.calls.filter(([m]) => m === "schedule.update")).toHaveLength(3));
+  expect(f.call.mock.calls.filter(([m]) => m === "schedule.update")[2][1]).toMatchObject({ invocations: [] });
 });

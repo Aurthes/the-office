@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import type { SessionClient } from "./SessionControls";
-import { type ScheduledTask, labels, inProgress, stamp } from "@/features/ring-ship/ScheduledTasks";
+import { type ScheduledTask, labels, inProgress, stamp, scheduleModeLabel, scheduleIdleLabel } from "@/features/ring-ship/ScheduledTasks";
 import { useUiText } from "@/lib/i18n/ui-language";
 
 type State = { client: SessionClient; owner: string; tasks: ScheduledTask[] | null; online: boolean; loading: boolean; error: string };
@@ -48,9 +48,10 @@ export function SessionSchedules({ client, threadId, active }: { client: Session
     {view?.online && !view.error ? view.tasks?.map(task => {
       const run = task.runs.at(-1), pending = inProgress(run);
       return <article key={task.id} aria-label={task.name}>
-        <div className="session-schedule-heading"><h4>{task.name}</h4><span className="schedule-status" data-status={pending ? run?.status : task.enabled ? "enabled" : "paused"}>{t(pending && run ? labels[run.status] : task.enabled ? "Enabled" : "Paused")}</span></div>
+        <div className="session-schedule-heading"><h4>{task.name}</h4><span className="schedule-status" data-status={pending ? run?.status : task.enabled ? "enabled" : "paused"}>{t(pending && run ? labels[run.status] : scheduleIdleLabel(task))}</span></div>
         <p>{t("Next run")}: {task.enabled ? stamp(task.nextRunAt) : "—"}</p>
-        <p>{t("Every {minutes} min", { minutes: task.intervalMinutes })}</p>
+        <p>{t(scheduleModeLabel(task))}{task.invocations === undefined ? ` · ${t("Every {minutes} min", { minutes: task.intervalMinutes ?? "—" })}` : ` · ${task.invocations.length}`}</p>
+        {task.invocations !== undefined ? <details><summary>{t("Execution times")}</summary><pre>{task.invocations.map(time => new Date(time).toLocaleString()).join("\n") || t("No remaining times")}</pre></details> : null}
         {run ? <><p>{t("Last run")}: {stamp(run.scheduledAt)} · {t(labels[run.status])}{run.manual ? ` · ${t("Manual")}` : ""}</p>{run.error ? <p className="session-schedule-error">{t(run.error)}</p> : null}</> : <p>{t("No runs yet.")}</p>}
         {run?.status === "unknown" && !task.enabled ? <p>{t("This task was paused to avoid a duplicate. Check its conversation before resuming.")}</p> : null}
         <details><summary>{t("Task instructions")}</summary><pre>{task.prompt}</pre></details>
