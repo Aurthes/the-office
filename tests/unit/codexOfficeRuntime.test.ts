@@ -53,7 +53,7 @@ describe("independent Office runtime", () => {
       expect(text.split(OFFICE_COLLABORATION_GUIDELINE)).toHaveLength(2);
       expect(text).toContain("replaces earlier communication wording");
       expect(text).toContain("Before sending, distill what the recipient needs to decide or act");
-      expect(text).toContain("Keep complete execution and verification records in the task or linked evidence");
+      expect(text).toContain("Keep full records in the task or linked evidence");
       expect(text).toContain("If a key fact is missing, ask for it");
       expect(text).toContain("preserve its original-message link through question_context and reply metadata");
       expect(text).toContain("Do not copy their UUIDs or URLs into prose unless needed to disambiguate");
@@ -272,7 +272,7 @@ describe("independent Office runtime", () => {
     await f.store.call("turn/start", { threadId: id, input: [] });
     const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
     const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
-    const rule = "Return gaps to workers and reuse valid checks; when reports contain irrelevant detail or repeated bookkeeping, point out the specific passages for their author to trim. Keep your own replies focused on what affects the decision.";
+    const rule = "Return gaps to workers and reuse valid checks; when reports contain irrelevant detail or repeated bookkeeping, point out the specific passages for their author to trim. Keep your own replies focused on decisions; do not relay routine status again.";
     expect(payload.includes(rule)).toBe(title === "Head");
     expect(payload).toContain("office_tasks.session_send"); expect(payload).toContain("recoverable job");
     if (title === "Head") expect(payload.split(rule)).toHaveLength(2);
@@ -677,4 +677,35 @@ describe("independent Office runtime", () => {
     expect(f.client.call).toHaveBeenLastCalledWith("turn/start", expect.objectContaining({ sandboxPolicy: expect.objectContaining({ writableRoots: [realpathSync(f.workspace)] }) }));
   });
 
+});
+
+
+it.each(["Worker", "Head"])("refreshes unchanged-progress %s guidance through the existing hash once", async title => {
+  const f = fixture(), id = await session(f);
+  f.store.companyContext = vi.fn(() => ({ agentId: id, title }));
+  await f.store.call("turn/start", { threadId: id, input: [] });
+  const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+  const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
+  const current = "Record unchanged routine progress in the task instead of wakeup, acknowledgement or waiting messages. Proactively report completion/failure, new blockers or risks, needed decisions or material ETA changes; answer requested or agreed updates and preserve necessary handoffs. Keep full records in the task or linked evidence; send conclusions, decisive facts and material limits.";
+  const previous = "Keep complete execution and verification records in the task or linked evidence; send the outcome, decisive facts, material limits and any needed decision.";
+  const head = "Keep your own replies focused on decisions; do not relay routine status again.", oldHead = "Keep your own replies focused on what affects the decision.";
+  expect(payload.split(current)).toHaveLength(2);
+  expect(payload.includes(head)).toBe(title === "Head");
+  expect(payload).toContain("invocations:[now + half the remaining ETA]");
+  expect(payload).toContain("inspect the same job without restarting it");
+  expect(payload).toContain("office_tasks.session_send");
+  expect(payload).toContain("real constraints");
+  const prior = payload.replace(current, previous).replace(head, oldHead);
+  expect(prior).not.toBe(payload);
+  f.store.get(id).projectContext = createHash("sha256").update(prior).digest("hex"); f.store.save();
+  const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
+  const startAt = f.client.call.mock.calls.length;
+  await restored.call("turn/start", { threadId: id, input: [] });
+  expect((injections()[1][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text).toBe(payload);
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const restarted = new CodexOfficeStore(f.directory, f.client); restarted.companyContext = f.store.companyContext;
+  await restarted.call("turn/start", { threadId: id, input: [] });
+  expect(injections()).toHaveLength(2);
+  expect(f.client.call.mock.calls.slice(startAt).map(([method]) => method)).toEqual(["thread/inject_items", "turn/start", "turn/start", "turn/start"]);
+  expect(f.store.companyContext).toHaveBeenCalledTimes(4);
 });
