@@ -1,5 +1,6 @@
 "use strict";
 const fs = require("node:fs");
+const { randomUUID } = require("node:crypto");
 const os = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
@@ -31,6 +32,7 @@ function officeEnvironment(home, environment = process.env) {
 class CodexOfficeClient {
   constructor({ home, binary, env = process.env, configOverrides = [], additionalInstructions = "", onFrame = () => {}, onScopeMetadata = () => {}, onScopeGap = () => {} }) {
     const isolated = officeEnvironment(home, env);
+    this.scopeGeneration = randomUUID();
     this.home = isolated.home; this.ready = false; this.pending = new Map(); this.serial = 0;
     this.profile = prepareOfficeProfile(this.home, env, additionalInstructions);
     const command = binary || env.CLAW3D_CODEX_BIN;
@@ -42,7 +44,7 @@ class CodexOfficeClient {
       cwd: this.home, env: isolated.env, stdio: ["pipe", "pipe", scopeLogs ? "pipe" : "inherit"],
     });
     if (scopeLogs) {
-      const reader = nativeScopeLogReader({ onMetadata: onScopeMetadata, onGap: onScopeGap, writeError: text => {
+      const reader = nativeScopeLogReader({ generation: this.scopeGeneration, onMetadata: onScopeMetadata, onGap: onScopeGap, writeError: text => {
         if (process.stderr.writableLength + Buffer.byteLength(text) <= 65536) process.stderr.write(text);
         else onScopeGap("scopeErrorRelayBackpressure");
       } });

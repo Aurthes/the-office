@@ -51,12 +51,12 @@ export function topContributors(groups: UsageContributor[], order: "tokens" | "c
 }
 export type ActionPurpose = "execution" | "coordination" | "workflow" | "mixed" | "unknown";
 export const ACTION_LABELS: Record<ActionPurpose, string> = { execution: "Task execution", coordination: "Communication and coordination", workflow: "Workflow management", mixed: "Mixed actions", unknown: "Undetermined" };
-export type ResponseAction = { purpose: ActionPurpose; reason: string; basis: string; ruleVersion: string; adapterVersion: string; truncated: boolean;
+export type ResponseAction = { strict?: {purpose:ActionPurpose;reason:string;purposeBasis?:string}; purposeBasis?:string; purpose: ActionPurpose; reason: string; basis: string; ruleVersion: string; adapterVersion: string; truncated: boolean;
   outputs: {id:string|null;type:string|null;callId:string|null;tool:string|null;phase:string|null;status:string}[];
-  actions: {itemId:string|null;parentCallId:string|null;tool:string|null;namespace:string|null;status:string;category:ActionPurpose;basis:string}[];
+  actions: {itemId:string|null;parentCallId:string|null;tool:string|null;namespace:string|null;status:string;category:ActionPurpose;basis:string;purposeBasis?:string;operations?:string[];originalCallId?:string|null}[];
   sourceRange: {file:string;startOffset:number;endOffset:number;startOrdinal:number;endOrdinal:number}|null };
-export type ActionPurposeSummary = {ruleVersion:string;adapterVersion:string;recordedFrom:string;basis:string;groups:{id:ActionPurpose;observedResponses:number;components:UsageComponents;cost:CostSummary}[];
-  coverage:{observedResponses:number;measuredResponses:number;unknownUsageResponses:number;linkedResponses:number;classifiedResponses:number;components:Record<"measured"|"linked"|"classified",UsageComponents>;unknownReasons:Record<string,number>;unknownReasonComponents:Record<string,UsageComponents>;truncatedComponents:UsageComponents;pendingComponents:UsageComponents;pendingResponses:number;truncatedResponses:number;retainedFrom:string|null;bytes:number;memoryBytes:number;capacityLimited:boolean;pendingUnlinkedCells:number;unmatchedActionItems:number}};
+export type ActionPurposeSummary = {analysisRecordedFrom?:string;ruleVersion:string;adapterVersion:string;recordedFrom:string;basis:string;groups:{id:ActionPurpose;observedResponses:number;components:UsageComponents;cost:CostSummary;inferredResponses?:number;inferredComponents?:UsageComponents;inferredCost?:CostSummary}[];
+  coverage:{observedResponses:number;measuredResponses:number;unknownUsageResponses:number;linkedResponses:number;classifiedResponses:number;inferredResponses?:number;components:Record<"measured"|"linked"|"classified",UsageComponents> & Partial<Record<"inferred"|"ruleDerived",UsageComponents>>;unknownReasons:Record<string,number>;unknownReasonComponents:Record<string,UsageComponents>;truncatedComponents:UsageComponents;pendingComponents:UsageComponents;pendingResponses:number;truncatedResponses:number;retainedFrom:string|null;bytes:number;memoryBytes:number;capacityLimited:boolean;pendingUnlinkedCells:number;unmatchedActionItems:number}};
 export type ObservedResponse = {
   dispatchEntries?: {requestId:string;senderId:string|null;recipientId:string|null;mode:string;trigger:string}[]; action?: ResponseAction; id: string; cost?: ResponseCost; nativeThreadId: string | null; officeAgentId: string | null; agentName: string; responseId: string | null; turnId: string | null; rootTurnId: string | null;
   observedAt: string; usage: ResponseUsage; configuredModel: string | null; configuredEffort: string | null; modelBasis: "turnContext" | "requestConfiguration" | "unknown";
@@ -69,7 +69,7 @@ export type ObservedResponse = {
 export type UsageWindow = { kind: "rolling24h"; start: string; end: string; timeZone: "UTC" };
 export type MessageChain = { nativeThreadId: string; turnId: string; recipientId: string | null; entries: { itemId?: string | null; requestId: string; senderId: string | null; recipientId: string | null; mode: "start" | "steer"; trigger: string; acceptedAt: number }[]; truncatedEntries: number; activities: { itemId: string; type: string }[]; activityTruncated: boolean; observedResponses: number; components: UsageComponents; activityBasis: string };
 export type UsageDetail = {
-  actionSummary?: ActionPurposeSummary;
+  purposeView?: "strict" | "estimated"; actionSummary?: ActionPurposeSummary;
   messageChains?: { scope: string; incrementalMessageTokens: null; historicalLedger: string; turns: MessageChain[] };
   window?: UsageWindow | null; serverNow?: string; windowPartial?: boolean;
   date: string | null; timeZone: string; rows: ObservedResponse[]; count: number; totals: ResponseUsage | null; nextCursor: string | null;

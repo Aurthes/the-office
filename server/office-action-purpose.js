@@ -4,7 +4,9 @@ const path = require("node:path");
 const { cleanScopeRecord } = require("./codex-scope-metadata");
 const { components } = require("./office-usage-purpose");
 const { emptyCostSummary, addCost, estimateResponseCost } = require("./office-token-pricing");
-const VERSION = "0.166.0", RULE = "observed-actions-1", DAY = 86400000;
+const { commandSummary, cleanSummary } = require("./office-operation-summary");
+const { actionHeader } = require("./office-action-header");
+const VERSION = "0.166.0", RULE = "purpose-estimate-2", DAY = 86400000;
 const PURPOSES = ["execution", "coordination", "workflow", "mixed", "unknown"];
 const safe = x => typeof x === "string" && /^[a-zA-Z0-9_.:/-]{1,256}$/.test(x) ? x : null;
 const key = (thread, call) => `${thread}:${call}`;
@@ -12,6 +14,8 @@ const status = x => ["completed", "failed", "terminated", "running", "unknown"].
 function toolPurpose(tool, namespace, typed = []) {
   const match = /^mcp__office_tasks__(.+)$/.exec(tool || "");
   if (match) { tool = match[1]; namespace = "office_tasks"; }
+  if (namespace === "mcp__office_tasks") namespace = "office_tasks";
+  if ((namespace === "clock" || !namespace) && ["curr_time", "sleep"].includes(tool)) return "workflow";
   if (namespace === "office_tasks") {
     if (["session_send", "todo_delegate", "todo_submit", "todo_review", "todo_recall"].includes(tool)) return "coordination";
     if (/^(?:todo_|schedule_)/.test(tool) || tool === "question_context") return "workflow";
@@ -20,12 +24,13 @@ function toolPurpose(tool, namespace, typed = []) {
   if (["exec_command", "shell_command"].includes(tool) && typed.length && typed.every(x => ["read", "search", "list_files"].includes(x))) return "execution";
   return "unknown";
 }
-function classify(record) {
+function classify(record, strict = false) {
   if (!record) return { purpose: "unknown", reason: "noActionIndex" };
   if (!record.linked) return { purpose: "unknown", reason: record.reason || "unlinkedBatch" };
   if (record.truncated) return { purpose: "unknown", reason: "metadataTruncated" };
   if (record.conflict) return { purpose: "unknown", reason: "identityConflict" };
-  const categories = new Set();
+  const categories = new Set(); let inferred = false;
+  const add = action => { if (action?.purposeBasis === "static-inferred") { inferred = true; categories.add(strict ? "unknown" : action.category); } else categories.add(action?.category || "unknown"); };
   for (const output of record.outputs) {
     if (!output.callId) continue;
     if (output.tool === "wait") { categories.add("workflow"); continue; }
@@ -34,20 +39,20 @@ function classify(record) {
       if (!["completed", "failed", "terminated"].includes(output.status)) return { purpose: "unknown", reason: "pendingCell" };
       const children = record.actions.filter(a => a.parentCallId === output.callId);
       if (!children.length) return { purpose: "unknown", reason: "genericExecWithoutActions" };
-      for (const child of children) categories.add(child.category);
+      for (const child of children) add(child);
     } else {
       const action = record.actions.find(a => a.itemId === output.callId);
-      categories.add(action?.category || toolPurpose(output.tool, output.namespace));
+      if (action) add(action); else categories.add(toolPurpose(output.tool, output.namespace));
     }
   }
   if (!categories.size) return { purpose: "unknown", reason: "ordinaryOutputSemanticsUnknown" };
   if (categories.has("unknown")) return { purpose: "unknown", reason: "actionSemanticsUnknown" };
-  return { purpose: categories.size > 1 ? "mixed" : [...categories][0], reason: "observedToolActions" };
+  return { purpose: categories.size > 1 ? "mixed" : [...categories][0], reason: inferred ? "staticInferredActions" : "ruleDerivedActions", purposeBasis: inferred ? "static-inferred" : "rule-derived" };
 }
 function cleanRecord(v) {
   if (!v || !safe(v.nativeThreadId) || !safe(v.turnId) || !safe(v.responseId) || !Number.isFinite(Date.parse(v.observedAt))) return null;
   const outputs = (Array.isArray(v.outputs) ? v.outputs : []).slice(0, 32).map(o => ({ id: safe(o.id), type: safe(o.type), callId: safe(o.callId), tool: safe(o.tool), namespace: safe(o.namespace), phase: safe(o.phase), status: status(o.status), generation: safe(o.generation), cellId: safe(o.cellId) }));
-  const actions = (Array.isArray(v.actions) ? v.actions : []).slice(0, 32).map(a => ({ itemId: safe(a.itemId), parentCallId: safe(a.parentCallId), tool: safe(a.tool), namespace: safe(a.namespace), status: status(a.status), category: PURPOSES.includes(a.category) ? a.category : "unknown", basis: ["explicitCellIdentity", "directCallId"].includes(a.basis) ? a.basis : "unknown" }));
+  const actions = (Array.isArray(v.actions) ? v.actions : []).slice(0, 32).map(a => ({ itemId: safe(a.itemId), parentCallId: safe(a.parentCallId), tool: safe(a.tool), namespace: safe(a.namespace), status: status(a.status), category: PURPOSES.includes(a.category) ? a.category : "unknown", basis: ["explicitCellIdentity", "directCallId"].includes(a.basis) ? a.basis : "unknown", purposeBasis: a.purposeBasis === "static-inferred" ? "static-inferred" : "rule-derived", operations: cleanSummary(a)?.operations || [], originalCallId: safe(a.originalCallId) }));
   const s = v.source;
   const source = s && typeof s.file === "string" && s.file.length < 512 && !s.file.split(/[\\/]/).includes("..") && /^(sessions|archived_sessions)\//.test(s.file) ? { file: s.file, startOffset: s.startOffset, endOffset: s.endOffset, startOrdinal: s.startOrdinal, endOrdinal: s.endOrdinal } : null;
   if (source && Object.entries(source).some(([k,n]) => k !== "file" && (!Number.isSafeInteger(n) || n < 0))) return null;
@@ -55,7 +60,7 @@ function cleanRecord(v) {
 }
 class ActionIndex {
   constructor(directory, now = Date.now, gap = () => {}) {
-    this.directory = directory; this.now = now; this.gap = gap; this.records = new Map(); this.dirty = new Map(); this.calls = new Map(); this.blockedCalls = new Set(); this.childRefs = new Map(); this.cells = new Map(); this.cellCalls = new Map(); this.pending = new Map(); this.pendingCount = 0; this.results = new Map(); this.waitCells = new Map(); this.items = new Map(); this.sources = new Map(); this.dayBytes = new Map(); this.activeDayBytes = new Map(); this.bytes = 0; this.memoryBytes = 0; this.sizes = new Map(); this.recordedFrom = new Date(now()).toISOString(); this.capacityLimited = false;
+    this.directory = directory; this.now = now; this.gap = gap; this.records = new Map(); this.dirty = new Map(); this.calls = new Map(); this.blockedCalls = new Set(); this.childRefs = new Map(); this.cells = new Map(); this.cellCalls = new Map(); this.pending = new Map(); this.pendingCount = 0; this.results = new Map(); this.waitCells = new Map(); this.items = new Map(); this.processes = new Map(); this.sources = new Map(); this.dayBytes = new Map(); this.activeDayBytes = new Map(); this.bytes = 0; this.memoryBytes = 0; this.sizes = new Map(); this.recordedFrom = new Date(now()).toISOString(); this.analysisRecordedFrom = this.recordedFrom; this.capacityLimited = false;
   }
   async init() {
     for (const file of (await fs.readdir(this.directory)).filter(x => /^actions-\d{4}-\d{2}-\d{2}\.jsonl$/.test(x)).sort()) {
@@ -123,7 +128,7 @@ class ActionIndex {
     if (prior && prior!==k) {this.edit(prior,r=>({...r,conflict:true}));this.edit(k,r=>({...r,conflict:true}));return;}
     this.childRefs.set(key(child.nativeThreadId,child.callId),k);
     const item=this.items.get(key(child.nativeThreadId,child.callId)), previous=this.records.get(k)?.actions.find(a=>a.itemId===child.callId);
-    const action={itemId:child.callId,parentCallId:parent.callId,tool:item?.tool||child.tool,namespace:item?.namespace||child.namespace,status:item?.status||previous?.status||"unknown",category:item?toolPurpose(item.tool,item.namespace,item.typed||[]):previous?.category||toolPurpose(child.tool,child.namespace),basis:"explicitCellIdentity"};
+    const action={itemId:child.callId,parentCallId:parent.callId,tool:item?.tool||child.tool,namespace:item?.namespace||child.namespace,status:item?.status||previous?.status||"unknown",category:item?.summary?.category || (item?toolPurpose(item.tool,item.namespace,item.typed||[]):previous?.category||toolPurpose(child.tool,child.namespace)),purposeBasis:item?.summary?.purposeBasis || previous?.purposeBasis || "rule-derived",operations:item?.summary?.operations || previous?.operations || [],originalCallId:item?.originalCallId || previous?.originalCallId || null,basis:"explicitCellIdentity"};
     this.edit(k,r=>({...r,truncated:r.truncated||r.actions.length>=32&&!r.actions.some(a=>a.itemId===child.callId),actions:[...r.actions.filter(a=>a.itemId!==child.callId),action].slice(0,32)}));
   }
   finish(thread,call,s) {
@@ -132,18 +137,35 @@ class ActionIndex {
     const wait=this.waitCells.get(ck), parent=wait&&this.cells.get(wait);
     if (parent) {this.edit(this.calls.get(key(thread,parent.callId)),r=>({...r,outputs:r.outputs.map(o=>o.callId===parent.callId?{...o,status:s}:o)}));if(["completed","failed","terminated"].includes(s))this.waitCells.delete(ck);}
   }
-  item(thread,item) {
+  item(thread,item,generation=null,analyze=true) {
     const id=safe(item.id); if(!id)return;
+    const ck=key(thread,id), priorAction=this.records.get(this.childRefs.get(ck) || this.calls.get(ck))?.actions.find(a=>a.itemId===id);
+    const previous=this.items.get(ck) || (priorAction?.originalCallId ? {originalCallId:priorAction.originalCallId,summary:{category:priorAction.category,purposeBasis:priorAction.purposeBasis,operations:priorAction.operations}} : null);
     const value={status:status(item.status),tool:item.type==="McpToolCall"?safe(item.tool):item.type==="CommandExecution"?"exec_command":safe(item.type),namespace:item.type==="McpToolCall"?safe(item.server):"functions",typed:(Array.isArray(item.parsed_cmd)?item.parsed_cmd:[]).map(x=>safe(x.type)).filter(Boolean)};
-    const ck=key(thread,id); if(this.items.size<8192||this.items.has(ck))this.items.set(ck,value);else this.gap("actionItemLimit");
-    for(const k of [this.childRefs.get(ck),this.calls.get(ck)].filter(Boolean)) this.edit(k,r=>({...r,actions:[...r.actions.filter(a=>a.itemId!==id),{...r.actions.find(a=>a.itemId===id),itemId:id,tool:value.tool,namespace:value.namespace,status:value.status,category:toolPurpose(value.tool,value.namespace,value.typed),basis:this.childRefs.has(ck)?"explicitCellIdentity":"directCallId"}].slice(0,32)}));
+    value.summary = analyze && item.type === "CommandExecution" ? commandSummary(item.command) : null;
+    const interaction=["unifiedExecInteraction", "unified_exec_interaction"].includes(item.source);
+    if (interaction) {value.summary=!generation && previous?.originalCallId ? previous.summary : null;value.typed=[];} else value.summary ||= previous?.summary || null;
+    value.originalCallId = previous?.originalCallId || null;
+    const processId = safe(item.process_id);
+    if (safe(generation) && processId && item.type === "CommandExecution") {
+      const pk = `${generation}:${thread}:${processId}`, original=this.processes.get(pk);
+      if (["unifiedExecStartup", "unified_exec_startup"].includes(item.source)) {
+        if (original && original.id !== id) this.processes.set(pk, {conflict:true});
+        else if (this.processes.size < 8192 || original) this.processes.set(pk,{id,summary:value.summary});
+        else this.gap("actionProcessLimit");
+      } else if (["unifiedExecInteraction", "unified_exec_interaction"].includes(item.source)) {
+        value.summary=original?.conflict?null:original?.summary||null;value.originalCallId=original?.conflict?null:original?.id||null;
+      }
+    }
+    if(this.items.size<8192||this.items.has(ck))this.items.set(ck,value);else this.gap("actionItemLimit");
+    for(const k of [this.childRefs.get(ck),this.calls.get(ck)].filter(Boolean)) this.edit(k,r=>({...r,actions:[...r.actions.filter(a=>a.itemId!==id),{...r.actions.find(a=>a.itemId===id),itemId:id,tool:value.tool,namespace:value.namespace,status:value.status,category:value.summary?.category || toolPurpose(value.tool,value.namespace,value.typed),purposeBasis:value.summary?.purposeBasis || "rule-derived",operations:value.summary?.operations || [],originalCallId:value.originalCallId,basis:this.childRefs.has(ck)?"explicitCellIdentity":"directCallId"}].slice(0,32)}));
   }
   consume(text,thread,state,offset,oversize=false) {
     const h=/^\{\s*"timestamp"\s*:\s*"[^"\\]+"\s*,\s*"ordinal"\s*:\s*(\d+)\s*,\s*"type"\s*:\s*"([a-z_]+)"/.exec(text.slice(0,320)); if(!h)return;
     let source=this.sources.get(thread); if(!source||source.file!==state.file||source.epoch!==(state.actionEpoch||0)){if(!source&&this.sources.size>=512){this.gap("actionSourceLimit");return;}source={file:state.file,epoch:state.actionEpoch||0,last:null,turns:new Map()};this.sources.set(thread,source);}
     const ordinal=+h[1], type=h[2]; if(source.last!==null&&ordinal!==source.last+1)for(const b of source.turns.values())b.valid=false;source.last=ordinal;
     if(oversize&&/"type"\s*:\s*"(?:reasoning|Reasoning)"/.test(text.slice(0,1024)))return;
-    if(oversize){for(const b of source.turns.values())b.valid=false;this.gap("actionOversizeLine");return;}
+    if(oversize){const header=type==="event_msg"?actionHeader(text):null;if(header){this.item(thread,header.payload.item);return;}for(const b of source.turns.values())b.valid=false;this.gap("actionOversizeLine");return;}
     if(type==="compacted"){for(const b of source.turns.values()){b.valid=false;b.outputs=[];}return;}
     if(!["response_item","event_msg","token_usage_record"].includes(type)||/"type"\s*:\s*"(?:reasoning|Reasoning)"/.test(text.slice(0,1024)))return;
     if(type==="response_item"&&/"role"\s*:\s*"(?:user|developer|system)"/.test(text.slice(0,1024)))return;
@@ -161,7 +183,7 @@ class ActionIndex {
     let batch=source.turns.get(turn);if(!batch){if(source.turns.size>=32){source.turns.delete(source.turns.keys().next().value);this.gap("actionTurnLimit");}batch={valid:false,outputs:[],start:offset,startOrdinal:ordinal};source.turns.set(turn,batch);}
     if(type==="event_msg"){
       if(p.type==="task_started"){batch.valid=true;batch.truncated=false;batch.outputs=[];batch.start=offset;batch.startOrdinal=ordinal;}
-      if(p.type==="item_completed"&&["McpToolCall","CommandExecution","FileChange"].includes(p.item?.type))this.item(thread,p.item);
+      if(p.type==="item_completed"&&["McpToolCall","CommandExecution","FileChange"].includes(p.item?.type))this.item(thread,p.item,null,Date.parse(e.timestamp)>=Date.parse(this.analysisRecordedFrom));
       return;
     }
     if(type==="response_item"){
@@ -176,7 +198,7 @@ class ActionIndex {
     const prior=this.records.get(this.id(v)); if(!prior||!prior.linked){this.set(v);this.index(v);for(const output of batch.outputs){const cell=this.cellCalls.get(key(thread,output.callId));if(cell)this.scope({...cell,kind:"create"});}}
     batch.valid=true;batch.truncated=false;batch.outputs=[];batch.start=offset+Buffer.byteLength(text)+1;batch.startOrdinal=ordinal+1;
   }
-  view(row) {const r=this.records.get(this.id(row));return {...classify(r),basis:r?.linked?"validatedRolloutBoundary":"unlinked",ruleVersion:RULE,adapterVersion:VERSION,outputs:r?.outputs.map(x=>({...x}))||[],actions:r?.actions.map(x=>({...x}))||[],sourceRange:r?.source||null,truncated:!!r?.truncated};}
+  view(row) {const r=this.records.get(this.id(row));return {...classify(r),strict:classify(r,true),basis:r?.linked?"validatedRolloutBoundary":"unlinked",ruleVersion:RULE,adapterVersion:VERSION,outputs:r?.outputs.map(x=>({...x}))||[],actions:r?.actions.map(x=>({...x}))||[],sourceRange:r?.source||null,truncated:!!r?.truncated};}
   async flush() {
     const cutoff=this.now()-3*DAY;
     for(const [k,r]of this.records)if(Date.parse(r.observedAt)<cutoff){this.activeDayBytes.set(r.observedAt.slice(0,10),(this.activeDayBytes.get(r.observedAt.slice(0,10))||0)-(this.sizes.get(k)||0));this.memoryBytes-=this.sizes.get(k)||0;this.sizes.delete(k);this.records.delete(k);this.dirty.delete(k);}
@@ -204,10 +226,12 @@ class ActionIndex {
     for(const [k]of this.items)if(this.childRefs.has(k)||this.calls.has(k))this.items.delete(k);
   }
 }
-function actionSummary(rows, index) {
+function actionSummary(rows, index, strict = false) {
+  if (strict) rows = rows.map(row=>({...row,action:{...row.action,...row.action.strict}}));
   const measured=rows.filter(r=>Number.isSafeInteger(r.usage.total)),linked=measured.filter(r=>r.action.basis==="validatedRolloutBoundary"),classified=measured.filter(r=>r.action.purpose!=="unknown");
-  const groups=PURPOSES.map(id=>{const items=rows.filter(r=>r.action.purpose===id),cost=emptyCostSummary();for(const row of items)addCost(cost,row,row.cost||estimateResponseCost(row));return{id,observedResponses:items.length,components:components(items),cost};});
+  const groups=PURPOSES.map(id=>{const items=rows.filter(r=>r.action.purpose===id),cost=emptyCostSummary(),inferredCost=emptyCostSummary();const inferred=items.filter(r=>r.action.purposeBasis==="static-inferred"&&id!=="unknown");for(const row of items)addCost(cost,row,row.cost||estimateResponseCost(row));for(const row of inferred)addCost(inferredCost,row,row.cost||estimateResponseCost(row));return{id,observedResponses:items.length,components:components(items),cost,inferredResponses:inferred.length,inferredComponents:components(inferred),inferredCost};});
+  const inferred = measured.filter(r=>r.action.purpose!=="unknown"&&r.action.purposeBasis==="static-inferred");
   const reasonRows={};const reasons={};for(const row of rows)if(row.action.purpose==="unknown"){reasons[row.action.reason]=(reasons[row.action.reason]||0)+1;(reasonRows[row.action.reason] ||= []).push(row);}
-  return {ruleVersion:RULE,adapterVersion:VERSION,recordedFrom:index.recordedFrom,basis:"wholeResponseObservedActions",groups,coverage:{observedResponses:rows.length,measuredResponses:measured.length,unknownUsageResponses:rows.length-measured.length,linkedResponses:linked.length,classifiedResponses:classified.length,components:{measured:components(measured),linked:components(linked),classified:components(classified)},unknownReasons:reasons,unknownReasonComponents:Object.fromEntries(Object.entries(reasonRows).map(([reason,items])=>[reason,components(items)])),truncatedComponents:components(measured.filter(r=>r.action.truncated)),pendingComponents:components(measured.filter(r=>r.action.reason==="pendingCell")),pendingResponses:rows.filter(r=>r.action.reason==="pendingCell").length,truncatedResponses:rows.filter(r=>r.action.truncated).length,retainedFrom:[...index.records.values()].reduce((x,r)=>!x||r.observedAt<x?r.observedAt:x,null),bytes:index.bytes,memoryBytes:index.memoryBytes,capacityLimited:index.capacityLimited,pendingUnlinkedCells:index.pending.size,unmatchedActionItems:index.items.size}};
+  return {ruleVersion:RULE,adapterVersion:VERSION,recordedFrom:index.recordedFrom,analysisRecordedFrom:index.analysisRecordedFrom,basis:"wholeResponsePurposeEstimate",groups,coverage:{observedResponses:rows.length,measuredResponses:measured.length,unknownUsageResponses:rows.length-measured.length,linkedResponses:linked.length,classifiedResponses:classified.length,inferredResponses:inferred.length,components:{measured:components(measured),linked:components(linked),classified:components(classified),inferred:components(inferred),ruleDerived:components(classified.filter(r=>r.action.purposeBasis!=="static-inferred"))},unknownReasons:reasons,unknownReasonComponents:Object.fromEntries(Object.entries(reasonRows).map(([reason,items])=>[reason,components(items)])),truncatedComponents:components(measured.filter(r=>r.action.truncated)),pendingComponents:components(measured.filter(r=>r.action.reason==="pendingCell")),pendingResponses:rows.filter(r=>r.action.reason==="pendingCell").length,truncatedResponses:rows.filter(r=>r.action.truncated).length,retainedFrom:[...index.records.values()].reduce((x,r)=>!x||r.observedAt<x?r.observedAt:x,null),bytes:index.bytes,memoryBytes:index.memoryBytes,capacityLimited:index.capacityLimited,pendingUnlinkedCells:index.pending.size,unmatchedActionItems:index.items.size}};
 }
 module.exports={ActionIndex,actionSummary,classify,toolPurpose,PURPOSES,RULE};

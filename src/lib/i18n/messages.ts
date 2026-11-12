@@ -1,5 +1,16 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Purpose evidence": "用途判断依据",
+  "Include static inference (best guess)": "包含静态推断（可能判断错）",
+  "Rules only (strict)": "仅规则判定（严格）",
+  "Includes static inference": "其中静态推断",
+  "Static-inferred responses": "静态推断响应",
+  "Static inference (best guess)": "静态推断（可能判断错）",
+  "Rule-derived purpose": "规则判定用途",
+  "Original process call": "原进程调用",
+  "Purpose is a product judgment. Static inference is a best guess from limited operation structure, not verified intent or successful downstream work.": "用途是产品规则的判断。静态推断只依据有限操作结构，可能判断错，也不代表下游工作已经成功。",
+  "Purpose analysis started": "新用途分析起点",
+
   "Actual purpose": "实际动作用途",
   "Task execution": "执行任务",
   "Communication and coordination": "沟通协调",

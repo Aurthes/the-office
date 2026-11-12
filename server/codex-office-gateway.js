@@ -53,7 +53,7 @@ const native = new CodexOfficeClient({
   if (["account/login/completed", "account/updated"].includes(frame.method)) dictate?.refresh({ reset: true });
   workspace?.handle(frame);
   if (composer?.handleToolCall(frame)) return;
-  tokenUsage?.observeNative(frame);
+  tokenUsage?.observeNative(frame, native.scopeGeneration);
   if (["thread/tokenUsage/updated", "turn/started", "turn/completed"].includes(frame.method)) tokenUsage?.hint(frame.params?.threadId);
   const mapped = store?.handle(frame); if (!mapped) return;
   voice?.handle(mapped);

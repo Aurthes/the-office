@@ -22,3 +22,26 @@ it('retains an unresolved creator across a metadata flush before its response ba
  f.send('event_msg',{type:'task_started',turn_id:'turn'});f.send('response_item',output);f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response1'});f.index.finish('native','call1','completed');
  expect(row(f.index).action.purpose).toBe('workflow');
 });
+
+it('keeps whole response inference distinct from strict classification and persists only bounded summaries',async()=>{
+ const f=await fixture();f.send('event_msg',{type:'task_started',turn_id:'turn'});f.index.scope(scope);f.index.scope({...child('shell','exec_command'),namespace:'functions'});f.send('response_item',output);f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response1'});f.index.finish('native','call1','failed');
+ f.index.item('native',{type:'CommandExecution',id:'shell',command:['/bin/zsh','-lc','git status && date -u'],status:'failed'});
+ const r=row(f.index);expect(r.action.purpose).toBe('mixed');expect(r.action.purposeBasis).toBe('static-inferred');expect(r.action.strict.purpose).toBe('unknown');expect(r.action.actions[0].status).toBe('failed');
+ const all=actionSummary([r],f.index),strict=actionSummary([r],f.index,true);expect(all.coverage.classifiedResponses).toBe(1);expect(all.coverage.inferredResponses).toBe(1);expect(strict.coverage.classifiedResponses).toBe(0);expect(all.coverage.components.measured).toEqual(strict.coverage.components.measured);
+ await f.index.flush();expect(await readFile(path.join(f.root,'actions-2026-11-12.jsonl'),'utf8')).not.toContain('git status');const next=new ActionIndex(f.root);await next.init();expect(row(next).action.purpose).toBe('mixed');expect(row(next).action.strict.purpose).toBe('unknown');
+});
+it('inherits stdin only from explicit original process identity in the same child generation',async()=>{
+ const f=await fixture();const start={type:'CommandExecution',id:'original',command:'git status',source:'unifiedExecStartup',process_id:'42',status:'running'};
+ f.index.item('native',start,'g1');f.index.item('native',{...start,id:'poll',command:'',source:'unifiedExecInteraction'},'g1');expect(f.index.items.get('native:poll').summary.category).toBe('execution');expect(f.index.items.get('native:poll').originalCallId).toBe('original');
+ f.index.item('native',{...start,id:'poll',command:'',source:'unified_exec_interaction'});expect(f.index.items.get('native:poll').summary.category).toBe('execution');
+ f.index.item('native',{...start,id:'other-generation',source:'unifiedExecInteraction'},'g2');expect(f.index.items.get('native:other-generation').summary).toBeNull();
+ f.index.item('other-thread',{...start,id:'other-thread',source:'unifiedExecInteraction'},'g1');expect(f.index.items.get('other-thread:other-thread').summary).toBeNull();
+ f.index.item('native',{...start,id:'reused'},'g1');f.index.item('native',{...start,id:'after-reuse',source:'unifiedExecInteraction'},'g1');expect(f.index.items.get('native:after-reuse').summary).toBeNull();
+});
+it('supports trusted alias/clock and does not break a batch for a long MCP result body',async()=>{
+ expect(toolPurpose('todo_get','mcp__office_tasks')).toBe('workflow');expect(toolPurpose('todo_submit','mcp__office_tasks')).toBe('coordination');expect(toolPurpose('curr_time','clock')).toBe('workflow');expect(toolPurpose('todo_get','untrusted')).toBe('unknown');
+ const f=await fixture();f.send('event_msg',{type:'task_started',turn_id:'turn'});f.index.scope(scope);f.index.scope(child('long','todo_get'));f.send('response_item',output);
+ const line=JSON.stringify({timestamp:'2026-11-12T11:00:00Z',ordinal:3,type:'event_msg',payload:{type:'item_completed',turn_id:'turn',item:{type:'McpToolCall',id:'long',server:'mcp__office_tasks',tool:'todo_get',status:'completed',result:'SECRET'.repeat(20000)}}});f.index.consume(line.slice(0,65536),'native',{file:'sessions/fixture-native.jsonl'},999,true);
+ // Continue with the exact next ordinal rather than the fixture's local counter.
+ f.index.consume(JSON.stringify({timestamp:'2026-11-12T11:00:00Z',ordinal:4,type:'token_usage_record',payload:{thread_id:'native',turn_id:'turn',response_id:'response1'}}),'native',{file:'sessions/fixture-native.jsonl'},200000);f.index.finish('native','call1','completed');expect(row(f.index).action.purpose).toBe('workflow');expect(row(f.index).action.actions[0].status).toBe('completed');
+});

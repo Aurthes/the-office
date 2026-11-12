@@ -64,7 +64,7 @@ function usageOf(value) {
   return { ...result, uncachedInput: result.input - result.cachedInput, otherOutput: result.output - result.reasoningOutput };
 }
 function parameters(p, now) {
-  if (!p || typeof p !== "object" || Array.isArray(p) || Object.keys(p).some(k => !["actionPurpose", "nativeThreadId", "turnId", "schemaVersion", "window", "end", "date", "timeZone", "sort", "order", "agentId", "configuredModel", "taskId", "cursor", "snapshot", "purpose", "includeRecords", "limit", "refresh"].includes(k))) throw new Error("Invalid usage query");
+  if (!p || typeof p !== "object" || Array.isArray(p) || Object.keys(p).some(k => !["purposeView", "actionPurpose", "nativeThreadId", "turnId", "schemaVersion", "window", "end", "date", "timeZone", "sort", "order", "agentId", "configuredModel", "taskId", "cursor", "snapshot", "purpose", "includeRecords", "limit", "refresh"].includes(k))) throw new Error("Invalid usage query");
   if (p.schemaVersion !== undefined && p.schemaVersion !== 2) throw new Error("Invalid usage schema");
   let window = null;
   if (p.window !== undefined) {
@@ -85,9 +85,10 @@ function parameters(p, now) {
   if (p.cursor !== undefined && p.snapshot !== undefined) throw new Error("Invalid usage cursor");
   if (p.purpose !== undefined && !PURPOSES.includes(p.purpose)) throw new Error("Invalid usage purpose");
   if (p.includeRecords !== undefined && typeof p.includeRecords !== "boolean") throw new Error("Invalid record selection");
+  if (p.purposeView !== undefined && !["strict", "estimated"].includes(p.purposeView)) throw new Error("Invalid purpose view");
   if (p.actionPurpose !== undefined && !ACTION_PURPOSES.includes(p.actionPurpose)) throw new Error("Invalid action purpose");
   if (p.refresh !== undefined && typeof p.refresh !== "boolean") throw new Error("Invalid refresh");
-  return { schemaVersion: window || p.schemaVersion === 2 ? 2 : 1, date: window ? null : p.date, timeZone: window ? "UTC" : p.timeZone, window, sort, order, limit, actionPurpose: p.actionPurpose || null, agentId: p.agentId ?? null, configuredModel: p.configuredModel ?? null, taskId: p.taskId ?? null, nativeThreadId: p.nativeThreadId ?? null, turnId: p.turnId ?? null, purpose: p.purpose ?? null, includeRecords: p.includeRecords !== false };
+  return { schemaVersion: window || p.schemaVersion === 2 ? 2 : 1, date: window ? null : p.date, timeZone: window ? "UTC" : p.timeZone, window, sort, order, limit, purposeView: p.purposeView || "estimated", actionPurpose: p.actionPurpose || null, agentId: p.agentId ?? null, configuredModel: p.configuredModel ?? null, taskId: p.taskId ?? null, nativeThreadId: p.nativeThreadId ?? null, turnId: p.turnId ?? null, purpose: p.purpose ?? null, includeRecords: p.includeRecords !== false };
 }
 
 class OfficeTokenUsage {
@@ -126,8 +127,11 @@ class OfficeTokenUsage {
     for (const key of Object.keys(this.sources)) visit(key);
     return roots;
   }
-  observeNative(frame) {
+  observeNative(frame, generation = null) {
     if (this.closed || this.unavailable) return;
+    if (["item/started", "item/completed"].includes(frame.method) && frame.params?.item?.type === "commandExecution" && id(frame.params?.threadId) && this.known().has(frame.params.threadId)) {
+      try { this.actions.item(frame.params.threadId, { ...frame.params.item, type: "CommandExecution", process_id: frame.params.item.processId, parsed_cmd: frame.params.item.commandActions }, generation); } catch { this.gap("actionItemAnalysisFailure"); }
+    }
     const put = value => { if (!id(value?.nativeThreadId)) return; if (this.sourceQueue.length >= 1024) { this.gap("sourceBackpressure"); return; } this.sourceQueue.push({ nativeThreadId: id(value.nativeThreadId), parentNativeThreadId: id(value.parentNativeThreadId), helperKind: ["review", "compact", "memory_consolidation", "other", "thread_spawn"].includes(value.helperKind) ? value.helperKind : null }); };
     if (frame.method === "item/completed" && ["commandExecution", "mcpToolCall", "fileChange", "userMessage"].includes(frame.params?.item?.type) && id(frame.params?.threadId) && id(frame.params?.turnId) && id(frame.params?.item?.id)) {
       if (this.activityQueue.length < 1024) this.activityQueue.push({ nativeThreadId: frame.params.threadId, turnId: frame.params.turnId, itemId: frame.params.item.id, clientId: id(frame.params.item.clientId), type: frame.params.item.type });
@@ -198,6 +202,7 @@ class OfficeTokenUsage {
     try { state = await this.readJson("state.json", this.reserve); } catch (error) { if (error.code !== "ENOENT") this.gap("stateRecovery"); }
     if (state?.format === FORMAT) {
       this.actions.recordedFrom = state.actionRecordedFrom || this.actions.recordedFrom;
+      this.actions.analysisRecordedFrom = state.actionAnalysisRecordedFrom || this.actions.analysisRecordedFrom;
       this.sources = state.sources || {}; this.bindings = { ...state.bindings, ...this.bindings }; this.gaps = { ...state.gaps, ...this.gaps }; this.floor = state.floor || "";
       this.communicationRecordedFrom = state.communicationRecordedFrom || this.communicationRecordedFrom;
       this.purposesRecordedFrom = state.purposesRecordedFrom || this.purposesRecordedFrom;
@@ -351,7 +356,7 @@ class OfficeTokenUsage {
     if (Buffer.byteLength(JSON.stringify(ledger)) <= this.reserve) await this.atomic("communication.json", ledger);
     else this.gap("communicationMetadataLimit"); // Never stop numeric metering for a diagnostic limit.
     try { await this.actions.flush(); } catch { this.gap("actionPersistenceGap"); }
-    const state = { actionRecordedFrom: this.actions.recordedFrom, communicationRecordedFrom: this.communicationRecordedFrom, format: FORMAT, sources: this.sources, bindings, gaps: this.gaps, floor: this.floor, purposesRecordedFrom: this.purposesRecordedFrom, adaptersEnabledAt: this.adaptersEnabledAt };
+    const state = { actionAnalysisRecordedFrom: this.actions.analysisRecordedFrom, actionRecordedFrom: this.actions.recordedFrom, communicationRecordedFrom: this.communicationRecordedFrom, format: FORMAT, sources: this.sources, bindings, gaps: this.gaps, floor: this.floor, purposesRecordedFrom: this.purposesRecordedFrom, adaptersEnabledAt: this.adaptersEnabledAt };
     if (Buffer.byteLength(JSON.stringify(state)) > this.reserve) { this.storageLimit = true; this.gap("metadataLimit"); return; }
     await this.atomic("state.json", state);
     // Retention floor is durable before removing old shards. A crash never
@@ -669,7 +674,8 @@ class OfficeTokenUsage {
       snapshotId = crypto.randomBytes(16).toString("hex"); this.snapshots.set(snapshotId, snapshot);
       while (this.snapshots.size > 8) this.snapshots.delete(this.snapshots.keys().next().value);
     }
-    const rows = snapshot.rows.filter(row => (!query.actionPurpose || row.action.purpose === query.actionPurpose) && (!query.purpose || row.purpose === query.purpose) && (!query.nativeThreadId || row.nativeThreadId === query.nativeThreadId) && (!query.turnId || row.turnId === query.turnId));
+    const selectedRows = query.purposeView === "strict" ? snapshot.rows.map(row=>({...row,action:{...row.action,...row.action.strict}})) : snapshot.rows;
+    const rows = selectedRows.filter(row => (!query.actionPurpose || row.action.purpose === query.actionPurpose) && (!query.purpose || row.purpose === query.purpose) && (!query.nativeThreadId || row.nativeThreadId === query.nativeThreadId) && (!query.turnId || row.turnId === query.turnId));
     const value = row => query.sort === "time" ? row.observedAt : query.sort === "cost" ? (row.cost || estimateResponseCost(row)).minUsd : row.usage[query.sort];
     rows.sort((a, b) => { const av = value(a), bv = value(b); return av == null && bv != null ? 1 : bv == null && av != null ? -1
       : (av < bv ? -1 : av > bv ? 1 : 0) * (query.order === "desc" ? -1 : 1) || a.observedAt.localeCompare(b.observedAt) || keyOf(a).localeCompare(keyOf(b)); });
@@ -714,6 +720,7 @@ class OfficeTokenUsage {
       // raw legacy fields, but do not promote them to verified breakdown counts.
       measuredComponents.cacheWriteInput = { knownSubtotal: writes.length && Number.isSafeInteger(written) ? written : null, reportedRows: writes.length, unknownRows: measuredRows.length - writes.length };
       snapshot.actionSummary = actionSummary(snapshot.rows, this.actions);
+      snapshot.strictActionSummary = actionSummary(snapshot.rows, this.actions, true);
       snapshot.breakdown = { basis: "measuredResponseSnapshot", denominatorTokens: snapshot.summary.denominatorTokens,
         measuredComponents,
         contributors: Object.fromEntries(Object.entries(contributors).map(([key, groups]) => [key, [...groups.values()]])),
@@ -747,7 +754,7 @@ class OfficeTokenUsage {
         previousObservedInput: previous && row.usage.input !== null && previous.usage.input !== null && previous.configuredModel === row.configuredModel && row.configuredModel && !previous.conflict && !row.conflict ? { responseId: previous.responseId, input: previous.usage.input, change: row.usage.input - previous.usage.input, basis: "adjacentObservedSameTurnConfiguredModel" } : null };
     });
     return { date: query.date, timeZone: query.timeZone, window: snapshot.window, serverNow: new Date(this.now()).toISOString(), rows: publicRows, count: rows.length, totals: totalsOf(rows),
-      snapshot: this.cursor(snapshotId, 0), ...(snapshot.actionSummary ? { actionSummary: snapshot.actionSummary } : {}), purposeSummary: snapshot.summary, ...(snapshot.messageChains ? { messageChains: snapshot.messageChains } : {}), selectedPurpose: query.purpose, ...(snapshot.breakdown ? { breakdown: snapshot.breakdown } : {}),
+      snapshot: this.cursor(snapshotId, 0), ...(snapshot.actionSummary ? { actionSummary: query.purposeView === "strict" ? snapshot.strictActionSummary : snapshot.actionSummary, purposeView: query.purposeView } : {}), purposeSummary: snapshot.summary, ...(snapshot.messageChains ? { messageChains: snapshot.messageChains } : {}), selectedPurpose: query.purpose, ...(snapshot.breakdown ? { breakdown: snapshot.breakdown } : {}),
       nextCursor: query.includeRecords && offset + query.limit < rows.length ? this.cursor(snapshotId, offset + query.limit, fingerprint) : null,
       coverage, scope: "Office observed subset", outsideRetention: query.window ? Date.parse(query.window.end) <= Date.parse(coverage.retainedFrom + "T00:00:00Z") : query.date < coverage.retainedFrom || query.date > localDay(this.now(), query.timeZone),
       windowPartial: Boolean(query.window && Date.parse(query.window.start) < Date.parse(coverage.retainedFrom + "T00:00:00Z")),

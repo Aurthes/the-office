@@ -361,3 +361,14 @@ it("keeps the full measured denominator while selecting one actual Purpose on a 
  const filtered=await f.detail({schemaVersion:2,actionPurpose:'workflow',snapshot:first.snapshot});expect(filtered.rows).toHaveLength(1);expect(filtered.purposeSummary.denominatorTokens).toBe(first.purposeSummary.denominatorTokens);expect(filtered.actionSummary!.groups.reduce((sum,g)=>sum+(g.components.total.knownSubtotal||0),0)).toBe(first.purposeSummary.denominatorTokens);
  f.collector.actions.set({...base,responseId:'action-one',linked:false});const frozen=await f.detail({schemaVersion:2,actionPurpose:'workflow',snapshot:first.snapshot});expect(frozen.rows).toHaveLength(1);
 });
+
+it('switches inferred/strict Purpose within the same frozen measured snapshot and isolates cursors',async()=>{
+ const f=await fixture();await writeFile(f.file,meta()+record('inferred')+record('known',{},TS,3));await f.collect();
+ f.collector.actions.set({nativeThreadId:'native-one',turnId:'turn-one',responseId:'inferred',observedAt:TS,linked:true,outputs:[{id:'o',type:'function_call',callId:'c',tool:'exec_command',namespace:'functions',status:'failed'}],actions:[{itemId:'c',tool:'exec_command',namespace:'functions',status:'failed',category:'execution',basis:'directCallId',purposeBasis:'static-inferred',operations:['git']}],source:null});
+ const estimated=await f.detail({schemaVersion:2,purposeView:'estimated',limit:1});expect(estimated.actionSummary!.coverage.inferredResponses).toBe(1);
+ const strict=await f.detail({schemaVersion:2,purposeView:'strict',snapshot:estimated.snapshot});expect(strict.actionSummary!.coverage.classifiedResponses).toBe(0);expect(strict.actionSummary!.coverage.components.measured).toEqual(estimated.actionSummary!.coverage.components.measured);expect(strict.breakdown).toEqual(estimated.breakdown);
+ const strictFiltered=await f.detail({schemaVersion:2,purposeView:'strict',actionPurpose:'execution',snapshot:estimated.snapshot});expect(strictFiltered.count).toBe(0);
+ expect((await f.detail({schemaVersion:2,purposeView:'estimated',actionPurpose:'execution',snapshot:estimated.snapshot})).count).toBe(1);
+ await expect(f.detail({schemaVersion:2,purposeView:'strict',limit:1,cursor:estimated.nextCursor})).rejects.toThrow(/expired|filters/);
+ expect(()=>parameters({date:DATE,timeZone:'UTC',purposeView:'pretend-observed'},NOW)).toThrow();
+});
