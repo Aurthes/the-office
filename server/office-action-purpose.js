@@ -88,7 +88,7 @@ class ActionIndex {
       const ck = key(v.nativeThreadId,o.callId), old = this.calls.get(ck);
       if (this.blockedCalls.has(ck) || old && old !== k) { if(old)this.edit(old,r=>({...r,conflict:true})); this.set({...v,conflict:true});this.blockedCalls.add(ck);this.calls.delete(ck);continue; }
       this.calls.set(ck,k);
-      if (o.generation && o.cellId) this.cells.set(`${o.generation}:${v.nativeThreadId}:${o.cellId}`, {nativeThreadId:v.nativeThreadId,generation:o.generation,cellId:o.cellId,callId:o.callId,turnId:v.turnId});
+      if (o.generation && o.cellId) { const creator={nativeThreadId:v.nativeThreadId,generation:o.generation,cellId:o.cellId,callId:o.callId,turnId:v.turnId}; this.cells.set(`${o.generation}:${v.nativeThreadId}:${o.cellId}`,creator); this.cellCalls.set(ck,creator); }
       if (this.results.has(ck)) this.finish(v.nativeThreadId,o.callId,this.results.get(ck));
     }
     for (const a of v.actions) this.childRefs.set(key(v.nativeThreadId,a.itemId),k);
@@ -199,7 +199,7 @@ class ActionIndex {
     for(const [k,v]of this.calls)if(!this.records.has(v))this.calls.delete(k);
     for(const [k,v]of this.childRefs)if(!this.records.has(v))this.childRefs.delete(k);
     for(const [k,v]of this.cells)if(this.calls.has(key(v.nativeThreadId,v.callId))){if(this.pending.has(k)){this.pendingCount-=this.pending.get(k).length;this.pending.delete(k);}}else if(this.cells.size>8192)this.cells.delete(k);
-    for(const [k]of this.cellCalls)if(!this.calls.has(k))this.cellCalls.delete(k);
+    for(const [k,v]of this.cellCalls)if(!this.cells.has(`${v.generation}:${v.nativeThreadId}:${v.cellId}`))this.cellCalls.delete(k);
     for(const [k]of this.results)if(this.calls.has(k))this.results.delete(k);
     for(const [k]of this.items)if(this.childRefs.has(k)||this.calls.has(k))this.items.delete(k);
   }
