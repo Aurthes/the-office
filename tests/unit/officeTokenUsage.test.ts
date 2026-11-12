@@ -372,3 +372,15 @@ it('switches inferred/strict Purpose within the same frozen measured snapshot an
  await expect(f.detail({schemaVersion:2,purposeView:'strict',limit:1,cursor:estimated.nextCursor})).rejects.toThrow(/expired|filters/);
  expect(()=>parameters({date:DATE,timeZone:'UTC',purposeView:'pretend-observed'},NOW)).toThrow();
 });
+it('excludes low-confidence continuation without changing the frozen priced denominator',async()=>{
+ const f=await fixture();await writeFile(f.file,meta()+record('low-confidence'));await f.collect();
+ f.collector.actions.set({nativeThreadId:'native-one',turnId:'turn-one',responseId:'low-confidence',observedAt:TS,linked:true,primaryEnabled:true,outputs:[],actions:[],priorPurpose:{purpose:'execution',responseId:'earlier'},source:null});
+ const estimated=await f.detail({schemaVersion:2});expect(estimated.rows[0].action!.confidence).toBe('low');expect(estimated.actionSummary!.confidence!.find(g=>g.id==='low')!.components.total.knownSubtotal).toBe(120);
+ const supported=await f.detail({schemaVersion:2,purposeView:'supported',snapshot:estimated.snapshot});expect(supported.rows[0].action!.purpose).toBe('unknown');expect(supported.actionSummary!.coverage.classifiedResponses).toBe(0);expect(supported.breakdown).toEqual(estimated.breakdown);expect(supported.purposeSummary).toEqual(estimated.purposeSummary);
+ const back=await f.detail({schemaVersion:2,purposeView:'estimated',snapshot:estimated.snapshot});expect(back.rows[0].action!.confidence).toBe('low');expect(back.actionSummary).toEqual(estimated.actionSummary);
+});
+it('invalidates continuation at accepted steer/retry before waiting for rollout IO',async()=>{
+ const f=await fixture(),invalidate=vi.spyOn(f.collector.actions,'invalidate');
+ f.collector.bindTurn({nativeThreadId:'native-one',turnId:'turn-one',mode:'steer',usage:{entryId:'new-input',trigger:'userMessage'}});expect(invalidate).toHaveBeenCalledWith('native-one');invalidate.mockClear();
+ f.collector.bindTurn({nativeThreadId:'native-one',turnId:'turn-one',usage:{trigger:'automaticRetry'}});expect(invalidate).toHaveBeenCalledWith('native-one');
+});

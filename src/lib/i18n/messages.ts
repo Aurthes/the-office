@@ -1,5 +1,13 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Exclude low-confidence continuation": "排除低置信接续推断",
+  "Purpose confidence contribution": "用途判断的置信贡献",
+  "High confidence": "高置信规则依据",
+  "Medium confidence": "中置信静态估计",
+  "Low-confidence continuation": "低置信同轮接续",
+  "Same-turn continuation from response": "同一轮接续依据响应",
+  "Response purpose estimation started": "整响应目的估计起点",
+
   "Purpose evidence": "用途判断依据",
   "Include static inference (best guess)": "包含静态推断（可能判断错）",
   "Rules only (strict)": "仅规则判定（严格）",

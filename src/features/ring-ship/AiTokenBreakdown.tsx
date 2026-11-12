@@ -5,7 +5,7 @@ import { useUiText } from "@/lib/i18n/ui-language";
 import { apiCostLabel, type UsageDetail, type ActionPurpose } from "./ai-center";
 import { PURPOSE_LABELS, tokenNumber } from "./AiPurposeSummary";
 
-export function AiTokenBreakdown({ value, onSelect, onActionPurpose, onPurposeView, onRecords, onChain, onOpenSession, readMessage }: { value: UsageDetail; onPurposeView?: (view:"strict"|"estimated")=>void; onActionPurpose?: (id:ActionPurpose)=>void; readMessage?: (threadId: string, turnId: string, itemId: string) => Promise<string>; onChain?: (value: { nativeThreadId: string; turnId: string }) => void; onOpenSession?: (id: string) => void; onSelect: (dimension: "agents" | "tasks" | "sources", id: string) => void; onRecords: () => void }) {
+export function AiTokenBreakdown({ value, onSelect, onActionPurpose, onPurposeView, onRecords, onChain, onOpenSession, readMessage }: { value: UsageDetail; onPurposeView?: (view:"strict"|"estimated"|"supported")=>void; onActionPurpose?: (id:ActionPurpose)=>void; readMessage?: (threadId: string, turnId: string, itemId: string) => Promise<string>; onChain?: (value: { nativeThreadId: string; turnId: string }) => void; onOpenSession?: (id: string) => void; onSelect: (dimension: "agents" | "tasks" | "sources", id: string) => void; onRecords: () => void }) {
   const t = useUiText();
   const [original, setOriginal] = useState<{key: string; text: string} | null>(null);
   const b = value.breakdown;

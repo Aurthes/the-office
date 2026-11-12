@@ -45,3 +45,42 @@ it('supports trusted alias/clock and does not break a batch for a long MCP resul
  // Continue with the exact next ordinal rather than the fixture's local counter.
  f.index.consume(JSON.stringify({timestamp:'2026-11-12T11:00:00Z',ordinal:4,type:'token_usage_record',payload:{thread_id:'native',turn_id:'turn',response_id:'response1'}}),'native',{file:'sessions/fixture-native.jsonl'},200000);f.index.finish('native','call1','completed');expect(row(f.index).action.purpose).toBe('workflow');expect(row(f.index).action.actions[0].status).toBe('completed');
 });
+
+it('records current technical purpose then permits only same-turn low-confidence empty continuation',async()=>{
+ const f=await fixture();f.index.responseRecordedFrom='2026-11-12T10:00:00Z';f.send('event_msg',{type:'task_started',turn_id:'turn'});
+ f.send('response_item',{type:'message',id:'technical',role:'assistant',content:[{type:'output_text',text:'配置格式兼容时不需要转换。应该先检查认证配置，因为额外转换会改变现有凭据的读取方式。'}],internal_chat_message_metadata_passthrough:{turn_id:'turn'}});f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response1'});
+ expect(row(f.index).action.purpose).toBe('execution');expect(row(f.index).action.confidence).toBe('medium');
+ f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response2'});const r=row(f.index,'response2');expect(r.action.purpose).toBe('execution');expect(r.action.confidence).toBe('low');expect(r.action.contextResponseId).toBe('response1');expect(r.action.supported.purpose).toBe('unknown');expect(r.action.strict.purpose).toBe('unknown');
+ const summary=actionSummary([row(f.index),r],f.index);expect(summary.confidence.find((g:{id:string})=>g.id==='low').components.total.knownSubtotal).toBe(110);expect(actionSummary([row(f.index),r],f.index,'supported').coverage.classifiedResponses).toBe(1);
+ f.send('response_item',{type:'message',role:'user',content:'PRIVATE_NEW_GOAL'});f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response3'});expect(row(f.index,'response3').action.purpose).toBe('unknown');
+ await f.index.flush();const raw=await readFile(path.join(f.root,'actions-2026-11-12.jsonl'),'utf8');expect(raw).not.toContain('PRIVATE_NEW_GOAL');expect(raw).not.toContain('配置格式');
+});
+it.each(['cancel','retry','generation','crossTurn','error'])('invalidates previous purpose after %s without reading hidden reasoning',async(kind)=>{
+ const f=await fixture();f.index.responseRecordedFrom='2026-11-12T10:00:00Z';f.send('event_msg',{type:'task_started',turn_id:'turn'});f.index.nativeSignal('native',{method:'turn/started'},'g1');
+ f.send('response_item',{type:'message',role:'assistant',content:[{type:'output_text',text:'配置格式兼容时不需要转换。应该先检查认证配置，因为额外转换会改变现有凭据的读取方式。'}],internal_chat_message_metadata_passthrough:{turn_id:'turn'}});f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response1'});
+ expect(row(f.index).action.purpose).toBe('execution');let turn='turn';
+ if(kind==='cancel')f.index.nativeSignal('native',{method:'turn/completed',params:{turn:{status:'interrupted'}}},'g1');
+ if(kind==='retry')f.send('event_msg',{type:'task_started',turn_id:'turn'});
+ if(kind==='generation')f.index.nativeSignal('native',{method:'turn/started'},'g2');
+ if(kind==='error')f.send('event_msg',{type:'error',turn_id:'turn',message:'PRIVATE_ERROR'});
+ if(kind==='crossTurn'){turn='different';f.send('event_msg',{type:'task_started',turn_id:turn});}
+ f.send('token_usage_record',{thread_id:'native',turn_id:turn,response_id:'response2'});expect(row(f.index,'response2').action.purpose).toBe('unknown');
+});
+it('clears continuation context on a failed late result and after restart',async()=>{
+ const f=await fixture();f.index.responseRecordedFrom='2026-11-12T10:00:00Z';f.send('event_msg',{type:'task_started',turn_id:'turn'});f.index.scope(scope);f.index.scope({...child('work','read_file'),namespace:'functions'});f.send('response_item',output);f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response1'});f.index.finish('native','call1','completed');
+ f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response2'});expect(row(f.index,'response2').action.confidence).toBe('low');
+ f.index.finish('native','call1','failed');f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response3'});expect(row(f.index,'response3').action.purpose).toBe('unknown');
+ await f.index.flush();const next=new ActionIndex(f.root,()=>Date.parse('2026-11-12T12:00Z'));await next.init();const line=JSON.stringify({timestamp:'2026-11-12T12:01Z',ordinal:1,type:'token_usage_record',payload:{thread_id:'native',turn_id:'turn',response_id:'after-restart'}});next.consume(line,'native',{file:'sessions/restart.jsonl'},0);expect(row(next,'after-restart').action.purpose).toBe('unknown');
+});
+it('does not infer work from a copied stdin command without explicit process ancestry',async()=>{
+ const f=await fixture();f.index.item('native',{type:'CommandExecution',id:'stdin',command:`git status && unknown_program`,source:'unifiedExecInteraction',process_id:'42',status:'completed'},'new-generation');expect(f.index.items.get('native:stdin').hint).toBeNull();
+ expect(toolPurpose('run','web')).toBe('execution');expect(toolPurpose('FileChange','functions')).toBe('execution');expect(toolPurpose('run','other')).toBe('unknown');
+});
+it('does not keep using a prior anchor when late substantive evidence contradicts its purpose',async()=>{
+ const f=await fixture();f.index.responseRecordedFrom='2026-11-12T10:00:00Z';f.send('event_msg',{type:'task_started',turn_id:'turn'});f.index.scope(scope);f.index.scope({...child('work','read_file'),namespace:'functions'});f.send('response_item',output);f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response1'});f.index.finish('native','call1','completed');
+ f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response2'});expect(row(f.index,'response2').action.confidence).toBe('low');
+ f.index.scope(child('late-coordination','todo_submit'));expect(row(f.index).action.purpose).toBe('mixed');f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response3'});expect(row(f.index,'response3').action.purpose).toBe('unknown');
+});
+it('never uses reasoning or analysis-channel content as ordinary purpose evidence',async()=>{
+ const f=await fixture();f.index.responseRecordedFrom='2026-11-12T10:00:00Z';f.send('event_msg',{type:'task_started',turn_id:'turn'});f.send('response_item',{type:'reasoning',summary:'PRIVATE_REASONING'});f.send('response_item',{type:'message',role:'assistant',phase:'analysis',content:[{type:'output_text',text:'PRIVATE_REASONING 配置格式兼容时不需要转换，因为额外转换会改变凭据读取方式。'}],internal_chat_message_metadata_passthrough:{turn_id:'turn'}});f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response1'});expect(row(f.index).action.purpose).toBe('unknown');await f.index.flush();expect(await readFile(path.join(f.root,'actions-2026-11-12.jsonl'),'utf8')).not.toContain('PRIVATE_REASONING');
+});
