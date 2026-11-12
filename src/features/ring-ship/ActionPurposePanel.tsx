@@ -1,0 +1,24 @@
+"use client";
+import { useState } from "react";
+import { useUiText } from "@/lib/i18n/ui-language";
+import { ACTION_LABELS, apiCostLabel, type ActionPurpose, type UsageDetail } from "./ai-center";
+const number = (v: number | null | undefined) => v == null ? "—" : new Intl.NumberFormat().format(v);
+export function ActionPurposePanel({value,onSelect}:{value:UsageDetail;onSelect?:(id:ActionPurpose)=>void}) {
+ const t=useUiText(),[sort,setSort]=useState("uncachedInput"),s=value.actionSummary;
+ if(!s)return <p className="ai-notice">{t("Actual action evidence is unavailable on this gateway.")}</p>;
+ const c=s.coverage,score=(g:typeof s.groups[number])=>sort==="cost"?g.cost.minUsd:g.components[sort as "uncachedInput"].knownSubtotal;
+ const groups=[...s.groups].sort((a,b)=>(score(b)??-1)-(score(a)??-1)||a.id.localeCompare(b.id));
+ return <section aria-label={t("Actual purpose")}><h2>{t("Actual purpose")}</h2>
+ <p>{t("Each response is counted once. Actions describe observed behavior, not avoidable waste or per-message incremental cost.")}</p>
+ <div className="ai-breakdown-actions"><label>{t("Purpose order")}<select value={sort} onChange={e=>setSort(e.target.value)}>{[["uncachedInput","Uncached input"],["output","Output tokens"],["cachedInput","Cached input"],["total","Total tokens"],["cost","API cost lower bound"]].map(([id,label])=><option key={id} value={id}>{t(label)}</option>)}</select></label></div>
+ <p className="ai-card-note">{t("Unknown prices are not zero. Overlapping API cost ranges do not establish a cost ranking.")}</p>
+ <div className="ai-contributors">{groups.map(g=><div key={g.id} className="ai-contributor"><button type="button" className="ai-contributor-name" onClick={()=>onSelect?.(g.id)}>{t(ACTION_LABELS[g.id])}</button><span><b>{number(sort==="cost"?null:score(g))}</b><small>{g.observedResponses} {t("responses")}</small><small>{t("Cached input")}: {number(g.components.cachedInput.knownSubtotal)} · {t("Uncached input")}: {number(g.components.uncachedInput.knownSubtotal)} · {t("Output tokens")}: {number(g.components.output.knownSubtotal)} · {t("Total tokens")}: {number(g.components.total.knownSubtotal)}</small></span><span>{apiCostLabel(g.cost)}<small>{g.cost.unpricedResponses} {t("unpriced responses")}</small></span></div>)}</div>
+ <section aria-label={t("Capture and classification coverage")}><h3>{t("Capture and classification coverage")}</h3>
+ <p>{t("Known numeric usage")}: {c.measuredResponses}/{c.observedResponses} · {t("Action batch linked")}: {c.linkedResponses}/{c.measuredResponses} · {t("Purpose classified")}: {c.classifiedResponses}/{c.measuredResponses}</p>
+ <p>{t("These denominators cover observed records only. Requests without upstream usage remain unknown.")}</p>
+ <dl className="ai-response-numbers">{(["cachedInput","uncachedInput","output","total"] as const).map(field=><div key={field}><dt>{t(({cachedInput:"Cached input",uncachedInput:"Uncached input",output:"Output tokens",total:"Total tokens"})[field])}</dt><dd>{number(c.components.classified[field].knownSubtotal)} / {number(c.components.measured[field].knownSubtotal)}</dd><small>{t("classified / measured tokens")} · {t("linked")}: {number(c.components.linked[field].knownSubtotal)} · {c.components.measured[field].unknownRows} {t("unknown responses")}</small></div>)}</dl>
+ <p>{t("Pending responses")}: {c.pendingResponses} / {number(c.pendingComponents.total.knownSubtotal)} {t("tokens")} · {t("Truncated responses")}: {c.truncatedResponses} / {number(c.truncatedComponents.total.knownSubtotal)} {t("tokens")} · {t("Unlinked cells")}: {c.pendingUnlinkedCells} · {t("Unmatched action items")}: {c.unmatchedActionItems}</p>
+ <p>{Object.entries(c.unknownReasons).map(([reason,count])=>`${reason}: ${count} / ${number(c.unknownReasonComponents[reason]?.total.knownSubtotal)} ${t("tokens")}`).join(" · ")}</p>
+ <p className="ai-card-caption">{s.ruleVersion} · {s.adapterVersion} · {t("Action indexing started")}: {new Date(s.recordedFrom).toLocaleString()} · {t("Action evidence retained from")}: {c.retainedFrom?new Date(c.retainedFrom).toLocaleString():"—"} · {t("Action index bytes")}: {number(c.bytes)}{c.capacityLimited?` · ${t("Action evidence capacity limited")}`:""}</p>
+ </section></section>;
+}

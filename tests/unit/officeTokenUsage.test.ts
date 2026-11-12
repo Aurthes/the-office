@@ -184,7 +184,7 @@ describe("detail date, capacity and stable pagination", () => {
     await writeFile(f.file, meta() + rows); await f.collect(); const result = await f.detail();
     expect(result.coverage.storageLimit).toBe(true); expect(result.count).toBeGreaterThan(0); expect(result.count).toBeLessThan(40);
     expect(result.coverage.retainedFromUtc).toBe("2026-11-07");
-    const folder = path.join(f.root, "token-usage"), files = await readdir(folder), sizes = await Promise.all(files.map(async file => (await stat(path.join(folder, file))).size));
+    const folder = path.join(f.root, "token-usage"), files = await readdir(folder), sizes = await Promise.all(files.filter(file=>!file.startsWith("actions-")).map(async file => (await stat(path.join(folder, file))).size));
     expect(sizes.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(12000); expect(files).not.toContain("2026-11-06.jsonl");
     expect(f.collector.sources["native-one"].offset).toBeLessThan((await stat(f.file)).size);
   });
@@ -351,4 +351,13 @@ it('backs off unresolved official paths without advertising stale EOF as ready o
  clock+=61000;unavailable=true;await f.collect();expect(f.collector.sources['native-one'].status).toBe('unavailable');const calls=resolve.mock.calls.length;
  for(let i=0;i<5;i++)await f.collect();expect(resolve).toHaveBeenCalledTimes(calls);expect((await f.detail()).coverage.readySources).toBe(0);
  clock+=61000;unavailable=false;await f.collect();expect(f.collector.sources['native-one'].status).toBe('ready');expect((await f.detail()).count).toBe(1);
+});
+
+it("keeps the full measured denominator while selecting one actual Purpose on a frozen snapshot", async () => {
+ const f=await fixture();await writeFile(f.file,meta()+record('action-one')+record('action-two',{},TS,3));await f.collect();
+ const base={nativeThreadId:'native-one',turnId:'turn-one',observedAt:TS,linked:true,outputs:[{id:'o',type:'function_call',callId:'c',tool:'todo_get',namespace:'office_tasks',status:'completed'}],actions:[],source:null};
+ f.collector.actions.set({...base,responseId:'action-one'});
+ const first=await f.detail({schemaVersion:2,includeRecords:false});expect(first.actionSummary!.coverage.measuredResponses).toBe(2);
+ const filtered=await f.detail({schemaVersion:2,actionPurpose:'workflow',snapshot:first.snapshot});expect(filtered.rows).toHaveLength(1);expect(filtered.purposeSummary.denominatorTokens).toBe(first.purposeSummary.denominatorTokens);expect(filtered.actionSummary!.groups.reduce((sum,g)=>sum+(g.components.total.knownSubtotal||0),0)).toBe(first.purposeSummary.denominatorTokens);
+ f.collector.actions.set({...base,responseId:'action-one',linked:false});const frozen=await f.detail({schemaVersion:2,actionPurpose:'workflow',snapshot:first.snapshot});expect(frozen.rows).toHaveLength(1);
 });

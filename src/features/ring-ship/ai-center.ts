@@ -49,8 +49,16 @@ export function topContributors(groups: UsageContributor[], order: "tokens" | "c
   const sum = rest.reduce((sum, row) => sum + (row.knownTokens ?? 0), 0), measured = rest.reduce((sum, row) => sum + row.measuredResponses, 0);
   return [...sorted.slice(0, 5), { id: "other", name: "Other", cost, knownTokens: !measured || !Number.isSafeInteger(sum) || rest.some(row => row.measuredResponses && row.knownTokens == null) ? null : sum, observedResponses: rest.reduce((sum, row) => sum + row.observedResponses, 0), measuredResponses: measured, unknownUsageResults: rest.reduce((sum, row) => sum + row.unknownUsageResults, 0) }];
 }
+export type ActionPurpose = "execution" | "coordination" | "workflow" | "mixed" | "unknown";
+export const ACTION_LABELS: Record<ActionPurpose, string> = { execution: "Task execution", coordination: "Communication and coordination", workflow: "Workflow management", mixed: "Mixed actions", unknown: "Undetermined" };
+export type ResponseAction = { purpose: ActionPurpose; reason: string; basis: string; ruleVersion: string; adapterVersion: string; truncated: boolean;
+  outputs: {id:string|null;type:string|null;callId:string|null;tool:string|null;phase:string|null;status:string}[];
+  actions: {itemId:string|null;parentCallId:string|null;tool:string|null;namespace:string|null;status:string;category:ActionPurpose;basis:string}[];
+  sourceRange: {file:string;startOffset:number;endOffset:number;startOrdinal:number;endOrdinal:number}|null };
+export type ActionPurposeSummary = {ruleVersion:string;adapterVersion:string;recordedFrom:string;basis:string;groups:{id:ActionPurpose;observedResponses:number;components:UsageComponents;cost:CostSummary}[];
+  coverage:{observedResponses:number;measuredResponses:number;unknownUsageResponses:number;linkedResponses:number;classifiedResponses:number;components:Record<"measured"|"linked"|"classified",UsageComponents>;unknownReasons:Record<string,number>;unknownReasonComponents:Record<string,UsageComponents>;truncatedComponents:UsageComponents;pendingComponents:UsageComponents;pendingResponses:number;truncatedResponses:number;retainedFrom:string|null;bytes:number;memoryBytes:number;capacityLimited:boolean;pendingUnlinkedCells:number;unmatchedActionItems:number}};
 export type ObservedResponse = {
-  id: string; cost?: ResponseCost; nativeThreadId: string | null; officeAgentId: string | null; agentName: string; responseId: string | null; turnId: string | null; rootTurnId: string | null;
+  dispatchEntries?: {requestId:string;senderId:string|null;recipientId:string|null;mode:string;trigger:string}[]; action?: ResponseAction; id: string; cost?: ResponseCost; nativeThreadId: string | null; officeAgentId: string | null; agentName: string; responseId: string | null; turnId: string | null; rootTurnId: string | null;
   observedAt: string; usage: ResponseUsage; configuredModel: string | null; configuredEffort: string | null; modelBasis: "turnContext" | "requestConfiguration" | "unknown";
   actualModel: null; status: "unknown" | "completed" | "failed" | "interrupted";
   unit?: "tokens" | "seconds" | "unknown"; durationSeconds?: number | null; usageReason?: string | null; providerKind?: string | null; providerRequestId?: string | null; attemptId?: string | null; ownershipBasis?: string; taskId: string | null; task: UsageTaskLabel | null; phaseId: string | null; questionIds: string[]; attributionBasis: "turnDispatch" | "unknown";
@@ -61,12 +69,13 @@ export type ObservedResponse = {
 export type UsageWindow = { kind: "rolling24h"; start: string; end: string; timeZone: "UTC" };
 export type MessageChain = { nativeThreadId: string; turnId: string; recipientId: string | null; entries: { itemId?: string | null; requestId: string; senderId: string | null; recipientId: string | null; mode: "start" | "steer"; trigger: string; acceptedAt: number }[]; truncatedEntries: number; activities: { itemId: string; type: string }[]; activityTruncated: boolean; observedResponses: number; components: UsageComponents; activityBasis: string };
 export type UsageDetail = {
+  actionSummary?: ActionPurposeSummary;
   messageChains?: { scope: string; incrementalMessageTokens: null; historicalLedger: string; turns: MessageChain[] };
   window?: UsageWindow | null; serverNow?: string; windowPartial?: boolean;
   date: string | null; timeZone: string; rows: ObservedResponse[]; count: number; totals: ResponseUsage | null; nextCursor: string | null;
   snapshot: string; purposeSummary: PurposeSummary; selectedPurpose: UsagePurpose | null; breakdown?: TokenBreakdown;
   outsideRetention: boolean; scope: string;
-  coverage: { source: string; supportedVersion: string; apiStability: string; partial: boolean; indexing: boolean; unavailable: boolean; storageLimit: boolean;
+  coverage: { currentSources?: {nativeThreadId:string;currentFile:string|null;status:string;resolvedAt:number|null;indexedAt:number|null;offset:number}[]; source: string; supportedVersion: string; apiStability: string; partial: boolean; indexing: boolean; unavailable: boolean; storageLimit: boolean;
     adaptersEnabledAt?: string; producerDurability?: string; knownSources: number; scannedSources: number; readySources: number; unsupportedSources: number; partialLines: number;
     retainedFrom: string; retainedFromUtc: string; retainedFromPartial: boolean; capacityLimited: boolean; firstObservedAt: string | null; indexedThrough: string | null; knownGaps: Record<string, number> };
   filters: { agents: { id: string; name: string }[]; configuredModels: string[]; taskIds: string[]; tasks: UsageTaskLabel[] };

@@ -1,11 +1,12 @@
 "use client";
+import { ActionPurposePanel } from "./ActionPurposePanel";
 import { useState } from "react";
 import { useUiText } from "@/lib/i18n/ui-language";
-import { apiCostLabel, topContributors, type UsageDetail } from "./ai-center";
+import { apiCostLabel, type UsageDetail, type ActionPurpose } from "./ai-center";
 import { PURPOSE_LABELS, tokenNumber } from "./AiPurposeSummary";
 
-export function AiTokenBreakdown({ value, onSelect, onRecords, onChain, onOpenSession, readMessage }: { value: UsageDetail; readMessage?: (threadId: string, turnId: string, itemId: string) => Promise<string>; onChain?: (value: { nativeThreadId: string; turnId: string }) => void; onOpenSession?: (id: string) => void; onSelect: (dimension: "agents" | "tasks" | "sources", id: string) => void; onRecords: () => void }) {
-  const t = useUiText(), [dimension, setDimension] = useState<"agents" | "tasks" | "sources">("tasks"), [order, setOrder] = useState<"tokens" | "cost">("tokens"), [all, setAll] = useState(false);
+export function AiTokenBreakdown({ value, onSelect, onActionPurpose, onRecords, onChain, onOpenSession, readMessage }: { value: UsageDetail; onActionPurpose?: (id:ActionPurpose)=>void; readMessage?: (threadId: string, turnId: string, itemId: string) => Promise<string>; onChain?: (value: { nativeThreadId: string; turnId: string }) => void; onOpenSession?: (id: string) => void; onSelect: (dimension: "agents" | "tasks" | "sources", id: string) => void; onRecords: () => void }) {
+  const t = useUiText();
   const [original, setOriginal] = useState<{key: string; text: string} | null>(null);
   const b = value.breakdown;
   if (!b) return <p className="ai-notice" role="status">{t("Token breakdown is unavailable on this gateway. Refresh after updating it.")}</p>;
@@ -13,6 +14,7 @@ export function AiTokenBreakdown({ value, onSelect, onRecords, onChain, onOpenSe
   const complete = (fields: (keyof typeof c)[]) => fields.every(field => c[field].unknownRows === 0 && c[field].reportedRows === n && c[field].knownSubtotal !== null);
   const part = (field: keyof typeof c, label: string) => <div key={field}><dt>{t(label)}</dt><dd>{tokenNumber(c[field].knownSubtotal)}</dd><small>{t("{known} reported / {unknown} unknown responses", { known: c[field].reportedRows, unknown: c[field].unknownRows })}</small></div>;
   return <div className="ai-token-breakdown">
+    <ActionPurposePanel value={value} onSelect={onActionPurpose} />
     <section className="ai-breakdown-cost" aria-label={t("Standard API equivalent cost")}><h2>{t("Standard API equivalent cost")}</h2><strong>{apiCostLabel(cost)}</strong>
       <p>{t("Estimated portion only · {priced} priced / {unpriced} unpriced responses", { priced: cost.pointResponses + cost.rangeResponses, unpriced: cost.unpricedResponses })}</p>
       <p className="ai-card-caption">{t("{priced} known tokens priced; {unpriced} known tokens unpriced; {unknown} results lack total usage.", { priced: tokenNumber(cost.estimatedKnownTokens), unpriced: tokenNumber(cost.unpricedKnownTokens), unknown: cost.unknownUsageResults })}</p>
@@ -30,16 +32,9 @@ export function AiTokenBreakdown({ value, onSelect, onRecords, onChain, onOpenSe
           <p className="ai-card-note">{t("Reasoning is already part of output; it is not added or charged twice.")}</p>
           {complete(["output", "reasoningOutput", "otherOutput"]) && c.output.knownSubtotal! > 0 ? <progress aria-label={t("Reasoning share of output")} value={c.reasoningOutput.knownSubtotal!} max={c.output.knownSubtotal!} /> : null}</section></div>
     </section>
-    <section aria-label={t("Usage contributors")}><h2>{t("Where the observed usage went")}</h2>
-      <div className="ai-breakdown-actions" role="group" aria-label={t("Group by")}>{(["tasks", "agents", "sources"] as const).map(key => <button type="button" key={key} className="ai-coupon-apply" aria-pressed={dimension === key} onClick={() => { setDimension(key); setAll(false); }}>{t(({ tasks: "Task", agents: "Office agent", sources: "Trigger source" })[key])}</button>)}
-        <label>{t("Group order")}<select value={order} onChange={event => setOrder(event.target.value as typeof order)}><option value="tokens">{t("Total tokens")}</option><option value="cost">{t("API cost lower bound")}</option></select></label></div>
-      <p className="ai-card-note">{t("Each view covers the same snapshot. Do not add Task, Agent and Source totals together. Overlapping cost ranges do not establish a ranking.")}</p>
-      <div className="ai-contributors">{topContributors(b.contributors[dimension], order, all).map(row => <div key={row.id} className="ai-contributor"><button type="button" className="ai-contributor-name" disabled={row.id === "other"} onClick={() => onSelect(dimension, row.id)}>{row.id === "other" || row.id === "unattributed" ? t(row.name) : dimension === "sources" ? t(PURPOSE_LABELS[row.id as keyof typeof PURPOSE_LABELS] || "Unknown purpose") : row.name}</button>
-        <span><b>{tokenNumber(row.knownTokens)}</b> {t("tokens")}<small>{t("{count} measured responses", { count: row.measuredResponses })} · {t("{count} unknown usage", { count: row.unknownUsageResults })}</small></span>
-        <span>{apiCostLabel(row.cost)}<small>{t("{count} unpriced responses", { count: row.cost.unpricedResponses })}</small></span></div>)}</div>
-      {b.contributors[dimension].length > 5 ? <button type="button" className="ai-coupon-apply" onClick={() => setAll(!all)}>{t(all ? "Show top 5" : "Show all groups")}</button> : null}
-    </section>
-    <section aria-label={t("Agent message chains")}><h2>{t("Agent message chains")}</h2>
+    <details><summary>{t("Trigger and task context")}</summary><section aria-label={t("Trigger source")}><h2>{t("Trigger source")}</h2><p>{t("Trigger sources include execution and cannot prove a pure coordination cost. Use actual action evidence above; unknown is not zero.")}</p>
+      <div className="ai-contributors">{b.contributors.sources.map(row=><div className="ai-contributor" key={row.id}><button type="button" className="ai-contributor-name" onClick={()=>onSelect("sources",row.id)}>{t(PURPOSE_LABELS[row.id as keyof typeof PURPOSE_LABELS]||"Unknown purpose")}</button><span>{tokenNumber(row.knownTokens)} {t("tokens")}</span><span>{apiCostLabel(row.cost)}</span></div>)}</div></section>
+    </details><section aria-label={t("Agent message chains")}><h2>{t("Agent message chains")}</h2>
       <p className="ai-card-caption">{t("One receiving turn is counted once, even with multiple messages. Per-message incremental cost is unknown. Unconfirmed deliveries are not counted as starts. Historical messages without a ledger are not inferred.")}</p>
       {!value.messageChains?.turns.length ? <p>{t("No recorded sender-linked turns in this snapshot. This is not zero communication cost.")}</p> : value.messageChains.turns.map(chain => <details key={chain.nativeThreadId + chain.turnId} className="ai-response"><summary>{chain.entries.filter(entry => entry.senderId).length} {t("messages")} · {chain.entries.filter(entry => entry.senderId && entry.mode === "start").length} {t("new receiving turns")} / {chain.entries.filter(entry => entry.senderId && entry.mode === "steer").length} {t("same-turn additions")} · {chain.observedResponses} {t("responses")}</summary>
         <div className="ai-response-body"><p>{t("Shared turn usage; do not multiply by message count.")}</p><dl className="ai-response-numbers">{([ ["cachedInput", "Cached input"], ["uncachedInput", "Uncached input"], ["output", "Output tokens"], ["total", "Total tokens"] ] as const).map(([key,label]) => <div key={key}><dt>{t(label)}</dt><dd>{tokenNumber(chain.components[key].knownSubtotal)}</dd></div>)}</dl>
@@ -49,7 +44,6 @@ export function AiTokenBreakdown({ value, onSelect, onRecords, onChain, onOpenSe
         {onOpenSession && chain.recipientId ? <button type="button" className="ai-coupon-apply" onClick={() => onOpenSession(chain.recipientId!)}>{t("Open receiving session and tool history")}</button> : null}
         </div></details>)}
     </section>
-    <p className="ai-notice">{t("Work versus communication: not collected. Trigger sources include execution and cannot prove a pure coordination cost.")}</p>
     <button type="button" className="ai-coupon-apply" onClick={onRecords}>{t("View response records")}</button>
     <details className="ai-breakdown-boundaries"><summary>{t("Coverage, pricing and measurement limits")}</summary>
       <p>{t("New user text, history, instructions and tool context do not have separate exact token counts in this source.")}</p>

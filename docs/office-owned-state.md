@@ -505,30 +505,51 @@ not automatically classified as engineering. Original receiving-session history
 remains available. Old history without a captured ledger is not guessed/backfilled.
 
 
-### Native code-mode scope metadata (opt-in, Codex 0.166.0)
+### Actual action Purpose (Codex 0.166.0)
 
-`CLAW3D_CODEX_SCOPE_LOGS=1` enables an identity-only adapter for the Office-owned
-Codex child. It is off by default; merging this code does not activate it in an
-existing service. It sets only that child's `LOG_FORMAT=json` and
-`RUST_LOG=warn,codex_code_mode::timing=info,codex_otel.trace_safe=info`.
-No full rollout trace or global debug logging is enabled.
+The optional `CLAW3D_CODEX_SCOPE_LOGS=1` setting affects only the Office-owned
+Codex child: JSON logs and INFO for the two identity-only targets, with normal
+WARN/ERROR messages retained. It does not enable full rollout tracing or global
+debug logs. Raw logs/spans, JavaScript, arguments, stdout and reasoning are not
+stored. The parent process environment and native RPC failure semantics stay intact.
 
-Only validated conversation/turn/call/cell/tool identities are retained in the
-existing private `token-usage/communication.json` sidecar. Raw JSON, spans,
-JavaScript, arguments, tool output and reasoning are not retained. Warnings and
-errors keep their message; stderr is drained without pausing native execution.
-Oversize/malformed records, a saturated error relay and missing identities
-produce explicit gaps. Existing native process/RPC failure handling is unchanged.
+Actual Purpose is separate from legacy trigger-source `purpose`. A response's
+entire usage belongs to one observed-action bucket: execution, coordination,
+workflow, mixed, or undetermined. Tool counts do not divide its tokens or cost.
+A technical text-only reply, generic shell, missing scope or incomplete batch
+stays undetermined; lack of tools does not establish waste. Office task
+submit/delegate/review/send actions are coordination; ordinary task metadata and
+question/schedule controls are workflow. A typed read/search/list command is
+execution; its name alone cannot classify an arbitrary shell script.
 
-The creator is the `exec` host-timing event, never a later `wait` for the same
-cell. Child receipts join only by native process generation + conversation +
-cell, preserving late/out-of-order delivery. Each native process gets a new
-generation, so reused cell numbers cannot join across restarts. Missing or
-conflicting identities stay unlinked; no time or name-prefix matching is used.
-This establishes a parent edge, not a response boundary or a Purpose label.
+The pinned-format adapter closes same-turn ordinary output batches at usage
+records using source ordinals, never timestamps or ID prefixes. Its basis is
+`validatedRolloutBoundary`, not a provider response-item foreign key. Scope
+receipts join by native-process generation, conversation and cell; wait never
+replaces the creating exec. Only the native Code Mode envelope's first status
+line is projected, without keeping its body. Yielded cells stay pending until a
+terminal observation; late results keep their original response. Missing,
+conflicting, rewritten, truncated or unsupported evidence is unknown. Snapshots
+freeze the evidence used for their denominators.
 
-The queue holds at most 1,024 events; retained scope evidence is limited to
-2,048 records and 256 KiB, with the existing 16-day retention boundary. Scope
-limits cannot stop numeric metering or displace the existing message ledger.
-Historical missing scope events are not inferred or backfilled. Runtime logging
-activation and production coverage remain separate acceptance steps.
+Compact response summaries live in private `token-usage/actions-UTC-date.jsonl`
+shards. The action index has an independent 32 MiB in-memory/64 MiB disk budget,
+50,000-response ceiling, and nominal three-day retention. Capacity evicts older
+than the rolling window first; unavailable evidence still appears as unknown
+against all observed response/token denominators. Effective retention, index
+start, pending cells, truncation, unknown reasons and weighted linkage/classification
+coverage are exposed separately from numeric usage and current-source health.
+The nominal numeric detail history remains unchanged. Action limits must not
+stop numeric collection or displace the existing message ledger.
+
+Scope events are aggregated into response summaries instead of retaining the
+old experimental raw event archive. The immediate queue is bounded at 1,024;
+unresolved cells/children are bounded at 4,096/8,192. Per-response outputs/actions
+are capped at 32 with explicit truncation. Resolved status and child evidence
+are retained with the response; only compact identity indexes remain for late
+updates. Old history without scope logs is never guessed or relabeled.
+
+Purpose ordering supports uncached input, output, cached input, total and API
+reference cost. Cost ranges, unpriced rows and missing quantities remain explicit;
+these are not subscription charges or counterfactual savings. Task/Agent are
+filters, while trigger source remains secondary context.

@@ -50,13 +50,9 @@ it("does not let observer failure break stderr drain or native error handling", 
  const reader = nativeScopeLogReader({ generation: "p1", onMetadata: () => { throw Error("observer failure"); }, onGap: (x: string) => gaps.push(x), writeError: (x: string) => errors.push(x) });
  reader.feed(Buffer.from(JSON.stringify(raw()) + "\nlegacy error\n")); reader.end(); expect(gaps).toEqual(["scopeCallbackFailure"]); expect(errors).toEqual(["legacy error\n"]);
 });
-it("persists bounded identity evidence independently of numeric metering, replays idempotently and prunes", async () => {
- const directory = await mkdtemp(path.join(tmpdir(), "office-scope-test-")); roots.push(directory); let now = Date.now();
- const options = { directory, home: directory, sessions: () => [{ id: "agent", codexThreadId: "native" }], resolveSource: async () => null, now: () => now };
- const usage = new OfficeTokenUsage(options); await usage.init();
- usage.observeScope(parent); usage.observeScope(child); usage.observeScope(child); usage.observeScope({ ...child, nativeThreadId: "foreign" }); await usage.running; await usage.close();
- const file = await readFile(path.join(directory, "token-usage/communication.json"), "utf8"); expect(file).not.toContain("SECRET"); expect(JSON.parse(file).scopeRecords).toHaveLength(2);
- const restored = new OfficeTokenUsage(options); await restored.init(); expect(parentScope(restored.scopeRecords, child).status).toBe("linked");
- for (let i = 0; i < 3000; i++) restored.retainScope({ ...child, callId: `child-${i}` }); expect(restored.scopeRecords.length).toBeLessThanOrEqual(2048); expect(restored.scopeBytes).toBeLessThanOrEqual(256 * 1024); expect(restored.storageLimit).toBeFalsy();
- now += 17 * 86400000; await restored.prune(); expect(restored.scopeRecords).toHaveLength(0); await restored.close();
+it("keeps unresolved scope evidence bounded without persisting a raw event archive", async () => {
+ const directory = await mkdtemp(path.join(tmpdir(), "office-scope-test-")); roots.push(directory);
+ const usage = new OfficeTokenUsage({directory,home:directory,sessions:()=>[{id:"agent",codexThreadId:"native"}],resolveSource:async()=>null});await usage.init();
+ usage.observeScope(parent);usage.observeScope(child);await usage.running;await usage.close();
+ const file=JSON.parse(await readFile(path.join(directory,"token-usage/communication.json"),"utf8"));expect(file.scopeRecords).toBeUndefined();expect(usage.storageLimit).toBeFalsy();expect(usage.actions.pending.size).toBeLessThanOrEqual(4096);
 });

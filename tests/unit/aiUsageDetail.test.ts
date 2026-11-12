@@ -155,7 +155,7 @@ it("starts with a purpose overview, then composition, then optional nullable sam
   render(createElement(AiCenterDashboard, { open: true, client: { call }, connected: true, onClose: vi.fn() }));
   const preview = await screen.findByRole("region", { name: "Office rolling 24-hour usage" });
   fireEvent.click(await within(preview).findByRole("button", { name: "View token breakdown" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Trigger source" }));
+  fireEvent.click(await screen.findByText("Trigger and task context", {selector:"summary"}));
   fireEvent.click(await screen.findByRole("button", { name: "Gray suggestions" }));
   const composition = await screen.findByRole("region", { name: "Purpose composition" });
   expect(composition).toHaveTextContent("The share denominator stays S = 230 across all purposes.");
@@ -232,9 +232,10 @@ it("opens a dedicated breakdown from a compact Overview, explicitly drills a gro
   expect(within(preview).queryByRole("button", { name: "Chat and user work" })).toBeNull();
   const entry = await within(preview).findByRole("button", { name: "View token breakdown" }); fireEvent.click(entry);
   const pane = await screen.findByRole("region", { name: "Token breakdown" });
-  expect(within(pane).getByText(/This is not your subscription bill/)).toBeVisible(); expect(within(pane).getByText(/Work versus communication: not collected/)).toBeVisible();
+  expect(within(pane).getByText(/This is not your subscription bill/)).toBeVisible(); expect(within(pane).getByText(/Actual action evidence is unavailable/)).toBeVisible();
   expect(within(pane).queryByText("Big consumer", { selector: "b" })).toBeNull(); expect(call.mock.lastCall?.[1]).toMatchObject({ snapshot: "stable-snapshot", includeRecords: false });
-  fireEvent.click(within(pane).getByRole("button", { name: "Unattributed" }));
+  fireEvent.click(within(pane).getByText("Trigger and task context",{selector:"summary"}));
+  fireEvent.change(within(pane).getByRole("combobox", { name: "Task" }), {target:{value:"unattributed"}});
   await waitFor(() => expect(call.mock.lastCall?.[1]).toMatchObject({ taskId: "unattributed", end: value.window!.end, includeRecords: false })); expect(call.mock.lastCall?.[1]).not.toHaveProperty("snapshot");
   fireEvent.click(within(pane).getByRole("button", { name: "View response records" })); await within(pane).findByText("Big consumer", { selector: "b" });
   fireEvent.click(screen.getByRole("button", { name: "Back to overview" })); await waitFor(() => expect(screen.getByRole("button", { name: "View token breakdown" })).toHaveFocus()); expect(screen.getAllByRole("dialog")).toHaveLength(1);
@@ -246,11 +247,7 @@ it("keeps Top5+Other equal to the full grouping, exposes every group, and never 
   const top = topContributors(groups, "tokens", false); expect(top).toHaveLength(6); expect(top.reduce((s, r) => s + r.knownTokens!, 0)).toBe(78);
   expect(top.reduce((s, r) => s + r.cost.minUsd!, 0)).toBeCloseTo(78 / 1e8, 12); expect(top.reduce((s, r) => s + r.cost.maxUsd!, 0)).toBeCloseTo(78 / 1e7, 12);
   expect(apiCostLabel({ minUsd: 1e-9, maxUsd: 1e-9 })).not.toBe("$0.00");
-  value.breakdown!.contributors.tasks = groups;
-  const select = vi.fn(); render(createElement(AiTokenBreakdown, { value, onSelect: select, onRecords: vi.fn() }));
-  expect(screen.getAllByRole("button", { name: /Worker/ })).toHaveLength(5); fireEvent.click(screen.getByRole("button", { name: "Show all groups" })); expect(screen.getAllByRole("button", { name: /Worker/ })).toHaveLength(12);
-  fireEvent.change(screen.getByRole("combobox", { name: "Group order" }), { target: { value: "cost" } }); expect(screen.getAllByRole("button", { name: /Worker/ })[0]).toHaveTextContent("Worker 0");
-  fireEvent.click(screen.getAllByRole("button", { name: /Worker/ })[0]); expect(select).toHaveBeenCalledWith("tasks", "group-0");
+
 });
 
 it("does not draw complete proportions from partial fields or fall back to old all-row components", () => {

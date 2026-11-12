@@ -1,5 +1,6 @@
 "use strict";
 const { cleanScopeRecord } = require("./codex-scope-metadata");
+const { ActionIndex, actionSummary, PURPOSES: ACTION_PURPOSES } = require("./office-action-purpose");
 // Read-only compatibility projection for Codex 0.166.0 Office rollouts.
 // This is observed response telemetry, not a billing API or a complete HTTP log.
 const fs = require("node:fs/promises");
@@ -63,7 +64,7 @@ function usageOf(value) {
   return { ...result, uncachedInput: result.input - result.cachedInput, otherOutput: result.output - result.reasoningOutput };
 }
 function parameters(p, now) {
-  if (!p || typeof p !== "object" || Array.isArray(p) || Object.keys(p).some(k => !["nativeThreadId", "turnId", "schemaVersion", "window", "end", "date", "timeZone", "sort", "order", "agentId", "configuredModel", "taskId", "cursor", "snapshot", "purpose", "includeRecords", "limit", "refresh"].includes(k))) throw new Error("Invalid usage query");
+  if (!p || typeof p !== "object" || Array.isArray(p) || Object.keys(p).some(k => !["actionPurpose", "nativeThreadId", "turnId", "schemaVersion", "window", "end", "date", "timeZone", "sort", "order", "agentId", "configuredModel", "taskId", "cursor", "snapshot", "purpose", "includeRecords", "limit", "refresh"].includes(k))) throw new Error("Invalid usage query");
   if (p.schemaVersion !== undefined && p.schemaVersion !== 2) throw new Error("Invalid usage schema");
   let window = null;
   if (p.window !== undefined) {
@@ -78,14 +79,15 @@ function parameters(p, now) {
     try { localDay(now, p.timeZone); } catch { throw new Error("Invalid time zone"); }
   }
   const sort = p.sort ?? "total", order = p.order ?? "desc", limit = p.limit ?? 50;
-  if (!["total", "input", "uncachedInput", "output", "time"].includes(sort) || !["asc", "desc"].includes(order) || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("Invalid usage ordering or page size");
+  if (!["total", "input", "cachedInput", "uncachedInput", "output", "cost", "time"].includes(sort) || !["asc", "desc"].includes(order) || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("Invalid usage ordering or page size");
   for (const field of ["nativeThreadId", "turnId", "agentId", "configuredModel", "taskId"]) if (p[field] !== undefined && !(field === "configuredModel" ? label(p[field]) : id(p[field]))) throw new Error("Invalid usage filter");
   for (const field of ["cursor", "snapshot"]) if (p[field] !== undefined && (typeof p[field] !== "string" || !p[field] || p[field].length > 512)) throw new Error("Invalid usage cursor");
   if (p.cursor !== undefined && p.snapshot !== undefined) throw new Error("Invalid usage cursor");
   if (p.purpose !== undefined && !PURPOSES.includes(p.purpose)) throw new Error("Invalid usage purpose");
   if (p.includeRecords !== undefined && typeof p.includeRecords !== "boolean") throw new Error("Invalid record selection");
+  if (p.actionPurpose !== undefined && !ACTION_PURPOSES.includes(p.actionPurpose)) throw new Error("Invalid action purpose");
   if (p.refresh !== undefined && typeof p.refresh !== "boolean") throw new Error("Invalid refresh");
-  return { schemaVersion: window || p.schemaVersion === 2 ? 2 : 1, date: window ? null : p.date, timeZone: window ? "UTC" : p.timeZone, window, sort, order, limit, agentId: p.agentId ?? null, configuredModel: p.configuredModel ?? null, taskId: p.taskId ?? null, nativeThreadId: p.nativeThreadId ?? null, turnId: p.turnId ?? null, purpose: p.purpose ?? null, includeRecords: p.includeRecords !== false };
+  return { schemaVersion: window || p.schemaVersion === 2 ? 2 : 1, date: window ? null : p.date, timeZone: window ? "UTC" : p.timeZone, window, sort, order, limit, actionPurpose: p.actionPurpose || null, agentId: p.agentId ?? null, configuredModel: p.configuredModel ?? null, taskId: p.taskId ?? null, nativeThreadId: p.nativeThreadId ?? null, turnId: p.turnId ?? null, purpose: p.purpose ?? null, includeRecords: p.includeRecords !== false };
 }
 
 class OfficeTokenUsage {
@@ -101,7 +103,8 @@ class OfficeTokenUsage {
     this.dayBytes = new Map(); this.pendingBytes = 0;
     this.queue = new Set(); this.snapshots = new Map(); this.secret = crypto.randomBytes(32);
     this.bytes = 0; this.gaps = {}; this.floor = ""; this.closed = false; this.running = null;
-    this.scopeQueue = []; this.scopeRecords = []; this.scopeRecordKeys = new Set(); this.scopeBytes = 0;
+    this.actions = new ActionIndex(this.directory, now, reason => this.gap(reason));
+    this.scopeQueue = [];
     this.nativeVersion = nativeVersion;
     if (nativeVersion !== VERSION) { this.unavailable = true; this.gap("unsupportedRuntimeVersion"); }
   }
@@ -149,15 +152,7 @@ class OfficeTokenUsage {
     this.scopeQueue.push(record); this.kick();
   }
   retainScope(value) {
-    const record = cleanScopeRecord(value);
-    if (!record) return;
-    const key = JSON.stringify(record);
-    if (this.scopeRecordKeys.has(key)) return;
-    const bytes = Buffer.byteLength(key) + 64;
-    if (this.scopeRecords.length >= 2048 || this.scopeBytes + bytes > 256 * 1024) { this.gap("scopeRetentionLimit"); return; }
-    const at = Number.isFinite(value.at) ? value.at : this.now();
-    if (at < this.now() - 16 * DAY || at > this.now() + DAY) return;
-    this.scopeRecords.push({ ...record, at }); this.scopeRecordKeys.add(key); this.scopeBytes += bytes;
+    const record = cleanScopeRecord(value); if (record) this.actions.scope(record);
   }
   registerSource(value) {
     if (!value?.nativeThreadId) return;
@@ -198,9 +193,11 @@ class OfficeTokenUsage {
     await fs.mkdir(this.directory, { recursive: true, mode: 0o700 });
     if ((await fs.lstat(this.directory)).isSymbolicLink()) throw new Error("Unsafe derived directory");
     await fs.chmod(this.directory, 0o700);
+    try { await this.actions.init(); } catch { this.gap("actionIndexRecovery"); }
     let state;
     try { state = await this.readJson("state.json", this.reserve); } catch (error) { if (error.code !== "ENOENT") this.gap("stateRecovery"); }
     if (state?.format === FORMAT) {
+      this.actions.recordedFrom = state.actionRecordedFrom || this.actions.recordedFrom;
       this.sources = state.sources || {}; this.bindings = { ...state.bindings, ...this.bindings }; this.gaps = { ...state.gaps, ...this.gaps }; this.floor = state.floor || "";
       this.communicationRecordedFrom = state.communicationRecordedFrom || this.communicationRecordedFrom;
       this.purposesRecordedFrom = state.purposesRecordedFrom || this.purposesRecordedFrom;
@@ -329,8 +326,6 @@ class OfficeTokenUsage {
     for (const day of this.shards.keys()) if (day < cutoff) this.evict(day);
     for (const [key, binding] of Object.entries(this.bindings)) if (binding.at < this.now() - 16 * DAY) delete this.bindings[key];
     this.bindingCount = Object.keys(this.bindings).length; this.entryCount = Object.values(this.bindings).reduce((sum, value) => sum + (value.entries?.length || 0), 0); this.activityCount = Object.values(this.bindings).reduce((sum, value) => sum + (value.activities?.length || 0) + (value.messageItems?.length || 0), 0);
-    const scopes = this.scopeRecords.filter(value => value.at >= this.now() - 16 * DAY);
-    if (scopes.length !== this.scopeRecords.length) { this.scopeRecords = []; this.scopeRecordKeys.clear(); this.scopeBytes = 0; for (const value of scopes) this.retainScope(value); }
     await this.flush();
   }
   async atomic(name, value) {
@@ -352,12 +347,11 @@ class OfficeTokenUsage {
       bindings[key] = base;
       if (entries || activities || messageItems) turns[key] = { entries, truncatedEntries, activities, activityTruncated, messageItems };
     }
-    const ledger = { format: 1, turns, scopeRecords: this.scopeRecords };
-    // Preserve the existing message ledger if optional scope evidence fills its budget.
-    if (Buffer.byteLength(JSON.stringify(ledger)) > this.reserve) { delete ledger.scopeRecords; this.gap("scopePersistenceLimit"); }
+    const ledger = { format: 1, turns };
     if (Buffer.byteLength(JSON.stringify(ledger)) <= this.reserve) await this.atomic("communication.json", ledger);
     else this.gap("communicationMetadataLimit"); // Never stop numeric metering for a diagnostic limit.
-    const state = { communicationRecordedFrom: this.communicationRecordedFrom, format: FORMAT, sources: this.sources, bindings, gaps: this.gaps, floor: this.floor, purposesRecordedFrom: this.purposesRecordedFrom, adaptersEnabledAt: this.adaptersEnabledAt };
+    try { await this.actions.flush(); } catch { this.gap("actionPersistenceGap"); }
+    const state = { actionRecordedFrom: this.actions.recordedFrom, communicationRecordedFrom: this.communicationRecordedFrom, format: FORMAT, sources: this.sources, bindings, gaps: this.gaps, floor: this.floor, purposesRecordedFrom: this.purposesRecordedFrom, adaptersEnabledAt: this.adaptersEnabledAt };
     if (Buffer.byteLength(JSON.stringify(state)) > this.reserve) { this.storageLimit = true; this.gap("metadataLimit"); return; }
     await this.atomic("state.json", state);
     // Retention floor is durable before removing old shards. A crash never
@@ -433,6 +427,7 @@ class OfficeTokenUsage {
       }
       if (state.inode && (state.inode !== inode || stat.size < state.offset || rewritten)) {
         this.gap(state.inode !== inode ? "sourceReplaced" : "sourceTruncatedOrRewritten", state);
+        state.actionEpoch = (state.actionEpoch || 0) + 1;
         state.offset = 0; state.version = null; state.context = null;
       }
       state.trusted = true; this.readOwners = this.known(); state.inode = inode; state.file = relative; state.status = "indexing";
@@ -447,6 +442,7 @@ class OfficeTokenUsage {
           if (!oversize && length <= this.lineBytes) pieces.push(Buffer.from(part)); else { if (!oversize) pieces.push(Buffer.from(part.subarray(0, Math.max(0, this.lineBytes - length + part.length)))); oversize = true; }
           if (oversize) {
             const prefix = Buffer.concat(pieces).toString("utf8");
+            if (state.version === VERSION) this.actions.consume(prefix, nativeId, state, start, true);
             if (!this.meta(prefix, nativeId, state) && /"type"\s*:\s*"(turn_context|token_usage_record)"/.test(prefix.slice(0, 320))) this.gap("oversizeMetadataLine", state);
           }
           else if (!this.line(Buffer.concat(pieces).toString("utf8"), nativeId, state, start)) break;
@@ -485,7 +481,9 @@ class OfficeTokenUsage {
   line(text, nativeId, state, offset) {
     if (!text.trim()) return true;
     if (this.meta(text, nativeId, state)) return true;
-    // Ordinary prompt/tool/reasoning lines never go through JSON.parse or storage.
+    if (state.version === VERSION) this.actions.consume(text, nativeId, state, offset);
+    // The separate bounded action adapter projects ordinary identities/status only.
+    // This numeric reader never parses prompt/tool/reasoning bodies.
     const header = /^\{\s*"timestamp"\s*:\s*"[^"\\]+"\s*,\s*(?:"ordinal"\s*:\s*\d+\s*,\s*)?"type"\s*:\s*"([a-z_]+)"/.exec(text.slice(0, 320));
     if (!header) { this.gap("malformedLine", state); return true; }
     if (!["turn_context", "token_usage_record"].includes(header[1])) return true;
@@ -617,6 +615,7 @@ class OfficeTokenUsage {
     for (const row of this.rows.values()) { if (!firstObservedAt || row.observedAt < firstObservedAt) firstObservedAt = row.observedAt; if (!indexedThrough || row.observedAt > indexedThrough) indexedThrough = row.observedAt; }
     return { source: "office-rollout-compatibility", supportedVersion: VERSION, nativeVersion: this.nativeVersion, apiStability: "internal-format", partial: true,
       indexing: Boolean(this.running), unavailable: Boolean(this.unavailable), storageLimit: Boolean(this.storageLimit),
+      currentSources: [...known.keys()].map(id => ({ nativeThreadId: id, currentFile: this.sources[id]?.file || null, status: this.sources[id]?.status || "unavailable", resolvedAt: this.sources[id]?.resolvedAt || null, indexedAt: this.sources[id]?.indexedAt || null, offset: this.sources[id]?.offset || 0 })),
       knownSources: known.size, scannedSources: states.length, readySources: states.filter(s => s.status === "ready").length,
       unsupportedSources: states.filter(s => s.status === "unsupported").length, partialLines: states.filter(s => s.partialLine).length,
       ...this.retention(timeZone),
@@ -662,7 +661,7 @@ class OfficeTokenUsage {
         const binding = isSample(row) ? null : bindings[turnKey];
         if (query.agentId && (query.agentId === "unattributed" ? row.officeAgentId !== null : query.agentId !== row.officeAgentId) || query.configuredModel && query.configuredModel !== row.configuredModel || query.taskId && (query.taskId === "unattributed" ? Boolean(binding?.taskId) : query.taskId !== binding?.taskId)) continue;
         const recordedPurpose = purposeOf(row, bindings);
-        rows.push({ ...row, recordedPurpose, purpose: query.schemaVersion === 1 && recordedPurpose === "dictation" ? "unknown" : recordedPurpose });
+        rows.push({ ...row, action: this.actions.view(row), recordedPurpose, purpose: query.schemaVersion === 1 && recordedPurpose === "dictation" ? "unknown" : recordedPurpose });
       }
       for (const siblings of turns.values()) siblings.sort((a, b) => a.observedAt.localeCompare(b.observedAt) || a.source.ordinal - b.source.ordinal);
       snapshot = { baseFingerprint, window: query.window, filterRows, rows, turns, bindings, summary: purposeSummary(rows, this.purposesRecordedFrom), expires: this.now() + 300000 };
@@ -670,11 +669,12 @@ class OfficeTokenUsage {
       snapshotId = crypto.randomBytes(16).toString("hex"); this.snapshots.set(snapshotId, snapshot);
       while (this.snapshots.size > 8) this.snapshots.delete(this.snapshots.keys().next().value);
     }
-    const rows = snapshot.rows.filter(row => (!query.purpose || row.purpose === query.purpose) && (!query.nativeThreadId || row.nativeThreadId === query.nativeThreadId) && (!query.turnId || row.turnId === query.turnId));
-    const value = row => query.sort === "time" ? row.observedAt : row.usage[query.sort];
+    const rows = snapshot.rows.filter(row => (!query.actionPurpose || row.action.purpose === query.actionPurpose) && (!query.purpose || row.purpose === query.purpose) && (!query.nativeThreadId || row.nativeThreadId === query.nativeThreadId) && (!query.turnId || row.turnId === query.turnId));
+    const value = row => query.sort === "time" ? row.observedAt : query.sort === "cost" ? (row.cost || estimateResponseCost(row)).minUsd : row.usage[query.sort];
     rows.sort((a, b) => { const av = value(a), bv = value(b); return av == null && bv != null ? 1 : bv == null && av != null ? -1
       : (av < bv ? -1 : av > bv ? 1 : 0) * (query.order === "desc" ? -1 : 1) || a.observedAt.localeCompare(b.observedAt) || keyOf(a).localeCompare(keyOf(b)); });
     const coverage = this.coverage(query.timeZone);
+    if(query.schemaVersion===1)delete coverage.currentSources;
     if (snapshot.summary.measuredResponses && snapshot.summary.denominatorTokens === null) coverage.knownGaps.aggregateOverflow = 1;
     const taskRows = this.tasks(), taskLabels = new Map();
     for (const binding of (query.window ? snapshot.filterRows.map(row => snapshot.bindings[`${row.nativeThreadId}:${row.turnId}`]).filter(Boolean) : Object.values(snapshot.bindings))) if (binding.taskId && !taskLabels.has(binding.taskId)) {
@@ -713,6 +713,7 @@ class OfficeTokenUsage {
       // Existing native zeros have no upstream-presence provenance. Keep their
       // raw legacy fields, but do not promote them to verified breakdown counts.
       measuredComponents.cacheWriteInput = { knownSubtotal: writes.length && Number.isSafeInteger(written) ? written : null, reportedRows: writes.length, unknownRows: measuredRows.length - writes.length };
+      snapshot.actionSummary = actionSummary(snapshot.rows, this.actions);
       snapshot.breakdown = { basis: "measuredResponseSnapshot", denominatorTokens: snapshot.summary.denominatorTokens,
         measuredComponents,
         contributors: Object.fromEntries(Object.entries(contributors).map(([key, groups]) => [key, [...groups.values()]])),
@@ -735,7 +736,7 @@ class OfficeTokenUsage {
       const index = siblings.findIndex(s => keyOf(s) === keyOf(row)), previous = siblings[index - 1];
       return { id: keyOf(row), nativeThreadId: row.nativeThreadId, officeAgentId: row.officeAgentId,
         agentName: staff.get(row.officeAgentId)?.name || queryOwners.get(row.nativeThreadId || row.contextNativeThreadId)?.name || row.officeAgentId || "Unattributed native helper",
-        dispatchEntries: binding?.entries || [], responseId: row.responseId, turnId: row.turnId, rootTurnId: row.rootTurnId, observedAt: row.observedAt, usage: row.usage, ...(row.cost ? { cost: row.cost } : {}),
+        ...(query.schemaVersion===2?{action:row.action}:{}), dispatchEntries: binding?.entries || [], responseId: row.responseId, turnId: row.turnId, rootTurnId: row.rootTurnId, observedAt: row.observedAt, usage: row.usage, ...(row.cost ? { cost: row.cost } : {}),
         sourceKind: row.source?.kind || "nativeRollout", sourceKinds: row.sourceKinds || [row.source?.kind || "nativeRollout"],
         contextNativeThreadId: row.contextNativeThreadId || null, sourceTurnId: row.sourceTurnId || null, totalBasis: row.totalBasis || "reported",
         purpose: row.purpose, recordedPurpose: row.recordedPurpose, purposeBasis: row.recordedPurpose !== row.purpose ? "unsupportedLegacyCategory" : isDictation(row) ? "providerRequest" : sample ? "sampleResponse" : binding?.purpose?.basis || "unknown", trigger: isDictation(row) ? "dictation" : sample ? "threadSample" : binding?.purpose?.trigger || "unknown",
@@ -746,7 +747,7 @@ class OfficeTokenUsage {
         previousObservedInput: previous && row.usage.input !== null && previous.usage.input !== null && previous.configuredModel === row.configuredModel && row.configuredModel && !previous.conflict && !row.conflict ? { responseId: previous.responseId, input: previous.usage.input, change: row.usage.input - previous.usage.input, basis: "adjacentObservedSameTurnConfiguredModel" } : null };
     });
     return { date: query.date, timeZone: query.timeZone, window: snapshot.window, serverNow: new Date(this.now()).toISOString(), rows: publicRows, count: rows.length, totals: totalsOf(rows),
-      snapshot: this.cursor(snapshotId, 0), purposeSummary: snapshot.summary, ...(snapshot.messageChains ? { messageChains: snapshot.messageChains } : {}), selectedPurpose: query.purpose, ...(snapshot.breakdown ? { breakdown: snapshot.breakdown } : {}),
+      snapshot: this.cursor(snapshotId, 0), ...(snapshot.actionSummary ? { actionSummary: snapshot.actionSummary } : {}), purposeSummary: snapshot.summary, ...(snapshot.messageChains ? { messageChains: snapshot.messageChains } : {}), selectedPurpose: query.purpose, ...(snapshot.breakdown ? { breakdown: snapshot.breakdown } : {}),
       nextCursor: query.includeRecords && offset + query.limit < rows.length ? this.cursor(snapshotId, offset + query.limit, fingerprint) : null,
       coverage, scope: "Office observed subset", outsideRetention: query.window ? Date.parse(query.window.end) <= Date.parse(coverage.retainedFrom + "T00:00:00Z") : query.date < coverage.retainedFrom || query.date > localDay(this.now(), query.timeZone),
       windowPartial: Boolean(query.window && Date.parse(query.window.start) < Date.parse(coverage.retainedFrom + "T00:00:00Z")),
