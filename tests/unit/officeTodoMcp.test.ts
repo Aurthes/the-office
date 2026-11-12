@@ -332,6 +332,12 @@ it("makes scheduler CRUD discoverable and usable from two actual department cont
     await expect(call("schedule_update", { ...specified, invocations: null, requestId: actor+"-invalid-times" })).rejects.toThrow(/Invocations/);
     const schema = discovered.tools.find((t: { name: string }) => t.name === "schedule_create").inputSchema;
     expect(schema.properties.invocations).toMatchObject({ type: "array", uniqueItems: true });
+    for (const name of ["schedule_create", "schedule_update"]) {
+      const description = discovered.tools.find((t: {name:string})=>t.name===name).description;
+      expect(description).toContain("If D <= 5 minutes");
+      expect(description).toContain("If D > 5 minutes");
+      expect(description).toContain("exactly 15 seconds is allowed");
+    }
     expect(schema.required).not.toContain("intervalMinutes"); expect(schema.oneOf).toHaveLength(2);
     await expect(call("schedule_create", { ...input, actorId: "unknown", requestId: actor+"-unknown" })).rejects.toThrow();
   }

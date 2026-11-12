@@ -117,11 +117,30 @@ not per-person authentication. Existing backend target permissions are unchanged
 List defaults to that actor's target thread; an explicit `threadId` selects a
 conversation without returning other conversations' prompts.
 
-Create/update take the full `name`, `threadId`, `prompt`, `intervalMinutes`,
-`firstRunAt` (UTC epoch milliseconds), `enabled`, and stable `requestId`; update
-also takes `id`. Read list back before yielding. Retain the same job/checkpoint,
-original task and question in the prompt. Rearm the same id with a new measured
-remaining ETA and an explicit future first time; disable obsolete checks, then
-delete after their active turn ends. No run-now tool or new scheduler is added.
-This is timed inspection, not an immediate OS completion callback. Active runs
-interrupted by Gateway restart become unknown and disabled pending reconciliation.
+Create/update take the full configuration. Use `invocations` (absolute UTC epoch
+milliseconds) for an ETA follow-up array, or `firstRunAt` + `intervalMinutes` for a
+real recurring schedule, never both. Update also takes `id`; omitted fields are
+not a partial patch. These follow-ups do not add an execution approval step.
+
+For a recoverable job with measured remaining duration D:
+
+- D <= 5 minutes, including exactly 5: follow the same job directly with bounded
+  waits; a tool timeout does not mean restart.
+- D > 5 minutes: freeze t0 and E=t0+D. First point is t0+D/2. From each last point,
+  propose half the remaining distance to E. If that proposed gap is <15 seconds,
+  append E exactly once and finish; exactly 15 seconds is allowed. Register the
+  whole array on the same executor and read it back before yielding.
+- Compare the unrounded gap to 15 seconds, then round stored points to the nearest
+  UTC millisecond; preserve t0's milliseconds, with no duplicate endpoint.
+- D=10 minutes: offsets are 300, 450, 525, 562.5, 581.25, 600 seconds.
+- At a wake inspect the same job. On terminal result consume it and clear future
+  points. Otherwise revise the measured ETA when needed and replace the same id's
+  future array, not another schedule. A new D <=5 minutes uses direct follow-up.
+  Passing ETA never justifies killing healthy work.
+
+Keep the original task/question/job reference. Disable obsolete wakeups; delete
+only after their active turn ends. A schedule is timed model input when idle,
+not an OS completion callback. True recurring schedules remain independent.
+Active runs interrupted by Gateway restart become unknown and disabled pending
+reconciliation. Existing tasks and schedule registrations are not migrated by
+this documentation change.

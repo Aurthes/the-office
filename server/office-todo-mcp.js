@@ -1,6 +1,7 @@
 "use strict";
 // Office-only MCP bridge. Credentials travel through the child environment,
 // never through arguments, model context, or the native Codex App profile.
+const { ETA_FOLLOWUP_RULE } = require("./office-head-guideline");
 const readline = require("node:readline");
 const { WebSocket } = require("ws");
 const properties = {
@@ -52,7 +53,7 @@ tools.push({ name: "session_send", description: "Contact an existing Office coll
 const scheduleConfig = {
   name: { type: "string", minLength: 1, maxLength: 120 }, threadId: { type: "string", minLength: 1, description: "Existing Office executor session, not a native thread or OS process." },
   prompt: { type: "string", minLength: 1, maxLength: 32768, description: "Same job/checkpoint, original task/phase and Q, and next action. Files alone do not wake an Agent." },
-  invocations: { type: "array", maxItems: 1000, uniqueItems: true, items: { type: "integer", minimum: 0, maximum: 8000000000000000 }, description: "Absolute UTC epoch milliseconds, not seconds. One time wakes once; [] clears future times. Exhaustion is not job success. Rearm the same id with one new future time at half the measured remaining ETA." },
+  invocations: { type: "array", maxItems: 1000, uniqueItems: true, items: { type: "integer", minimum: 0, maximum: 8000000000000000 }, description: "Absolute UTC epoch milliseconds, not seconds. One time wakes once; [] clears future times. Exhaustion is not job success; follow the measured-ETA array policy in create/update." },
   intervalMinutes: { type: "integer", minimum: 1, maximum: 525600 }, firstRunAt: { type: "integer", minimum: 0, maximum: 8000000000000000, description: "UTC epoch milliseconds. Rearm explicitly to now + half the measured remaining ETA; not a deadline." }, enabled: { type: "boolean" },
 };
 for (const action of ["list", "create", "update", "delete"]) {
@@ -63,8 +64,8 @@ for (const action of ["list", "create", "update", "delete"]) {
     ...(mutation ? { requestId: { type: "string", minLength: 1, maxLength: 160, description: "Stable mutation ID; reuse after uncertain outcomes, read back before creating again." } } : {}),
   };
   tools.push({ name: `schedule_${action}`, description: action === "list" ? "Read existing Office wakeups for threadId (defaults to your own actorId), including timing configuration, nullable nextRunAt (null means no remaining times), lastInvocationAt and recent runs. Check for the same job before registering. Available company-wide; does not change target permissions."
-    : action === "create" ? "Register a wakeup on an existing Office executor: invocations:[one or more absolute times] or legacy firstRunAt + intervalMinutes, never both. Read schedule_list back before yielding. This is timed model input when idle, not an OS completion callback; busy waits and unknown dispatches are not blindly replayed."
-    : action === "update" ? "Replace the complete wakeup configuration (not a partial patch). Rearm the same id with invocations:[now + half the measured remaining ETA]. Preserve invocations on every specified-time update; never mix recurring fields. Disable obsolete wakeups before ending; disabling does not cancel an active turn."
+    : action === "create" ? "Register a wakeup on an existing Office executor: invocations:[one or more absolute times] or legacy firstRunAt + intervalMinutes, never both. Read schedule_list back before yielding. This is timed model input when idle, not an OS completion callback; busy waits and unknown dispatches are not blindly replayed. " + ETA_FOLLOWUP_RULE
+    : action === "update" ? "Replace the complete wakeup configuration (not a partial patch). Preserve invocations on every specified-time update; never mix recurring fields. Disable obsolete wakeups before ending; disabling does not cancel an active turn. " + ETA_FOLLOWUP_RULE
     : "Delete an obsolete wakeup after its active turn finishes. Disable with schedule_update first; deletion while running is refused. This does not stop the original job.",
     annotations: { readOnlyHint: !mutation, destructiveHint: action === "delete", openWorldHint: false }, inputSchema: { type: "object", properties, required: Object.keys(properties).filter(key => config ? !["invocations", "intervalMinutes", "firstRunAt"].includes(key) : action !== "list" || key !== "threadId"),
       ...(config ? { oneOf: [{ required: ["invocations"], not: { anyOf: [{ required: ["intervalMinutes"] }, { required: ["firstRunAt"] }] } }, { required: ["intervalMinutes", "firstRunAt"], not: { required: ["invocations"] } }] } : {}), additionalProperties: false } });

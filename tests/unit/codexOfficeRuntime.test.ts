@@ -11,7 +11,7 @@ const { prepareOfficeProfile } = require("../../server/codex-office-profile.js")
 const { WORKFLOW, TASK_WORKFLOW, QUESTION_REPLY_RULE } = require("../../server/office-company.js");
 const { CodexOfficeStore } = require("../../server/codex-office-store.js");
 const { CodexSessionControls } = require("../../server/codex-session-controls.js");
-const { OFFICE_COLLABORATION_GUIDELINE, DEPARTMENT_HEAD_GUIDELINE } = require("../../server/office-head-guideline.js");
+const { OFFICE_COLLABORATION_GUIDELINE, DEPARTMENT_HEAD_GUIDELINE, ETA_FOLLOWUP_RULE } = require("../../server/office-head-guideline.js");
 const { ceo: CEO_ID } = require("../../src/lib/office/identities.json");
 const roots: string[] = [];
 afterEach(() => { roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })); });
@@ -220,7 +220,7 @@ describe("independent Office runtime", () => {
     await f.store.call("turn/start", { threadId: id, input: [] });
     const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
     const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
-    const asyncRule = " For background work, keep a recoverable job and a realistic remaining ETA. Before yielding, register and read back an Office schedule for the same executor using office_tasks.schedule_create with invocations:[now + half the remaining ETA] and schedule_list. On waking, inspect the same job without restarting it; revise the ETA from measured progress and replace the same id’s invocations with one new future time using schedule_update, or continue from its result/failure. Clear or disable obsolete wakeups and use schedule_delete after their active turn ends. Keep the original task and question; report unavailable tools or uncertain delivery rather than claiming a status file is a wakeup.";
+    const asyncRule = " " + ETA_FOLLOWUP_RULE;
     const dependencyRule = "For each dependency, specify the completion condition, successor, trigger owner and event, and handoff inputs; the trigger owner handles failure or uncertainty until a real handoff and worker-turn receipt confirm pickup. ";
     expect(payload.split(asyncRule)).toHaveLength(2);
     expect(payload.includes(dependencyRule)).toBe(title === "Head");
@@ -296,7 +296,7 @@ describe("independent Office runtime", () => {
     await f.store.call("turn/start", { threadId: id, input: [] });
     const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
     const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
-    const current = "For background work, keep a recoverable job and a realistic remaining ETA. Before yielding, register and read back an Office schedule for the same executor using office_tasks.schedule_create with invocations:[now + half the remaining ETA] and schedule_list. On waking, inspect the same job without restarting it; revise the ETA from measured progress and replace the same id’s invocations with one new future time using schedule_update, or continue from its result/failure. Clear or disable obsolete wakeups and use schedule_delete after their active turn ends. Keep the original task and question; report unavailable tools or uncertain delivery rather than claiming a status file is a wakeup.";
+    const current = ETA_FOLLOWUP_RULE;
     expect(payload.split(current)).toHaveLength(2);
     expect(payload).toContain("office_tasks.session_send");
     expect(payload.includes(DEPARTMENT_HEAD_GUIDELINE)).toBe(title === "Head");
@@ -691,8 +691,9 @@ it.each(["Worker", "Head"])("refreshes unchanged-progress %s guidance through th
   const head = "Keep your own replies focused on decisions; do not relay routine status again.", oldHead = "Keep your own replies focused on what affects the decision.";
   expect(payload.split(current)).toHaveLength(2);
   expect(payload.includes(head)).toBe(title === "Head");
-  expect(payload).toContain("invocations:[now + half the remaining ETA]");
-  expect(payload).toContain("inspect the same job without restarting it");
+  expect(payload).toContain("If D <= 5 minutes");
+  expect(payload).toContain("If D > 5 minutes");
+  expect(payload).toContain("Inspect the same job at each wake");
   expect(payload).toContain("office_tasks.session_send");
   expect(payload).toContain("real constraints");
   const prior = payload.replace(current, previous).replace(head, oldHead);
@@ -754,4 +755,21 @@ it.each(["Worker", "Head"])("refreshes purposeful intermediate-report %s guidanc
   const restarted = new CodexOfficeStore(f.directory, f.client); restarted.companyContext = f.store.companyContext;
   await restarted.call("turn/start", { threadId: id, input: [] });
   expect(injections()).toHaveLength(2);
+});
+
+
+it.each(["Worker", "Head"])("replaces the immediately prior single ETA point for %s once", async title => {
+ const f=fixture(), id=await session(f); f.store.companyContext=()=>({agentId:id,title});
+ await f.store.call("turn/start",{threadId:id,input:[]});
+ const injections=()=>f.client.call.mock.calls.filter(([m])=>m==="thread/inject_items");
+ const payload=(injections()[0][1] as {items:Array<{content:Array<{text:string}>}>}).items[0].content[0].text;
+ expect(payload.split(ETA_FOLLOWUP_RULE)).toHaveLength(2);
+ const prior=payload.replace(ETA_FOLLOWUP_RULE, "For background work, keep a recoverable job and a realistic remaining ETA. Before yielding, register and read back an Office schedule for the same executor using office_tasks.schedule_create with invocations:[now + half the remaining ETA] and schedule_list. On waking, inspect the same job without restarting it; revise the ETA from measured progress and replace the same id\u2019s invocations with one new future time using schedule_update, or continue from its result/failure. Clear or disable obsolete wakeups and use schedule_delete after their active turn ends. Keep the original task and question; report unavailable tools or uncertain delivery rather than claiming a status file is a wakeup.");
+ expect(prior).not.toBe(payload); f.store.get(id).projectContext=createHash("sha256").update(prior).digest("hex");f.store.save();
+ const restored=new CodexOfficeStore(f.directory,f.client);restored.companyContext=f.store.companyContext;
+ await restored.call("turn/start",{threadId:id,input:[]});
+ expect((injections()[1][1] as {items:Array<{content:Array<{text:string}>}>}).items[0].content[0].text).toBe(payload);
+ await restored.call("turn/start",{threadId:id,input:[]});
+ const again=new CodexOfficeStore(f.directory,f.client);again.companyContext=f.store.companyContext;
+ await again.call("turn/start",{threadId:id,input:[]});expect(injections()).toHaveLength(2);
 });
