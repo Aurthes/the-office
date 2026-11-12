@@ -6,7 +6,7 @@ import path from 'node:path';
 import {afterEach,it,expect} from 'vitest';
 const {ActionIndex,actionSummary,toolPurpose}=createRequire(import.meta.url)('../../server/office-action-purpose');
 const roots:string[]=[];afterEach(async()=>{for(const p of roots.splice(0))await rm(p,{recursive:true,force:true})});
-async function fixture(){const root=await mkdtemp(path.join(tmpdir(),'action-index-'));roots.push(root);const index=new ActionIndex(root,()=>Date.parse('2026-11-12T12:00Z'));await index.init();let ordinal=0,offset=0;const state={file:'sessions/fixture-native.jsonl'};const send=(type:string,payload:unknown)=>{const line=JSON.stringify({timestamp:'2026-11-12T11:00:00Z',ordinal:++ordinal,type,payload});index.consume(line,'native',state,offset);offset+=Buffer.byteLength(line)+1};return{root,index,send};}
+async function fixture(){const root=await mkdtemp(path.join(tmpdir(),'action-index-'));roots.push(root);const index=new ActionIndex(root,()=>Date.parse('2026-11-12T12:00Z'));await index.init();index.goalRecordedFrom='2026-11-12T10:00Z';let ordinal=0,offset=0;const state={file:'sessions/fixture-native.jsonl'};const send=(type:string,payload:unknown)=>{const line=JSON.stringify({timestamp:'2026-11-12T11:00:00Z',ordinal:++ordinal,type,payload});index.consume(line,'native',state,offset);offset+=Buffer.byteLength(line)+1};return{root,index,send};}
 const scope={kind:'create',generation:'proc1',nativeThreadId:'native',turnId:'turn',callId:'call1',cellId:'1'};
 const child=(id:string,tool:string)=>({kind:'child',generation:'proc1',nativeThreadId:'native',cellId:'1',callId:id,runtimeCallId:id,tool,namespace:'office_tasks'});
 const output={type:'custom_tool_call',id:'out1',call_id:'call1',name:'exec',input:'SECRET_SCRIPT',internal_chat_message_metadata_passthrough:{turn_id:'turn'}};
@@ -55,21 +55,21 @@ it('records current technical purpose then permits only same-turn low-confidence
  f.send('response_item',{type:'message',role:'user',content:'PRIVATE_NEW_GOAL'});f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response3'});expect(row(f.index,'response3').action.purpose).toBe('unknown');
  await f.index.flush();const raw=await readFile(path.join(f.root,'actions-2026-11-12.jsonl'),'utf8');expect(raw).not.toContain('PRIVATE_NEW_GOAL');expect(raw).not.toContain('配置格式');
 });
-it.each(['cancel','retry','generation','crossTurn','error'])('invalidates previous purpose after %s without reading hidden reasoning',async(kind)=>{
+it.each(['cancel','retry','generation','crossTurn','error'])('keeps engine retries/errors but clears real session boundaries: %s',async(kind)=>{
  const f=await fixture();f.index.responseRecordedFrom='2026-11-12T10:00:00Z';f.send('event_msg',{type:'task_started',turn_id:'turn'});f.index.nativeSignal('native',{method:'turn/started'},'g1');
- f.send('response_item',{type:'message',role:'assistant',content:[{type:'output_text',text:'配置格式兼容时不需要转换。应该先检查认证配置，因为额外转换会改变现有凭据的读取方式。'}],internal_chat_message_metadata_passthrough:{turn_id:'turn'}});f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response1'});
+ f.send('response_item',{type:'message',id:'technical',role:'assistant',content:[{type:'output_text',text:'配置格式兼容时不需要转换。应该先检查认证配置，因为额外转换会改变现有凭据的读取方式。'}],internal_chat_message_metadata_passthrough:{turn_id:'turn'}});f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response1'});
  expect(row(f.index).action.purpose).toBe('execution');let turn='turn';
  if(kind==='cancel')f.index.nativeSignal('native',{method:'turn/completed',params:{turn:{status:'interrupted'}}},'g1');
  if(kind==='retry')f.send('event_msg',{type:'task_started',turn_id:'turn'});
  if(kind==='generation')f.index.nativeSignal('native',{method:'turn/started'},'g2');
  if(kind==='error')f.send('event_msg',{type:'error',turn_id:'turn',message:'PRIVATE_ERROR'});
  if(kind==='crossTurn'){turn='different';f.send('event_msg',{type:'task_started',turn_id:turn});}
- f.send('token_usage_record',{thread_id:'native',turn_id:turn,response_id:'response2'});expect(row(f.index,'response2').action.purpose).toBe('unknown');
+ f.send('token_usage_record',{thread_id:'native',turn_id:turn,response_id:'response2'});expect(row(f.index,'response2').action.purpose).toBe(['retry','error'].includes(kind)?'execution':'unknown');
 });
-it('clears continuation context on a failed late result and after restart',async()=>{
+it('keeps the current goal on a failed late result and after restart',async()=>{
  const f=await fixture();f.index.responseRecordedFrom='2026-11-12T10:00:00Z';f.send('event_msg',{type:'task_started',turn_id:'turn'});f.index.scope(scope);f.index.scope({...child('work','read_file'),namespace:'functions'});f.send('response_item',output);f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response1'});f.index.finish('native','call1','completed');
  f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response2'});expect(row(f.index,'response2').action.confidence).toBe('low');
- f.index.finish('native','call1','failed');f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response3'});expect(row(f.index,'response3').action.purpose).toBe('unknown');
+ f.index.finish('native','call1','failed');f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response3'});expect(row(f.index,'response3').action.purpose).toBe('execution');expect(row(f.index,'response3').action.confidence).toBe('low');
  await f.index.flush();const next=new ActionIndex(f.root,()=>Date.parse('2026-11-12T12:00Z'));await next.init();const line=JSON.stringify({timestamp:'2026-11-12T12:01Z',ordinal:1,type:'token_usage_record',payload:{thread_id:'native',turn_id:'turn',response_id:'after-restart'}});next.consume(line,'native',{file:'sessions/restart.jsonl'},0);expect(row(next,'after-restart').action.purpose).toBe('unknown');
 });
 it('does not infer work from a copied stdin command without explicit process ancestry',async()=>{
@@ -83,4 +83,27 @@ it('does not keep using a prior anchor when late substantive evidence contradict
 });
 it('never uses reasoning or analysis-channel content as ordinary purpose evidence',async()=>{
  const f=await fixture();f.index.responseRecordedFrom='2026-11-12T10:00:00Z';f.send('event_msg',{type:'task_started',turn_id:'turn'});f.send('response_item',{type:'reasoning',summary:'PRIVATE_REASONING'});f.send('response_item',{type:'message',role:'assistant',phase:'analysis',content:[{type:'output_text',text:'PRIVATE_REASONING 配置格式兼容时不需要转换，因为额外转换会改变凭据读取方式。'}],internal_chat_message_metadata_passthrough:{turn_id:'turn'}});f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response1'});expect(row(f.index).action.purpose).toBe('unknown');await f.index.flush();expect(await readFile(path.join(f.root,'actions-2026-11-12.jsonl'),'utf8')).not.toContain('PRIVATE_REASONING');
+});
+it('keeps the ordinary work goal across unrecognized progress, routine lookup, compaction and failed attempts',async()=>{
+ const f=await fixture();f.index.responseRecordedFrom='2026-11-12T10:00Z';f.send('event_msg',{type:'task_started',turn_id:'turn'});
+ f.send('response_item',{type:'message',id:'goal-message',role:'assistant',content:[{type:'output_text',text:'我先对齐两侧成交的时间、方向、价格和数量，再定位差额。'}],internal_chat_message_metadata_passthrough:{turn_id:'turn'}});f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'goal-response'});
+ f.send('response_item',{type:'message',id:'progress',role:'assistant',content:[{type:'output_text',text:'进度正常，稍后继续。'}],internal_chat_message_metadata_passthrough:{turn_id:'turn'}});f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'progress-response'});expect(row(f.index,'progress-response').action).toMatchObject({purpose:'execution',confidence:'low',contextSourceId:'goal-message'});
+ f.send('response_item',{type:'function_call',id:'lookup',call_id:'task-lookup',name:'todo_get',namespace:'office_tasks',internal_chat_message_metadata_passthrough:{turn_id:'turn'}});f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'lookup-response'});expect(row(f.index,'lookup-response').action.purpose).toBe('execution');expect(row(f.index,'lookup-response').action.strict.purpose).toBe('workflow');
+ f.send('compacted',{replacement_history:'PRIVATE_REPLACEMENT'});f.send('response_item',{type:'message',role:'developer',content:'PRIVATE_SYSTEM_REPLACEMENT'});f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'after-compaction'});const r=row(f.index,'after-compaction').action;expect(r).toMatchObject({purpose:'execution',confidence:'low',contextSourceId:'goal-message',basis:'unlinked'});expect(r.strict.reason).toBe('batchBoundaryMissing');expect(r.supported.purpose).toBe('unknown');
+ await f.index.flush();const text=await readFile(path.join(f.root,'actions-2026-11-12.jsonl'),'utf8');expect(text).not.toContain('PRIVATE_');expect(text).not.toContain('两侧成交');
+});
+it.each(['workflow','coordination'])('a current explicit %s goal supersedes the old work goal',async purpose=>{
+ const f=await fixture();f.index.responseRecordedFrom='2026-11-12T10:00Z';f.send('event_msg',{type:'task_started',turn_id:'turn'});
+ const message=(id:string,text:string)=>f.send('response_item',{type:'message',id,role:'assistant',content:[{type:'output_text',text}],internal_chat_message_metadata_passthrough:{turn_id:'turn'}});
+ message('work-goal','我先对齐两侧成交的时间、方向、价格和数量，再定位差额。');f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'before'});
+ message('changed-goal',purpose==='workflow'?'现在只给经理排明天任务，不再调查差额。':'现在只转告结果，等待经理回复，不继续检查数据。');f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'changed'});expect(row(f.index,'changed').action.purpose).toBe(purpose);
+ f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'continued'});expect(row(f.index,'continued').action).toMatchObject({purpose,confidence:'low',contextSourceId:'changed-goal'});
+});
+it('reads only the exact first native status envelope in an oversized image result',async()=>{
+ const f=await fixture();f.send('event_msg',{type:'task_started',turn_id:'turn'});f.index.scope(scope);f.index.scope(child('work','todo_get'));f.send('response_item',output);f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'response1'});f.index.finish('native','call1','running');
+ const line=JSON.stringify({timestamp:'2026-11-12T11:00:00Z',ordinal:4,type:'response_item',payload:{type:'custom_tool_call_output',id:'out',call_id:'call1',output:[{type:'input_text',text:'Script completed\nWall time 0.1 seconds\nOutput:\n'},{type:'input_image',image_url:'PRIVATE_IMAGE'.repeat(40000)}]}});f.index.consume(line.slice(0,2048),'native',{file:'sessions/fixture-native.jsonl'},3000,true);expect(row(f.index).action.outputs[0].status).toBe('completed');await f.index.flush();expect(await readFile(path.join(f.root,'actions-2026-11-12.jsonl'),'utf8')).not.toContain('PRIVATE_IMAGE');
+});
+it('keeps the validated same-turn goal on canonical source rotation without inventing a linked batch',async()=>{
+ const f=await fixture();f.index.responseRecordedFrom='2026-11-12T10:00Z';f.send('event_msg',{type:'task_started',turn_id:'turn'});f.send('response_item',{type:'message',id:'ordinary-goal',role:'assistant',content:[{type:'output_text',text:'我先对齐两侧成交的时间、方向、价格和数量，再定位差额。'}],internal_chat_message_metadata_passthrough:{turn_id:'turn'}});f.send('token_usage_record',{thread_id:'native',turn_id:'turn',response_id:'original'});
+ const line=JSON.stringify({timestamp:'2026-11-12T11:01:00Z',ordinal:1,type:'token_usage_record',payload:{thread_id:'native',turn_id:'turn',response_id:'rotated'}});f.index.consume(line,'native',{file:'sessions/canonical-segment.jsonl'},0);const r=row(f.index,'rotated').action;expect(r).toMatchObject({purpose:'execution',confidence:'low',contextSourceId:'ordinary-goal',basis:'unlinked'});expect(r.sourceRange.startOffset).toBe(0);expect(r.strict.reason).toBe('batchBoundaryMissing');
 });

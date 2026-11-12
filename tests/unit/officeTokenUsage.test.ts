@@ -379,8 +379,8 @@ it('excludes low-confidence continuation without changing the frozen priced deno
  const supported=await f.detail({schemaVersion:2,purposeView:'supported',snapshot:estimated.snapshot});expect(supported.rows[0].action!.purpose).toBe('unknown');expect(supported.actionSummary!.coverage.classifiedResponses).toBe(0);expect(supported.breakdown).toEqual(estimated.breakdown);expect(supported.purposeSummary).toEqual(estimated.purposeSummary);
  const back=await f.detail({schemaVersion:2,purposeView:'estimated',snapshot:estimated.snapshot});expect(back.rows[0].action!.confidence).toBe('low');expect(back.actionSummary).toEqual(estimated.actionSummary);
 });
-it('invalidates continuation at accepted steer/retry before waiting for rollout IO',async()=>{
+it('invalidates at real steer while preserving an automatic same-turn retry',async()=>{
  const f=await fixture(),invalidate=vi.spyOn(f.collector.actions,'invalidate');
  f.collector.bindTurn({nativeThreadId:'native-one',turnId:'turn-one',mode:'steer',usage:{entryId:'new-input',trigger:'userMessage'}});expect(invalidate).toHaveBeenCalledWith('native-one');invalidate.mockClear();
- f.collector.bindTurn({nativeThreadId:'native-one',turnId:'turn-one',usage:{trigger:'automaticRetry'}});expect(invalidate).toHaveBeenCalledWith('native-one');
+ f.collector.bindTurn({nativeThreadId:'native-one',turnId:'turn-one',usage:{trigger:'automaticRetry'}});expect(invalidate).not.toHaveBeenCalled();
 });

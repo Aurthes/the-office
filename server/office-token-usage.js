@@ -205,6 +205,7 @@ class OfficeTokenUsage {
       this.actions.recordedFrom = state.actionRecordedFrom || this.actions.recordedFrom;
       this.actions.analysisRecordedFrom = state.actionAnalysisRecordedFrom || this.actions.analysisRecordedFrom;
       this.actions.responseRecordedFrom = state.responsePurposeRecordedFrom || this.actions.responseRecordedFrom;
+      this.actions.goalRecordedFrom = state.goalPurposeRecordedFrom || this.actions.goalRecordedFrom;
       this.sources = state.sources || {}; this.bindings = { ...state.bindings, ...this.bindings }; this.gaps = { ...state.gaps, ...this.gaps }; this.floor = state.floor || "";
       this.communicationRecordedFrom = state.communicationRecordedFrom || this.communicationRecordedFrom;
       this.purposesRecordedFrom = state.purposesRecordedFrom || this.purposesRecordedFrom;
@@ -358,7 +359,7 @@ class OfficeTokenUsage {
     if (Buffer.byteLength(JSON.stringify(ledger)) <= this.reserve) await this.atomic("communication.json", ledger);
     else this.gap("communicationMetadataLimit"); // Never stop numeric metering for a diagnostic limit.
     try { await this.actions.flush(); } catch { this.gap("actionPersistenceGap"); }
-    const state = { responsePurposeRecordedFrom:this.actions.responseRecordedFrom, actionAnalysisRecordedFrom: this.actions.analysisRecordedFrom, actionRecordedFrom: this.actions.recordedFrom, communicationRecordedFrom: this.communicationRecordedFrom, format: FORMAT, sources: this.sources, bindings, gaps: this.gaps, floor: this.floor, purposesRecordedFrom: this.purposesRecordedFrom, adaptersEnabledAt: this.adaptersEnabledAt };
+    const state = { goalPurposeRecordedFrom:this.actions.goalRecordedFrom, responsePurposeRecordedFrom:this.actions.responseRecordedFrom, actionAnalysisRecordedFrom: this.actions.analysisRecordedFrom, actionRecordedFrom: this.actions.recordedFrom, communicationRecordedFrom: this.communicationRecordedFrom, format: FORMAT, sources: this.sources, bindings, gaps: this.gaps, floor: this.floor, purposesRecordedFrom: this.purposesRecordedFrom, adaptersEnabledAt: this.adaptersEnabledAt };
     if (Buffer.byteLength(JSON.stringify(state)) > this.reserve) { this.storageLimit = true; this.gap("metadataLimit"); return; }
     await this.atomic("state.json", state);
     // Retention floor is durable before removing old shards. A crash never
@@ -517,7 +518,7 @@ class OfficeTokenUsage {
     // happen on the existing async reader, never in send's acknowledgement path.
     const u = value.usage;
     const previous=this.bindings[`${value.nativeThreadId}:${value.turnId}`];
-    if(value.mode==="steer"||u?.trigger==="automaticRetry"||id(u?.entryId)&&!previous?.entries?.some(entry=>entry.requestId===u.entryId))this.actions.invalidate(value.nativeThreadId);
+    if(value.mode==="steer"||!["automaticRetry","continue"].includes(u?.trigger)&&id(u?.entryId)&&!previous?.entries?.some(entry=>entry.requestId===u.entryId))this.actions.invalidate(value.nativeThreadId);
     this.bindingQueue.push({ nativeThreadId: value.nativeThreadId, turnId: value.turnId, taskId: id(value.taskId), phaseId: id(value.phaseId),
       questionIds: Array.isArray(value.questionIds) ? value.questionIds.slice(0, 32).filter(id) : [], recipientId: id(value.agentId), mode: value.mode === "steer" ? "steer" : "start",
       usage: u ? { purpose: PURPOSES.includes(u.purpose) && u.purpose !== "suggestion" ? u.purpose : "unknown",

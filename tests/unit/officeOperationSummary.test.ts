@@ -39,3 +39,12 @@ it('projects only safe MCP structural headers from oversized output',()=>{
  const projected=actionHeader(line.slice(0,65536));expect(projected.payload.item.tool).toBe('todo_get');expect(JSON.stringify(projected)).not.toContain('SECRET');
  expect(actionHeader(JSON.stringify({payload:{type:'item_completed',turn_id:'t',item:{type:'McpToolCall',id:'i',arguments:{server:'mcp__office_tasks',tool:'todo_get'}}}}))).toBeNull();
 });
+it('does not mistake body text, a later output element or another call for the native completion header',()=>{
+ const {toolResultHeader}=createRequire(import.meta.url)('../../server/office-action-header');
+ const line=(output:unknown)=>JSON.stringify({timestamp:'2026-11-12T11:00:00Z',ordinal:1,type:'response_item',payload:{type:'custom_tool_call_output',id:null,call_id:'real-call',output}});
+ expect(toolResultHeader(line([{type:'input_text',text:'Script completed\nWall time 0.1 seconds\nOutput:\nPRIVATE_BODY'}]))).toEqual({callId:'real-call',status:'completed'});
+ expect(toolResultHeader(line([{type:'input_text',text:'Output:\nScript completed\nWall time 0.1 seconds'}]))).toBeNull();
+ expect(toolResultHeader(line([{type:'input_text',text:'ordinary result'},{type:'input_text',text:'Script completed\nWall time 0.1 seconds'}]))).toBeNull();
+ expect(toolResultHeader(line([{type:'input_image',image_url:'Script completed\nWall time 0.1 seconds'}]))).toBeNull();
+ expect(toolResultHeader(JSON.stringify({timestamp:'2026-11-12T11:00Z',ordinal:1,type:'response_item',payload:{type:'message',role:'assistant',content:'Script completed\nWall time 0.1 seconds'}}))).toBeNull();
+});

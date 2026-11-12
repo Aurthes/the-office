@@ -17,4 +17,10 @@ function actionHeader(text) {
   const p=out.payload;
   return p.type==="item_completed"&&p.turn_id&&p.item.type==="McpToolCall"&&p.item.id&&p.item.server&&p.item.tool?out:null;
 }
-module.exports={actionHeader};
+// Fixed 0.166 rollout envelope, not a search inside tool stdout or image data.
+// Stop at the first native status prefix; never decode the remaining result.
+function toolResultHeader(text) {
+  const m=/^\s*\{\s*"timestamp"\s*:\s*"[^"\\]{1,80}"\s*,\s*"ordinal"\s*:\s*\d+\s*,\s*"type"\s*:\s*"response_item"\s*,\s*"payload"\s*:\s*\{\s*"type"\s*:\s*"(?:custom_tool_call_output|function_call_output)"\s*,\s*(?:"id"\s*:\s*(?:null|"[a-zA-Z0-9_.:/-]{0,256}")\s*,\s*)?"call_id"\s*:\s*"([a-zA-Z0-9_.:/-]{1,256})"\s*,\s*"output"\s*:\s*(?:\[\s*\{\s*"type"\s*:\s*"input_text"\s*,\s*"text"\s*:\s*"|")(Script completed|Script failed|Script terminated|Script running with cell ID [a-zA-Z0-9_.:-]+)\\nWall time /.exec(typeof text==="string"?text.slice(0,2048):"");
+  return m?{callId:m[1],status:m[2]==="Script completed"?"completed":m[2]==="Script failed"?"failed":m[2]==="Script terminated"?"terminated":"running"}:null;
+}
+module.exports={actionHeader,toolResultHeader};

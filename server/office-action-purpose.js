@@ -5,9 +5,9 @@ const { cleanScopeRecord } = require("./codex-scope-metadata");
 const { components } = require("./office-usage-purpose");
 const { emptyCostSummary, addCost, estimateResponseCost } = require("./office-token-pricing");
 const { commandSummary, cleanSummary } = require("./office-operation-summary");
-const { actionHeader } = require("./office-action-header");
+const { actionHeader, toolResultHeader } = require("./office-action-header");
 const { commandHint, ordinaryHint, cleanHint, primaryEstimate } = require("./office-response-purpose");
-const VERSION = "0.166.0", RULE = "response-purpose-3", DAY = 86400000;
+const VERSION = "0.166.0", RULE = "turn-goal-purpose-4", DAY = 86400000;
 const PURPOSES = ["execution", "coordination", "workflow", "mixed", "unknown"];
 const safe = x => typeof x === "string" && /^[a-zA-Z0-9_.:/-]{1,256}$/.test(x) ? x : null;
 const key = (thread, call) => `${thread}:${call}`;
@@ -63,11 +63,11 @@ function cleanRecord(v) {
   const s = v.source;
   const source = s && typeof s.file === "string" && s.file.length < 512 && !s.file.split(/[\\/]/).includes("..") && /^(sessions|archived_sessions)\//.test(s.file) ? { file: s.file, startOffset: s.startOffset, endOffset: s.endOffset, startOrdinal: s.startOrdinal, endOrdinal: s.endOrdinal } : null;
   if (source && Object.entries(source).some(([k,n]) => k !== "file" && (!Number.isSafeInteger(n) || n < 0))) return null;
-  return { nativeThreadId: v.nativeThreadId, turnId: v.turnId, responseId: v.responseId, observedAt: v.observedAt, linked: !!v.linked, reason: safe(v.reason), truncated: !!v.truncated || v.outputs?.length > 32 || v.actions?.length > 32, conflict: !!v.conflict, outputs, actions, source, primaryEnabled:!!v.primaryEnabled, purposeHints:(Array.isArray(v.purposeHints)?v.purposeHints:[]).slice(0,8).map(cleanHint).filter(Boolean),hasOrdinaryText:!!v.hasOrdinaryText,analysisEpoch:Number.isSafeInteger(v.analysisEpoch)?v.analysisEpoch:0,priorPurpose:v.priorPurpose&&safe(v.priorPurpose.responseId)&&PURPOSES.includes(v.priorPurpose.purpose)&&v.priorPurpose.purpose!=="unknown"?{responseId:v.priorPurpose.responseId,purpose:v.priorPurpose.purpose}:null };
+  return { nativeThreadId: v.nativeThreadId, turnId: v.turnId, responseId: v.responseId, observedAt: v.observedAt, linked: !!v.linked, reason: safe(v.reason), truncated: !!v.truncated || v.outputs?.length > 32 || v.actions?.length > 32, conflict: !!v.conflict, outputs, actions, source, goalEnabled:!!v.goalEnabled,primaryEnabled:!!v.primaryEnabled, purposeHints:(Array.isArray(v.purposeHints)?v.purposeHints:[]).slice(0,8).map(cleanHint).filter(Boolean),hasOrdinaryText:!!v.hasOrdinaryText,analysisEpoch:Number.isSafeInteger(v.analysisEpoch)?v.analysisEpoch:0,priorPurpose:v.priorPurpose&&safe(v.priorPurpose.responseId)&&PURPOSES.includes(v.priorPurpose.purpose)&&v.priorPurpose.purpose!=="unknown"?{responseId:v.priorPurpose.responseId,purpose:v.priorPurpose.purpose,sourceItemId:safe(v.priorPurpose.sourceItemId),sourceKind:["ordinary","action"].includes(v.priorPurpose.sourceKind)?v.priorPurpose.sourceKind:null}:null };
 }
 class ActionIndex {
   constructor(directory, now = Date.now, gap = () => {}) {
-    this.directory = directory; this.now = now; this.gap = gap; this.records = new Map(); this.dirty = new Map(); this.calls = new Map(); this.blockedCalls = new Set(); this.childRefs = new Map(); this.cells = new Map(); this.cellCalls = new Map(); this.pending = new Map(); this.pendingCount = 0; this.results = new Map(); this.waitCells = new Map(); this.items = new Map(); this.processes = new Map(); this.sources = new Map(); this.dayBytes = new Map(); this.activeDayBytes = new Map(); this.bytes = 0; this.memoryBytes = 0; this.sizes = new Map(); this.recordedFrom = new Date(now()).toISOString(); this.responseRecordedFrom = this.recordedFrom; this.analysisRecordedFrom = this.recordedFrom; this.capacityLimited = false;
+    this.directory = directory; this.now = now; this.gap = gap; this.records = new Map(); this.dirty = new Map(); this.calls = new Map(); this.blockedCalls = new Set(); this.childRefs = new Map(); this.cells = new Map(); this.cellCalls = new Map(); this.pending = new Map(); this.pendingCount = 0; this.results = new Map(); this.waitCells = new Map(); this.items = new Map(); this.processes = new Map(); this.sources = new Map(); this.dayBytes = new Map(); this.activeDayBytes = new Map(); this.bytes = 0; this.memoryBytes = 0; this.sizes = new Map(); this.recordedFrom = new Date(now()).toISOString(); this.goalRecordedFrom = this.recordedFrom; this.responseRecordedFrom = this.recordedFrom; this.analysisRecordedFrom = this.recordedFrom; this.capacityLimited = false;
   }
   async init() {
     for (const file of (await fs.readdir(this.directory)).filter(x => /^actions-\d{4}-\d{2}-\d{2}\.jsonl$/.test(x)).sort()) {
@@ -102,19 +102,27 @@ class ActionIndex {
   nativeSignal(thread,frame,generation) {
     const source=this.sources.get(thread);if(!source)return;
     if(safe(generation)&&source.generation!==generation){this.invalidate(thread);source.generation=generation;}
-    if(frame.method==="turn/started" || frame.params?.item?.type==="userMessage"&&["item/started","item/completed"].includes(frame.method) || frame.method==="turn/completed"&&["failed","interrupted"].includes(frame.params?.turn?.status))this.invalidate(thread);
+    const turn=safe(frame.params?.turn?.id||frame.params?.turnId);
+    if(frame.method==="turn/started"&&turn&&source.activeTurnId!==turn){this.invalidate(thread);source.activeTurnId=turn;}
+    if(frame.params?.item?.type==="userMessage"&&frame.method==="item/started"||frame.method==="turn/completed"&&frame.params?.turn?.status==="interrupted")this.invalidate(thread);
   }
   syncContext(v) {
     const b=this.sources.get(v.nativeThreadId)?.turns.get(v.turnId);
-    if(!v.primaryEnabled||!b)return;
-    const failed=v.outputs.some(o=>["failed","terminated"].includes(o.status))||v.actions.some(a=>["failed","terminated"].includes(a.status));
-    if((failed||v.conflict||v.truncated)&&b.context?.responseId===v.responseId)b.context=null;
-    if(b.context?.responseId===v.responseId&&b.latestResponseId!==v.responseId&&classify(v).purpose!==b.context.purpose)b.context=null;
-    if(b.latestResponseId!==v.responseId||b.epoch!==v.analysisEpoch)return;
-    if(failed||v.conflict||v.truncated){b.context=null;return;}
-    const result=classify(v);
-    if(result.purpose!=="unknown"&&result.confidence!=="low")b.context={responseId:v.responseId,purpose:result.purpose};
-    else if(result.purpose==="unknown"&&(v.hasOrdinaryText||v.outputs.some(o=>o.callId)))b.context=null;
+    if(!v.goalEnabled||!v.primaryEnabled||!b||b.epoch!==v.analysisEpoch)return;
+    const ordinary=v.purposeHints.filter(h=>h.sourceItemId),purposes=new Set(ordinary.map(h=>h.purpose));
+    // This is the turn's goal, not the last tool category or completion status.
+    // Unknown progress, failed attempts and compaction cannot erase it.
+    if(purposes.size){
+      if(b.latestResponseId!==v.responseId)return;
+      b.context=purposes.size===1&&!purposes.has("mixed")?{responseId:v.responseId,purpose:[...purposes][0],sourceItemId:ordinary.at(-1).sourceItemId,sourceKind:"ordinary"}:null;
+      return;
+    }
+    if(v.conflict)return;
+    const routine=new Set(["curr_time","sleep","schedule_list","todo_get","todo_list","question_context"]);
+    const actions=v.actions.filter(a=>a.category!=="unknown"&&!(a.category==="workflow"&&routine.has(a.tool))),kinds=new Set(actions.map(a=>a.category));
+    if(!actions.length){const base=actionClassify(v,false),direct=v.outputs.filter(o=>o.callId&&o.tool!=="exec");if(base.purpose==="coordination"||base.purpose==="workflow"&&direct.some(o=>o.tool!=="wait"&&!routine.has((o.tool||"").replace(/^mcp__office_tasks__/,""))))kinds.add(base.purpose);}
+    if(kinds.has("coordination")||kinds.has("workflow")||kinds.has("mixed")||kinds.size>1){if(b.latestResponseId===v.responseId||b.context?.responseId===v.responseId)b.context=null;return;}
+    if(b.latestResponseId===v.responseId&&kinds.has("execution")&&!b.context)b.context={responseId:v.responseId,purpose:"execution",sourceItemId:actions[0].itemId,sourceKind:"action"};
   }
   index(v) {
     const k = this.id(v);
@@ -192,16 +200,19 @@ class ActionIndex {
   }
   consume(text,thread,state,offset,oversize=false) {
     const h=/^\{\s*"timestamp"\s*:\s*"[^"\\]+"\s*,\s*"ordinal"\s*:\s*(\d+)\s*,\s*"type"\s*:\s*"([a-z_]+)"/.exec(text.slice(0,320)); if(!h)return;
-    let source=this.sources.get(thread); if(!source||source.file!==state.file||source.epoch!==(state.actionEpoch||0)){if(!source&&this.sources.size>=512){this.gap("actionSourceLimit");return;}source={file:state.file,epoch:state.actionEpoch||0,last:null,turns:new Map()};this.sources.set(thread,source);}
-    const ordinal=+h[1], type=h[2]; if(source.last!==null&&ordinal!==source.last+1){this.invalidate(thread);for(const b of source.turns.values())b.valid=false;}source.last=ordinal;
+    let source=this.sources.get(thread); if(!source||source.file!==state.file||source.epoch!==(state.actionEpoch||0)){if(!source&&this.sources.size>=512){this.gap("actionSourceLimit");return;}source={file:state.file,epoch:state.actionEpoch||0,last:null,generation:source?.generation,activeTurnId:source?.activeTurnId,turns:new Map([...(source?.turns||[])].map(([turn,b])=>[turn,{...b,valid:false,outputs:[],purposeHints:[],hasOrdinaryText:false,start:offset,startOrdinal:Number(h[1]),latestResponseId:null,epoch:(b.epoch||0)+1}]))};this.sources.set(thread,source);}
+    const ordinal=+h[1], type=h[2]; if(source.last!==null&&ordinal!==source.last+1){for(const b of source.turns.values())b.valid=false;}source.last=ordinal;
+    if(type==="response_item"){const result=toolResultHeader(text);if(result){this.finish(thread,result.callId,result.status);return;}}
+    if(type==="compacted"){for(const b of source.turns.values()){b.valid=false;b.outputs=[];}return;}
     if(oversize&&/"type"\s*:\s*"(?:reasoning|Reasoning)"/.test(text.slice(0,1024)))return;
-    if(oversize){const header=type==="event_msg"?actionHeader(text):null;if(header){this.item(thread,header.payload.item);return;}this.invalidate(thread);for(const b of source.turns.values())b.valid=false;this.gap("actionOversizeLine");return;}
-    if(type==="event_msg"&&/"type"\s*:\s*"(?:user_message|turn_aborted|error)"/.test(text.slice(0,1024))){this.invalidate(thread);return;}
-    if(type==="compacted"){this.invalidate(thread);for(const b of source.turns.values()){b.valid=false;b.outputs=[];}return;}
+    if(oversize){const header=type==="event_msg"?actionHeader(text):null;if(header){this.item(thread,header.payload.item);return;}for(const b of source.turns.values())b.valid=false;this.gap("actionOversizeLine");return;}
+    if(type==="event_msg"&&/"type"\s*:\s*"(?:user_message|turn_aborted)"/.test(text.slice(0,1024))){this.invalidate(thread);return;}
+    if(type==="event_msg"&&/"type"\s*:\s*"error"/.test(text.slice(0,1024)))return;
     if(!["response_item","event_msg","token_usage_record"].includes(type)||/"type"\s*:\s*"(?:reasoning|Reasoning)"/.test(text.slice(0,1024)))return;
-    if(type==="response_item"&&/"role"\s*:\s*"(?:user|developer|system)"/.test(text.slice(0,1024))){this.invalidate(thread);return;}
+    if(type==="response_item"&&/"role"\s*:\s*"(?:developer|system)"/.test(text.slice(0,1024)))return;
+    if(type==="response_item"&&/"role"\s*:\s*"user"/.test(text.slice(0,1024))){this.invalidate(thread);return;}
     if(type==="event_msg"&&!/"type"\s*:\s*"(?:item_completed|task_started)"/.test(text.slice(0,1024)))return;
-    let e;try{e=JSON.parse(text);}catch{this.invalidate(thread);for(const b of source.turns.values())b.valid=false;return;}
+    let e;try{e=JSON.parse(text);}catch{for(const b of source.turns.values())b.valid=false;return;}
     const p=e.payload||{};
     if(type==="response_item"&&["custom_tool_call_output","function_call_output"].includes(p.type)&&safe(p.call_id)){
         // Only the fixed native envelope's first status line is inspected. No body retained.
@@ -213,7 +224,7 @@ class ActionIndex {
     const turn=safe(p.turn_id||p.internal_chat_message_metadata_passthrough?.turn_id);if(!turn)return;
     let batch=source.turns.get(turn);if(!batch){if(source.turns.size>=32){source.turns.delete(source.turns.keys().next().value);this.gap("actionTurnLimit");}batch={valid:false,outputs:[],start:offset,startOrdinal:ordinal,context:null,epoch:0,purposeHints:[],hasOrdinaryText:false};source.turns.set(turn,batch);}
     if(type==="event_msg"){
-      if(p.type==="task_started"){this.invalidate(thread);batch.valid=true;batch.truncated=false;batch.outputs=[];batch.purposeHints=[];batch.hasOrdinaryText=false;batch.start=offset;batch.startOrdinal=ordinal;}
+      if(p.type==="task_started"){if(source.activeTurnId!==turn)this.invalidate(thread);source.activeTurnId=turn;batch.valid=true;batch.truncated=false;batch.outputs=[];batch.purposeHints=[];batch.hasOrdinaryText=false;batch.start=offset;batch.startOrdinal=ordinal;}
       if(p.type==="item_completed"&&["McpToolCall","CommandExecution","FileChange"].includes(p.item?.type))this.item(thread,p.item,null,Date.parse(e.timestamp)>=Date.parse(this.analysisRecordedFrom),Date.parse(e.timestamp)>=Date.parse(this.responseRecordedFrom));
       return;
     }
@@ -221,7 +232,7 @@ class ActionIndex {
       if(p.type==="message"&&p.role==="assistant"&&p.channel!=="analysis"&&p.phase!=="analysis"&&Date.parse(e.timestamp)>=Date.parse(this.responseRecordedFrom)){
         const chunks=Array.isArray(p.content)?p.content.filter(x=>["output_text","text","input_text"].includes(x?.type)&&typeof x.text==="string").map(x=>x.text):[];
         const length=chunks.reduce((n,x)=>n+x.length,0);batch.hasOrdinaryText ||= length>0;
-        if(length<=32768){const hint=ordinaryHint(chunks.join("\n"));if(hint&&batch.purposeHints.length<8)batch.purposeHints.push(hint);}
+        if(length<=32768){const hint=ordinaryHint(chunks.join("\n"));if(hint&&batch.purposeHints.length<8)batch.purposeHints.push({...hint,sourceItemId:safe(p.id)});}
       }
       if(["custom_tool_call","function_call"].includes(p.type)||p.type==="message"&&p.role==="assistant") {
         if(batch.outputs.length>=32){batch.valid=false;batch.truncated=true;return;}
@@ -231,7 +242,7 @@ class ActionIndex {
     }
     if(p.thread_id!==thread||!safe(p.response_id))return;
     batch.latestResponseId=p.response_id;
-    const v={primaryEnabled:Date.parse(e.timestamp)>=Date.parse(this.responseRecordedFrom),purposeHints:batch.purposeHints,hasOrdinaryText:batch.hasOrdinaryText,priorPurpose:batch.context,analysisEpoch:batch.epoch,nativeThreadId:thread,turnId:turn,responseId:p.response_id,observedAt:e.timestamp,truncated:!!batch.truncated,linked:batch.valid,reason:batch.valid?null:"batchBoundaryMissing",outputs:batch.outputs,actions:[],source:{file:state.file,startOffset:batch.start,endOffset:offset+Buffer.byteLength(text),startOrdinal:batch.startOrdinal,endOrdinal:ordinal}};
+    const v={goalEnabled:Date.parse(e.timestamp)>=Date.parse(this.goalRecordedFrom),primaryEnabled:Date.parse(e.timestamp)>=Date.parse(this.responseRecordedFrom),purposeHints:batch.purposeHints,hasOrdinaryText:batch.hasOrdinaryText,priorPurpose:batch.context,analysisEpoch:batch.epoch,nativeThreadId:thread,turnId:turn,responseId:p.response_id,observedAt:e.timestamp,truncated:!!batch.truncated,linked:batch.valid,reason:batch.valid?null:"batchBoundaryMissing",outputs:batch.outputs,actions:[],source:{file:state.file,startOffset:batch.start,endOffset:offset+Buffer.byteLength(text),startOrdinal:batch.startOrdinal,endOrdinal:ordinal}};
     const prior=this.records.get(this.id(v)); if(!prior||!prior.linked){this.set(v);this.index(v);for(const output of batch.outputs){const cell=this.cellCalls.get(key(thread,output.callId));if(cell)this.scope({...cell,kind:"create"});}}
     batch.valid=true;batch.truncated=false;batch.outputs=[];batch.purposeHints=[];batch.hasOrdinaryText=false;batch.start=offset+Buffer.byteLength(text)+1;batch.startOrdinal=ordinal+1;
   }
@@ -270,6 +281,6 @@ function actionSummary(rows, index, strict = false) {
   const inferred = measured.filter(r=>r.action.purpose!=="unknown"&&r.action.purposeBasis==="static-inferred");
   const reasonRows={};const reasons={};for(const row of rows)if(row.action.purpose==="unknown"){reasons[row.action.reason]=(reasons[row.action.reason]||0)+1;(reasonRows[row.action.reason] ||= []).push(row);}
   const confidence=["high","medium","low"].map(id=>{const items=rows.filter(r=>r.action.purpose!=="unknown"&&r.action.confidence===id),cost=emptyCostSummary();for(const row of items)addCost(cost,row,row.cost||estimateResponseCost(row));return{id,observedResponses:items.length,components:components(items),cost};});
-  return {confidence,ruleVersion:RULE,adapterVersion:VERSION,responsePurposeRecordedFrom:index.responseRecordedFrom,recordedFrom:index.recordedFrom,analysisRecordedFrom:index.analysisRecordedFrom,basis:"wholeResponsePurposeEstimate",groups,coverage:{observedResponses:rows.length,measuredResponses:measured.length,unknownUsageResponses:rows.length-measured.length,linkedResponses:linked.length,classifiedResponses:classified.length,inferredResponses:inferred.length,components:{measured:components(measured),linked:components(linked),classified:components(classified),inferred:components(inferred),ruleDerived:components(classified.filter(r=>r.action.purposeBasis!=="static-inferred"))},unknownReasons:reasons,unknownReasonComponents:Object.fromEntries(Object.entries(reasonRows).map(([reason,items])=>[reason,components(items)])),truncatedComponents:components(measured.filter(r=>r.action.truncated)),pendingComponents:components(measured.filter(r=>r.action.reason==="pendingCell")),pendingResponses:rows.filter(r=>r.action.reason==="pendingCell").length,truncatedResponses:rows.filter(r=>r.action.truncated).length,retainedFrom:[...index.records.values()].reduce((x,r)=>!x||r.observedAt<x?r.observedAt:x,null),bytes:index.bytes,memoryBytes:index.memoryBytes,capacityLimited:index.capacityLimited,pendingUnlinkedCells:index.pending.size,unmatchedActionItems:index.items.size}};
+  return {confidence,ruleVersion:RULE,adapterVersion:VERSION,goalPurposeRecordedFrom:index.goalRecordedFrom,responsePurposeRecordedFrom:index.responseRecordedFrom,recordedFrom:index.recordedFrom,analysisRecordedFrom:index.analysisRecordedFrom,basis:"wholeResponsePurposeEstimate",groups,coverage:{observedResponses:rows.length,measuredResponses:measured.length,unknownUsageResponses:rows.length-measured.length,linkedResponses:linked.length,classifiedResponses:classified.length,inferredResponses:inferred.length,components:{measured:components(measured),linked:components(linked),classified:components(classified),inferred:components(inferred),ruleDerived:components(classified.filter(r=>r.action.purposeBasis!=="static-inferred"))},unknownReasons:reasons,unknownReasonComponents:Object.fromEntries(Object.entries(reasonRows).map(([reason,items])=>[reason,components(items)])),truncatedComponents:components(measured.filter(r=>r.action.truncated)),pendingComponents:components(measured.filter(r=>r.action.reason==="pendingCell")),pendingResponses:rows.filter(r=>r.action.reason==="pendingCell").length,truncatedResponses:rows.filter(r=>r.action.truncated).length,retainedFrom:[...index.records.values()].reduce((x,r)=>!x||r.observedAt<x?r.observedAt:x,null),bytes:index.bytes,memoryBytes:index.memoryBytes,capacityLimited:index.capacityLimited,pendingUnlinkedCells:index.pending.size,unmatchedActionItems:index.items.size}};
 }
 module.exports={ActionIndex,actionSummary,classify,toolPurpose,PURPOSES,RULE};

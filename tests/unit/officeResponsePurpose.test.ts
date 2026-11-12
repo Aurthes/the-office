@@ -2,7 +2,7 @@
 import {createRequire} from 'node:module';
 import {it,expect} from 'vitest';
 const {commandHint,ordinaryHint,primaryEstimate}=createRequire(import.meta.url)('../../server/office-response-purpose');
-const record=(actions:unknown[]=[],purposeHints:unknown[]=[])=>({linked:true,outputs:[],actions,purposeHints});
+const record=(actions:unknown[]=[],purposeHints:unknown[]=[])=>({linked:true,goalEnabled:true,outputs:[],actions,purposeHints});
 it('uses current substance rather than unknown child veto or incidental clock',()=>{
  const value=record([{category:'execution',tool:'read_file'},{category:'unknown',tool:'opaque'},{category:'workflow',tool:'curr_time'}]);
  expect(primaryEstimate(value,{purpose:'unknown',reason:'actionSemanticsUnknown'})).toMatchObject({purpose:'execution',confidence:'medium',reason:'currentActions'});
@@ -26,12 +26,28 @@ it('infers operations only from effective structure, not printed program or sche
  expect(commandHint(`node <<'JS'\nconst invocations=[1,2];fs.writeFileSync('calendar',JSON.stringify({invocations}));\nJS`)).toBeNull();
  expect(commandHint(`python3 -c 'print("np.mean(a); p.write_text(x)")'`)).toBeNull();
 });
-it('does not use prior purpose over current unknown ordinary text, failure, missing identity or conflicts',()=>{
+it('keeps uncertain goal estimates separate from strict identity and current explicit evidence',()=>{
  const prior={purpose:'execution',responseId:'old'},base={purpose:'unknown',reason:'ordinaryOutputSemanticsUnknown'};
  expect(primaryEstimate(record(),base,prior)).toMatchObject({purpose:'execution',confidence:'low',contextResponseId:'old'});
- expect(primaryEstimate({...record(),hasOrdinaryText:true},base,prior)).toBeNull();
- expect(primaryEstimate({...record(),outputs:[{status:'failed'}]},base,prior)).toBeNull();
- expect(primaryEstimate({...record(),linked:false},base,prior)).toBeNull();
- expect(primaryEstimate({...record(),conflict:true},base,prior)).toBeNull();
- expect(primaryEstimate(record(),{...base,reason:'missingParentScope'},prior)).toBeNull();
+ expect(primaryEstimate({...record(),hasOrdinaryText:true},base,prior)?.confidence).toBe('low');
+ expect(primaryEstimate({...record(),outputs:[{status:'failed'}]},base,prior)?.purpose).toBe('execution');
+ expect(primaryEstimate({...record(),linked:false},base,prior)?.confidence).toBe('low');
+ expect(primaryEstimate({...record(),conflict:true},base,prior)?.confidence).toBe('low');
+ expect(primaryEstimate(record(),{...base,reason:'missingParentScope'},prior)?.confidence).toBe('low');
+});
+it('recognizes concrete work statements without requiring a domain word and causal sentence',()=>{
+ expect(ordinaryHint('我先对齐两侧成交的时间、方向、价格和数量，再定位差额。')).toMatchObject({purpose:'execution',reason:'workStatement'});
+ expect(ordinaryHint('我会核对两边成交差异。')).toMatchObject({purpose:'execution',reason:'workStatement'});
+ expect(ordinaryHint('我会继续处理一下这些事情。')).toBeNull();expect(ordinaryHint('我会检查这些问题，做好这件事。')).toBeNull();
+ expect(ordinaryHint('> 我先对齐两侧成交的时间、方向、价格和数量。')).toBeNull();
+ expect(ordinaryHint('引用：现在只转告结果，等待经理回复，不继续检查数据。')).toBeNull();
+ expect(ordinaryHint('现在只给经理排明天任务，不再调查差额。')?.purpose).toBe('workflow');
+ expect(ordinaryHint('现在只转告结果，等待经理回复，不继续检查数据。')?.purpose).toBe('coordination');
+});
+it('current explicit administration and communication override an inherited work goal',()=>{
+ const prior={purpose:'execution',responseId:'old',sourceItemId:'ordinary-goal'};
+ expect(primaryEstimate({...record(),outputs:[{callId:'t',tool:'todo_edit'}]}, {purpose:'workflow'},prior).purpose).toBe('workflow');
+ expect(primaryEstimate({...record(),outputs:[{callId:'t',tool:'session_send'}]}, {purpose:'coordination'},prior).purpose).toBe('coordination');
+ expect(primaryEstimate({...record(),outputs:[{callId:'t',tool:'todo_get'}]}, {purpose:'workflow'},prior)).toMatchObject({purpose:'execution',confidence:'low'});
+ expect(primaryEstimate({...record(),linked:false},{purpose:'unknown',reason:'batchBoundaryMissing'})).toBeNull();
 });
