@@ -390,7 +390,7 @@ it("merges external echoes only on exact clientId and reports a matching native 
   expect(screen.getAllByText("External solution")).toHaveLength(2); expect(screen.queryByText(/Delivery not confirmed/)).toBeNull();
 });
 
-it("opens both progress actions in the same Workspace while preserving the real composer draft and attachment",async()=>{
+it("keeps only the More progress action and Workspace tab while preserving the real composer draft and attachment",async()=>{
   const state={connected:true,version:1,activeTurnId:null,items:[],approvals:[],features:{prediction:false,dictation:false,voice:false}};
   const call=vi.fn(async(method:string)=>method==="session.inspect"?{...metadata("workspace-progress-head"),controlsAvailable:true}:method==="session.history"?page("Synthetic history",null,"workspace-progress-head"):method==="session.workspace.list"?{path:"",entries:[]}:state);
   vi.stubGlobal("fetch",vi.fn(async()=>({ok:true,json:async()=>({ref:"synthetic-attachment"})})));
@@ -400,7 +400,7 @@ it("opens both progress actions in the same Workspace while preserving the real 
     fireEvent.change(input,{target:{value:"Draft with @reference remains"}});
     fireEvent.change(screen.getByLabelText("Choose attachments"),{target:{files:[new File(["fixture"],"retained.txt",{type:"text/plain"})]}});
     await screen.findByRole("button",{name:"Remove attachment retained.txt"});
-    const triggers=screen.getAllByRole("button",{name:"Task progress"});fireEvent.click(triggers[0]);
+    const triggers=screen.getAllByRole("button",{name:"Task progress"});expect(triggers).toHaveLength(1);expect(triggers[0]).toHaveClass("session-interface-overflow");expect(document.querySelector(".session-interface-inline[data-interface-capability=task-progress]")).toBeNull();fireEvent.click(triggers[0]);
     expect(screen.getByRole("tab",{name:"Task progress"})).toHaveAttribute("aria-selected","true");
     expect(screen.getByText("Actual progress content")).toBeVisible();expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("textbox",{name:"Send to session"})).toBe(input);expect(input).toHaveValue("Draft with @reference remains");
