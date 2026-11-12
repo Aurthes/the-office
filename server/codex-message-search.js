@@ -77,7 +77,7 @@ class CodexMessageSearch {
     // The pinned native API reads an exact persisted item, including archived
     // chats. No search, history scan, resume, or duplicate conversation storage.
     const result = await this.store.client.call("thread/items/read", { threadId: row.codexThreadId, turnId, itemIds: [itemId] });
-    const visible = result.data.filter(entry => entry.turnId === turnId).map(entry => sessionItem({ ...entry.item, startedAtMs: entry.startedAtMs, completedAtMs: entry.completedAtMs }, turnId)).filter(item => item?.role === "user" && item.id === `${turnId}:${itemId}`);
+    const visible = result.data.filter(entry => entry.turnId === turnId && ["userMessage", "agentMessage"].includes(entry.item?.type)).map(entry => sessionItem({ ...entry.item, startedAtMs: entry.startedAtMs, completedAtMs: entry.completedAtMs }, turnId)).filter(item => item && ["user", "assistant"].includes(item.role) && item.id === `${turnId}:${itemId}`);
     if (!visible.length) throw new Error("This message is no longer available");
     return { ...this.metadata(row), messageId: `${turnId}:${itemId}`, messages: boundHistoryMessages(visible), olderOffset: null, newerOffset: null };
   }

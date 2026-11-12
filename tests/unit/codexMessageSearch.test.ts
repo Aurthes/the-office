@@ -97,3 +97,10 @@ it("opens an exact original question in an archived chat without searching or lo
   call.mockResolvedValue({ data: [{ turnId: "wrong-turn", item: { id: "question", type: "userMessage", content: [{ type: "text", text: "Wrong question" }] } }] });
   await expect(search.context({ threadId: "archived", turnId: "original-turn", itemId: "question" })).rejects.toThrow("no longer available");
 });
+
+it("reads an exact ordinary assistant output without exposing reasoning or tool items", async () => {
+ const {search,call}=fixture();
+ call.mockResolvedValue({data:[{turnId:"turn",item:{id:"ordinary",type:"agentMessage",text:"plain assistant output",phase:"commentary"}}]});
+ const result=await search.context({threadId:"current",turnId:"turn",itemId:"ordinary"});expect(result.messages).toMatchObject([{id:"turn:ordinary",role:"assistant",content:"plain assistant output"}]);
+ for(const type of ["reasoning","commandExecution","plan"]){call.mockResolvedValue({data:[{turnId:"turn",item:{id:"ordinary",type,text:"PRIVATE",summary:["PRIVATE"],command:"PRIVATE"}}]});await expect(search.context({threadId:"current",turnId:"turn",itemId:"ordinary"})).rejects.toThrow("no longer available")}
+});
