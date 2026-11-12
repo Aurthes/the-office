@@ -1,4 +1,5 @@
 "use strict";
+const { cleanScopeRecord } = require("./codex-scope-metadata");
 // Read-only compatibility projection for Codex 0.166.0 Office rollouts.
 // This is observed response telemetry, not a billing API or a complete HTTP log.
 const fs = require("node:fs/promises");
@@ -100,6 +101,7 @@ class OfficeTokenUsage {
     this.dayBytes = new Map(); this.pendingBytes = 0;
     this.queue = new Set(); this.snapshots = new Map(); this.secret = crypto.randomBytes(32);
     this.bytes = 0; this.gaps = {}; this.floor = ""; this.closed = false; this.running = null;
+    this.scopeQueue = []; this.scopeRecords = []; this.scopeRecordKeys = new Set(); this.scopeBytes = 0;
     this.nativeVersion = nativeVersion;
     if (nativeVersion !== VERSION) { this.unavailable = true; this.gap("unsupportedRuntimeVersion"); }
   }
@@ -134,6 +136,28 @@ class OfficeTokenUsage {
     if (["item/started", "item/completed"].includes(frame.method) && item?.type === "collabAgentToolCall")
       for (const receiver of (Array.isArray(item.receiverThreadIds) ? item.receiverThreadIds : []).slice(0, 32)) put({ nativeThreadId: receiver, parentNativeThreadId: item.senderThreadId || frame.params?.threadId, helperKind: "thread_spawn" });
     if (this.sourceQueue.length) this.kick();
+  }
+  scopeGap(reason) {
+    if (!["scopeErrorRelay", "scopeMalformedLog", "scopeCallbackFailure", "scopeOversizeLog", "scopeErrorRelayBackpressure", "scopeStderrFailure", "scopeMissingIdentity"].includes(reason)) return;
+    this.gap(reason); this.gapPending = true; this.kick();
+  }
+  observeScope(value) {
+    if (this.closed || this.unavailable) return;
+    const record = cleanScopeRecord(value);
+    if (!record) return;
+    if (this.scopeQueue.length >= 1024) { this.gap("scopeBackpressure"); return; }
+    this.scopeQueue.push(record); this.kick();
+  }
+  retainScope(value) {
+    const record = cleanScopeRecord(value);
+    if (!record) return;
+    const key = JSON.stringify(record);
+    if (this.scopeRecordKeys.has(key)) return;
+    const bytes = Buffer.byteLength(key) + 64;
+    if (this.scopeRecords.length >= 2048 || this.scopeBytes + bytes > 256 * 1024) { this.gap("scopeRetentionLimit"); return; }
+    const at = Number.isFinite(value.at) ? value.at : this.now();
+    if (at < this.now() - 16 * DAY || at > this.now() + DAY) return;
+    this.scopeRecords.push({ ...record, at }); this.scopeRecordKeys.add(key); this.scopeBytes += bytes;
   }
   registerSource(value) {
     if (!value?.nativeThreadId) return;
@@ -184,6 +208,7 @@ class OfficeTokenUsage {
     } else if (state) this.gap("unsupportedIndex");
     try {
       const ledger = await this.readJson("communication.json", this.reserve);
+      if (ledger.format === 1) for (const value of (Array.isArray(ledger.scopeRecords) ? ledger.scopeRecords : []).slice(0, 2048)) this.retainScope(value);
       if (ledger.format === 1) for (const [key, value] of Object.entries(ledger.turns || {})) if (this.bindings[key]) this.bindings[key] = { ...this.bindings[key], ...value };
     } catch (error) { if (error.code !== "ENOENT") this.gap("communicationRecovery"); }
     this.bindingCount = Object.keys(this.bindings).length; this.entryCount = Object.values(this.bindings).reduce((sum, value) => sum + (value.entries?.length || 0), 0); this.activityCount = Object.values(this.bindings).reduce((sum, value) => sum + (value.activities?.length || 0) + (value.messageItems?.length || 0), 0);
@@ -304,6 +329,8 @@ class OfficeTokenUsage {
     for (const day of this.shards.keys()) if (day < cutoff) this.evict(day);
     for (const [key, binding] of Object.entries(this.bindings)) if (binding.at < this.now() - 16 * DAY) delete this.bindings[key];
     this.bindingCount = Object.keys(this.bindings).length; this.entryCount = Object.values(this.bindings).reduce((sum, value) => sum + (value.entries?.length || 0), 0); this.activityCount = Object.values(this.bindings).reduce((sum, value) => sum + (value.activities?.length || 0) + (value.messageItems?.length || 0), 0);
+    const scopes = this.scopeRecords.filter(value => value.at >= this.now() - 16 * DAY);
+    if (scopes.length !== this.scopeRecords.length) { this.scopeRecords = []; this.scopeRecordKeys.clear(); this.scopeBytes = 0; for (const value of scopes) this.retainScope(value); }
     await this.flush();
   }
   async atomic(name, value) {
@@ -325,7 +352,9 @@ class OfficeTokenUsage {
       bindings[key] = base;
       if (entries || activities || messageItems) turns[key] = { entries, truncatedEntries, activities, activityTruncated, messageItems };
     }
-    const ledger = { format: 1, turns };
+    const ledger = { format: 1, turns, scopeRecords: this.scopeRecords };
+    // Preserve the existing message ledger if optional scope evidence fills its budget.
+    if (Buffer.byteLength(JSON.stringify(ledger)) > this.reserve) { delete ledger.scopeRecords; this.gap("scopePersistenceLimit"); }
     if (Buffer.byteLength(JSON.stringify(ledger)) <= this.reserve) await this.atomic("communication.json", ledger);
     else this.gap("communicationMetadataLimit"); // Never stop numeric metering for a diagnostic limit.
     const state = { communicationRecordedFrom: this.communicationRecordedFrom, format: FORMAT, sources: this.sources, bindings, gaps: this.gaps, floor: this.floor, purposesRecordedFrom: this.purposesRecordedFrom, adaptersEnabledAt: this.adaptersEnabledAt };
@@ -344,13 +373,13 @@ class OfficeTokenUsage {
   }
   refresh() { if (this.closed || this.unavailable) return; for (const nativeId of [...this.known().keys()].slice(0, 2048)) this.queue.add(nativeId); if (this.known().size > 2048) this.gap("sourceLimit"); this.discoveryPending = true; this.kick(); }
   kick() {
-    if (this.running || this.closed || this.unavailable || this.storageLimit || !(this.activityQueue.length || this.queue.size || this.bindingQueue.length || this.sampleQueue.length || this.dictationQueue.length || this.sourceQueue.length || this.discoveryPending || this.gapPending)) return;
+    if (this.running || this.closed || this.unavailable || this.storageLimit || !(this.scopeQueue.length || this.activityQueue.length || this.queue.size || this.bindingQueue.length || this.sampleQueue.length || this.dictationQueue.length || this.sourceQueue.length || this.discoveryPending || this.gapPending)) return;
     this.running = this.run().finally(() => { this.running = null; this.kick(); });
   }
   async run() {
     await this.init(); if (this.unavailable) return;
     try {
-      while ((this.activityQueue.length || this.queue.size || this.bindingQueue.length || this.sampleQueue.length || this.dictationQueue.length || this.sourceQueue.length || this.discoveryPending || this.gapPending) && !this.closed && !this.storageLimit) {
+      while ((this.scopeQueue.length || this.activityQueue.length || this.queue.size || this.bindingQueue.length || this.sampleQueue.length || this.dictationQueue.length || this.sourceQueue.length || this.discoveryPending || this.gapPending) && !this.closed && !this.storageLimit) {
         this.gapPending = false;
         if (this.discoveryPending) await this.discover();
         await this.drainMetadata();
@@ -511,6 +540,7 @@ class OfficeTokenUsage {
   async drainMetadata() {
     for (const value of this.sourceQueue.splice(0)) this.registerSource(value);
     const known = this.known();
+    for (const value of this.scopeQueue.splice(0)) { if (known.has(value.nativeThreadId)) this.retainScope(value); else this.gap("scopeUnknownOwner"); }
     let count = 0;
     for (const value of this.bindingQueue.splice(0)) {
       if (!known.has(value.nativeThreadId)) continue;
@@ -726,7 +756,7 @@ class OfficeTokenUsage {
     this.closed = true; if (this.running) await this.running;
     // The sampler has no replayable rollout. Preserve already-returned numeric
     // results on a graceful stop without making its UI await persistence.
-    if (!this.unavailable && (this.activityQueue.length || this.bindingQueue.length || this.sampleQueue.length || this.dictationQueue.length || this.sourceQueue.length || this.discoveryPending || this.gapPending)) {
+    if (!this.unavailable && (this.scopeQueue.length || this.activityQueue.length || this.bindingQueue.length || this.sampleQueue.length || this.dictationQueue.length || this.sourceQueue.length || this.discoveryPending || this.gapPending)) {
       try { await this.init(); await this.drainMetadata(); await this.prune(); } catch { this.gap("shutdownMeteringFailure"); }
     }
   }

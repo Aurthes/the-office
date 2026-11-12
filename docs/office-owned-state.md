@@ -503,3 +503,32 @@ joins permit an explicit click to use the existing protected message-context API
 Tool evidence is turn-level; absence is not proof of waste, and MCP activity is
 not automatically classified as engineering. Original receiving-session history
 remains available. Old history without a captured ledger is not guessed/backfilled.
+
+
+### Native code-mode scope metadata (opt-in, Codex 0.166.0)
+
+`CLAW3D_CODEX_SCOPE_LOGS=1` enables an identity-only adapter for the Office-owned
+Codex child. It is off by default; merging this code does not activate it in an
+existing service. It sets only that child's `LOG_FORMAT=json` and
+`RUST_LOG=warn,codex_code_mode::timing=info,codex_otel.trace_safe=info`.
+No full rollout trace or global debug logging is enabled.
+
+Only validated conversation/turn/call/cell/tool identities are retained in the
+existing private `token-usage/communication.json` sidecar. Raw JSON, spans,
+JavaScript, arguments, tool output and reasoning are not retained. Warnings and
+errors keep their message; stderr is drained without pausing native execution.
+Oversize/malformed records, a saturated error relay and missing identities
+produce explicit gaps. Existing native process/RPC failure handling is unchanged.
+
+The creator is the `exec` host-timing event, never a later `wait` for the same
+cell. Child receipts join only by native process generation + conversation +
+cell, preserving late/out-of-order delivery. Each native process gets a new
+generation, so reused cell numbers cannot join across restarts. Missing or
+conflicting identities stay unlinked; no time or name-prefix matching is used.
+This establishes a parent edge, not a response boundary or a Purpose label.
+
+The queue holds at most 1,024 events; retained scope evidence is limited to
+2,048 records and 256 KiB, with the existing 16-day retention boundary. Scope
+limits cannot stop numeric metering or displace the existing message ledger.
+Historical missing scope events are not inferred or backfilled. Runtime logging
+activation and production coverage remain separate acceptance steps.
