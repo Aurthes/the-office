@@ -20,7 +20,7 @@ import { OfficeConnectionScreen } from "@/features/office/components/OfficeConne
 import { AgentDirectory } from "@/features/office/components/AgentDirectory";
 import { HeadTaskOverview } from "@/features/office/components/HeadTaskOverview";
 import { taskProgressAgentIds, headTaskRows } from "@/features/office/operations/headTaskOverview";
-import { useCurrentAgentTasks } from "@/features/office/hooks/useCurrentAgentTasks";
+import { useCurrentAgentTasks, useTaskProgressHistory } from "@/features/office/hooks/useCurrentAgentTasks";
 import type { AgentDirectoryView, DirectoryAgent } from "@/features/office/operations/agentDirectory";
 import { TeaserDashboard } from "@/features/ring-ship/TeaserDashboard";
 import { useAgentInterfaces } from "@/features/office/hooks/useAgentInterfaces";
@@ -3369,6 +3369,8 @@ export function OfficeScreen({
     disabled={status !== "connected" || !companyCreationAvailable} onCreated={acceptCreatedSession} />;
   } : null;
 
+  const progressHistory = useTaskProgressHistory(client, sessionView && status === "connected" && !!focusedChatAgent && taskProgressAgentIds(organization).has(focusedChatAgent.agentId), gatewayUrl);
+
   // Connect before mounting WebGL, video and model downloads. Covering the scene
   // with a loading overlay still makes those requests compete with the handshake.
   if (showGatewayLoadingOverlay || showGatewayConnectOverlay) return (
@@ -3396,6 +3398,7 @@ export function OfficeScreen({
       ) : <OfficeConnectionScreen connecting />}
     </main>
   );
+
 
   return (
     <SessionTaskContext.Provider value={openTaskDetails}>
@@ -3915,7 +3918,7 @@ export function OfficeScreen({
                   return <ExistingSessionPanel onOpenWorkspace={openSessionWorkspace} active={cached.active} focusMode={cached.focusMode} onToggleFocus={cached.onToggleFocus} client={client} threadId={agent.agentId}
                   interfacePreset={resolveAgentInterface(agentInterfaces.interfaces[agent.agentId]).preset}
                   onOpenTeaserBoard={() => setTeaserBoardOpen(true)}
-                  taskProgress={taskProgressAgentIds(organization).has(agent.agentId) ? <HeadTaskOverview embedded name={organizationNames.get(agent.agentId) || agent.agentId} rows={headTaskRows(agent.agentId, currentTasks.summaries)} names={organizationNames} observedAt={currentTasks.observedAt} loading={currentTasks.loading} error={status === "connected" ? currentTasks.error : "Current tasks are unavailable."} onOpenTask={openTaskDetails} /> : undefined}
+                  taskProgress={taskProgressAgentIds(organization).has(agent.agentId) ? <HeadTaskOverview embedded name={organizationNames.get(agent.agentId) || agent.agentId} rows={headTaskRows(agent.agentId, [...progressHistory.summaries, ...currentTasks.summaries])} names={organizationNames} observedAt={currentTasks.observedAt} loading={currentTasks.loading || progressHistory.loading} historyLimited={progressHistory.limited} error={status === "connected" ? currentTasks.error || progressHistory.error : "Current tasks are unavailable."} onOpenTask={openTaskDetails} /> : undefined}
                   onSaveInterfacePreset={agentInterfaces.loaded && interfaceRoster.some(item => item.id === agent.agentId) ? preset => agentInterfaces.save(agent.agentId, preset) : undefined}
                   externalSends={teaserSolutions.forThread(agent.agentId)} onExternalReceipt={teaserSolutions.reconcile}
                   messageTarget={messageTarget?.threadId === agent.agentId && !messageTarget.archived ? messageTarget : null} onCloseMessage={() => setMessageSelection(null)}

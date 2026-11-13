@@ -1,9 +1,9 @@
 import { createElement, useState } from "react";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { HeadTaskOverview } from "@/features/office/components/HeadTaskOverview";
 import { AgentInterfaceActions } from "@/features/office/components/AgentInterfaceActions";
-import { taskProgressAgentIds, headTaskRows } from "@/features/office/operations/headTaskOverview";
+import { taskProgressAgentIds, headTaskRows, groupHeadTaskRows, lastTaskProgress } from "@/features/office/operations/headTaskOverview";
 import type { DirectoryTaskSummary } from "@/features/office/operations/agentDirectory";
 import { CEO_ID, type OrganizationView } from "@/lib/office/organization";
 import { setUiLanguage } from "@/lib/i18n/ui-language";
@@ -11,6 +11,7 @@ import { setUiLanguage } from "@/lib/i18n/ui-language";
 vi.mock("@/features/ring-ship/characterPortrait", () => ({ characterPortrait: vi.fn(async () => "") }));
 beforeEach(() => {
   setUiLanguage("en");
+  localStorage.removeItem("claw3d:task-progress-window-minutes");
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
   HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
 });
@@ -29,7 +30,7 @@ const phased: DirectoryTaskSummary = { ...task, executionMode: "phases", phases:
 ] };
 it("uses explicit Owner, deduplicates parents, includes pending and cross-department work, excludes completed/archive and other Owners", () => {
   const rows = headTaskRows("head", [task, task, { ...task, id: "queued", status: "queued" }, { ...task, id: "done", status: "done" }, { ...task, id: "archive", archived: true }, { ...task, id: "team", departmentId: null, ownerId: "worker" }, { ...task, id: "unset", ownerId: undefined }]);
-  expect(rows.map(row => row.id)).toEqual(["parent", "queued"]);
+  expect(groupHeadTaskRows(rows, Date.now(), 60).map(row => row.id)).toEqual(["parent", "queued"]);
   expect(rows[1].work[0].status).toBe("Not started");
 });
 it("preserves all parallel work/person pairs and separates Reviewer from Assignee and Owner", () => {
@@ -130,7 +131,7 @@ it("unions automatic Owner with explicit watchers without changing parent counts
   expect(headTaskRows("worker", [watched])).toHaveLength(0);
   expect(headTaskRows("head", [{ ...watched, ownerId: "new-owner" }])).toHaveLength(0);
   expect(headTaskRows("new-owner", [{ ...watched, ownerId: "new-owner", watcherIds: [] }])).toHaveLength(1);
-  expect(headTaskRows(CEO_ID, [{ ...watched, status: "done" }, { ...watched, archived: true }])).toHaveLength(0);
+  expect(groupHeadTaskRows(headTaskRows(CEO_ID, [{ ...watched, status: "done", phases: [] }, { ...watched, archived: true, phases: [] }]), Date.now(), 60)).toHaveLength(0);
   expect(headTaskRows("observer", [watched])[0].work).toEqual(headTaskRows("head", [watched])[0].work);
   expect(taskProgressAgentIds(organization).has(CEO_ID)).toBe(true);
   expect(taskProgressAgentIds(organization).has("worker")).toBe(false);
@@ -191,4 +192,55 @@ it("keeps an entirely parked task compact and allows keyboard access to recorded
   fireEvent.click(screen.getByText('Paused / other work (1)'));
   expect(screen.getByText('User explicitly stopped the run')).toBeVisible();
   expect(screen.queryByText('Needs user decision')).toBeNull();
+});
+
+
+it("groups genuine recent work after long-running tasks and retains completed/paused work only with evidence", () => {
+  const now = Date.now(), ago = (minutes: number) => now - minutes * 60000;
+  const make = (id: string, extra = {}) => ({ ...task, id, status: "paused", ...extra });
+  const input = [make("cold", { updatedAt: now }), make("recent", { tracking: { recent: [{ action: "Submitted", at: ago(10), actorId: "worker", phaseId: null }], current: [] } }),
+    make("old-running", { status: "running", tracking: { recent: [{ action: "Started", at: ago(120), actorId: "worker", phaseId: null }], current: [] } }),
+    make("done", { status: "done", archived: true, completedAt: ago(5) }), make("old-done", { status: "done", archived: true, completedAt: ago(61) }),
+    make("paused", { pauseContext: { at: ago(3), actor: { source: "agent" } } }),
+    make("timer", { pauseContext: { at: now, actor: { source: "system" } }, tracking: { recent: [{ action: "Paused", at: now, actorId: null, actorSource: "system" }], current: [] } }),
+  ];
+  const rows=groupHeadTaskRows(headTaskRows("head",input),now,60);
+  expect(rows.map(r=>[r.id,r.activityGroup])).toEqual([["old-running","running"],["paused","recent"],["done","recent"],["recent","recent"],["cold","other"],["timer","other"]]);
+  expect(groupHeadTaskRows(headTaskRows("head",input),now,180).some(r=>r.id==="old-done")).toBe(true);
+  expect(lastTaskProgress(make("metadata",{updatedAt:now,lastStartedAt:now}))).toBeNull();
+});
+it("uses recorded phase completion/pause but not an unknown historical timer stop or unrelated observer", () => {
+  const now=Date.now();const t={...phased,phases:[{id:"done",title:"Delivered",status:"done",completedAt:now-1000},{id:"p",title:"Explicit pause",status:"paused",pauseContext:{at:now,actor:{source:"user"}}}]};
+  expect(lastTaskProgress(t)).toBe(now);
+  expect(groupHeadTaskRows(headTaskRows("head",[t]),now,60)[0].activityGroup).toBe("recent");
+  expect(headTaskRows("other-observer",[t])).toHaveLength(0);
+  expect(lastTaskProgress({...task,status:"paused",tracking:{recent:[],current:[{phaseId:null,status:"paused",since:now,reason:null,reasonCode:"Legacy timer stop; follow-up not recorded",waitingForId:null}]}})).toBeNull();
+});
+it("remembers a validated window and automatically expires closed work without querying the backend", async () => {
+  vi.useFakeTimers();
+  try {
+    const now=new Date("2026-11-13T10:00:00Z").getTime();vi.setSystemTime(now);
+    const rows=headTaskRows("head",[{...task,id:"done",status:"done",archived:true,completedAt:now-60*60000+1000}]);
+    const props={name:"Head",rows,names,loading:false,error:"",embedded:true,onOpenTask:vi.fn()};
+    const view=render(createElement(HeadTaskOverview,props));
+    expect(screen.getByLabelText("Recent work window")).toHaveValue("60");expect(document.querySelector('[data-head-task-id="done"]')).toBeTruthy();
+    await act(async()=>vi.advanceTimersByTime(500));view.rerender(createElement(HeadTaskOverview,{...props,rows:[...rows]}));
+    await act(async()=>vi.advanceTimersByTime(500));expect(document.querySelector('[data-head-task-id="done"]')).toBeNull();
+    fireEvent.change(screen.getByLabelText("Recent work window"),{target:{value:"180"}});expect(document.querySelector('[data-head-task-id="done"]')).toBeTruthy();
+    view.unmount();render(createElement(HeadTaskOverview,props));expect(screen.getByLabelText("Recent work window")).toHaveValue("180");
+  }finally{vi.useRealTimers()}
+});
+
+it("keeps a recently explicitly paused phase visible while cold paused history stays collapsed", () => {
+  const now=Date.now();const input={...phased,phases:[{id:'recent',title:'Just paused real work',status:'paused',assigneeId:'worker',pauseContext:{at:now-1000,actor:{source:'agent'}}},{id:'old',title:'Cold paused work',status:'paused',assigneeId:'worker'}]};
+  render(createElement(HeadTaskOverview,{name:'Head',rows:headTaskRows('head',[input]),names,loading:false,error:'',embedded:true,onOpenTask:vi.fn()}));
+  expect(screen.getByText('P-recent · Just paused real work')).toBeVisible();
+  expect(screen.getByText('P-old · Cold paused work')).not.toBeVisible();
+});
+
+it("deduplicates current ownership before watcher filtering and rejects unsupported stored windows",()=>{
+  expect(headTaskRows('head',[{...task,status:'done',archived:true},{...task,ownerId:'new-owner'}])).toHaveLength(0);
+  localStorage.setItem('claw3d:task-progress-window-minutes','17');
+  render(createElement(HeadTaskOverview,{name:'Head',rows:[],names,loading:false,error:'',embedded:true,onOpenTask:vi.fn()}));
+  expect(screen.getByLabelText('Recent work window')).toHaveValue('60');
 });
