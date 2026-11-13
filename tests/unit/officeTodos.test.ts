@@ -176,7 +176,7 @@ describe("central Office task records", () => {
   });
   it("keeps phase identity and time when editing and reordering the plan", () => {
     const f = fixture(), row = f.create(); f.change(row.id, "start"); f.advance(1200);
-    const current = f.change(row.id, "edit", { documentation: "Evidence", phases: [{ id: row.phases[0].id, title: "Research" }, { title: "New step" }, { id: row.phases[2].id, title: "Validate" }] });
+    const current = f.change(row.id, "edit", { documentation: "Evidence", removedPhaseIds: [row.phases[1].id], phases: [{ id: row.phases[0].id, title: "Research" }, { title: "New step" }, { id: row.phases[2].id, title: "Validate" }] });
     expect(current.phases[0].elapsedMs).toBe(1200); expect(current.phases[1].id).not.toBe(row.phases[1].id); expect(current.events.at(-2).message).toContain("Removed phase: Build");
     expect(current.documentation).toBe("Evidence"); expect(current.status).toBe("running");
   });
@@ -323,15 +323,15 @@ describe("collaborative metadata edits preserve workflow authority", () => {
   it.each(["bob", "carol", "dave"])("prevents %s closing an unaccepted goal by removing its unfinished phases", actorId => {
     const f = setup("accepted"); f.change(f.task.id, "complete", { actorId: "alice", phaseId: f.task.phases[0].id });
     const before = structuredClone(f.todos.raw(f.task.id));
-    expect(() => f.change(f.task.id, "edit", { actorId, phases: [before.phases[0]] })).toThrow(/manager can close/);
-    expect(() => f.change(f.task.id, "edit", { actorId, assigneeId: "dave", phases: [before.phases[0]] })).toThrow(/manager can close/);
+    expect(() => f.change(f.task.id, "edit", { actorId, phases: [before.phases[0]], removedPhaseIds: before.phases.slice(1).map((p: { id: string }) => p.id) })).toThrow(/manager can close/);
+    expect(() => f.change(f.task.id, "edit", { actorId, assigneeId: "dave", phases: [before.phases[0]], removedPhaseIds: before.phases.slice(1).map((p: { id: string }) => p.id) })).toThrow(/manager can close/);
     expect(f.todos.raw(f.task.id)).toEqual(before);
-    expect(f.change(f.task.id, "edit", { actorId: "alice", phases: [before.phases[0]] }).status).toBe("done");
+    expect(f.change(f.task.id, "edit", { actorId: "alice", phases: [before.phases[0]], removedPhaseIds: before.phases.slice(1).map((p: { id: string }) => p.id) }).status).toBe("done");
   });
   it.each(["alice", "bob", "carol", "dave", undefined])("keeps active handoff final acceptance and reassignment protection for %s", actorId => {
     const f = setup("working"); f.change(f.task.id, "complete", { actorId: "bob", phaseId: f.task.phases[0].id });
     const before = structuredClone(f.todos.raw(f.task.id));
-    expect(() => f.change(f.task.id, "edit", { actorId, phases: [before.phases[0]] })).toThrow(/manager acceptance/);
+    expect(() => f.change(f.task.id, "edit", { actorId, phases: [before.phases[0]], removedPhaseIds: before.phases.slice(1).map((p: { id: string }) => p.id) })).toThrow(/manager acceptance/);
     expect(() => f.change(f.task.id, "edit", { actorId, assigneeId: "dave" })).toThrow(/active delegation/);
     expect(f.todos.raw(f.task.id)).toEqual(before);
   });

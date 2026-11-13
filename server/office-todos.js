@@ -2,6 +2,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { isDeepStrictEqual } = require("node:util");
 const { taskReplyContext } = require("./office-reply-context");
 const { taskTracking, bookkeeping } = require("./office-todo-progress");
 const uuid = () => crypto.randomUUID();
@@ -167,6 +168,67 @@ class OfficeTodos {
         elapsedMs: old?.elapsedMs || 0, startedAt: old?.startedAt ?? null, completedAt: old?.completedAt ?? null };
     });
   }
+  editPlan(input, row) {
+    if (input.phasePatch !== undefined) {
+      const patch = input.phasePatch;
+      if (!patch || typeof patch !== "object" || Array.isArray(patch) || typeof patch.id !== "string"
+        || Object.keys(patch).some(key => !["id", "title", "notes", "assigneeId"].includes(key))) throw new Error("Choose one existing phase and only title, notes or assigneeId to patch");
+      if (input.phases !== undefined || input.removedPhaseIds !== undefined || input.restorePhase !== undefined) throw new Error("Use phasePatch separately from replacing, deleting or restoring phases");
+      if (!row.phases.some(p => p.id === patch.id)) throw new Error("Phase is missing; refresh the to-do");
+      if (!isPhaseTask(row) && patch.assigneeId !== undefined) throw new Error("Legacy tasks use task-level assignment");
+      input = { ...input, phases: row.phases.map(p => p.id === patch.id ? { ...p, ...patch } : p) };
+    }
+    if (input.removedPhaseIds !== undefined && input.phases === undefined) throw new Error("removedPhaseIds requires the complete phases plan");
+    if (input.phases !== undefined) {
+      if (!Array.isArray(input.phases)) throw new Error("Define the complete phases plan");
+      // Validate IDs before interpreting omissions, preserving the ordinary unknown-ID guard.
+      const next = this.plan(input.phases, row.phases, isPhaseTask(row));
+      const missing = row.phases.filter(p => !next.some(n => n.id === p.id)).map(p => p.id);
+      const removed = input.removedPhaseIds ?? [];
+      if (!Array.isArray(removed) || removed.some(id => typeof id !== "string") || new Set(removed).size !== removed.length
+        || removed.length !== missing.length || missing.some(id => !removed.includes(id))) throw new Error("Removing phases requires removedPhaseIds matching every omitted old ID. Keep the full plan or use phasePatch for a local edit");
+    }
+    return input;
+  }
+  removedPhase(row, phase, actor) {
+    this.event(row, `Removed phase: ${phase.title} (${Math.round(phase.elapsedMs / 1000)}s)`, actor,
+      { removedPhase: { index: row.phases.findIndex(p => p.id === phase.id), phase: structuredClone(phase) } });
+  }
+  restorePhase(input) {
+    const previous = this.raw(input.id);
+    if (input.revision !== previous.revision) throw new Error("This to-do changed. Refresh it before saving");
+    const actor = this.actor(input), recovery = input.restorePhase, p = recovery?.phase;
+    if (Object.keys(input).some(k => !["id", "revision", "actorId", "source", "requestId", "restorePhase"].includes(k))) throw new Error("Restore only the original phase; edit other fields separately");
+    if (!isPhaseTask(previous) || previous.archived || previous.status === "done") throw new Error("Restore an unexecuted phase only in an unfinished phase-mode task");
+    const keys = ["id", "title", "notes", "assigneeId", "assigneeName", "status", "elapsedMs", "startedAt", "completedAt"];
+    if (!recovery || typeof recovery !== "object" || Array.isArray(recovery) || Object.keys(recovery).some(k => !["phase", "index", "sourceRevision", "sourceItemId", "sourceReceiptSha256"].includes(k))
+      || !p || typeof p !== "object" || Array.isArray(p) || Object.keys(p).length !== keys.length || keys.some(k => !Object.hasOwn(p, k))
+      || Object.keys(p).some(k => !keys.includes(k)) || !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(p.id || "") || p.status !== "queued" || p.elapsedMs !== 0 || p.startedAt !== null || p.completedAt !== null
+      || !(p.assigneeId === null && p.assigneeName === null || typeof p.assigneeId === "string" && typeof p.assigneeName === "string" && this.agents().some(a => a.id === p.assigneeId))
+      || !Number.isInteger(recovery.index) || recovery.index < 0 || recovery.index > previous.phases.length || previous.phases.length >= 20) throw new Error("Restore the exact queued, zero-time, unstarted original phase and its position");
+    text(p.title, "Phase title", 160); text(p.notes, "Phase notes", 3000, true);
+    if (previous.phases.some(phase => phase.id === p.id)) throw new Error("This phase already exists; no duplicate was restored");
+    if ((previous.delegations || []).some(e => e.phaseId === p.id)) throw new Error("Cannot restore a phase with execution or handoff history");
+    const deleted = [...previous.events].reverse().find(e => e.removedPhase?.phase.id === p.id || !e.removedPhase && e.message === `Removed phase: ${p.title} (0s)`);
+    if (!deleted) throw new Error("No matching phase deletion is retained for this task");
+    let source;
+    if (deleted.removedPhase) {
+      if (deleted.removedPhase.index !== recovery.index || !isDeepStrictEqual(deleted.removedPhase.phase, p)) throw new Error("Restoration differs from the retained original phase snapshot");
+      source = { basis: "retainedDeletion", deletedAt: deleted.at };
+    } else {
+      // Old summaries cannot verify an identity. Record the caller's explicitly
+      // reviewed receipt, not a claim that Office read or authenticated that file.
+      if (!Number.isInteger(recovery.sourceRevision) || recovery.sourceRevision < 1 || recovery.sourceRevision >= previous.revision
+        || typeof recovery.sourceItemId !== "string" || !recovery.sourceItemId.trim() || recovery.sourceItemId.length > 200
+        || !/^[a-f0-9]{64}$/.test(recovery.sourceReceiptSha256 || "")) throw new Error("Legacy deletion needs the reviewed original receipt revision, item ID and SHA256; Office does not read evidence files");
+      source = { basis: "reviewedReceipt", sourceRevision: recovery.sourceRevision, sourceItemId: recovery.sourceItemId, sourceReceiptSha256: recovery.sourceReceiptSha256, deletedAt: deleted.at };
+    }
+    if (previous.events.some(e => e.restoredPhase?.id === p.id && e.at >= deleted.at)) throw new Error("This deletion was already restored");
+    const row = structuredClone(previous); row.phases.splice(recovery.index, 0, structuredClone(p));
+    this.validatePhases(row); row.revision++; row.updatedAt = this.now();
+    this.event(row, `Restored unexecuted phase: ${p.title}`, actor, { restoredPhase: { id: p.id, index: recovery.index, source } });
+    this.save(row); this.changed(row.id); return this.get({ id: row.id });
+  }
   runningExecution(row, phase) {
     const activity = phase ? phase.activity : row.activity;
     if (row.archived || row.status === "done" || phase?.completedAt != null || !activity?.turnId || !activity.requestId
@@ -312,7 +374,7 @@ class OfficeTodos {
           if (!updated && (row.delegations || []).some(e => e.phaseId === old.id)) throw new Error("Keep phases with recorded handoff history");
           if ((!updated || updated.assigneeId !== old.assigneeId) && (old.startedAt != null || activeDelegation(row, old.id))) throw new Error("Pause and finish or recall this phase's handoff before reassigning or removing it");
           if (updated && updated.assigneeId !== old.assigneeId) { delete updated.activity; delete updated.pauseContext; if (updated.completedAt == null) updated.status = "queued"; }
-          if (!updated) this.event(row, `Removed phase: ${old.title} (${Math.round(old.elapsedMs / 1000)}s)`, actor);
+          if (!updated) this.removedPhase(row, old, actor);
         }
         row.phases = next;
         if (row.acceptanceManagerId) for (const p of row.phases) if (p.completedAt == null) p.acceptanceManagerId ||= row.acceptanceManagerId;
@@ -493,7 +555,9 @@ class OfficeTodos {
     if (session?.lastTurnId === value.turnId && ["completed", "failed", "interrupted"].includes(session.turnStatus)) this.finishTurn(value.agentId, session.turnStatus, value.turnId);
   }
   change(input, action) {
+    if (action === "edit" && input.restorePhase !== undefined) return this.restorePhase(input);
     const previous = this.raw(input.id);
+    if (action === "edit") input = this.editPlan(input, previous);
     if (action === "edit" && isWatcherOnlyEdit(input)) {
       if (input.revision !== previous.revision) throw new Error("This to-do changed. Refresh it before saving");
       const actor = this.actor(input);
@@ -514,18 +578,18 @@ class OfficeTodos {
     if (action === "restore" && row.status === "done") throw new Error("Completed tasks stay archived. Add a phase or reopen a completed phase to follow up");
     if (action === "edit") {
       const wasTiming = row.phases.some(p => p.startedAt != null);
-      if (input.status === undefined) this.stopClock(row);
+      if (input.status === undefined && !input.phasePatch) this.stopClock(row);
       if (input.title !== undefined) row.title = text(input.title, "To-do title", 200);
       if (input.documentation !== undefined) row.documentation = text(input.documentation, "Documentation", 24000, true);
       if (input.assigneeId !== undefined && input.assigneeId !== row.assigneeId) row.acceptanceManagerId = null;
       Object.assign(row, this.references(input, row));
       if (input.phases !== undefined) {
         const next = this.plan(input.phases, row.phases);
-        for (const old of row.phases.filter(p => !next.some(n => n.id === p.id))) this.event(row, `Removed phase: ${old.title} (${Math.round(old.elapsedMs / 1000)}s)`, actor);
+        for (const old of row.phases.filter(p => !next.some(n => n.id === p.id))) this.removedPhase(row, old, actor);
         row.phases = next;
       }
       if (row.phases.every(p => p.completedAt != null)) row.status = "done";
-      else if (row.status === "running" && wasTiming && input.status === undefined) this.run(row);
+      else if (row.status === "running" && wasTiming && input.status === undefined && !input.phasePatch) this.run(row);
       else if (row.status === "done") row.status = "queued";
       if (input.status !== undefined) followup = this.followUp(row, input, actor);
       if (input.assigneeId !== undefined && input.assigneeId !== previous.assigneeId) { delete row.activity; delete row.pauseContext; this.stopClock(row); if (row.status !== "done") row.status = "queued"; }

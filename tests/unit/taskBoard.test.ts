@@ -351,3 +351,12 @@ it("keeps native Stop execution separate from an explicit follow-up pause and pa
   fireEvent.click(await screen.findByRole("button", { name: "Pause follow-up" }));
   await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.pause", expect.objectContaining({ id: "todo", revision: 4 })));
 });
+
+it("sends explicit removed phase IDs only after the user removes persisted phases, and clears intent on reopening", async () => {
+ const f=fixture(undefined,{},"todo");fireEvent.click(await screen.findByRole("button",{name:"Edit"}));
+ fireEvent.click(screen.getByRole("button",{name:"Remove phase 2"}));fireEvent.click(screen.getByRole("button",{name:"Save to-do"}));
+ await waitFor(()=>expect(f.call).toHaveBeenCalledWith("todo.edit",expect.objectContaining({removedPhaseIds:["verify"],phases:[expect.objectContaining({id:"plan"})]})));
+ fireEvent.click(await screen.findByRole("button",{name:"Edit"}));fireEvent.click(screen.getByRole("button",{name:"Save to-do"}));
+ await waitFor(()=>expect(f.call.mock.calls.filter(([m])=>m==="todo.edit")).toHaveLength(2));
+ expect(f.call.mock.calls.filter(([m])=>m==="todo.edit")[1][1]).not.toHaveProperty("removedPhaseIds");
+});

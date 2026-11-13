@@ -365,3 +365,19 @@ it("exposes follow-up updates and explicit decisions without changing the list f
   expect(schema("todo_pause").properties.needsUserDecision).toMatchObject({type:"boolean"});
   expect(schema("todo_list").properties.status.enum).toContain("all");
 });
+
+it("exposes and passes phasePatch/explicit removal/restore through the existing edit MCP without evidence-file reads", async()=>{
+ const {tools,OfficeTodos}=Object.assign({},createRequire(import.meta.url)("../../server/office-todo-mcp.js"),createRequire(import.meta.url)("../../server/office-todos.js"));
+ const schema=tools.find((t:{name:string})=>t.name==='todo_edit').inputSchema;
+ expect(schema.properties.phasePatch.required).toEqual(['id']);expect(schema.properties.phases.description).toContain('Complete plan');
+ expect(schema.properties.restorePhase.description).toContain('does not read evidence files');expect(schema.properties.removedPhaseIds.uniqueItems).toBe(true);
+ const directory=mkdtempSync(path.join(os.tmpdir(),'mcp-phase-edit-'));cleanup.push(()=>rmSync(directory,{recursive:true,force:true}));
+ const todos=new OfficeTodos(directory,{projects:()=>[],agents:()=>[{id:'alice',name:'Alice'}]});
+ const task=todos.create({requestId:'r',actorId:'alice',executionMode:'phases',title:'Task',phases:[{title:'Build'},{title:'Accept'}]}).todo;
+ const f=await fixture((ws,frame)=>{try{reply(ws,frame,todos.change(frame.params,'edit'))}catch(e){ws.send(JSON.stringify({type:'res',id:frame.id,ok:false,error:{message:String(e)}}))}});
+ const call=await mcp(f.url),edit=(params:object)=>call('todo_edit',{id:task.id,revision:todos.raw(task.id).revision,actorId:'alice',...params});
+ await edit({phasePatch:{id:task.phases[0].id,notes:'Local'}});expect(todos.raw(task.id).phases[0].notes).toBe('Local');expect(todos.raw(task.id).phases).toHaveLength(2);
+ await expect(edit({phases:[task.phases[0]]})).rejects.toThrow(/removedPhaseIds/);
+ const original=structuredClone(todos.raw(task.id).phases[1]);await edit({phases:[todos.raw(task.id).phases[0]],removedPhaseIds:[original.id]});
+ await edit({restorePhase:{phase:original,index:1}});expect(todos.raw(task.id).phases[1]).toEqual(original);
+});
