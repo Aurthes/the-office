@@ -22,7 +22,7 @@ const organization: OrganizationView = { ceoAvatar: null, savePosition: vi.fn(),
   { id: "worker", name: "Employee", title: "Worker", department: "Open Workspace", departmentId: null, reportsTo: ["head"] },
 ] };
 const phased: DirectoryTaskSummary = { ...task, executionMode: "phases", phases: [
-  { id: "a1234567", title: "Parallel implementation", status: "running", assigneeId: "stale", activity: { agentId: "worker", role: "worker" } },
+  { id: "a1234567", title: "Parallel implementation", status: "running", assigneeId: "stale", activity: { agentId: "worker", role: "worker" }, execution: { agentId: "worker", turnId: "turn-a", role: "worker" } },
   { id: "b1234567", title: "Parallel review", status: "review", assigneeId: "submitter", reviewerId: "reviewer" },
   { id: "c1234567", title: "Waiting for dependency", status: "paused", assigneeId: "responsible" },
   { id: "queued", title: "Future work", status: "queued", assigneeId: "future" },
@@ -44,9 +44,9 @@ it("preserves all parallel work/person pairs and separates Reviewer from Assigne
 it("does not replace missing execution with parent Owner, task/phase Assignee, handler, busy or phase order", () => {
   const unknown = { ...phased, phases: [{ id: "unknown", title: "Unknown activity", status: "running", assigneeId: "worker", handlingAgentId: "head" }] };
   expect(headTaskRows("head", [unknown])[0].work[0].people).toEqual([{ role: "Executing", agentId: undefined }]);
-  const reviewing = { ...phased, phases: [{ id: "r", title: "Acceptance", status: "running", assigneeId: "worker", activity: { agentId: "head", role: "reviewer" } }] };
-  expect(headTaskRows("head", [reviewing])[0].work[0]).toMatchObject({ status: "Reviewing", people: [{ role: "Reviewing", agentId: "head" }] });
-  expect(headTaskRows("head", [{ ...task, phases: phased.phases }])[0].work).toMatchObject([{ id: "parent", title: "Specific phase not recorded", status: "Running", people: [{ role: "Task-level responsibility", agentId: "worker" }] }]);
+  const reviewing = { ...phased, phases: [{ id: "r", title: "Acceptance", status: "running", assigneeId: "worker", activity: { agentId: "head", role: "reviewer" }, execution: { agentId: "head", turnId: "turn-r", role: "reviewer" } }] };
+  expect(headTaskRows("head", [reviewing])[0].work[0]).toMatchObject({ status: "Active", running: true, people: [{ role: "Reviewing", agentId: "head" }] });
+  expect(headTaskRows("head", [{ ...task, phases: phased.phases }])[0].work).toMatchObject([{ id: "parent", title: "Specific phase not recorded", status: "Active", people: [{ role: "Task-level responsibility", agentId: "worker" }] }]);
 });
 it("shows queued and unknown parent work honestly without selecting the first phase", () => {
   expect(headTaskRows("head", [{ ...phased, phases: [{ id: "future", title: "Not current", status: "queued" }] }])[0].work[0]).toMatchObject({ title: "No phase started", status: "Not started", people: [] });
@@ -65,7 +65,7 @@ it("shows recorded progress separately from each current phase/person/wait state
   const onOpenTask = vi.fn(), onClose = vi.fn();
   render(createElement(HeadTaskOverview, { name: "Renamable Head", rows: headTaskRows("head", [{ ...phased, tracking }]), names, loading: false, error: "", onOpenTask, onClose }));
   const table = screen.getByRole("table"); expect(table.querySelectorAll("tbody tr")).toHaveLength(1);
-  expect(within(table).getAllByRole("columnheader").map(n => n.textContent)).toEqual(["Task", "Recent progress", "Current position"]);
+  expect(within(table).getAllByRole("columnheader").map(n => n.textContent)).toEqual(["Task", "Recent update", "Current position"]);
   expect(table.querySelector(".head-recent")).toHaveTextContent("EmployeeCompletedCompleted implementation");
   expect(table.querySelector('[data-head-work-id="a1234567"]')).toHaveTextContent("Employee");
   expect(table.querySelector('[data-head-work-id="b1234567"]')).toHaveTextContent("Waiting for Reviewer");
@@ -122,7 +122,7 @@ it("distinguishes loading, failure, empty, unsupported progress and recorded unk
 });
 it("translates application text, retaining task and actor wording as data", () => {
   setUiLanguage("zh-CN"); render(createElement(HeadTaskOverview, { name: "Head", rows: headTaskRows("head", [{ ...task, tracking }]), names, loading: false, error: "", onOpenTask: vi.fn(), onClose: vi.fn() }));
-  expect(screen.getByRole("table")).toHaveTextContent("最近进展"); expect(screen.getByRole("table")).toHaveTextContent("Parent task"); expect(screen.getByRole("table")).toHaveTextContent("Employee");
+  expect(screen.getByRole("table")).toHaveTextContent("最近更新"); expect(screen.getByRole("table")).toHaveTextContent("Parent task"); expect(screen.getByRole("table")).toHaveTextContent("Employee");
 });
 
 it("unions automatic Owner with explicit watchers without changing parent counts or execution attribution", () => {
@@ -154,7 +154,7 @@ it.each(["Accepted", "Submitted"])("keeps an unscoped %s report in the short pre
 it("puts actual following work first, distinguishes explicit decisions and folds completed history", () => {
   const input = { ...phased, phases: [phased.phases![2], phased.phases![0], phased.phases![4]], tracking: { ...tracking, current: [{ phaseId: "c1234567", status: "paused", since: 1, needsUserDecision: true, reason: "Choose scope", waitingForId: null }] } };
   const rows = headTaskRows("head", [input]);
-  expect(rows[0].work.map(w => [w.id, w.status])).toEqual([["a1234567", "Running"], ["c1234567", "Needs user decision"]]);
+  expect(rows[0].work.map(w => [w.id, w.status])).toEqual([["a1234567", "Active"], ["c1234567", "Needs user decision"]]);
   expect(rows[0].work[0].people).toEqual([{ role: "Executing", agentId: "worker" }]);
   render(createElement(HeadTaskOverview, { name: "Head", rows, names, loading: false, error: "", onOpenTask: vi.fn(), onClose: vi.fn() }));
   expect(screen.getByText("Past work")).not.toBeVisible();
@@ -205,7 +205,7 @@ it("groups genuine recent work after long-running tasks and retains completed/pa
     make("timer", { pauseContext: { at: now, actor: { source: "system" } }, tracking: { recent: [{ action: "Paused", at: now, actorId: null, actorSource: "system" }], current: [] } }),
   ];
   const rows=groupHeadTaskRows(headTaskRows("head",input),now,60);
-  expect(rows.map(r=>[r.id,r.activityGroup])).toEqual([["old-running","running"],["paused","recent"],["done","recent"],["recent","recent"],["cold","other"],["timer","other"]]);
+  expect(rows.map(r=>[r.id,r.activityGroup])).toEqual([["old-running","active"],["paused","recent"],["done","recent"],["recent","recent"],["cold","other"],["timer","other"]]);
   expect(groupHeadTaskRows(headTaskRows("head",input),now,180).some(r=>r.id==="old-done")).toBe(true);
   expect(lastTaskProgress(make("metadata",{updatedAt:now,lastStartedAt:now}))).toBeNull();
 });
@@ -248,7 +248,7 @@ it("deduplicates current ownership before watcher filtering and rejects unsuppor
 it("shows a unique valid legacy timed plan phase without asserting phase execution or a handoff binding", () => {
   const legacy = {...task, phases:[{id:'earlier',title:'Earlier incomplete',startedAt:null,completedAt:null},{id:'current-clock',title:'Current legacy plan position',startedAt:1794544555969,completedAt:null,assigneeId:'unrelated-phase-person'}]};
   const rows=headTaskRows('head',[legacy]);
-  expect(rows[0].work[0]).toMatchObject({id:'parent',phaseId:'current-clock',scopeLabel:'Current timed phase',title:'P-current- · Current legacy plan position',status:'Running',people:[{role:'Task-level responsibility',agentId:'worker'}]});
+  expect(rows[0].work[0]).toMatchObject({id:'parent',phaseId:'current-clock',scopeLabel:'Current timed phase',title:'P-current- · Current legacy plan position',status:'Active',people:[{role:'Task-level responsibility',agentId:'worker'}]});
   expect(rows[0].work[0]).not.toHaveProperty('handoffId');
   const open=vi.fn();render(createElement(HeadTaskOverview,{name:'Head',rows,names,loading:false,error:'',embedded:true,onOpenTask:open}));
   expect(screen.getByText('Current timed phase')).toBeVisible();
@@ -279,5 +279,24 @@ it.each(['paused','queued'])("does not promote stale legacy timers when the task
 it("preserves the legacy reviewer and recent grouping while locating only a timer",()=>{
   const now=Date.now();const legacy={...task,reviewerId:'reviewer',phases:[{id:'clock',title:'Review plan',startedAt:now-1000,completedAt:null}],tracking:{recent:[{action:'Submitted',at:now-1000,actorId:'worker',phaseId:null}],current:[]}};
   const row=headTaskRows('head',[legacy])[0];expect(row.work[0].people).toEqual([{role:'Reviewer',agentId:'reviewer'},{role:'Task-level responsibility',agentId:'worker'}]);
-  expect(row.work[0].status).toBe('Awaiting manager review');expect(groupHeadTaskRows([row],now,60)[0].activityGroup).toBe('recent');
+  expect(row.work[0].status).toBe('Awaiting manager review');expect(groupHeadTaskRows([row],now,60)[0].activityGroup).toBe('active');
+});
+
+it("sorts Active + exact Running before idle Active, then recently updated non-Active and cold tasks", () => {
+  const now=Date.now();
+  const make=(id:string,extra:Partial<DirectoryTaskSummary>={})=>({...task,id,status:"paused",...extra});
+  const rows=headTaskRows("head",[
+    make("idle",{status:"running"}),make("busy",{status:"running",execution:{agentId:"worker",turnId:"exact",role:"legacy"}}),
+    make("edited",{tracking:{lastUpdateAt:now-1000,recent:[{action:"Updated",at:now-1000,actorId:"worker"}],current:[]}}),make("cold"),
+    make("old-done",{status:"done",archived:true,tracking:{lastUpdateAt:now-3600000,recent:[],current:[]}}),
+  ]);
+  expect(groupHeadTaskRows(rows,now,60).map(r=>[r.id,r.activityGroup,r.running])).toEqual([["busy","active",true],["idle","active",false],["edited","recent",false],["cold","other",false]]);
+  expect(rows.find(r=>r.id==="edited")?.progressAt).toBeNull(); // update is not a work advance
+});
+it("shows Active independently of Running and never labels a retained activity identity as live",()=>{
+  const idle={...phased,phases:[{...phased.phases![0],execution:null}]};
+  const view=render(createElement(HeadTaskOverview,{embedded:true,name:"Head",rows:headTaskRows("head",[idle]),names,loading:false,error:"",onOpenTask:vi.fn()}));
+  expect(screen.getAllByText("Active").length).toBeGreaterThan(0);expect(screen.queryByText("Running")).toBeNull();expect(screen.getByText("Responsible:")).toBeVisible();
+  view.rerender(createElement(HeadTaskOverview,{embedded:true,name:"Head",rows:headTaskRows("head",[phased]),names,loading:false,error:"",onOpenTask:vi.fn()}));
+  expect(screen.getByText("Running")).toBeVisible();
 });

@@ -9,12 +9,12 @@ const { OfficeTodos } = createRequire(import.meta.url)("../../server/office-todo
 const directories: string[] = [];
 afterEach(() => directories.splice(0).forEach(d => rmSync(d, { recursive: true, force: true })));
 const actor = { id: "worker", name: "Worker", source: "agent" };
-it("keeps real progress and current pause age unchanged by document-only edits or updatedAt", () => {
+it("records document edits and explicit pause as updates without resetting pause age or using raw updatedAt", () => {
   const row = { executionMode: "phases", phases: [{ id: "p", title: "Build", status: "paused", lastStartedAt: 1000, activity: { agentId: "worker", startedAt: 1000 } }], events: [
     { at: 1000, message: "Started phase: Build", actor }, { at: 2000, message: "Paused phase: Build", actor }, { at: 9000, message: "Plan, phase assignments or documentation updated", actor },
   ], updatedAt: 9000 };
   const tracking = taskTracking(row);
-  expect(tracking.recent).toHaveLength(1); expect(tracking.recent[0]).toMatchObject({ action: "Started", at: 1000, actorId: "worker", phaseId: "p" });
+  expect(tracking.recent).toHaveLength(3); expect(tracking.recent[0]).toMatchObject({ action: "Updated", at: 9000 }); expect(tracking.recent[1]).toMatchObject({ action: "Paused", at: 2000 }); expect(tracking.lastUpdateAt).toBe(9000);
   expect(tracking.current[0]).toMatchObject({ since: 2000, status: "paused", reason: null });
 });
 it("uses structured handoff submission/review identity, time and feedback once without duplicating display events", () => {
@@ -39,11 +39,11 @@ it("keeps legacy task-level progress and real stop reasons without using edited 
     { at: 1000, message: "Completed phase: Build", actor }, { at: 2000, message: "Agent turn ended; waiting for follow-up or a phase update", actor: { source: "system" } }, { at: 9000, message: "Plan, assignment or documentation updated", actor },
   ] };
   const tracking = taskTracking(row);
-  expect(tracking.recent[0]).toMatchObject({ action: "Completed", at: 1000, phaseId: "p" });
+  expect(tracking.recent[0]).toMatchObject({ action: "Updated", at: 9000 }); expect(tracking.recent[1]).toMatchObject({ action: "Completed", at: 1000, phaseId: "p" });
   expect(tracking.current[0]).toMatchObject({ phaseId: null, since: 2000, reason: null, reasonCode: "Legacy timer stop; follow-up not recorded" });
   expect(taskTracking({ ...row, status: "running", events: [] }).current[0].since).toBeNull();
   const metadataOnly = taskTracking({ ...row, status: "running", activity: { agentId: "worker", startedAt: 9000 }, events: [{ at: 9000, message: "Plan, assignment or documentation updated", actor }] });
-  expect(metadataOnly.recent).toEqual([]); expect(metadataOnly.current[0].since).toBeNull();
+  expect(metadataOnly.recent).toMatchObject([{ action: "Updated", at: 9000 }]); expect(metadataOnly.current[0].since).toBeNull();
 });
 it("retains unscoped custom pause wording as a note without pretending it proves phase identity or state start", () => {
   const row = { executionMode: "phases", phases: [{ id: "a", title: "A", status: "paused" }, { id: "b", title: "B", status: "paused" }], events: [{ at: 4000, message: "Waiting for the user to provide access", actor }] };
@@ -65,7 +65,7 @@ it("projects the ordinary list from real store operations without extra storage 
   const file = path.join(root, "todos", created.id + ".json"), bytes = readFileSync(file);
   expect(store.list({}).todos[0].tracking).toBeUndefined();
   const tracking = store.list({ includeProgress: true }).todos[0].tracking;
-  expect(tracking.recent[0]).toMatchObject({ action: "Started", at: 1000 });
+  expect(tracking.recent[0]).toMatchObject({ action: "Updated", at: 9000 });
   expect(tracking.current).toMatchObject([{ since: 2000, reason: "Agent switched to another to-do" }]);
   expect(readFileSync(file)).toEqual(bytes);
 });

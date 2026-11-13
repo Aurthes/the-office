@@ -17,7 +17,7 @@ export function HeadTaskOverview({ name, rows, names, loading, error, observedAt
     try { const value = Number(localStorage.getItem("claw3d:task-progress-window-minutes")); return [30, 60, 180, 360, 1440].includes(value) ? value : 60; } catch { return 60; }
   });
   const visibleRows = groupHeadTaskRows(rows, now, windowMinutes);
-  const nextTickAt = Math.min(now + 60000, ...rows.flatMap(row => row.progressAt != null && row.progressAt + windowMinutes * 60000 > now ? [row.progressAt + windowMinutes * 60000] : []));
+  const nextTickAt = Math.min(now + 60000, ...rows.flatMap(row => { const at = row.recentAt ?? row.progressAt; return at != null && at + windowMinutes * 60000 > now ? [at + windowMinutes * 60000] : []; }));
   useEffect(() => {
     const timer = setTimeout(() => setClock(Date.now()), Math.max(1, nextTickAt - Date.now()));
     return () => clearTimeout(timer);
@@ -38,9 +38,9 @@ export function HeadTaskOverview({ name, rows, names, loading, error, observedAt
     return <time dateTime={new Date(at).toISOString()} title={new Date(at).toLocaleString(language)}>{full ? <>{new Date(at).toLocaleString(language)} · </> : null}{relative}</time>;
   };
   const eventActor = (event: NonNullable<HeadTaskRow["tracking"]>["recent"][number]) => event.actorSource === "system" ? t("System") : personName(event.actorId, event.actorName || (event.actorSource === "user" ? t("User") : null));
-  const isParked = (work: HeadWork) => ["Paused", "Not started"].includes(work.status) && !(work.progressAt != null && work.progressAt <= now && now - work.progressAt < windowMinutes * 60000);
+  const isParked = (work: HeadWork) => !work.running && ["Paused", "Not started"].includes(work.status) && !(work.progressAt != null && work.progressAt <= now && now - work.progressAt < windowMinutes * 60000);
   const renderWork = (taskId: string, work: HeadWork) => <div key={work.id} className="head-work-pair" data-head-work-id={work.id}>
-          <div><small className="head-work-status" data-active={["Running", "Reviewing"].includes(work.status)}>{t(work.status)}</small>{work.scopeLabel ? <small>{t(work.scopeLabel)}</small> : null}{work.phaseId ? <button type="button" className="head-task-link head-current-title" title={work.title} onClick={() => open(taskId, work.phaseId)}>{work.title}</button> : <span className="head-current-title">{t(work.title)}</span>}</div>
+          <div><small className="head-work-status" data-active={work.active}>{t(work.status)}</small>{work.running ? <small className="head-work-status" data-active>{t("Running")}</small> : null}{work.scopeLabel ? <small>{t(work.scopeLabel)}</small> : null}{work.phaseId ? <button type="button" className="head-task-link head-current-title" title={work.title} onClick={() => open(taskId, work.phaseId)}>{work.title}</button> : <span className="head-current-title">{t(work.title)}</span>}</div>
           <div className="head-work-people">{work.people.length ? work.people.map((person, index) => <p key={`${person.role}:${index}`}><small>{t(person.role)}: </small><span title={person.agentId || undefined}>{person.agentId ? personName(person.agentId) : t(person.role === "Executing" || person.role === "Reviewing" ? "Execution not recorded" : "Unassigned")}</span></p>) : ["Completed", "Archived"].includes(work.status) ? null : <span>{t("Not recorded")}</span>}</div>
           {work.status === "Paused" && isParked(work) && work.state?.needsUserDecision == null ? <small>{t("User decision need not recorded")}</small> : null}
           {work.state?.waitingForId ? <p className="head-short-text">{t("Waiting for {name}", { name: personName(work.state.waitingForId) })}</p> : null}
@@ -67,10 +67,10 @@ export function HeadTaskOverview({ name, rows, names, loading, error, observedAt
     {!loading && !error && !visibleRows.length ? <p>{t("No tasks need follow-up.")}</p> : null}
     {visibleRows.length ? <div className="head-task-scroll"><table aria-label={t("Task progress for {name}", { name })}>
       <colgroup><col className="head-task-col" /><col className="head-recent-col" /><col className="head-work-col" /></colgroup>
-      <thead><tr><th scope="col">{t("Task")}</th><th scope="col">{t("Recent progress")}</th><th scope="col">{t("Current position")}</th></tr></thead>
+      <thead><tr><th scope="col">{t("Task")}</th><th scope="col">{t("Recent update")}</th><th scope="col">{t("Current position")}</th></tr></thead>
       <tbody>{visibleRows.map(row => <tr key={row.id} data-head-task-id={row.id} data-activity={row.activityGroup}>
-        <th scope="row"><small className="head-activity-label">{t(row.activityGroup === "running" ? "Running" : row.activityGroup === "recent" ? "Recent work" : "Other follow-up")}</small><button type="button" className="head-task-link" title={row.title} aria-label={t("Open task: {name}", { name: `${row.code} · ${row.title}` })} onClick={() => open(row.id)}><span className="head-task-code">{row.code}</span><span className="head-short-text">{row.title}</span></button></th>
-        <td className="head-recent">{!row.tracking ? <span>{t("Progress records unavailable.")}</span> : !row.tracking.recent.length ? <span>{t("No progress recorded")}</span> : (() => {
+        <th scope="row"><small className="head-activity-label">{t(row.activityGroup === "active" ? "Active" : row.activityGroup === "recent" ? "Recent work" : "Other follow-up")}</small><button type="button" className="head-task-link" title={row.title} aria-label={t("Open task: {name}", { name: `${row.code} · ${row.title}` })} onClick={() => open(row.id)}><span className="head-task-code">{row.code}</span><span className="head-short-text">{row.title}</span></button></th>
+        <td className="head-recent">{row.recentAt != null && row.recentAt !== row.tracking?.recent[0]?.at ? <div>{t("Updated")} {recordedTime(row.recentAt)}</div> : null}{!row.tracking ? <span>{t("Progress records unavailable.")}</span> : !row.tracking.recent.length ? <span>{t("No progress recorded")}</span> : (() => {
           const event = row.tracking.recent[0];
           const phaseTitle = row.work.find(work => work.phaseId === event.phaseId)?.title;
           return <div className="head-latest-progress"><strong>{eventActor(event)}</strong><span>{t(event.action)}</span>

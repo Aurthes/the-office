@@ -75,7 +75,7 @@
 .head-window select { color: var(--foreground); background: var(--card); border: 1px solid var(--border); border-radius: 5px; padding: 5px 8px; min-height: 34px; }
 .head-window select:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .head-activity-label { display: block; font-weight: 600; margin-bottom: 4px; }
-.head-task-overview tr[data-activity=running] { border-left: 3px solid var(--ring); background: color-mix(in srgb, var(--ring) 7%, var(--card)); }
+.head-task-overview tr[data-activity=active] { border-left: 3px solid var(--ring); background: color-mix(in srgb, var(--ring) 7%, var(--card)); }
 .head-task-overview tr[data-activity=recent] { border-left: 3px solid #b98124; background: color-mix(in srgb, #b98124 10%, var(--card)); }
 .head-task-overview tr[data-activity=other] { border-left: 3px solid var(--border); }
 .head-history-limit { color: var(--muted-foreground); font-size: 11px; flex-shrink: 0; }

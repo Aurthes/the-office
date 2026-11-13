@@ -141,7 +141,7 @@ schedules = new OfficeSchedules(directory, {
   },
   send: (id, message, requestId, usage) => controls.send(id, message, requestId, [], { onlyIfIdle: true, usage }),
 });
-todos = new OfficeTodos(directory, { projects: () => store.projects(), agents, replyContext: id => controls.state(id).activeTurnId ? replyContext.forTask(id, controls.state(id).activeTurnId) : null, changed: id => broadcast("todos.updated", { id }) });
+todos = new OfficeTodos(directory, { projects: () => store.projects(), agents, activeTurn: id => { const state = controls.states.get(id); return state?.turnStateKnown && !state.recovery.stopped ? state.activeTurnId : null; }, replyContext: id => controls.state(id).activeTurnId ? replyContext.forTask(id, controls.state(id).activeTurnId) : null, changed: id => broadcast("todos.updated", { id }) });
 composer.todos = todos;
 replyContext.options.task = id => todos.raw(id);
 replyContext.options.recent = async id => (await history(id)).messages;
@@ -276,7 +276,7 @@ const methods = {
   "session.compact": p => { store.get(p.threadId); if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before compacting"); return store.once(p, () => controls.compact(p.threadId)); },
   "session.mcp": async p => { store.get(p.threadId); const result = await native.call("mcpServerStatus/list", { limit: 50 }); return { servers: result.data.map(server => ({ name: server.name, status: server.runtimeStatus || server.authStatus, tools: Object.keys(server.tools || {}).length })) }; },
   "session.continue": async p => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, "Continue where you left off.", p.requestId, [], { resumeInterrupted: true }); store.clearQuestions(p.threadId, pending); return result; },
-  "session.stop": p => { store.get(p.threadId); return controls.stop(p.threadId); },
+  "session.stop": async p => { store.get(p.threadId); try { return await controls.stop(p.threadId, p.turnId); } finally { const row = todos.bound(p.threadId); if (row) broadcast("todos.updated", { id: row.id }); } },
   "session.settings.choices": p => { store.get(p.threadId); return controls.choices(p.threadId); },
   "session.settings.update": p => { store.get(p.threadId); if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before changing settings"); return controls.updateSettings(p.threadId, p.settings); },
   "session.voice.options": () => voice.choices(),

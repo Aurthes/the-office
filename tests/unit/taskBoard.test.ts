@@ -342,3 +342,12 @@ it.each(["", " \t ", "An independent observable condition"])("shows the acceptan
     expect(within(region).getByText(criteria)).toBeTruthy();
   } else expect(within(region).queryByRole("heading", { name: "Acceptance criteria" })).toBeNull();
 });
+
+it("keeps native Stop execution separate from an explicit follow-up pause and passes the observed turn", async () => {
+  const f = fixture(undefined, { execution: { agentId: "alice", turnId: "exact-turn", role: "legacy" } }, "todo");
+  fireEvent.click(await screen.findByRole("button", { name: "Stop execution" }));
+  await waitFor(() => expect(f.call).toHaveBeenCalledWith("session.stop", { threadId: "alice", turnId: "exact-turn" }));
+  expect(f.call.mock.calls.some(([method]) => method === "todo.pause")).toBe(false);
+  fireEvent.click(await screen.findByRole("button", { name: "Pause follow-up" }));
+  await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.pause", expect.objectContaining({ id: "todo", revision: 4 })));
+});

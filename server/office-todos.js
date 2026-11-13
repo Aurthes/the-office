@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { taskReplyContext } = require("./office-reply-context");
-const { taskTracking } = require("./office-todo-progress");
+const { taskTracking, bookkeeping } = require("./office-todo-progress");
 const uuid = () => crypto.randomUUID();
 const text = (value, name, max, empty = false) => {
   if (typeof value !== "string" || (!empty && !value.trim()) || value.length > max) throw new Error(`${name} must contain ${empty ? "0" : "1"}–${max} characters`);
@@ -48,9 +48,9 @@ const handlingAgentId = (row, phaseId) => {
     ? phase?.assigneeId || phase?.acceptanceManagerId || taskOwnerId(row) : row.acceptanceManagerId || row.assigneeId;
 };
 class OfficeTodos {
-  constructor(directory, { projects, agents, changed = () => {}, now = Date.now, replyContext = () => null }) {
+  constructor(directory, { projects, agents, changed = () => {}, now = Date.now, replyContext = () => null, activeTurn = () => null }) {
     this.directory = path.join(directory, "todos"); this.projects = projects; this.agents = agents; this.changed = changed; this.now = now;
-    this.replyContext = replyContext;
+    this.replyContext = replyContext; this.activeTurn = activeTurn;
     this.rows = new Map(); this.requests = new Map(); this.bindings = new Map();
     fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
     for (const file of fs.readdirSync(this.directory).filter(file => /^[a-f0-9-]{36}\.json$/.test(file))) {
@@ -107,7 +107,7 @@ class OfficeTodos {
     if (input.actorId) { const agent = this.agents().find(a => a.id === input.actorId); if (!agent) throw new Error("Choose an existing Office agent"); return { source: "agent", id: agent.id, name: agent.name }; }
     return { source: input.source === "system" ? "system" : "user", name: input.source === "system" ? "Office" : "User" };
   }
-  event(row, message, actor, details = {}) { row.events.push({ at: this.now(), message, actor, ...details }); row.events = row.events.slice(-100); }
+  event(row, message, actor, details = {}) { if (!bookkeeping(message)) row.lastUpdateAt = this.now(); row.events.push({ at: this.now(), message, actor, ...details }); row.events = row.events.slice(-100); }
   materializeOwner(row, writing = false) {
     if (Object.hasOwn(row, "ownerId")) return;
     const ownerId = taskOwnerId(row);
@@ -167,6 +167,14 @@ class OfficeTodos {
         elapsedMs: old?.elapsedMs || 0, startedAt: old?.startedAt ?? null, completedAt: old?.completedAt ?? null };
     });
   }
+  runningExecution(row, phase) {
+    const activity = phase ? phase.activity : row.activity;
+    if (row.archived || row.status === "done" || phase?.completedAt != null || !activity?.turnId || !activity.requestId
+      || this.activeTurn(activity.agentId) !== activity.turnId) return null;
+    const scope = this.executionScope(activity.agentId);
+    return scope?.row.id === row.id && (scope.phase?.id || null) === (phase?.id || null)
+      ? { agentId: activity.agentId, turnId: activity.turnId, role: activity.role } : null;
+  }
   view(row, full = false, { projects = this.projects(), agents = this.agents() } = {}) {
     const department = projects.find(p => p.id === row.departmentId), agent = agents.find(a => a.id === row.assigneeId);
     const ownerId = taskOwnerId(row), owner = agents.find(a => a.id === ownerId);
@@ -174,14 +182,14 @@ class OfficeTodos {
     const { events, documentation, ...rest } = row;
     delete rest.requestId; delete rest.requestHash;
     if (!full && rest.delegations) rest.delegations = rest.delegations.map(({ id, phaseId, managerId, workerId, state }) => ({ id, ...(phaseId ? { phaseId } : {}), managerId, workerId, state }));
-    return { ...rest, completedAt: completionTime(row), departmentName: department?.name || row.departmentName, assigneeName: agent?.name || row.assigneeName,
+    return { ...rest, execution: isPhaseTask(row) ? null : this.runningExecution(row), completedAt: completionTime(row), departmentName: department?.name || row.departmentName, assigneeName: agent?.name || row.assigneeName,
       ...(ownerId !== undefined ? { ownerId } : {}), ownerName: owner?.name || row.ownerName || (ownerId ?? null), ownerAvailable: !!owner,
       handlingAgentId: handlerId, handlingAgentName: handler?.name || handlerId, handlingAgentAvailable: !!handler,
       reviewerId: entry?.state === "review" ? entry.managerId : null,
       assigneeAvailable: !!agent, ...(full ? { documentation, events } : {}),
       phases: row.phases.map(phase => {
         const entry = activeDelegation(row, phase.id), handlerId = handlingAgentId(row, phase.id), assignee = agents.find(a => a.id === phase.assigneeId);
-        return { ...phase, ...(!full ? { notes: undefined } : {}), ...(isPhaseTask(row) ? { assigneeName: assignee?.name || phase.assigneeName || null, assigneeAvailable: !!assignee,
+        return { ...phase, ...(isPhaseTask(row) ? { execution: this.runningExecution(row, phase) } : {}), ...(!full ? { notes: undefined } : {}), ...(isPhaseTask(row) ? { assigneeName: assignee?.name || phase.assigneeName || null, assigneeAvailable: !!assignee,
           handlingAgentId: handlerId, reviewerId: entry?.state === "review" ? entry.managerId : null, handoffId: entry?.id || null } : {}) };
       }),
       progress: row.phases.filter(p => p.completedAt != null).length, elapsedMs: row.phases.reduce((sum, phase) => sum + duration(phase, this.now()), 0) };
@@ -273,7 +281,7 @@ class OfficeTodos {
     this.stopClock(row, this.now(), phaseId);
     row.revision++; row.updatedAt = this.now();
     this.event(row, reason, { source: "system", name: "Office" }, phaseId ? { phaseId } : {});
-    this.save(row); this.changed(row.id);
+    this.save(row); this.changed(row.id); return true;
   }
   changePhase(input, action) {
     const previous = this.raw(input.id);
@@ -397,7 +405,7 @@ class OfficeTodos {
     for (const p of row.phases) if (p.status !== "paused") delete p.pauseContext;
     this.validatePhases(row);
     if (action === "start") this.bindings.set(phase.activity.agentId, { taskId: row.id, phaseId: phase.id, activityId: phase.activity.requestId });
-    row.revision++; row.updatedAt = this.now(); this.event(row, message, actor, followup ? { followup } : {}); this.save(row); this.changed(row.id);
+    row.revision++; row.updatedAt = this.now(); this.event(row, message, actor, followup ? { followup } : action === "pause" ? { action: "Paused", phaseId: phase.id } : {}); this.save(row); this.changed(row.id);
     return this.get({ id: row.id });
   }
   assertPhaseAvailable(agentId, taskId, phaseId) {
@@ -603,7 +611,7 @@ class OfficeTodos {
       }
       for (const other of this.rows.values()) if (!isPhaseTask(other) && other.id !== row.id && handlingAgentId(other) === handler && other.status === "running") this.settleTimer(other, "Agent switched task; activity timer stopped");
     }
-    row.revision++; row.updatedAt = this.now(); this.event(row, message, actor, followup ? { followup } : {}); this.save(row);
+    row.revision++; row.updatedAt = this.now(); this.event(row, message, actor, followup ? { followup } : action === "pause" ? { action: "Paused", phaseId: null } : {}); this.save(row);
     for (const [agentId, id] of this.bindings) if (id === row.id && (row.archived || row.status === "done" || handler !== agentId)) this.bindings.delete(agentId);
     if (clockActive && handler) this.bindings.set(handler, row.id);
     this.changed(row.id); return { todo: this.view(row, true), serverTime: this.now() };
@@ -653,12 +661,12 @@ class OfficeTodos {
     const scope = this.executionScope(agentId);
     if (scope?.phase) {
       const { row, phase } = scope;
-      if (turnId && phase.activity?.turnId === turnId) this.settleTimer(row, `Agent turn ${status}; activity timer stopped`, phase.id);
+      if (turnId && phase.activity?.turnId === turnId && !this.settleTimer(row, `Agent turn ${status}; activity timer stopped`, phase.id)) this.changed(row.id);
       return;
     }
     const row = scope?.row;
     if (turnId && row?.activity && (row.activity.agentId !== agentId || row.activity.turnId !== turnId)) return;
-    if (row?.status === "running") this.settleTimer(row, `Agent turn ${status}; activity timer stopped`);
+    if (row && !this.settleTimer(row, `Agent turn ${status}; activity timer stopped`)) this.changed(row.id);
   }
   checkpoint() { for (const row of this.rows.values()) if (row.phases.some(p => p.startedAt != null)) {
     const next = structuredClone(row), running = next.phases.filter(p => p.startedAt != null).map(p => p.id); this.stopClock(next);

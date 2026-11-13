@@ -2,6 +2,7 @@
 
 // Read-only, bounded projection of records already kept by OfficeTodos.
 // No events are added, history is not backfilled, and edits are not progress.
+const bookkeeping = message => /^(Agent turn .*(; activity timer stopped|timer paused|waiting for follow-up.*)$|Agent switched task; activity timer stopped$|Office (stopped; activity timers stopped$|restarted; activity timers stopped at the last checkpoint$)|Separated execution assignment|Completed task automatically archived)/.test(message || "");
 const short = value => typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 180) : null;
 const time = value => Number.isFinite(value) && value >= 0 ? value : null;
 const metadata = /^(Agent turn .*; activity timer stopped$|Agent switched task; activity timer stopped$|Office (stopped; activity timers stopped$|restarted; activity timers stopped at the last checkpoint$)|Plan, .*updated$|Removed phase:|Separated execution assignment|Completed task automatically archived|To-do archived$|To-do restored$)/;
@@ -24,11 +25,13 @@ function taskTracking(row) {
       for (const change of event.followup) if (["running", "paused"].includes(change.status) && (!mode && change.phaseId === null || mode && phases.some(p => p.id === change.phaseId))) add(change.status === "running" ? "Following resumed" : "Paused", event.at, event.actor, change.phaseId, null, "event");
       continue;
     }
-    if (time(event.at) === null || metadata.test(message)) continue;
+    if (time(event.at) === null) continue;
+    if (/^Plan, .*updated$/.test(message)) { add("Updated", event.at, event.actor, event.phaseId, null, "event"); continue; }
+    if (metadata.test(message)) continue;
     const match = /^(Started phase: |Completed phase: |Reopened phase: |Delegated phase: |Submitted phase for manager acceptance: |Manager accepted phase |Manager returned phase |Paused phase: )/.exec(message);
     const matches = match ? phases.filter(p => message === match[0] + p.title || message.startsWith(match[0] + p.title + ": ") || message.startsWith(match[0] + p.title + ";")) : [];
-    const phaseId = matches.length === 1 ? matches[0].id : null;
-    const action = /^(Work started$|Started phase: )/.test(message) ? "Started"
+    const phaseId = event.action === "Paused" && (!mode || phases.some(p => p.id === event.phaseId)) ? event.phaseId || null : matches.length === 1 ? matches[0].id : null;
+    const action = event.action === "Paused" ? "Paused" : /^(Work started$|Started phase: )/.test(message) ? "Started"
       : /^Completed phase: /.test(message) ? "Completed"
       : /^Reopened phase: /.test(message) ? "Reopened"
       : /^Delegated (phase: |to )/.test(message) ? "Delegated"
@@ -42,7 +45,7 @@ function taskTracking(row) {
     // Prefer structured handoff identity/report to its duplicate display event.
     const duplicates = entries.filter(e => e.action === action && e.at === event.at && (!phaseId || e.phaseId === phaseId));
     if (duplicates.length) { if (duplicates.length === 1 && !duplicates[0].detail) duplicates[0].detail = short(message); continue; }
-    add(action, event.at, event.actor, phaseId, phaseId && ["Started", "Completed", "Reopened", "Delegated"].includes(action) ? matches[0].title : message, "event");
+    add(action, event.at, event.actor, phaseId, phaseId && ["Started", "Completed", "Reopened", "Delegated"].includes(action) ? matches[0]?.title || message : message, "event");
   }
   // activity.startedAt survives checkpoints; legacy lastStartedAt also changes
   // on edits, so it must never be used as an execution/state timestamp.
@@ -58,7 +61,7 @@ function taskTracking(row) {
     if (mode && !key) continue; // Old ambiguous events cannot bind a phase.
     if (["Started", "Following resumed"].includes(entry.action)) running.add(key);
     if (["Paused", "Submitted", "Completed", "Accepted", "Returned", "Recalled", "Reopened", "Delegated"].includes(entry.action)) running.delete(key);
-    if (entry.action !== "Created") states.set(key, entry);
+    if (!["Created", "Updated"].includes(entry.action)) states.set(key, entry);
   }
   const current = (mode ? phases.filter(p => p.completedAt == null) : [row]).map(p => {
     const phaseId = mode ? p.id : null, entry = [...handoffs].reverse().find(e => (e.phaseId || null) === phaseId && !["accepted", "recalled"].includes(e.state));
@@ -79,7 +82,8 @@ function taskTracking(row) {
     return { phaseId, status: status || "unknown", since, reason, reasonCode, waitingForId,
       needsUserDecision: status === "paused" ? p.pauseContext?.needsUserDecision ?? null : null };
   });
-  return { recent: entries.filter(e => e.action !== "Paused").slice(-3).reverse(), current,
+  const lastUpdateAt = [row.lastUpdateAt, ...events.filter(e => !bookkeeping(e.message)).map(e => e.at), ...entries.filter(e => !(e.actorSource === "system" && e.action === "Paused")).map(e => e.at), row.completedAt, ...phases.map(p => p.completedAt)].filter(at => time(at) !== null);
+  return { lastUpdateAt: lastUpdateAt.length ? Math.max(...lastUpdateAt) : null, recent: entries.filter(e => !(e.actorSource === "system" && e.action === "Paused")).slice(-3).reverse(), current,
     unscopedNote: notes.at(-1) || null, historyLimited: events.length >= 100 || handoffs.length >= 100 };
 }
-module.exports = { taskTracking };
+module.exports = { taskTracking, bookkeeping };

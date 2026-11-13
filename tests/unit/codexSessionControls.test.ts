@@ -284,3 +284,13 @@ it("restores native turn start time after attachment and preserves it while stee
   controls.handle({ method: "turn/started", params: { threadId: "id", turn: { id: "next", startedAt: 1793607300 } } });
   expect(controls.snapshot("id")).toMatchObject({ activeTurnId: "next", activeTurnStartedAt: 1793607300000 });
 });
+
+it("stops only the exact observed task turn and refuses a stale task stop without marking newer work stopped", async () => {
+  const { client, controls } = setup(true); await controls.attach("id");
+  client.call.mockClear();
+  await expect(controls.stop("id", "stale-turn")).rejects.toThrow(/execution changed/);
+  expect(client.call.mock.calls.some(([method]) => method === "turn/interrupt")).toBe(false); expect(controls.state("id").recovery.stopped).toBe(false);
+  client.call.mockClear(); await controls.stop("id", "active-turn");
+  expect(client.call).toHaveBeenCalledWith("turn/interrupt", { threadId: "id", turnId: "active-turn" });
+  expect(controls.state("id").recovery.stopped).toBe(true); controls.close();
+});

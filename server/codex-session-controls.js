@@ -411,9 +411,21 @@ class CodexSessionControls {
       this.scheduleRetry(id, { id: state.lastTurnId, status: state.turnStatus });
     }
   }
-  async stop(id) {
+  async stop(id, expectedTurnId) {
     this.requireReady();
     if (this.state(id).editCommit) throw new Error("Wait for the edit to finish before stopping.");
+    // Task controls carry the observed turn: a late click cannot stop newer work.
+    if (expectedTurnId !== undefined) {
+      if (typeof expectedTurnId !== "string" || !expectedTurnId) throw new Error("Choose the current execution turn.");
+      if (!await this.attach(id)) await this.refreshTurn(id);
+      if (this.state(id).activeTurnId !== expectedTurnId) throw new Error("This execution changed. Refresh before stopping.");
+      const retry = this.state(id).retry || this.state(id).autoStarting;
+      if (retry) { retry.stopRequested = true; retry.interruptRequested = true; }
+      this.saveRecovery(id, { stopped: true }); this.cancelRetry(id);
+      this.state(id).turnStateKnown = false;
+      await this.client.call("turn/interrupt", { threadId: id, turnId: expectedTurnId });
+      return { status: "interruptRequested", turnId: expectedTurnId };
+    }
     const retry = this.state(id).retry || this.state(id).autoStarting;
     if (retry) retry.stopRequested = true;
     this.saveRecovery(id, { stopped: true });
