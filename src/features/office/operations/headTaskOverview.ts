@@ -2,7 +2,7 @@ import { CEO_ID, isDepartmentManager, type OrganizationView } from "@/lib/office
 import { taskWatcherIds, needsFollowUp, shortPhaseCode, type DirectoryTaskSummary, type TaskProgressState, type TaskTracking } from "./agentDirectory";
 
 export type HeadWork = {
-  id: string; phaseId?: string; title: string; status: string;
+  id: string; phaseId?: string; title: string; status: string; scopeLabel?: string;
   people: { role: string; agentId?: string | null }[]; state?: TaskProgressState; progressAt?: number | null;
 };
 export type HeadTaskRow = { id: string; code: string; title: string; work: HeadWork[]; tracking?: TaskTracking; closed?: boolean; progressAt?: number | null; completed?: { id: string; title: string; at: number | null }[] };
@@ -23,7 +23,15 @@ export function headTaskRows(headId: string, tasks: readonly DirectoryTaskSummar
     if (!needsFollowUp(task)) {
       work = [{ id: task.id, title: task.title, status: task.status === "done" ? "Completed" : "Archived", people: [] }];
     } else if (task.executionMode !== "phases") {
-      work = [{ id: task.id, title: "Specific phase not recorded", status: task.reviewerId ? "Awaiting manager review" : task.status === "running" ? "Running" : task.status === "paused" ? "Paused" : task.status === "queued" ? "Not started" : "Not recorded",
+      // A legacy timer locates the current plan position, not its handoff or executor.
+      const clocked = (task.phases || []).filter(phase => phase.startedAt != null);
+      const candidate = clocked.length === 1 ? clocked[0] : null;
+      const timed = task.status === "running" && candidate?.id && candidate.title?.trim()
+        && (task.phases || []).filter(phase => phase.id === candidate.id).length === 1
+        && candidate.completedAt == null && typeof candidate.startedAt === "number"
+        && Number.isFinite(candidate.startedAt) && candidate.startedAt >= 0
+        && (candidate.status == null || candidate.status === "running") ? candidate : null;
+      work = [{ id: task.id, ...(timed ? { phaseId: timed.id, scopeLabel: "Current timed phase" } : {}), title: timed ? `${shortPhaseCode(timed.id!)} · ${timed.title}` : "Specific phase not recorded", status: task.reviewerId ? "Awaiting manager review" : task.status === "running" ? "Running" : task.status === "paused" ? "Paused" : task.status === "queued" ? "Not started" : "Not recorded",
         progressAt: recordedPauseAt(task.pauseContext), people: [...(task.reviewerId ? [{ role: "Reviewer", agentId: task.reviewerId }] : []), { role: "Task-level responsibility", agentId: task.assigneeId }], state: task.tracking?.current.find(item => item.phaseId === null) }];
     } else {
       work = (task.phases || []).flatMap(phase => {

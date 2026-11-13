@@ -126,6 +126,7 @@ export const ZH_CN: Record<string, string> = {
   "Other follow-up": "其余待跟进",
   "Recent task history is unavailable.": "最近任务历史暂不可用。",
   "Recent history is limited to the newest 200 archived tasks.": "最近历史最多读取最新200项已归档任务。",
+  "Current timed phase": "当前计时阶段",
   "Current work not recorded": "当前工作未记录",
   "Execution not recorded": "执行未记录",
   "Not started": "未开始",

@@ -244,3 +244,40 @@ it("deduplicates current ownership before watcher filtering and rejects unsuppor
   render(createElement(HeadTaskOverview,{name:'Head',rows:[],names,loading:false,error:'',embedded:true,onOpenTask:vi.fn()}));
   expect(screen.getByLabelText('Recent work window')).toHaveValue('60');
 });
+
+it("shows a unique valid legacy timed plan phase without asserting phase execution or a handoff binding", () => {
+  const legacy = {...task, phases:[{id:'earlier',title:'Earlier incomplete',startedAt:null,completedAt:null},{id:'current-clock',title:'Current legacy plan position',startedAt:1794544555969,completedAt:null,assigneeId:'unrelated-phase-person'}]};
+  const rows=headTaskRows('head',[legacy]);
+  expect(rows[0].work[0]).toMatchObject({id:'parent',phaseId:'current-clock',scopeLabel:'Current timed phase',title:'P-current- · Current legacy plan position',status:'Running',people:[{role:'Task-level responsibility',agentId:'worker'}]});
+  expect(rows[0].work[0]).not.toHaveProperty('handoffId');
+  const open=vi.fn();render(createElement(HeadTaskOverview,{name:'Head',rows,names,loading:false,error:'',embedded:true,onOpenTask:open}));
+  expect(screen.getByText('Current timed phase')).toBeVisible();
+  fireEvent.click(screen.getByRole('button',{name:'P-current- · Current legacy plan position'}));
+  expect(open).toHaveBeenCalledWith('parent','current-clock');
+});
+it.each([
+  ['no clock',[]],
+  ['background stopped clock',[{id:'p',title:'Next task',startedAt:null,completedAt:null}]],
+  ['multiple clocks',[{id:'p',title:'One',startedAt:1000,completedAt:null},{id:'q',title:'Two',startedAt:2000,completedAt:null}]],
+  ['NaN time',[{id:'p',title:'Bad',startedAt:NaN,completedAt:null}]],
+  ['infinite time',[{id:'p',title:'Bad',startedAt:Infinity,completedAt:null}]],
+  ['negative time',[{id:'p',title:'Bad',startedAt:-1,completedAt:null}]],
+  ['string time',[{id:'p',title:'Bad',startedAt:'1794544555969',completedAt:null}]],
+  ['completed residue',[{id:'p',title:'Done',startedAt:1000,completedAt:2000}]],
+  ['residue plus current',[{id:'p',title:'Done',startedAt:1000,completedAt:2000},{id:'q',title:'Current',startedAt:3000,completedAt:null}]],
+  ['missing ID',[{title:'Unlinked',startedAt:1000,completedAt:null}]],
+  ['duplicate phase IDs',[{id:'p',title:'Old duplicate',startedAt:null,completedAt:null},{id:'p',title:'Current duplicate',startedAt:1000,completedAt:null}]],
+  ['paused phase residue',[{id:'p',title:'Paused',startedAt:1000,completedAt:null,status:'paused'}]],
+])("does not guess a legacy phase for %s", (_label,phases)=>{
+  const rows=headTaskRows('head',[{...task,phases} as DirectoryTaskSummary]);
+  expect(rows[0].work[0].title).toBe('Specific phase not recorded');expect(rows[0].work[0]).not.toHaveProperty('phaseId');
+});
+it.each(['paused','queued'])("does not promote stale legacy timers when the task is %s",status=>{
+  const work=headTaskRows('head',[{...task,status,phases:[{id:'p',title:'Stale timer',startedAt:1000,completedAt:null}]}])[0].work[0];
+  expect(work).not.toHaveProperty('phaseId');expect(work.title).toBe('Specific phase not recorded');
+});
+it("preserves the legacy reviewer and recent grouping while locating only a timer",()=>{
+  const now=Date.now();const legacy={...task,reviewerId:'reviewer',phases:[{id:'clock',title:'Review plan',startedAt:now-1000,completedAt:null}],tracking:{recent:[{action:'Submitted',at:now-1000,actorId:'worker',phaseId:null}],current:[]}};
+  const row=headTaskRows('head',[legacy])[0];expect(row.work[0].people).toEqual([{role:'Reviewer',agentId:'reviewer'},{role:'Task-level responsibility',agentId:'worker'}]);
+  expect(row.work[0].status).toBe('Awaiting manager review');expect(groupHeadTaskRows([row],now,60)[0].activityGroup).toBe('recent');
+});
