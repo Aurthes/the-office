@@ -195,3 +195,9 @@ it("does not merge a late history response from an ended call into a newer call"
  await act(async()=>resolve({threadId:'owner',messages:[{id:'x',source:'voice',voiceCallId:'call-one',role:'assistant',content:'Stale'}],nextCursor:null}));
  expect(result.current.threadId).toBe('second');expect(result.current.captions).toEqual([]);
 });
+it("does not attribute anonymous native transcript text to the new call",async()=>{
+ const {client,call,push}=makeClient();const {result}=renderHook(()=>useSessionVoice(client));await act(async()=>result.current.start('owner'));
+ const voiceId=(call.mock.calls.find(([m])=>m==='session.voice.start')![1] as {voiceId:string}).voiceId;
+ act(()=>push({threadId:'owner',voiceId,method:'thread/realtime/transcript/done',params:{role:'assistant',text:'Unattributable flat old transcript'}}));
+ expect(result.current.captions).toEqual([]);act(()=>Peer.all[0].message({type:'turn.done',turn:{id:'current',role:'assistant',transcript:'Actual peer dialogue'}}));expect(result.current.captions.map(p=>p.text)).toEqual(['Actual peer dialogue']);
+});

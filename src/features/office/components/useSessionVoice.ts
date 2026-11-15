@@ -147,7 +147,8 @@ export function useSessionVoice(client: SessionClient) {
       if (event.event !== "session.voice" || value?.threadId !== session.threadId || value.voiceId !== session.id || connection.current !== session) return;
       const params = value.params || {};
       if (value.method === "thread/realtime/sdp" && params.sdp) void session.pc.setRemoteDescription({ type: "answer", sdp: params.sdp }).catch(() => finish(session, true, "Voice negotiation failed. Please retry."));
-      if (value.method === "thread/realtime/transcript/done") caption(params.role || "assistant", params.text || "");
+      // Flat native transcript/done has no call/item identity. Dialogue comes
+      // from this peer channel or exact committed native items instead.
       if (value.method === "thread/realtime/error") finish(session, true, params.message?.slice(0, 400) || "Codex voice error. Please retry.");
       if (value.method === "thread/realtime/closed") finish(session, false, params.reason && params.reason !== "requested" ? "Voice ended: " + params.reason.slice(0, 200) : "");
     });
