@@ -24,6 +24,6 @@ function clipText(text, limit) {
 // These are committed native timeline entries, not copies of browser captions.
 function realtimeSessionItem(item) {
   if (item?.type !== "transcriptSegment" || !["user", "assistant"].includes(item.role) || !item.text?.trim()) return null;
-  return { id: `realtime:${item.realtimeSessionId}:${item.id}`, source: "voice", role: item.role, content: item.text.trim(), status: "completed" };
+  return { id: `realtime:${item.realtimeSessionId}:${item.id}`, source: "voice", voiceCallId: item.realtimeSessionId, voiceItemId: item.id, role: item.role, content: item.text.trim(), status: "completed" };
 }
 module.exports = { sessionItem, realtimeSessionItem, clipText };

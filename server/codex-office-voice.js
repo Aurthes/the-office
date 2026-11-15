@@ -1,7 +1,7 @@
 "use strict";
 // Audio travels on native Codex WebRTC. Only session control crosses the web gateway.
 class CodexOfficeVoice {
-  constructor(client, controls, emit) { this.client = client; this.controls = controls; this.emit = emit; this.active = null; }
+  constructor(client, controls, emit) { this.client = client; this.controls = controls; this.emit = emit; this.active = null; this.last = null; }
   async choices() {
     const result = await this.client.call("thread/realtime/listVoices", {});
     return { voices: result.voices?.v3 || [] };
@@ -27,10 +27,17 @@ class CodexOfficeVoice {
     } catch (error) { if (this.active === session) this.active = null; throw error; }
   }
   handle(frame) {
+    if (frame.method === "thread/realtime/item/completed") {
+      const item = frame.params?.item;
+      const session = [this.active, this.last].find(s => s && s.threadId === frame.params?.threadId && s.realtimeSessionId && s.realtimeSessionId === item?.realtimeSessionId);
+      if (session && item?.type === "transcriptSegment") this.emit(session.owner, { threadId: session.threadId, voiceId: session.voiceId, method: frame.method, params: frame.params });
+      return;
+    }
     const active = this.active;
     if (!active || frame.params?.threadId !== active.threadId || !["thread/realtime/sdp", "thread/realtime/started", "thread/realtime/error", "thread/realtime/closed", "thread/realtime/transcript/delta", "thread/realtime/transcript/done"].includes(frame.method)) return;
+    if (frame.method === "thread/realtime/started" && typeof frame.params.realtimeSessionId === "string") active.realtimeSessionId = frame.params.realtimeSessionId;
     this.emit(active.owner, { threadId: active.threadId, voiceId: active.voiceId, method: frame.method, params: frame.params });
-    if (frame.method === "thread/realtime/closed") this.active = null;
+    if (frame.method === "thread/realtime/closed") { this.last = active; this.active = null; }
   }
   async stop(owner, threadId, voiceId) {
     const session = this.active;
@@ -40,7 +47,7 @@ class CodexOfficeVoice {
     try { await session.starting; } catch { return { status: "closed" }; }
     // Keep ownership until the stop is submitted, so another tab cannot race a new start.
     await this.client.call("thread/realtime/stop", { threadId });
-    if (this.active === session) this.active = null;
+    if (this.active === session) { this.last = session; this.active = null; }
     return { status: "closed" };
   }
   disconnected(owner) {

@@ -3403,7 +3403,7 @@ export function OfficeScreen({
   return (
     <SessionTaskContext.Provider value={openTaskDetails}>
     <main className="office-responsive relative h-full w-full overflow-hidden bg-black">
-      {voice.status !== "off" && (!chatOpen || focusedChatAgent?.agentId !== voice.threadId) ? <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-3 right-3 z-[90] mx-auto max-w-lg">
+      {voice.visible && (!chatOpen || focusedChatAgent?.agentId !== voice.threadId) ? <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-3 right-3 z-[90] mx-auto max-w-lg">
         <SessionVoiceCall voice={voice} owner={state.agents.find(agent => agent.agentId === voice.threadId)?.name || voice.threadId || "Codex"} onReturn={() => { if (voice.threadId) handleOpenAgentChat(voice.threadId); }} />
       </div> : null}
       {!sessionView ? <OfficeFloorNav

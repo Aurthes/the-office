@@ -101,7 +101,7 @@ describe("web composer media", () => {
     const voiceId = (start[1] as { voiceId: string }).voiceId;
     await act(async () => eventHandler({ event: "session.voice", payload: { threadId: "original", voiceId, method: "thread/realtime/sdp", params: { sdp: "answer" } } }));
     expect(setRemoteDescription).toHaveBeenCalledWith({ type: "answer", sdp: "answer" });
-    unmount(); expect(stopTrack).toHaveBeenCalledOnce(); expect(close).toHaveBeenCalledOnce(); expect(unsubscribe).toHaveBeenCalledOnce();
+    unmount(); expect(stopTrack).toHaveBeenCalledOnce(); expect(close).toHaveBeenCalledOnce(); expect(unsubscribe).toHaveBeenCalledTimes(2);
     expect(call).toHaveBeenLastCalledWith("session.voice.stop", { threadId: "original", voiceId });
   });
   it("shows native voice startup errors and releases its generated audio track", async () => {

@@ -21,7 +21,7 @@ export type SessionAsset = { source: string; name: string; kind: "image" | "mark
 export type ReplySource = { threadId: string; turnId: string; itemId: string; excerpt: string };
 export type ReplyQuestion = { id: string; summary: string; sources: ReplySource[]; parentQuestionId?: string; parents?: { id: string; summary: string }[] };
 export type ReplyContext = { questions?: ReplyQuestion[]; taskId?: string; taskTitle?: string; phaseId?: string; phaseTitle?: string; sources?: ReplySource[] };
-export type LiveSessionItem = { historyEpoch?: string; id: string; clientId?: string; turnId?: string; source?: "voice"; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number; replyContext?: ReplyContext;
+export type LiveSessionItem = { historyEpoch?: string; id: string; clientId?: string; turnId?: string; source?: "voice"; voiceCallId?: string; voiceItemId?: string; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number; replyContext?: ReplyContext;
   delivery?: "sending" | "accepted" | "failed" | "unknown"; attachmentNames?: string[]; deliveryError?: string };
 export type SessionClient = {
   call: (method: string, params: unknown) => Promise<unknown>;
@@ -417,7 +417,7 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
       <span className="min-w-0 truncate" title={file.name}>{file.name}</span><span className={file.error ? "text-rose-200" : "shrink-0 text-white/40"}>{file.error ? t(file.error) : (!file.ref ? t("Uploading…") : Math.max(1, Math.ceil(file.size / 1024)) + " KB")}</span>
       <button aria-label={t("Remove attachment {name}", { name: file.name })} disabled={busy} onClick={() => removeFile(file.id)} className="min-h-9 shrink-0 px-2 text-white/60"><X size={14} /></button>
     </div>)}</div> : null}
-    {voice.status !== "off" && voice.threadId === threadId ? <div className="mb-3"><SessionVoiceCall voice={voice} /></div> : null}
+    {voice.visible && voice.threadId === threadId ? <div className="mb-3"><SessionVoiceCall voice={voice} /></div> : null}
     {state?.approvals.length ? <div className="mb-3 max-h-[32vh] space-y-3 overflow-y-auto" aria-label={t("Pending approvals")}>
       {state.approvals.map(request => <div key={request.requestId} className="rounded border border-amber-300/40 bg-amber-900/15 p-2">
         <p className="font-semibold text-amber-100">{request.method === "item/fileChange/requestApproval" ? t("File change approval") : request.method === "item/commandExecution/requestApproval" ? t("Command execution approval") : t("This session needs your input")}</p>

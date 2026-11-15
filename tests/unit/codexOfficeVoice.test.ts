@@ -67,3 +67,11 @@ describe("Office realtime voice ownership", () => {
     await voice.start("tab2", "other", "v=0", voiceId);
   });
 });
+
+it("routes committed tail after stop only with exact native call identity, including while another call is active", async()=>{
+ const {voice,emit}=setup();await voice.start('tab1','original','v=0',voiceId);
+ voice.handle({method:'thread/realtime/started',params:{threadId:'original',realtimeSessionId:'native-one'}});await voice.stop('tab1','original',voiceId);emit.mockClear();
+ const committed=(callId:string)=>({method:'thread/realtime/item/completed',params:{threadId:'original',item:{type:'transcriptSegment',id:'tail',realtimeSessionId:callId,role:'assistant',text:'Committed tail'}}});
+ voice.handle(committed('other'));expect(emit).not.toHaveBeenCalled();voice.handle(committed('native-one'));expect(emit).toHaveBeenCalledWith('tab1',expect.objectContaining({voiceId,method:'thread/realtime/item/completed'}));
+ await voice.start('tab2','second','v=0','22222222-2222-4222-8222-222222222222');emit.mockClear();voice.handle(committed('native-one'));expect(emit).toHaveBeenCalledWith('tab1',expect.objectContaining({voiceId}));
+});

@@ -103,13 +103,14 @@ function WorkProcess({ items, defaultOpen, highlightedMessageId, onOpenQuestion 
 
 export const SessionTranscript = memo(function SessionTranscript({ messages, activeTurnId = null, onForkFrom, forkDisabled = false, highlightedMessageId, onOpenQuestion }: { messages: LiveSessionItem[]; activeTurnId?: string | null; onForkFrom?: (lastTurnId: string) => void; forkDisabled?: boolean; highlightedMessageId?: string; onOpenQuestion?: (source: ReplySource) => void }) {
   const t = useUiText();
-  const answeredTurns = new Set(messages.filter(message => message.role === "assistant" && message.phase === "final_answer").map(message => message.turnId));
+  const visible = messages.filter(message => message.source !== "voice");
+  const answeredTurns = new Set(visible.filter(message => message.role === "assistant" && message.phase === "final_answer").map(message => message.turnId));
   const forkPoints = new Map<string, string>();
-  for (const message of messages) {
+  for (const message of visible) {
     if (message.turnId && message.turnId !== activeTurnId && message.role === "assistant" && message.source !== "voice" && message.phase !== "commentary" && message.phase !== "partial_answer") forkPoints.set(message.turnId, message.id);
   }
   const blocks: ({ message: LiveSessionItem } | { group: { id: string; turnId?: string; items: LiveSessionItem[] } })[] = [];
-  for (const message of messages) {
+  for (const message of visible) {
     if (message.role === "user" && !visibleUserText(message.content).trim() && !message.assets?.some(asset => asset.inline || asset.attached) && !message.attachmentNames?.length) continue;
     if (message.role === "tool" || message.phase === "commentary") {
       // Steers share a turn ID. Only adjacent work belongs in the same box,

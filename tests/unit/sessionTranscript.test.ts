@@ -321,3 +321,15 @@ it("shows each message's own time below its content, with the full date on hover
   expect(screen.getByText("A timed answer").closest("article")).toContainElement(times[1]);
   expect(screen.getByText("An older answer").closest("article")?.querySelector("time")).toBeNull();
 });
+
+it("filters only explicit voice before grouping/fork/final calculations for live and history without mutating raw records",async()=>{
+ const messages=[{id:'v-user',source:'voice' as const,voiceCallId:'call',role:'user',content:'Identical'}, {id:'plain',role:'user',content:'Identical'}, {id:'v-assistant',source:'voice' as const,role:'assistant',phase:'final_answer',turnId:'work',content:'Spoken only'}, {id:'comment',role:'assistant',phase:'commentary',turnId:'work',content:'Ordinary progress'}, {id:'tool',role:'tool',turnId:'work',content:'Normal tool'}, {id:'answer',role:'assistant',phase:'final_answer',turnId:'work',content:'Actual final'}, {id:'legacy',role:'assistant',content:'Legacy plain answer'}];
+ const raw=JSON.stringify(messages),view=render(React.createElement(SessionTranscript,{messages,onForkFrom:vi.fn()}));
+ expect(screen.getAllByText('Identical')).toHaveLength(1);expect(screen.queryByText('Spoken only')).toBeNull();expect(screen.getByText('Actual final')).toBeVisible();expect(screen.getByText('Legacy plain answer')).toBeVisible();
+ fireEvent.click(screen.getByText('Work process · 2 items'));expect(await screen.findByText('Ordinary progress')).toBeVisible();expect(screen.getByText(/Tool calls · 1 item/)).toBeVisible();
+ view.rerender(React.createElement(SessionTranscript,{messages:[...messages],onForkFrom:vi.fn()}));expect(screen.queryByText('Spoken only')).toBeNull();expect(JSON.stringify(messages)).toBe(raw);
+});
+it("does not treat a completed voice segment as a final task answer",()=>{
+ render(React.createElement(SessionTranscript,{activeTurnId:'active',messages:[{id:'log',role:'assistant',phase:'commentary',turnId:'active',content:'Still doing normal work'},{id:'voice-done',source:'voice',role:'assistant',phase:'final_answer',turnId:'active',content:'Not a task final'}]}));
+ expect(screen.getByText('Still doing normal work')).toBeVisible();expect(screen.queryByText('Not a task final')).toBeNull();
+});

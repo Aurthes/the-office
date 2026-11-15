@@ -119,7 +119,7 @@ describe("voice lifetime and original session ownership", () => {
     expect(late.stop).toHaveBeenCalledTimes(1);
     expect(call.mock.calls.filter(([method]) => method === "session.voice.start")).toHaveLength(1);
   });
-  it("bounds captions, keeps roles distinct, prevents a second call and cleans up on page exit", async () => {
+  it("keeps the complete call captions and roles distinct, prevents a second call and cleans up on page exit", async () => {
     const { client, call } = makeClient();
     const { result } = renderHook(() => useSessionVoice(client));
     await act(async () => result.current.start("owner"));
@@ -128,7 +128,7 @@ describe("voice lifetime and original session ownership", () => {
       for (let i = 0; i < 8; i++) Peer.all[0].message({ type: "turn.done", turn: { role: "user", transcript: String(i) } });
       Peer.all[0].message({ type: "turn.done", turn: { role: "assistant", transcript: "7" } });
     });
-    expect(result.current.captions).toHaveLength(4);
+    expect(result.current.captions).toHaveLength(9);
     expect(result.current.captions.slice(-2).map(c => c.role)).toEqual(["user", "assistant"]);
     act(() => window.dispatchEvent(new Event("pagehide")));
     expect(result.current.status).toBe("off");
@@ -158,4 +158,40 @@ describe("voice lifetime and original session ownership", () => {
     expect(call).toHaveBeenCalledWith("session.voice.start", expect.objectContaining({ threadId: "owner", voice: "cove" }));
     expect(JSON.parse(localStorage.getItem("claw3d:voice-settings") || "{}")).toMatchObject({ voice: "cove", noiseSuppression: false });
   });
+});
+
+it("keeps identified repeated words across roles, committed stop tails and timeline pages bound to the exact call", async () => {
+ const { client,call,push }=makeClient();const original=call.getMockImplementation()!;
+ call.mockImplementation(async(method,params)=>method==='session.history'?{threadId:'owner',messages:[{id:'r:tail',source:'voice',voiceCallId:'native-one',voiceItemId:'tail',role:'assistant',content:'Final tail'}],nextCursor:'older'}:original(method,params));
+ const {result}=renderHook(()=>useSessionVoice(client));await act(async()=>result.current.start('owner'));
+ const voiceId=(call.mock.calls.find(([m])=>m==='session.voice.start')![1] as {voiceId:string}).voiceId;
+ act(()=>{push({threadId:'owner',voiceId,method:'thread/realtime/started',params:{realtimeSessionId:'native-one'}});for(const id of ['a','b'])Peer.all[0].message({type:'turn.done',turn:{id,role:'user',transcript:'Same'}});Peer.all[0].message({type:'turn.done',turn:{id:'c',role:'assistant',transcript:'Same'}});Peer.all[0].message({type:'turn.done',turn:{id:'a',role:'user',transcript:'Same'}});});
+ expect(result.current.captions).toHaveLength(3);
+ await act(async()=>result.current.stop());expect(result.current.captions.map(c=>c.text)).toContain('Final tail');expect(result.current.visible).toBe(true);expect(result.current.transcriptCursor).toBe('older');
+ act(()=>push({threadId:'owner',voiceId,method:'thread/realtime/item/completed',params:{item:{type:'transcriptSegment',id:'later',realtimeSessionId:'native-one',role:'user',text:'After stop'}}}));
+ expect(result.current.captions.at(-1)?.text).toBe('After stop');
+ await act(async()=>result.current.start('other'));
+ act(()=>push({threadId:'owner',voiceId,method:'thread/realtime/item/completed',params:{item:{type:'transcriptSegment',id:'wrong',realtimeSessionId:'native-one',role:'user',text:'Wrong call'}}}));
+ expect(result.current.captions).toEqual([]);expect(result.current.threadId).toBe('other');
+});
+it("shares output volume in both panels and reconnects at that level without changing microphone constraints or mute", async()=>{
+ const audios: {volume:number;srcObject:unknown;play:ReturnType<typeof vi.fn>}[]=[];
+ vi.stubGlobal('Audio',class{volume=1;srcObject=null;autoplay=false;play=vi.fn(async()=>{});pause=vi.fn();setAttribute(){}constructor(){audios.push(this)}});
+ const {client}=makeClient();const {result}=renderHook(()=>useSessionVoice(client));
+ await act(async()=>result.current.start('owner'));act(()=>result.current.setVolume(.25));expect(audios[0].volume).toBe(.25);expect(microphone.enabled).toBe(true);
+ for(const invalid of [NaN,Infinity,-1,1.1])act(()=>result.current.setVolume(invalid));expect(result.current.outputVolume).toBe(.25);
+ act(()=>result.current.setVolume(0));expect(audios[0].volume).toBe(0);act(()=>result.current.setVolume(1));expect(audios[0].volume).toBe(1);
+ act(()=>result.current.setVolume(.4));act(()=>result.current.stop());await act(async()=>result.current.start('next'));expect(audios[1].volume).toBe(.4);
+ expect(getUserMedia).toHaveBeenLastCalledWith({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+ const view=render(React.createElement(React.Fragment,null,React.createElement(SessionVoiceCall,{voice:result.current}),React.createElement(SessionVoiceCall,{voice:result.current,onReturn:()=>{}})));
+ expect(screen.getAllByRole('slider',{name:'Call volume'})).toHaveLength(2);view.unmount();
+});
+it("does not merge a late history response from an ended call into a newer call",async()=>{
+ const {client,call,push}=makeClient();const base=call.getMockImplementation()!;let resolve!:(v:unknown)=>void;
+ call.mockImplementation(async(method,params)=>method==='session.history'?new Promise(r=>resolve=r):base(method,params));
+ const {result}=renderHook(()=>useSessionVoice(client));await act(async()=>result.current.start('owner'));const voiceId=(call.mock.calls.find(([m])=>m==='session.voice.start')![1] as {voiceId:string}).voiceId;
+ act(()=>push({threadId:'owner',voiceId,method:'thread/realtime/started',params:{realtimeSessionId:'call-one'}}));
+ await act(async()=>result.current.stop());await act(async()=>result.current.start('second'));
+ await act(async()=>resolve({threadId:'owner',messages:[{id:'x',source:'voice',voiceCallId:'call-one',role:'assistant',content:'Stale'}],nextCursor:null}));
+ expect(result.current.threadId).toBe('second');expect(result.current.captions).toEqual([]);
 });
