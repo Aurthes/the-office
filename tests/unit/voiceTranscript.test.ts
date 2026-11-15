@@ -24,3 +24,8 @@ it('only matches explicit call IDs and exposes loaded prior dialogue in a separa
  render(React.createElement(SessionVoiceHistory,{messages,currentCallId:'two'}));expect(screen.getByText('Old dialogue')).not.toBeVisible();expect(screen.queryByText('Current dialogue')).toBeNull();expect(screen.queryByText('Plain final')).toBeNull();
  fireEvent.click(screen.getByText('Voice conversation history (1)'));fireEvent.click(screen.getByText(/Voice conversation 1/));expect(screen.getByText('Old dialogue')).toBeVisible();
 });
+it('keeps an already received full segment when bounded history returns only a clipped prefix',()=>{
+ const full={id:'item',role:'assistant',text:'Complete speech already received',committed:true};
+ expect(mergeCallTimeline([full],[{...full,text:'Complete speech',truncated:true}])[0]).toMatchObject({text:full.text,truncated:false});
+ expect(mergeCallTimeline([full],[{...full,text:'Canonical correction'}])[0].text).toBe('Canonical correction');
+});

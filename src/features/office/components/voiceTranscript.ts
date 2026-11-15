@@ -1,12 +1,16 @@
 import type { LiveSessionItem } from "./SessionControls";
 export type VoiceCaption = { id?: string; role: string; text: string; committed?: boolean; truncated?: boolean };
+// A bounded history page must not replace already received full speech with
+// its shorter clipped prefix. Untruncated canonical corrections still win.
+const mergeCaption = (old: VoiceCaption, next: VoiceCaption): VoiceCaption => next.truncated && !old.truncated && old.text.startsWith(next.text)
+  ? { ...old, ...next, text: old.text, truncated: false } : { ...old, ...next };
 // Identified segments are upserts, never a global text set. Repeated speech and
 // identical words from different speakers are real dialogue.
 export function appendVoiceCaption(previous: VoiceCaption[], next: VoiceCaption): VoiceCaption[] {
   if (!next.text.trim() || !["user", "assistant"].includes(next.role)) return previous;
   if (next.id) {
     const index = previous.findIndex(p => p.id === next.id && p.role === next.role);
-    if (index >= 0) return previous.map((p, i) => i === index ? { ...p, ...next } : p);
+    if (index >= 0) return previous.map((p, i) => i === index ? mergeCaption(p, next) : p);
   } else if (previous.at(-1)?.role === next.role && previous.at(-1)?.text === next.text) return previous;
   return [...previous, next];
 }
@@ -19,9 +23,9 @@ export function mergeCallTimeline(previous: VoiceCaption[], committed: VoiceCapt
   const result = [...previous], added: VoiceCaption[] = [];
   for (const line of committed) {
     const index = line.id ? result.findIndex(p => p.id === line.id && p.role === line.role) : -1;
-    if (index >= 0) { result[index] = { ...result[index], ...line }; continue; }
+    if (index >= 0) { result[index] = mergeCaption(result[index], line); continue; }
     const addedIndex = line.id ? added.findIndex(p => p.id === line.id && p.role === line.role) : -1;
-    if (addedIndex >= 0) { added[addedIndex] = { ...added[addedIndex], ...line }; continue; }
+    if (addedIndex >= 0) { added[addedIndex] = mergeCaption(added[addedIndex], line); continue; }
     const last = result.at(-1);
     if (!prepend && !last?.id && last?.role === line.role && last.text === line.text) result[result.length - 1] = line;
     else if (prepend) added.push(line);
