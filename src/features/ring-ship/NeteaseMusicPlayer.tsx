@@ -51,7 +51,7 @@ export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget,
   const [error, setError] = useState("");
   const [playHint, setPlayHint] = useState(false);
   const [playing, setPlaying] = useState(false);
-  const [volume, setVolume] = useState(1);
+  const [volume, setVolume] = useState(0.25);
   const [loadingTrack, setLoadingTrack] = useState(false);
   const failed = (cause: unknown) => {
     const failure = cause as { name?: string; message?: string; code?: string };
@@ -63,6 +63,7 @@ export function NeteaseMusicPlayer({ autoPlay, scene, sceneName, controlsTarget,
     const controller = new AbortController(); activeRequest.current = controller;
     request<Connection>(API, controller.signal).then(setConnection).catch(cause => { if (!controller.signal.aborted) setError(cause.message); });
     const element = audio.current;
+    if (element) element.volume = 0.25; // Initialize once; track changes retain the listener’s choice.
     return () => { wantsPlayback.current = false; activeRequest.current?.abort(); playRequest.current?.abort(); element?.pause(); element?.removeAttribute("src"); element?.load(); };
   }, []);
   useEffect(() => {

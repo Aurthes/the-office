@@ -167,3 +167,25 @@ it("keeps Random Mix as the default and avoids a repeat at a batch boundary", as
   fireEvent.ended(audio); await waitFor(() => expect(audio).toHaveAttribute("src", "/api/music/local?id=two"));
   fireEvent.ended(audio); await waitFor(() => expect(audio).toHaveAttribute("src", "/api/music/local?id=one"));
 });
+
+it.each([0, 0.64, 1])("starts actual local audio and mini volume at 25%, then preserves user volume %s across tracks and panel changes", async value => {
+  localStorage.setItem(MUSIC_PROVIDER_KEY, "local");
+  const view = render(createElement(MusicPlayerDialog, { ...props, autoPlay: true, open: false }));
+  const audio = document.querySelector("audio")!;
+  expect(audio.volume).toBe(0.25);
+  await waitFor(() => expect(audio).toHaveAttribute("src", "/api/music/local?id=one"));
+  fireEvent.click(screen.getByRole("button", { name: "Music volume" }));
+  expect(screen.getByRole("slider", { name: "Music volume" })).toHaveValue("0.25");
+  fireEvent.change(screen.getByRole("slider"), { target: { value: String(value) } });
+  expect(audio.volume).toBe(value);
+  fireEvent.loadedMetadata(audio); fireEvent.click(screen.getByRole("button", { name: "Next track" }));
+  await waitFor(() => expect(audio).toHaveAttribute("src", "/api/music/local?id=two"));
+  fireEvent.loadStart(audio); fireEvent.loadedMetadata(audio);
+  view.rerender(createElement(MusicPlayerDialog, { ...props, autoPlay: true, open: true }));
+  view.rerender(createElement(MusicPlayerDialog, { ...props, autoPlay: true, open: false, scene: "blue-nebula" }));
+  expect(document.querySelector("audio")).toBe(audio); expect(audio.volume).toBe(value);
+  fireEvent.click(screen.getByRole("button", { name: "Music volume" }));
+  expect(screen.getByRole("slider", { name: "Music volume" })).toHaveValue(String(value));
+  audio.volume = 0.42; fireEvent.volumeChange(audio);
+  expect(screen.getByRole("slider", { name: "Music volume" })).toHaveValue("0.42");
+});
