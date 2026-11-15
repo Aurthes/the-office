@@ -30,14 +30,14 @@ describe("bounded native timeline history", () => {
     ], nextCursor: "older" });
     const page = await loadSessionHistoryPage(call, row, "cursor");
     expect(call).toHaveBeenCalledExactlyOnceWith("thread/timeline/list", { threadId: row.id, cursor: "cursor", limit: 100 });
-    expect(page.messages.map((m: { content: string }) => m.content)).toEqual(["Typed question", "Full spoken sentence", "Task answer", "Spoken reply"]);
+    expect(page.messages.map((m: { content: string }) => m.content)).toEqual(["Typed question", "", "Full spoken sentence", "Task answer", "Spoken reply"]);
     expect(page.nextCursor).toBe("older");
     const controls = new CodexSessionControls({ ready: true });
     controls.handle({ method: "thread/realtime/item/completed", params: { threadId: row.id, item: voice } });
     controls.handle({ method: "thread/realtime/item/completed", params: { threadId: row.id, item: voice } });
     const live = controls.snapshot(row.id).items;
     expect(live).toHaveLength(1);
-    expect(live[0].id).toBe(page.messages[1].id);
+    expect(live[0].id).toBe(page.messages[2].id);
     expect(live[0]).toMatchObject({ source: "voice", status: "completed", content: "Full spoken sentence" });
   });
   it("bounds the whole text payload, preserves UTF-8 and marks long messages as truncated", async () => {
@@ -117,4 +117,11 @@ it("keeps individual recorded message times and never substitutes a session upda
   ]) });
   const page = await loadSessionHistoryPage(call, { ...row, updatedAt: replied + 86400000 });
   expect(page.messages.map((message: { timestamp?: number }) => message.timestamp)).toEqual([sent, replied, replied + 10000, undefined]);
+});
+
+it('marks only structurally controlled voice delegation in both history and live without changing raw input',async()=>{
+ const raws=['<realtime_delegation><input>Voice input</input><transcript_delta>context</transcript_delta></realtime_delegation>','<realtime_delegation><source>transcript_tail_flush</source><input>tail</input></realtime_delegation>','Explain <realtime_delegation><input>example</input></realtime_delegation>','```xml\n<realtime_delegation><input>example</input></realtime_delegation>\n```','<realtime_delegation><unknown>literal</unknown></realtime_delegation>'];
+ const originals=raws.map((text,i)=>item(String(i),'userMessage',text));const snapshot=JSON.stringify(originals);
+ const page=await loadSessionHistoryPage(vi.fn().mockResolvedValue({data:entries(originals)}),row);const controls=new CodexSessionControls({ready:true});for(const raw of originals)controls.handle({method:'item/completed',params:{threadId:row.id,turnId:'turn',item:raw}});
+ for(const messages of [page.messages,controls.snapshot(row.id).items])expect(messages.map((m:{source?:string})=>m.source)).toEqual(['voice-delegation','voice-delegation',undefined,undefined,undefined]);expect(JSON.stringify(originals)).toBe(snapshot);
 });

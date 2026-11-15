@@ -103,7 +103,7 @@ function WorkProcess({ items, defaultOpen, highlightedMessageId, onOpenQuestion 
 
 export const SessionTranscript = memo(function SessionTranscript({ messages, activeTurnId = null, onForkFrom, forkDisabled = false, highlightedMessageId, onOpenQuestion }: { messages: LiveSessionItem[]; activeTurnId?: string | null; onForkFrom?: (lastTurnId: string) => void; forkDisabled?: boolean; highlightedMessageId?: string; onOpenQuestion?: (source: ReplySource) => void }) {
   const t = useUiText();
-  const visible = messages.filter(message => message.source !== "voice");
+  const visible = messages.filter(message => message.source !== "voice" && message.source !== "voice-delegation");
   const answeredTurns = new Set(visible.filter(message => message.role === "assistant" && message.phase === "final_answer").map(message => message.turnId));
   const forkPoints = new Map<string, string>();
   for (const message of visible) {

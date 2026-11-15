@@ -373,7 +373,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
         {loading ? <span role="status">{t("Loading messages…")}</span> : olderCursor ? <button onClick={() => void load.current?.("older")} className="px-3 py-1 text-cyan-200">{t("↑ Load older messages")}</button> : loaded ? t("Start of history") : null}
       </div>
       {loaded && messages.length === 0 ? <p className="text-center text-xs text-white/50">{t("No chat text on this page (tool activity omitted).")}{olderCursor ? t("Scroll up or use the button above to load older messages.") : ""}</p> : null}
-      <SessionVoiceHistory messages={messages} currentCallId={voice?.threadId === threadId && voice.visible ? voice.nativeCallId : null} />
+      <SessionVoiceHistory messages={messages} currentBoundaryId={voice?.threadId === threadId && voice.visible ? voice.boundaryId : null} currentCallId={voice?.threadId === threadId && voice.visible ? voice.nativeCallId : null} />
       <SessionTranscript messages={messages} activeTurnId={activeTurnId} onForkFrom={onFork ? lastTurnId => onFork(undefined, lastTurnId) : undefined} forkDisabled={forkDisabled || !data?.controlsAvailable} onOpenQuestion={openQuestion} />
       </div>
     </div>

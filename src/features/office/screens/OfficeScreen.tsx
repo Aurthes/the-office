@@ -33,7 +33,7 @@ import { RetainedSessionPanels } from "@/features/office/components/RetainedSess
 import { SessionMessageLocation } from "@/features/office/components/SessionMessageLocation";
 import type { MessageSearchTarget } from "@/features/office/components/MessageSearchResults";
 import { useSessionVoice } from "@/features/office/components/useSessionVoice";
-import { SessionVoiceCall, SessionVoiceSettings } from "@/features/office/components/SessionVoice";
+import { FloatingSessionVoice, SessionVoiceSettings } from "@/features/office/components/SessionVoice";
 import { SessionListDivider } from "@/features/office/components/SessionListDivider";
 import { SessionChatResizer } from "@/features/office/components/SessionChatResizer";
 import { useSessionListLayout } from "@/features/office/hooks/useSessionListLayout";
@@ -3403,9 +3403,7 @@ export function OfficeScreen({
   return (
     <SessionTaskContext.Provider value={openTaskDetails}>
     <main className="office-responsive relative h-full w-full overflow-hidden bg-black">
-      {voice.visible && (!chatOpen || focusedChatAgent?.agentId !== voice.threadId) ? <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-3 right-3 z-[90] mx-auto max-w-lg">
-        <SessionVoiceCall voice={voice} owner={state.agents.find(agent => agent.agentId === voice.threadId)?.name || voice.threadId || "Codex"} onReturn={() => { if (voice.threadId) handleOpenAgentChat(voice.threadId); }} />
-      </div> : null}
+      {voice.visible && (!chatOpen || focusedChatAgent?.agentId !== voice.threadId) ? <FloatingSessionVoice voice={voice} owner={state.agents.find(agent => agent.agentId === voice.threadId)?.name || voice.threadId || "Codex"} onReturn={() => { if (voice.threadId) handleOpenAgentChat(voice.threadId); }} /> : null}
       {!sessionView ? <OfficeFloorNav
         activeFloorId={activeFloor.id}
         floorRosterCache={floorRosterCache}

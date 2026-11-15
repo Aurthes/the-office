@@ -1,7 +1,7 @@
 import React from "react";
 import { cleanup,fireEvent,render,screen } from "@testing-library/react";
 import {afterEach,expect,it} from "vitest";
-import {appendVoiceCaption,mergeCallTimeline,callTimeline} from "@/features/office/components/voiceTranscript";
+import {appendVoiceCaption,mergeCallTimeline,callTimeline,voiceTimelineGroups} from "@/features/office/components/voiceTranscript";
 import {SessionVoiceHistory} from "@/features/office/components/SessionVoice";
 afterEach(cleanup);
 it('uses item+role identities, not a text set, and keeps every received line',()=>{
@@ -28,4 +28,12 @@ it('keeps an already received full segment when bounded history returns only a c
  const full={id:'item',role:'assistant',text:'Complete speech already received',committed:true};
  expect(mergeCallTimeline([full],[{...full,text:'Complete speech',truncated:true}])[0]).toMatchObject({text:full.text,truncated:false});
  expect(mergeCallTimeline([full],[{...full,text:'Canonical correction'}])[0].text).toBe('Canonical correction');
+});
+
+it('separates reused native call IDs by canonical started/closed boundaries, not words or time',()=>{
+ const row=(id:string,voiceBoundary?:'started'|'closed')=>({id,source:'voice' as const,voiceCallId:'same-native',voiceItemId:id,voiceBoundary,role:voiceBoundary?'tool':'user',content:voiceBoundary?'':'Again'});
+ const messages=[row('first','started'),row('one'),row('close','closed'),row('second','started'),row('two'),row('three')];
+ expect(callTimeline(messages,'same-native','first').map(p=>p.id)).toEqual(['one']);expect(callTimeline(messages,'same-native','second').map(p=>p.id)).toEqual(['two','three']);expect(callTimeline(messages,'same-native','unknown')).toEqual([]);
+ expect(voiceTimelineGroups(messages).map(g=>g.lines.map(p=>p.id))).toEqual([['one'],['two','three']]);
+ render(React.createElement(SessionVoiceHistory,{messages,currentCallId:'same-native',currentBoundaryId:'second'}));expect(screen.getByText('Voice conversation history (1)')).toBeTruthy();
 });

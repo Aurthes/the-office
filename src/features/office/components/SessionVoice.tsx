@@ -1,37 +1,53 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Mic, MicOff, PhoneOff } from "lucide-react";
-import { callTimeline, type VoiceCaption } from "./voiceTranscript";
+import { Mic, MicOff, PhoneOff, Volume2, ChevronRight, ChevronLeft } from "lucide-react";
+import { voiceTimelineGroups, type VoiceCaption } from "./voiceTranscript";
 import type { LiveSessionItem, SessionClient } from "./SessionControls";
 import type { SessionVoiceController } from "./useSessionVoice";
 import { useUiText } from "@/lib/i18n/ui-language";
 
-export function SessionVoiceCall({ voice, owner, onReturn }: { voice: SessionVoiceController; owner?: string; onReturn?: () => void }) {
+export function SessionVoiceCall({ voice, owner, onReturn, compact = false, onExpand }: { voice: SessionVoiceController; owner?: string; onReturn?: () => void; compact?: boolean; onExpand?: () => void }) {
   const t = useUiText();
+  const [volumeOpen, setVolumeOpen] = useState(false);
   return <section aria-label={t("Voice call")} className="rounded-xl border border-cyan-300/30 bg-[#102c39] p-3 text-xs text-white shadow-lg">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <span className="flex min-w-0 items-center gap-2 text-cyan-100"><span className="h-2 w-2 shrink-0 rounded-full bg-cyan-300" />{voice.status === "off" ? t("Voice call ended") : voice.status === "connecting" ? t("Connecting to Codex voice…") : t("In a call with Codex")}{owner ? <span className="max-w-40 truncate font-semibold">· {owner}</span> : null}</span>
+      {!compact ? <span className="flex min-w-0 items-center gap-2 text-cyan-100"><span className="h-2 w-2 shrink-0 rounded-full bg-cyan-300" />{voice.status === "off" ? t("Voice call ended") : voice.status === "connecting" ? t("Connecting to Codex voice…") : t("In a call with Codex")}{owner ? <span className="max-w-40 truncate font-semibold">· {owner}</span> : null}</span> : null}
       <div className="flex items-center gap-1">
-        {voice.status !== "off" ? <><button aria-label={t(voice.muted ? "Unmute microphone" : "Mute microphone")} aria-pressed={voice.muted} onClick={voice.toggleMute} className={"flex min-h-10 items-center gap-2 rounded-lg px-3 " + (voice.muted ? "bg-amber-950 text-amber-100" : "text-cyan-100")}>
-          {voice.muted ? <MicOff size={16} /> : <Mic size={16} />}{t(voice.muted ? "Unmute" : "Mute")}
-        </button>
-        <button onClick={voice.stop} className="flex min-h-10 items-center gap-2 rounded-lg px-3 text-rose-200"><PhoneOff size={16} />{t("End call")}</button></> : <button onClick={voice.dismissTranscript} className="min-h-10 px-3 text-cyan-100">{t("Close transcript")}</button>}
+        {voice.status !== "off" ? <>
+          <button aria-label={t(voice.muted ? "Unmute microphone" : "Mute microphone")} aria-pressed={voice.muted} onClick={voice.toggleMute} className={"flex min-h-10 items-center gap-2 rounded-lg px-3 " + (voice.muted ? "bg-amber-950 text-amber-100" : "text-cyan-100")}>
+            {voice.muted ? <MicOff size={16} /> : <Mic size={16} />}{!compact ? t(voice.muted ? "Unmute" : "Mute") : null}
+          </button>
+          <button aria-label={t("End call")} onClick={voice.stop} className="flex min-h-10 items-center gap-2 rounded-lg px-3 text-rose-200"><PhoneOff size={16} />{!compact ? t("End call") : null}</button>
+        </> : <button onClick={voice.dismissTranscript} className="min-h-10 px-3 text-cyan-100">{t("Close transcript")}</button>}
+        <button aria-label={t("Call volume")} aria-expanded={volumeOpen} onClick={() => setVolumeOpen(open => !open)} className="min-h-10 rounded-lg px-3 text-cyan-100"><Volume2 size={16} /></button>
+        {onExpand ? <button aria-label={t(compact ? "Expand voice call" : "Collapse voice call")} onClick={onExpand} className="min-h-10 px-2 text-cyan-100">{compact ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}</button> : null}
       </div>
     </div>
-    {voice.muted ? <p role="status" className="mt-1 text-amber-100">{t("Microphone muted")}</p> : null}
-    {onReturn ? <button onClick={onReturn} className="mt-1 min-h-9 text-cyan-200 underline">{t("Return to voice conversation")}</button> : voice.status !== "off" ? <p className="mt-1 text-[11px] text-white/45">{t("Same session · Switching chats keeps this call connected")}</p> : null}
-    <label className="mt-2 flex items-center gap-3 text-xs text-cyan-100">{t("Call volume")}
+    {volumeOpen ? <label className="mt-1 flex w-44 max-w-full items-center gap-2 text-cyan-100">
       <input aria-label={t("Call volume")} type="range" min="0" max="1" step="0.05" value={voice.outputVolume} onChange={event => voice.setVolume(Number(event.target.value))} className="min-w-0 flex-1 accent-cyan-300" />
-      <output className="w-10 text-right">{Math.round(voice.outputVolume * 100)}%</output>
-    </label>
-    <VoiceLines lines={voice.captions} />
-    {voice.nativeCallId ? <div className="mt-2 flex flex-wrap gap-3 text-cyan-200">
-      <button disabled={voice.transcriptLoading} onClick={() => void voice.loadTranscript()}>{t("Refresh transcript")}</button>
-      {voice.transcriptCursor ? <button disabled={voice.transcriptLoading} onClick={() => void voice.loadTranscript(voice.transcriptCursor!)}>{t("Load earlier call dialogue")}</button> : null}
-    </div> : null}
-    {voice.transcriptError ? <p role="status" className="mt-2 text-amber-100">{t(voice.transcriptError)}</p> : null}
-    {voice.playbackBlocked ? <button onClick={() => void voice.play()} className="mt-2 rounded border border-cyan-300/40 px-3 py-2 text-cyan-100">{t("Play audio")}</button> : null}
+      <output className="w-9 text-right">{Math.round(voice.outputVolume * 100)}%</output>
+    </label> : null}
+    {!compact ? <>
+      {voice.muted ? <p role="status" className="mt-1 text-amber-100">{t("Microphone muted")}</p> : null}
+      {onReturn ? <button onClick={onReturn} className="mt-1 min-h-9 text-cyan-200 underline">{t("Return to voice conversation")}</button> : voice.status !== "off" ? <p className="mt-1 text-[11px] text-white/45">{t("Same session · Switching chats keeps this call connected")}</p> : null}
+      <VoiceLines lines={voice.captions} />
+      {voice.nativeCallId ? <div className="mt-2 flex flex-wrap gap-3 text-cyan-200">
+        <button disabled={voice.transcriptLoading} onClick={() => void voice.loadTranscript()}>{t("Refresh transcript")}</button>
+        {voice.transcriptCursor ? <button disabled={voice.transcriptLoading} onClick={() => void voice.loadTranscript(voice.transcriptCursor!)}>{t("Load earlier call dialogue")}</button> : null}
+      </div> : null}
+      {voice.transcriptError ? <p role="status" className="mt-2 text-amber-100">{t(voice.transcriptError)}</p> : null}
+      {voice.playbackBlocked ? <button onClick={() => void voice.play()} className="mt-2 rounded border border-cyan-300/40 px-3 py-2 text-cyan-100">{t("Play audio")}</button> : null}
+    </> : null}
   </section>;
+}
+
+// Mounted only away from the original chat, so every return to floating mode
+// starts compact. Controls are siblings of expand, not a clickable outer shell.
+export function FloatingSessionVoice({ voice, owner, onReturn }: { voice: SessionVoiceController; owner?: string; onReturn: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  return <div className="fixed left-[max(0.5rem,env(safe-area-inset-left))] top-1/2 z-[90] max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-1rem)] -translate-y-1/2 overflow-y-auto" style={{ width: expanded ? "min(28rem, calc(100vw - 1rem))" : undefined }}>
+    <SessionVoiceCall voice={voice} owner={owner} onReturn={onReturn} compact={!expanded} onExpand={() => setExpanded(value => !value)} />
+  </div>;
 }
 
 function VoiceLines({ lines }: { lines: readonly VoiceCaption[] }) {
@@ -40,12 +56,12 @@ function VoiceLines({ lines }: { lines: readonly VoiceCaption[] }) {
 }
 // Older calls stay discoverable from the existing loaded timeline, outside the
 // official message stream. No new transcript store or guessed call grouping.
-export function SessionVoiceHistory({ messages, currentCallId }: { messages: LiveSessionItem[]; currentCallId?: string | null }) {
+export function SessionVoiceHistory({ messages, currentCallId, currentBoundaryId }: { messages: LiveSessionItem[]; currentCallId?: string | null; currentBoundaryId?: string | null }) {
   const t = useUiText();
-  const ids = [...new Set(messages.filter(m => m.source === "voice" && m.voiceCallId && m.voiceCallId !== currentCallId).map(m => m.voiceCallId!))];
-  if (!ids.length) return null;
-  return <details className="mb-2 rounded-xl border border-cyan-300/30 bg-[#102c39] p-3 text-xs text-cyan-100"><summary className="cursor-pointer">{t("Voice conversation history")} ({ids.length})</summary>
-    {ids.map((id, index) => <details key={id} className="mt-2"><summary className="cursor-pointer">{t("Voice conversation")} {index + 1} · {id.slice(0, 8)}</summary><VoiceLines lines={callTimeline(messages, id)} /></details>)}
+  const groups = voiceTimelineGroups(messages).filter(group => currentBoundaryId ? group.boundaryId !== currentBoundaryId : group.callId !== currentCallId);
+  if (!groups.length) return null;
+  return <details className="mb-2 rounded-xl border border-cyan-300/30 bg-[#102c39] p-3 text-xs text-cyan-100"><summary className="cursor-pointer">{t("Voice conversation history")} ({groups.length})</summary>
+    {groups.map((group, index) => <details key={group.id} className="mt-2"><summary className="cursor-pointer">{t("Voice conversation")} {index + 1}</summary><VoiceLines lines={group.lines} /></details>)}
     <p className="mt-2 text-white/45">{t("Loaded call records. Load earlier messages for older dialogue.")}</p>
   </details>;
 }

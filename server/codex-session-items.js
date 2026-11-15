@@ -1,6 +1,6 @@
 "use strict";
 const { describeSessionAssets } = require("./codex-session-assets");
-const { visibleUserText } = require("../src/lib/text/codex-visible-text");
+const { visibleUserText, realtimeDelegation } = require("../src/lib/text/codex-visible-text");
 
 // Preserve native phases. Only public reasoning summaries belong in the UI.
 function sessionItem(item, turnId) {
@@ -8,7 +8,7 @@ function sessionItem(item, turnId) {
   const base = { id: `${turnId}:${item.id}`, turnId, ...(timestamp === undefined ? {} : { timestamp }) };
   if (item.type === "userMessage") {
     const content = (item.content || []).filter(p => ["text", "inputText", "input_text"].includes(p.type)).map(p => p.text).join("\n");
-    return { ...base, ...(typeof item.clientId === "string" && item.clientId ? { clientId: item.clientId } : {}), role: "user", content: visibleUserText(content), assets: describeSessionAssets(content, item.content || []) };
+    return { ...base, ...(typeof item.clientId === "string" && item.clientId ? { clientId: item.clientId } : {}), ...(realtimeDelegation(content) ? { source: "voice-delegation" } : {}), role: "user", content: visibleUserText(content), assets: describeSessionAssets(content, item.content || []) };
   }
   if (item.type === "agentMessage") return { ...base, role: "assistant", phase: item.phase, content: item.text || "", assets: describeSessionAssets(item.text || "") };
   if (item.type === "plan") return { ...base, role: "assistant", phase: "partial_answer", content: item.text || "" };
@@ -23,6 +23,7 @@ function clipText(text, limit) {
 }
 // These are committed native timeline entries, not copies of browser captions.
 function realtimeSessionItem(item) {
+  if (["realtimeSessionStarted", "realtimeSessionClosed"].includes(item?.type)) return { id: `realtime:${item.realtimeSessionId}:${item.id}`, source: "voice", voiceCallId: item.realtimeSessionId, voiceItemId: item.id, voiceBoundary: item.type === "realtimeSessionStarted" ? "started" : "closed", role: "tool", content: "", status: "completed" };
   if (item?.type !== "transcriptSegment" || !["user", "assistant"].includes(item.role) || !item.text?.trim()) return null;
   return { id: `realtime:${item.realtimeSessionId}:${item.id}`, source: "voice", voiceCallId: item.realtimeSessionId, voiceItemId: item.id, role: item.role, content: item.text.trim(), status: "completed" };
 }

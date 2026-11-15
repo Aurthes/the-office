@@ -333,3 +333,7 @@ it("does not treat a completed voice segment as a final task answer",()=>{
  render(React.createElement(SessionTranscript,{activeTurnId:'active',messages:[{id:'log',role:'assistant',phase:'commentary',turnId:'active',content:'Still doing normal work'},{id:'voice-done',source:'voice',role:'assistant',phase:'final_answer',turnId:'active',content:'Not a task final'}]}));
  expect(screen.getByText('Still doing normal work')).toBeVisible();expect(screen.queryByText('Not a task final')).toBeNull();
 });
+
+it('filters explicit delegated voice in the common live/history display while retaining ordinary final and tool results',()=>{
+ render(React.createElement(SessionTranscript,{messages:[{id:'delegated',source:'voice-delegation',role:'user',content:'Hidden voice input'},{id:'spoken',source:'voice',role:'assistant',content:'Hidden speech'},{id:'typed',role:'user',content:'Explain <realtime_delegation> as a label'},{id:'final',role:'assistant',phase:'final_answer',content:'Final deliverable'},{id:'tool',role:'tool',content:'Tool result'}]}));expect(screen.queryByText('Hidden voice input')).toBeNull();expect(screen.queryByText('Hidden speech')).toBeNull();expect(screen.getByText('Final deliverable')).toBeTruthy();expect(screen.getByText(/Explain/)).toBeTruthy();expect(screen.getByLabelText('Work process')).toBeTruthy();
+});

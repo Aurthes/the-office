@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { appendVoiceCaption, callTimeline, mergeCallTimeline, type VoiceCaption } from "./voiceTranscript";
+import { callTimeline, mergeCallTimeline, type VoiceCaption } from "./voiceTranscript";
 import type { LiveSessionItem, SessionClient } from "./SessionControls";
 import { prepareAndroidVoice, type AndroidVoiceLease } from "./androidVoiceHost";
 
@@ -29,8 +29,9 @@ export function useSessionVoice(client: SessionClient) {
   const [error, setError] = useState("");
   const [muted, setMuted] = useState(false);
   const [captions, setCaptions] = useState<VoiceCaption[]>([]);
-  const call = useRef<{ voiceId: string; threadId: string; nativeId?: string } | null>(null);
+  const call = useRef<{ voiceId: string; threadId: string; nativeId?: string; boundaryId?: string; history: LiveSessionItem[]; reread?: boolean; refreshPending?: boolean } | null>(null);
   const [voiceId, setVoiceId] = useState<string | null>(null);
+  const [boundaryId, setBoundaryId] = useState<string | null>(null);
   const [nativeCallId, setNativeCallId] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
   const [outputVolume, setOutputVolume] = useState(1);
@@ -39,6 +40,8 @@ export function useSessionVoice(client: SessionClient) {
   const [transcriptLoading, setTranscriptLoading] = useState(false);
   const [transcriptError, setTranscriptError] = useState("");
   const reading = useRef<object | null>(null);
+  const readAgain = useRef<(() => Promise<void>) | null>(null);
+  const [closedVoiceId, setClosedVoiceId] = useState<string | null>(null);
   const setVolume = useCallback((value: number) => {
     if (!Number.isFinite(value) || value < 0 || value > 1) return;
     volume.current = value; setOutputVolume(value);
@@ -46,30 +49,48 @@ export function useSessionVoice(client: SessionClient) {
   }, []);
   const loadTranscript = useCallback(async (cursor?: string) => {
     const target = call.current;
-    if (!target?.nativeId || reading.current === target) return;
+    if (!target?.nativeId) return;
+    if (reading.current === target) { if (!cursor) target.reread = true; return; }
     reading.current = target; setTranscriptLoading(true); setTranscriptError("");
     try {
       const result = await client.call("session.history", { threadId: target.threadId, ...(cursor ? { cursor } : {}) }) as { threadId: string; messages: LiveSessionItem[]; nextCursor: string | null };
       if (call.current !== target || result.threadId !== target.threadId) return;
-      const lines = callTimeline(result.messages, target.nativeId);
+      const records = result.messages.filter(item => item.source === "voice" && item.voiceCallId === target.nativeId);
+      target.history = [...new Map([...(cursor ? records : []), ...target.history, ...(!cursor ? records : [])].map(item => [item.id, item])).values()];
+      const lines = target.boundaryId ? callTimeline(target.history, target.nativeId, target.boundaryId) : [];
+      // Without a canonical boundary, only identities already delivered to this
+      // browser call are safe. Never scoop up all records with a reused ID.
+      if (!target.boundaryId) setTranscriptError("Call boundary unavailable. Showing received dialogue only.");
       setCaptions(previous => mergeCallTimeline(previous, lines, Boolean(cursor)));
+      if (target.boundaryId) {
+        const start = target.history.findIndex(item => item.source === "voice" && item.voiceItemId === target.boundaryId && item.voiceBoundary === "started");
+        if (start >= 0 && target.history.slice(start + 1).find(item => item.source === "voice" && item.voiceCallId === target.nativeId && item.voiceBoundary)?.voiceBoundary === "closed") setClosedVoiceId(target.voiceId);
+      }
       setTranscriptCursor(result.nextCursor);
     } catch { if (call.current === target) setTranscriptError("Could not load the call transcript. Retry."); }
-    finally { if (reading.current === target) reading.current = null; if (call.current === target) setTranscriptLoading(false); }
+    finally { if (reading.current === target) reading.current = null; if (call.current === target) { setTranscriptLoading(false); if (target.reread) { target.reread = false; void readAgain.current?.(); } } }
   }, [client]);
+  useEffect(() => { readAgain.current = loadTranscript; return () => { readAgain.current = null; }; }, [loadTranscript]);
   useEffect(() => client.onEvent?.(event => {
     const target = call.current;
     if (!target || event.event !== "session.voice") return;
     const value = event.payload as { threadId?: string; voiceId?: string; method?: string; params?: { realtimeSessionId?: string; item?: { type?: string; id: string; realtimeSessionId: string; role: string; text: string } } };
     if (value.threadId !== target.threadId || value.voiceId !== target.voiceId) return;
-    if (value.method === "thread/realtime/started" && value.params?.realtimeSessionId) {
+    if (value.method === "thread/realtime/started" && value.params?.realtimeSessionId && (!target.boundaryId || value.params.realtimeSessionId === target.nativeId)) {
       target.nativeId = value.params.realtimeSessionId; setNativeCallId(target.nativeId);
     }
     const item = value.params?.item;
-    if (value.method === "thread/realtime/item/completed" && item?.type === "transcriptSegment" && target.nativeId && item.realtimeSessionId === target.nativeId) {
+    if (value.method === "thread/realtime/transcript/refresh") { if (target.boundaryId) void loadTranscript(); else target.refreshPending = true; return; }
+    if (value.method === "thread/realtime/item/completed" && item?.type === "realtimeSessionStarted") {
+      target.nativeId = item.realtimeSessionId; target.boundaryId = item.id;
+      setNativeCallId(target.nativeId); setBoundaryId(item.id);
+      if (target.refreshPending) { target.refreshPending = false; void loadTranscript(); }
+    }
+    if (value.method === "thread/realtime/item/completed" && item?.type === "transcriptSegment" && (!target.nativeId || item.realtimeSessionId === target.nativeId)) {
+      if (!target.nativeId) { target.nativeId = item.realtimeSessionId; setNativeCallId(target.nativeId); }
       setCaptions(previous => mergeCallTimeline(previous, [{ id: item.id, role: item.role, text: item.text, committed: true }]));
     }
-  }), [client]);
+  }), [client, loadTranscript]);
   const [playbackBlocked, setPlaybackBlocked] = useState(false);
   const [settings, setSettings] = useState(readSettings);
   const updateSettings = (next: VoiceSettings) => {
@@ -89,6 +110,10 @@ export function useSessionVoice(client: SessionClient) {
     if (notify) void client.call("session.voice.stop", { threadId: session.threadId, voiceId: session.id }).then(() => loadTranscript()).catch(() => {});
     else void loadTranscript();
   }, [client, loadTranscript]);
+  useEffect(() => {
+    const session = connection.current;
+    if (session && closedVoiceId === session.id) finish(session, false);
+  }, [closedVoiceId, finish]);
   const stop = useCallback(() => { if (connection.current) finish(connection.current); }, [finish]);
   useEffect(() => {
     window.addEventListener("pagehide", stop);
@@ -105,18 +130,13 @@ export function useSessionVoice(client: SessionClient) {
   const start = useCallback(async (targetThreadId: string) => {
     if (connection.current) return;
     call.current = null; setVoiceId(null); setVisible(false);
-    setThreadId(targetThreadId); setError(""); setCaptions([]); setMuted(false); setTranscriptCursor(null); setTranscriptError(""); setTranscriptLoading(false); setNativeCallId(null);
+    setThreadId(targetThreadId); setError(""); setCaptions([]); setMuted(false); setTranscriptCursor(null); setTranscriptError(""); setTranscriptLoading(false); setNativeCallId(null); setBoundaryId(null);
     if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === "undefined") { setError("This browser does not support live voice. Use Chrome or Safari over HTTPS."); return; }
     let session: VoiceConnection;
     try { session = { id: crypto.randomUUID(), threadId: targetThreadId, muted: false, abort: new AbortController(), pc: new RTCPeerConnection(), audio: new Audio() }; }
     catch { setError("Could not create a voice connection. Check WebRTC settings or use Chrome or Safari."); return; }
-    connection.current = session; call.current = { voiceId: session.id, threadId: targetThreadId }; setVoiceId(session.id); setVisible(true); setStatus("connecting");
+    connection.current = session; call.current = { voiceId: session.id, threadId: targetThreadId, history: [] }; setVoiceId(session.id); setVisible(true); setStatus("connecting");
     session.audio.volume = volume.current;
-    const caption = (role: string, text: string, id?: string) => {
-      text = text.trim();
-      if (connection.current !== session || !text) return;
-      setCaptions(previous => appendVoiceCaption(previous, { role, text, ...(id ? { id } : {}) }));
-    };
     session.audio.autoplay = true; session.audio.setAttribute("playsinline", "");
     session.pc.ontrack = event => {
       if (connection.current !== session) return;
@@ -132,23 +152,16 @@ export function useSessionVoice(client: SessionClient) {
         session.timer = setTimeout(() => finish(session, true, "Voice disconnected. Please reconnect."), 8000);
       }
     };
-    const channel = session.pc.createDataChannel("oai-events");
-    channel.onmessage = event => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === "conversation.item.input_audio_transcription.completed") caption("user", message.transcript || "", message.item_id);
-        if (["response.audio_transcript.done", "response.output_audio_transcript.done"].includes(message.type)) caption("assistant", message.transcript || "", message.item_id);
-        // V3 turn.created carries only an initial fragment; turn.done is final.
-        if (message.type === "turn.done") caption(message.turn?.role || "user", message.turn?.transcript || "", message.turn?.id);
-      } catch { /* Ignore media/control messages without transcript text. */ }
-    };
+    // Keep the native WebRTC data channel open for transport. Captions have
+    // one authority: committed native timeline items, never Peer turn/item IDs.
+    session.pc.createDataChannel("oai-events");
     session.unsubscribe = client.onEvent?.(event => {
       const value = event.payload as { threadId?: string; voiceId?: string; method?: string; params?: { sdp?: string; role?: string; text?: string; message?: string; reason?: string } };
       if (event.event !== "session.voice" || value?.threadId !== session.threadId || value.voiceId !== session.id || connection.current !== session) return;
       const params = value.params || {};
       if (value.method === "thread/realtime/sdp" && params.sdp) void session.pc.setRemoteDescription({ type: "answer", sdp: params.sdp }).catch(() => finish(session, true, "Voice negotiation failed. Please retry."));
       // Flat native transcript/done has no call/item identity. Dialogue comes
-      // from this peer channel or exact committed native items instead.
+      // from exact committed native items instead.
       if (value.method === "thread/realtime/error") finish(session, true, params.message?.slice(0, 400) || "Codex voice error. Please retry.");
       if (value.method === "thread/realtime/closed") finish(session, false, params.reason && params.reason !== "requested" ? "Voice ended: " + params.reason.slice(0, 200) : "");
     });
@@ -183,6 +196,6 @@ export function useSessionVoice(client: SessionClient) {
     try { await connection.current?.audio.play(); setPlaybackBlocked(false); }
     catch { setError("Audio playback was blocked. Click Play audio again."); }
   };
-  return { threadId, voiceId, nativeCallId, visible, dismissTranscript: () => setVisible(false), outputVolume, setVolume, transcriptCursor, transcriptLoading, transcriptError, loadTranscript, status, error, captions, playbackBlocked, muted, settings, updateSettings, toggleMute, start, stop, play };
+  return { threadId, voiceId, nativeCallId, boundaryId, visible, dismissTranscript: () => setVisible(false), outputVolume, setVolume, transcriptCursor, transcriptLoading, transcriptError, loadTranscript, status, error, captions, playbackBlocked, muted, settings, updateSettings, toggleMute, start, stop, play };
 }
 export type SessionVoiceController = ReturnType<typeof useSessionVoice>;

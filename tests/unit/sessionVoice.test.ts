@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSessionVoice, type SessionVoiceController } from "../../src/features/office/components/useSessionVoice";
 import { SessionControls, type SessionClient } from "../../src/features/office/components/SessionControls";
 import { SettingsPanel } from "../../src/features/office/components/panels/SettingsPanel";
-import { SessionVoiceCall, SessionVoiceSettings } from "../../src/features/office/components/SessionVoice";
+import { FloatingSessionVoice, SessionVoiceCall, SessionVoiceSettings } from "../../src/features/office/components/SessionVoice";
 
 class Peer {
   static all: Peer[] = [];
@@ -37,6 +37,11 @@ const makeClient = () => {
   return { client, call, push: (payload: unknown) => handlers.forEach(h => h({ event: "session.voice", payload })) };
 };
 
+function commit(push: (value: unknown) => void, call: ReturnType<typeof makeClient>["call"], role: string, text: string, id: string) {
+  const params = call.mock.calls.filter(([method]) => method === "session.voice.start").at(-1)![1] as { threadId: string; voiceId: string };
+  push({ ...params, method: "thread/realtime/item/completed", params: { item: { type: "transcriptSegment", id, realtimeSessionId: "native-one", role, text } } });
+}
+
 describe("voice lifetime and original session ownership", () => {
   it("keeps the same call and captions while keyed chat panels switch, and mutes without hanging up", async () => {
     const { client, call, push } = makeClient();
@@ -56,7 +61,7 @@ describe("voice lifetime and original session ownership", () => {
     // Starting via the shared controller isolates call lifetime from chat readiness.
     await act(async () => current.start("original"));
     const first = Peer.all[0];
-    await act(async () => { first.connectionState = "connected"; first.onconnectionstatechange?.(); first.message({ type: "turn.created", turn: { role: "user", transcript: "Only" } }); first.message({ type: "turn.done", turn: { role: "user", transcript: "The entire spoken sentence" } }); });
+    await act(async () => { first.connectionState = "connected"; first.onconnectionstatechange?.(); first.message({ type: "turn.created", turn: { role: "user", transcript: "Only" } }); commit(push, call, "user", "The entire spoken sentence", "sentence"); });
     expect(screen.queryByText("Only")).toBeNull();
     expect(screen.getByText("The entire spoken sentence")).toBeTruthy();
     const voiceId = (call.mock.calls.find(([method]) => method === "session.voice.start")?.[1] as { voiceId: string }).voiceId;
@@ -120,13 +125,13 @@ describe("voice lifetime and original session ownership", () => {
     expect(call.mock.calls.filter(([method]) => method === "session.voice.start")).toHaveLength(1);
   });
   it("keeps the complete call captions and roles distinct, prevents a second call and cleans up on page exit", async () => {
-    const { client, call } = makeClient();
+    const { client, call, push } = makeClient();
     const { result } = renderHook(() => useSessionVoice(client));
     await act(async () => result.current.start("owner"));
     await act(async () => result.current.start("other"));
     act(() => {
-      for (let i = 0; i < 8; i++) Peer.all[0].message({ type: "turn.done", turn: { role: "user", transcript: String(i) } });
-      Peer.all[0].message({ type: "turn.done", turn: { role: "assistant", transcript: "7" } });
+      for (let i = 0; i < 8; i++) commit(push, call, "user", String(i), String(i));
+      commit(push, call, "assistant", "7", "reply");
     });
     expect(result.current.captions).toHaveLength(9);
     expect(result.current.captions.slice(-2).map(c => c.role)).toEqual(["user", "assistant"]);
@@ -162,10 +167,10 @@ describe("voice lifetime and original session ownership", () => {
 
 it("keeps identified repeated words across roles, committed stop tails and timeline pages bound to the exact call", async () => {
  const { client,call,push }=makeClient();const original=call.getMockImplementation()!;
- call.mockImplementation(async(method,params)=>method==='session.history'?{threadId:'owner',messages:[{id:'r:tail',source:'voice',voiceCallId:'native-one',voiceItemId:'tail',role:'assistant',content:'Final tail'}],nextCursor:'older'}:original(method,params));
+ call.mockImplementation(async(method,params)=>method==='session.history'?{threadId:'owner',messages:[{id:'r:start',source:'voice',voiceCallId:'native-one',voiceItemId:'start',voiceBoundary:'started',role:'tool',content:''},{id:'r:tail',source:'voice',voiceCallId:'native-one',voiceItemId:'tail',role:'assistant',content:'Final tail'}],nextCursor:'older'}:original(method,params));
  const {result}=renderHook(()=>useSessionVoice(client));await act(async()=>result.current.start('owner'));
  const voiceId=(call.mock.calls.find(([m])=>m==='session.voice.start')![1] as {voiceId:string}).voiceId;
- act(()=>{push({threadId:'owner',voiceId,method:'thread/realtime/started',params:{realtimeSessionId:'native-one'}});for(const id of ['a','b'])Peer.all[0].message({type:'turn.done',turn:{id,role:'user',transcript:'Same'}});Peer.all[0].message({type:'turn.done',turn:{id:'c',role:'assistant',transcript:'Same'}});Peer.all[0].message({type:'turn.done',turn:{id:'a',role:'user',transcript:'Same'}});});
+ act(()=>{push({threadId:'owner',voiceId,method:'thread/realtime/item/completed',params:{item:{type:'realtimeSessionStarted',id:'start',realtimeSessionId:'native-one'}}});for(const id of ['a','b'])commit(push,call,'user','Same',id);commit(push,call,'assistant','Same','c');commit(push,call,'user','Same','a');});
  expect(result.current.captions).toHaveLength(3);
  await act(async()=>result.current.stop());expect(result.current.captions.map(c=>c.text)).toContain('Final tail');expect(result.current.visible).toBe(true);expect(result.current.transcriptCursor).toBe('older');
  act(()=>push({threadId:'owner',voiceId,method:'thread/realtime/item/completed',params:{item:{type:'transcriptSegment',id:'later',realtimeSessionId:'native-one',role:'user',text:'After stop'}}}));
@@ -184,7 +189,7 @@ it("shares output volume in both panels and reconnects at that level without cha
  act(()=>result.current.setVolume(.4));act(()=>result.current.stop());await act(async()=>result.current.start('next'));expect(audios[1].volume).toBe(.4);
  expect(getUserMedia).toHaveBeenLastCalledWith({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
  const view=render(React.createElement(React.Fragment,null,React.createElement(SessionVoiceCall,{voice:result.current}),React.createElement(SessionVoiceCall,{voice:result.current,onReturn:()=>{}})));
- expect(screen.getAllByRole('slider',{name:'Call volume'})).toHaveLength(2);view.unmount();
+ expect(screen.queryAllByRole('slider')).toHaveLength(0);for(const button of screen.getAllByRole('button',{name:'Call volume'}))fireEvent.click(button);expect(screen.getAllByRole('slider',{name:'Call volume'})).toHaveLength(2);view.unmount();
 });
 it("does not merge a late history response from an ended call into a newer call",async()=>{
  const {client,call,push}=makeClient();const base=call.getMockImplementation()!;let resolve!:(v:unknown)=>void;
@@ -199,5 +204,34 @@ it("does not attribute anonymous native transcript text to the new call",async()
  const {client,call,push}=makeClient();const {result}=renderHook(()=>useSessionVoice(client));await act(async()=>result.current.start('owner'));
  const voiceId=(call.mock.calls.find(([m])=>m==='session.voice.start')![1] as {voiceId:string}).voiceId;
  act(()=>push({threadId:'owner',voiceId,method:'thread/realtime/transcript/done',params:{role:'assistant',text:'Unattributable flat old transcript'}}));
- expect(result.current.captions).toEqual([]);act(()=>Peer.all[0].message({type:'turn.done',turn:{id:'current',role:'assistant',transcript:'Actual peer dialogue'}}));expect(result.current.captions.map(p=>p.text)).toEqual(['Actual peer dialogue']);
+ expect(result.current.captions).toEqual([]);act(()=>Peer.all[0].message({type:'turn.done',turn:{id:'current',role:'assistant',transcript:'Actual peer dialogue'}}));expect(result.current.captions).toEqual([]);
+});
+
+it("uses canonical authority regardless of peer echoes, preserves real repeated speech, and accepts first commit before started", async () => {
+ const {client,call,push}=makeClient(); const {result}=renderHook(()=>useSessionVoice(client)); await act(async()=>result.current.start('owner'));
+ const peer=Peer.all[0];
+ act(()=>{ peer.message({type:'turn.done',turn:{id:'peer-turn',role:'user',transcript:'Again'}}); peer.message({type:'conversation.item.input_audio_transcription.completed',item_id:'peer-item',transcript:'Again'}); commit(push,call,'user','Again','canonical-1'); });
+ expect(result.current.captions.map(p=>p.id)).toEqual(['canonical-1']);
+ const request=call.mock.calls.find(([m])=>m==='session.voice.start')![1] as {threadId:string;voiceId:string};
+ act(()=>{push({...request,method:'thread/realtime/started',params:{realtimeSessionId:'native-one'}});commit(push,call,'user','Again','canonical-1');commit(push,call,'user','Again','canonical-2');commit(push,call,'assistant','Again','canonical-3');peer.message({type:'response.audio_transcript.done',item_id:'peer-reply',transcript:'Again'});});
+ expect(result.current.captions.map(p=>p.id)).toEqual(['canonical-1','canonical-2','canonical-3']);
+});
+it('floating controls do not expand; a new floating mount starts compact, and return stays separate',async()=>{
+ const {client}=makeClient();const {result}=renderHook(()=>useSessionVoice(client));await act(async()=>result.current.start('owner'));const onReturn=vi.fn();
+ let view=render(React.createElement(FloatingSessionVoice,{voice:result.current,onReturn}));
+ expect(screen.queryByLabelText('Call dialogue')).toBeNull();expect(screen.queryByRole('slider')).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Mute microphone'}));expect(microphone.enabled).toBe(false);expect(screen.getByRole('button',{name:'Expand voice call'})).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Call volume'}));fireEvent.change(screen.getByRole('slider'),{target:{value:'.3'}});expect(result.current.outputVolume).toBe(.3);expect(screen.getByRole('button',{name:'Expand voice call'})).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Expand voice call'}));fireEvent.click(screen.getByRole('button',{name:'Return to voice conversation'}));expect(onReturn).toHaveBeenCalledOnce();
+ view.unmount();view=render(React.createElement(FloatingSessionVoice,{voice:result.current,onReturn}));expect(screen.getByRole('button',{name:'Expand voice call'})).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'End call'}));expect(result.current.status).toBe('off');view.unmount();
+});
+
+it('resolves reused IDs from ordered history boundaries and closes only the exact ended call',async()=>{
+ const {client,call,push}=makeClient();const base=call.getMockImplementation()!;const row=(id:string,boundary?:'started'|'closed')=>({id,source:'voice',voiceCallId:'native-one',voiceItemId:id,voiceBoundary:boundary,role:boundary?'tool':'user',content:boundary?'':'Repeated'});
+ call.mockImplementation(async(method,params)=>method==='session.history'?{threadId:'owner',messages:[row('old','started'),row('old-speech'),row('old-end','closed'),row('new','started'),row('new-speech')],nextCursor:null}:base(method,params));
+ const {result}=renderHook(()=>useSessionVoice(client));await act(async()=>result.current.start('owner'));const request=call.mock.calls.find(([m])=>m==='session.voice.start')![1] as {threadId:string;voiceId:string};
+ act(()=>push({...request,method:'thread/realtime/item/completed',params:{item:{id:'new',type:'realtimeSessionStarted',realtimeSessionId:'native-one'}}}));
+ await act(async()=>push({...request,method:'thread/realtime/transcript/refresh',params:{}}));expect(result.current.captions.map(p=>p.id)).toEqual(['new-speech']);expect(result.current.status).not.toBe('off');
+ call.mockImplementation(async(method,params)=>method==='session.history'?{threadId:'owner',messages:[row('new','started'),row('new-speech'),row('new-end','closed')],nextCursor:null}:base(method,params));
+ await act(async()=>result.current.loadTranscript());expect(result.current.status).toBe('off');expect(result.current.captions.map(p=>p.id)).toEqual(['new-speech']);
 });

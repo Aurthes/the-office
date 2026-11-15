@@ -1,7 +1,15 @@
 "use strict";
 // Audio travels on native Codex WebRTC. Only session control crosses the web gateway.
 class CodexOfficeVoice {
-  constructor(client, controls, emit) { this.client = client; this.controls = controls; this.emit = emit; this.active = null; this.last = null; }
+  constructor(client, controls, emit) { this.client = client; this.controls = controls; this.emit = emit; this.active = null; this.last = null; this.nativeOwners = new Map(); }
+  identify(session, nativeId) {
+    const key = `${session.threadId}:${nativeId}`;
+    const previous = this.nativeOwners.get(key);
+    session.reused = session.reused || Boolean(previous && previous !== session.voiceId);
+    session.realtimeSessionId = nativeId;
+    this.nativeOwners.set(key, session.voiceId);
+    if (this.nativeOwners.size > 64) this.nativeOwners.delete(this.nativeOwners.keys().next().value);
+  }
   async choices() {
     const result = await this.client.call("thread/realtime/listVoices", {});
     return { voices: result.voices?.v3 || [] };
@@ -12,7 +20,7 @@ class CodexOfficeVoice {
       if (this.active.owner === owner && this.active.voiceId === voiceId && this.active.threadId === threadId) return { status: "starting", voiceId };
       throw new Error("已有网页语音通话，请先结束它");
     }
-    const session = { owner, threadId, voiceId };
+    const session = { owner, threadId, voiceId, items: new Set(), pending: [] };
     this.active = session;
     session.starting = (async () => {
       if (voice !== undefined && (typeof voice !== "string" || !(await this.choices()).voices.includes(voice))) throw new Error("This voice is unavailable. Choose another voice.");
@@ -28,15 +36,49 @@ class CodexOfficeVoice {
   }
   handle(frame) {
     if (frame.method === "thread/realtime/item/completed") {
-      const item = frame.params?.item;
-      const session = [this.active, this.last].find(s => s && s.threadId === frame.params?.threadId && s.realtimeSessionId && s.realtimeSessionId === item?.realtimeSessionId);
-      if (session && item?.type === "transcriptSegment") this.emit(session.owner, { threadId: session.threadId, voiceId: session.voiceId, method: frame.method, params: frame.params });
+      const item = frame.params?.item, threadId = frame.params?.threadId;
+      if (!item || typeof item.id !== "string" || typeof item.realtimeSessionId !== "string") return;
+      const candidates = [this.active, this.last].filter(s => s && s.threadId === threadId);
+      const known = candidates.find(s => s.items.has(item.id));
+      const active = this.active?.threadId === threadId ? this.active : null;
+      let session = known;
+      if (!session && item.type === "realtimeSessionStarted" && active && !active.boundaryId) {
+        session = active; session.boundaryId = item.id; this.identify(session, item.realtimeSessionId);
+      }
+      if (!session && active && !active.realtimeSessionId) {
+        if (active.pending.length < 128) active.pending.push(frame);
+        return;
+      }
+      const matching = candidates.filter(s => s.realtimeSessionId === item.realtimeSessionId);
+      if (!session && matching.length === 1 && !matching[0].reused) session = matching[0];
+      if (!session && matching.length) {
+        // A reused native ID cannot identify an unseen late segment. The ordered
+        // canonical timeline, including started/closed items, can resolve it.
+        for (const target of matching) this.emit(target.owner, { threadId, voiceId: target.voiceId, method: "thread/realtime/transcript/refresh", params: {} });
+        return;
+      }
+      if (session && ["transcriptSegment", "realtimeSessionStarted", "realtimeSessionClosed"].includes(item.type)) {
+        session.items.add(item.id);
+        if (session.items.size > 512) session.items.delete(session.items.values().next().value);
+        this.emit(session.owner, { threadId, voiceId: session.voiceId, method: frame.method, params: frame.params });
+        if (item.type === "realtimeSessionStarted") {
+          const pending = session.pending.splice(0); for (const entry of pending) this.handle(entry);
+        }
+      }
       return;
     }
     const active = this.active;
     if (!active || frame.params?.threadId !== active.threadId || !["thread/realtime/sdp", "thread/realtime/started", "thread/realtime/error", "thread/realtime/closed", "thread/realtime/transcript/delta", "thread/realtime/transcript/done"].includes(frame.method)) return;
-    if (frame.method === "thread/realtime/started" && typeof frame.params.realtimeSessionId === "string") active.realtimeSessionId = frame.params.realtimeSessionId;
+    if (frame.method === "thread/realtime/closed" && this.last?.threadId === active.threadId && this.last.realtimeSessionId && this.last.realtimeSessionId === active.realtimeSessionId) {
+      // Anonymous close has no generation identity. Verify the canonical
+      // boundary rather than terminating a newer call on a late old close.
+      this.emit(active.owner, { threadId: active.threadId, voiceId: active.voiceId, method: "thread/realtime/transcript/refresh", params: {} });
+      return;
+    }
+    if (frame.method === "thread/realtime/started" && active.boundaryId && active.realtimeSessionId !== frame.params.realtimeSessionId) return;
+    if (frame.method === "thread/realtime/started" && typeof frame.params.realtimeSessionId === "string") this.identify(active, frame.params.realtimeSessionId);
     this.emit(active.owner, { threadId: active.threadId, voiceId: active.voiceId, method: frame.method, params: frame.params });
+    if (frame.method === "thread/realtime/started") { const pending = active.pending.splice(0); for (const entry of pending) this.handle(entry); }
     if (frame.method === "thread/realtime/closed") { this.last = active; this.active = null; }
   }
   async stop(owner, threadId, voiceId) {
