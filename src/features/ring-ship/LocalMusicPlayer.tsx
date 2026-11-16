@@ -26,11 +26,11 @@ export function LocalMusicPlayer({ autoPlay, controlsTarget, minimized, onOpen, 
   const queue = useRef<Song[]>([]), wantsPlayback = useRef(autoPlay), switching = useRef(false);
   const [songs, setSongs] = useState<Song[] | null>(null), [selected, setSelected] = useState<Song | null>(null);
   const [name, setName] = useState("Local music"), [error, setError] = useState("");
-  const [playing, setPlaying] = useState(false), [playHint, setPlayHint] = useState(false), [volume, setVolume] = useState(0.25);
+  const [playing, setPlaying] = useState(false), [playHint, setPlayHint] = useState(false), [volume, setVolume] = useState(0.15);
   const [buffering, setBuffering] = useState(false);
   useEffect(() => {
     const controller = new AbortController(), element = audio.current;
-    if (element) element.volume = 0.25; // Initialize once; track changes retain the listener’s choice.
+    if (element) element.volume = 0.15; // Initialize once; track changes retain the listener’s choice.
     void fetch(API, { signal: controller.signal, cache: "no-store" }).then(async response => {
       const library = await response.json(); if (!response.ok) throw new Error(library.error || "Local music is unavailable. Please retry.");
       if (controller.signal.aborted) return;
