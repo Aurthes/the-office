@@ -127,6 +127,7 @@ function deploymentRetention(directory, keepPreviousRelease) {
   const succeeded = new Map(), protectedPaths = [], known = new Set();
   const rootOf = service => {
     const entry = service.fingerprint?.[0]?.[0];
+    if (path.isAbsolute(entry || "") && /[/\\]server[/\\]web-access[/\\]index\.js$/.test(entry)) return path.dirname(path.dirname(path.dirname(entry)));
     if (!path.isAbsolute(entry || "") || !/[/\\]server[/\\](index|codex-office-gateway)\.js$/.test(entry)) {
       throw new Error("Invalid release path in deployment receipt");
     }

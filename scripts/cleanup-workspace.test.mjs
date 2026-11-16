@@ -243,3 +243,16 @@ test("current-only policy reads nested cutover receipts and removes the precedin
   assert.throws(() => planCleanup({ ...options, keepPreviousRelease: "false" }, idle), /policy/);
   assert.throws(() => planCleanup({ ...options, deploymentsDir: undefined, keepPreviousRelease: false }, idle), /history/);
 });
+
+test("Auth deployment receipts retain their actual release root and never retire a prior source worktree", t => {
+  const f = fixture(t), old = f.task("auth-source"), current = f.release("auth-current", 0);
+  const options = receipt(f, "auth", old, current);
+  const file = path.join(options.deploymentsDir, "deploy-auth", "job.json"), job = JSON.parse(fs.readFileSync(file));
+  const service = job.services[0]; service.label = "fixture.claw3d.auth";
+  service.fingerprint[0][0] = path.join(current,"server/web-access/index.js");
+  service.old.fingerprint[0][0] = path.join(old,"server/web-access/index.js");
+  fs.writeFileSync(file,JSON.stringify(job));
+  const result = applyCleanup({...options,keepPreviousRelease:false},idle);
+  assert.equal(f.entry(result,current).action,"keep");
+  assert.ok(fs.existsSync(old));
+});
