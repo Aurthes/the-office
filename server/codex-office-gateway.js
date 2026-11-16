@@ -167,7 +167,9 @@ const notifications = new OfficeNotifications(directory, {
     if (identity && identity.port !== port) return { valid: false };
     const response = await fetch(`http://127.0.0.1:${port}/internal/push-identity`, { method: "POST", headers: { "Content-Type": "application/json", "x-office-proxy-token": notificationSecret }, body: JSON.stringify(identity ? { owner: identity.owner, device: identity.device } : {}), signal: AbortSignal.timeout(3000) });
     if (!response.ok) throw new Error("Website notification identity is unavailable");
-    return response.json();
+    const value = await response.json();
+    if (!/^[a-f0-9]{64}$/.test(value.owner) || typeof value.valid !== "boolean") throw new Error("Website notification identity is unavailable");
+    return value;
   }, changed: () => broadcast("notifications.updated", {}),
 });
 const browserIdentity = ws => notifications.identity(ws.pushIdentity, notificationSecret);

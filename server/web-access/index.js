@@ -117,8 +117,10 @@ function createWebAccessServer({ dataDir, credentials, upstream = "http://127.0.
   });
   // Loopback-only introspection: no cookies, account names or business data.
   app.post("/internal/push-identity", express.json({ limit: "2kb" }), (req, res) => {
-    if (!proxyToken || !["127.0.0.1", "::ffff:127.0.0.1", "::1"].includes(req.socket.remoteAddress) || !equal(req.headers[PROXY_HEADER], proxyToken)) return res.status(401).end();
     res.setHeader("Cache-Control", "no-store");
+    if (secureCookies) res.setHeader("Strict-Transport-Security", "max-age=31536000");
+    if (!sameOrigin(req)) return res.status(403).end();
+    if (!proxyToken || !["127.0.0.1", "::ffff:127.0.0.1", "::1"].includes(req.socket.remoteAddress) || !equal(req.headers[PROXY_HEADER], proxyToken)) return res.status(401).end();
     res.json({ owner: pushIdentity.fingerprint(), valid: pushIdentity.valid(req.body || {}) });
   });
   app.use((req, res, next) => {

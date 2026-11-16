@@ -26,7 +26,8 @@ self.addEventListener("notificationclick", event => {
         existing.postMessage({ type: "office-notification", eventId: valid ? id : null }, [channel.port2]);
       });
       channel.port1.close();
-      if (!acknowledged) await existing.navigate(target);
+      // An unresponsive/old page may contain a draft. Open a separate page instead.
+      if (!acknowledged) return self.clients.openWindow(target);
       return existing.focus();
     }
     return self.clients.openWindow(target);

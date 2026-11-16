@@ -28,3 +28,9 @@ it("focuses an existing Office without navigating when its live listener acknowl
  await f.fire("notificationclick",{notification:{close:vi.fn(),data:{eventId:"11111111-1111-4111-8111-111111111111"}}});
  expect(focus).toHaveBeenCalledTimes(1);expect(navigate).not.toHaveBeenCalled();expect(f.openWindow).not.toHaveBeenCalled();
 });
+it("leaves an unresponsive page and its drafts untouched, opening a separate authenticated route",async()=>{
+ const focus=vi.fn(async()=>{}),navigate=vi.fn(async()=>{}),postMessage=vi.fn();
+ const f=fixture([{url:"https://office.example/office",focus,navigate,postMessage}]);
+ await f.fire("notificationclick",{notification:{close:vi.fn(),data:{eventId:"11111111-1111-4111-8111-111111111111"}}});
+ expect(navigate).not.toHaveBeenCalled();expect(f.openWindow).toHaveBeenCalledWith("https://office.example/office?notification=11111111-1111-4111-8111-111111111111");
+});
