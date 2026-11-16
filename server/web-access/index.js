@@ -11,6 +11,8 @@ const { PasswordStore } = require("./password-store");
 const { loginView, enrollmentView, recoveryView, passwordSetupView } = require("./views");
 const { createRequestPolicy, PROXY_HEADER } = require("../proxy-boundary");
 
+const { HEADER: PUSH_IDENTITY_HEADER, signIdentity, PushIdentity } = require("../office-push-identity");
+
 const WEEK = 7 * 24 * 60 * 60 * 1000;
 const digest = value => crypto.createHash("sha256").update(String(value || "")).digest();
 const equal = (a, b) => crypto.timingSafeEqual(digest(a), digest(b));
@@ -25,6 +27,7 @@ function createWebAccessServer({ dataDir, credentials, upstream = "http://127.0.
   const cookieName = secureCookies ? "__Host-claw3d_session" : "claw3d_session_test";
   const store = new SqliteSessionStore(path.join(dataDir, "sessions.sqlite"));
   const totp = new TotpStore(dataDir);
+  const pushIdentity = new PushIdentity(dataDir, () => JSON.stringify([passwords.username, passwords.version, totp.id, totp.enabled]));
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", "loopback");
@@ -72,25 +75,36 @@ function createWebAccessServer({ dataDir, credentials, upstream = "http://127.0.
   const limited = req => failureBucket(req).count >= 10;
   const failed = req => { failureBucket(req).count++; };
   const resetFailures = req => { failures.delete(req.ip || req.socket.remoteAddress); };
-  const beginEnrollment = (req, res, next, version) => req.session.regenerate(error => {
+  const beginEnrollment = (req, res, next, version) => { const pushReturn = req.session?.pushReturn; return req.session.regenerate(error => {
     if (error) return next(error);
+    req.session.pushReturn = pushReturn;
     req.session.pendingUser = passwords.username;
     req.session.passwordVersion = version;
     req.session.enrollmentExpires = Date.now() + 10 * 60 * 1000;
     req.session.csrf = crypto.randomBytes(24).toString("base64url");
     req.session.save(error => error ? next(error) : res.redirect(303, "/auth/totp/setup"));
-  });
-  const finishLogin = (req, res, next, codes, version = passwords.version) => req.session.regenerate(error => {
+  }); };
+  const finishLogin = (req, res, next, codes, version = passwords.version) => {
+    const returnEvent = req.session?.pushReturn;
+    if (req.session?.pushDevice) pushIdentity.revoke(req.session.pushDevice);
+    return req.session.regenerate(error => {
     if (error) return next(error);
     req.session.user = passwords.username;
     req.session.passwordVersion = version;
     req.session.csrf = crypto.randomBytes(24).toString("base64url");
     if (totp.enabled) { req.session.mfaVerified = true; req.session.mfaVersion = totp.id; }
     req.session.cookie.maxAge = WEEK;
-    req.session.save(error => error ? next(error) : codes ? page(res, recoveryView(codes)) : res.redirect(303, "/office"));
-  });
+    req.session.save(error => error ? next(error) : codes ? page(res, recoveryView(codes)) : res.redirect(303, returnEvent ? `/office?notification=${encodeURIComponent(returnEvent)}` : "/office"));
+  }); };
+  const attachPushIdentity = req => {
+    if (!proxyToken) return;
+    const device = pushIdentity.register(req.session);
+    req.officePushIdentity = signIdentity({ owner: pushIdentity.fingerprint(), device, origin: `https://${req.headers.host}`, port: req.socket.localPort }, proxyToken);
+  };
   const proxy = httpProxy.createProxyServer({ target: upstream, ws: true });
-  const removeCredentials = proxyReq => {
+  const removeCredentials = (proxyReq, req) => {
+    proxyReq.removeHeader(PUSH_IDENTITY_HEADER);
+    if (req.officePushIdentity) proxyReq.setHeader(PUSH_IDENTITY_HEADER, req.officePushIdentity);
     proxyReq.removeHeader("authorization"); proxyReq.removeHeader("cookie");
     proxyReq.removeHeader(PROXY_HEADER);
     if (proxyToken) proxyReq.setHeader(PROXY_HEADER, proxyToken);
@@ -100,6 +114,12 @@ function createWebAccessServer({ dataDir, credentials, upstream = "http://127.0.
   proxy.on("error", (_error, _req, res) => {
     if (typeof res.writeHead === "function") { if (!res.headersSent) res.writeHead(502); res.end("Office temporarily unavailable"); }
     else res.end();
+  });
+  // Loopback-only introspection: no cookies, account names or business data.
+  app.post("/internal/push-identity", express.json({ limit: "2kb" }), (req, res) => {
+    if (!proxyToken || !["127.0.0.1", "::ffff:127.0.0.1", "::1"].includes(req.socket.remoteAddress) || !equal(req.headers[PROXY_HEADER], proxyToken)) return res.status(401).end();
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ owner: pushIdentity.fingerprint(), valid: pushIdentity.valid(req.body || {}) });
   });
   app.use((req, res, next) => {
     res.setHeader("Cache-Control", "no-store");
@@ -117,8 +137,17 @@ function createWebAccessServer({ dataDir, credentials, upstream = "http://127.0.
   });
   app.get("/auth/style.css", (_req, res) => res.type("css").send(styles));
   app.get("/auth/ui.js", (_req, res) => res.type("js").send(clientScript));
+  // Only these public, non-personal PWA files bypass login. No API/page exception.
+  const pwaFiles = new Set(["/office-sw.js", "/office.webmanifest", "/office-icon-192.png", "/office-icon-512.png"]);
+  app.use((req, res, next) => {
+    if (["GET", "HEAD"].includes(req.method) && pwaFiles.has(req.path)) return proxy.web(req, res);
+    next();
+  });
   app.use(sessionMiddleware);
-  app.get("/login", (req, res) => authorized(req) ? res.redirect(303, "/office") : enrolling(req) ? res.redirect(303, "/auth/totp/setup") : renderLogin(req, res));
+  app.get("/login", (req, res) => {
+    const event = req.query.notification;
+    if (typeof event === "string" && /^[a-f0-9-]{36}$/.test(event)) req.session.pushReturn = event;
+    return authorized(req) ? res.redirect(303, "/office") : enrolling(req) ? res.redirect(303, "/auth/totp/setup") : renderLogin(req, res); });
   app.get("/auth/password/setup", (req, res) => renderPasswordSetup(req, res));
   app.post("/auth/password/setup", express.urlencoded({ extended: false, limit: "4kb" }), async (req, res, next) => {
     if (!csrfValid(req)) return renderPasswordSetup(req, res, "页面已过期，请重新打开设置链接。", 403);
@@ -163,14 +192,16 @@ function createWebAccessServer({ dataDir, credentials, upstream = "http://127.0.
     return finishLogin(req, res, next, codes);
   });
   app.use((req, res, next) => {
-    if (authorized(req)) return next();
+    if (authorized(req)) { attachPushIdentity(req); return next(); }
     if (req.path.startsWith("/api/") || req.path.startsWith("/auth/")) return res.status(401).json({ error: "Sign in required" });
-    return res.redirect(303, "/login");
+    const event = req.query.notification;
+    return res.redirect(303, typeof event === "string" && /^[a-f0-9-]{36}$/.test(event) ? `/login?notification=${event}` : "/login");
   });
   app.get("/auth/session", (req, res) => res.json({ username: req.session.user, csrf: req.session.csrf, twoFactorEnabled: totp.enabled }));
   app.post("/auth/logout", express.urlencoded({ extended: false, limit: "4kb" }), (req, res, next) => {
     if (!csrfValid(req)) return res.status(403).json({ error: "Invalid logout request" });
     const id = req.sessionID;
+    pushIdentity.revoke(req.session.pushDevice);
     req.session.destroy(error => {
       if (error) return next(error);
       for (const socket of sockets.get(id) || []) socket.end();
@@ -199,7 +230,11 @@ function createWebAccessServer({ dataDir, credentials, upstream = "http://127.0.
       const expiry = setTimeout(() => socket.end(), Math.max(0, new Date(req.session.cookie.expires).getTime() - Date.now()));
       expiry.unref();
       socket.on("close", () => { clearTimeout(expiry); clients.delete(socket); if (!clients.size) sockets.delete(id); });
-      proxy.ws(req, socket, head);
+      try { attachPushIdentity(req); } catch { return socket.end("HTTP/1.1 503 Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"); }
+      req.session.save(error => {
+        if (error) return socket.end("HTTP/1.1 503 Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+        proxy.ws(req, socket, head);
+      });
     });
   });
   server.on("close", () => { proxy.close(); store.close(); });

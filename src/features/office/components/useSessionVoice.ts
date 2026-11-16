@@ -127,7 +127,7 @@ export function useSessionVoice(client: SessionClient) {
     setMuted(session.muted);
   }, []);
   useEffect(() => { connection.current?.native?.update(status, muted); }, [status, muted]);
-  const start = useCallback(async (targetThreadId: string) => {
+  const start = useCallback(async (targetThreadId: string, notificationId?: string) => {
     if (connection.current) return;
     call.current = null; setVoiceId(null); setVisible(false);
     setThreadId(targetThreadId); setError(""); setCaptions([]); setMuted(false); setTranscriptCursor(null); setTranscriptError(""); setTranscriptLoading(false); setNativeCallId(null); setBoundaryId(null);
@@ -187,7 +187,7 @@ export function useSessionVoice(client: SessionClient) {
       const offer = await session.pc.createOffer(); await session.pc.setLocalDescription(offer);
       if (connection.current !== session) return;
       session.timer = setTimeout(() => finish(session, true, "Voice connection timed out. Check your connection and retry."), 35000);
-      await client.call("session.voice.start", { threadId: session.threadId, voiceId: session.id, sdp: offer.sdp, ...(voice ? { voice } : {}) });
+      await client.call("session.voice.start", { threadId: session.threadId, voiceId: session.id, sdp: offer.sdp, ...(notificationId ? { notificationId } : {}), ...(voice ? { voice } : {}) });
     } catch (cause) {
       finish(session, true, cause instanceof DOMException && cause.name === "NotAllowedError" ? "Allow microphone access for this page, then retry." : cause instanceof Error ? cause.message : "Could not connect voice");
     }

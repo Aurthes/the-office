@@ -19,6 +19,7 @@ type SettingsPanelProps = {
   onGatewayAdapterTypeChange?: (value: StudioGatewayAdapterType) => void;
   onOpenOnboarding?: () => void;
   voiceSettings?: ReactNode;
+  notificationSettings?: ReactNode;
   officeTitle: string;
   officeTitleLoaded: boolean;
   onOfficeTitleChange: (title: string) => void;
@@ -38,15 +39,16 @@ export function SettingsPanel({
   onGatewayAdapterTypeChange,
   onOpenOnboarding,
   voiceSettings,
+  notificationSettings,
   officeTitle,
   officeTitleLoaded,
   onOfficeTitleChange,
 
 }: SettingsPanelProps) {
   const t = useUiText();
-  const [tab, setTab] = useState<"general" | "voice">("general");
+  const [tab, setTab] = useState<"general" | "voice" | "notifications">("general");
   const tabId = useId();
-  const activeTab = voiceSettings && tab === "voice" ? "voice" : "general";
+  const activeTab = notificationSettings && tab === "notifications" ? "notifications" : voiceSettings && tab === "voice" ? "voice" : "general";
   const { language, setLanguage } = useUiLanguage();
   const dictationShortcut = useDictationShortcutSetting();
   const normalizedGatewayUrl = gatewayUrl?.trim() ?? "";
@@ -62,14 +64,14 @@ export function SettingsPanel({
 
   return (
     <div className="px-4 py-4">
-      {voiceSettings ? <div role="tablist" aria-label={t("Settings sections")} className="mb-4 flex gap-2" onKeyDown={event => {
+      {voiceSettings ? <div role="tablist" aria-label={t("Settings sections")} className="mb-4 flex flex-wrap gap-2" onKeyDown={event => {
         const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
         const current = tabs.indexOf(document.activeElement as HTMLButtonElement);
         const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : event.key === "ArrowRight" ? (current + 1) % tabs.length : event.key === "ArrowLeft" ? (current + tabs.length - 1) % tabs.length : -1;
         if (next < 0) return; event.preventDefault(); tabs[next].focus(); tabs[next].click();
-      }}>{(["general", "voice"] as const).map(value => <button key={value} type="button" role="tab" id={`${tabId}-${value}`} aria-controls={`${tabId}-panel`} aria-selected={activeTab === value} tabIndex={activeTab === value ? 0 : -1} onClick={() => setTab(value)} className={`min-h-10 rounded-lg border px-4 text-sm ${activeTab === value ? "border-cyan-300/40 bg-cyan-400/10 text-cyan-100" : "border-white/10 text-white/65"}`}>{t(value === "general" ? "General" : "Voice")}</button>)}</div> : null}
+      }}>{(["general", ...(voiceSettings ? ["voice" as const] : []), ...(notificationSettings ? ["notifications" as const] : [])] as const).map(value => <button key={value} type="button" role="tab" id={`${tabId}-${value}`} aria-controls={`${tabId}-panel`} aria-selected={activeTab === value} tabIndex={activeTab === value ? 0 : -1} onClick={() => setTab(value)} className={`min-h-10 rounded-lg border px-4 text-sm ${activeTab === value ? "border-cyan-500/40 bg-cyan-400/10 text-cyan-800 dark:text-cyan-100" : "border-[var(--border)] text-[var(--muted-foreground)]"}`}>{t(value === "general" ? "General" : value === "voice" ? "Voice" : "Notifications")}</button>)}</div> : null}
       <div role={voiceSettings ? "tabpanel" : undefined} id={`${tabId}-panel`} aria-labelledby={voiceSettings ? `${tabId}-${activeTab}` : undefined}>
-      {activeTab === "voice" ? voiceSettings : <>
+      {activeTab === "notifications" ? notificationSettings : activeTab === "voice" ? voiceSettings : <>
 
       <div className="mb-3 rounded-lg border border-cyan-500/10 bg-black/20 px-4 py-3">
         <label htmlFor="ui-language" className="text-[11px] font-medium text-white">{t("Language")}</label>

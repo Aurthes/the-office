@@ -56,6 +56,9 @@ tools.push({ name: "todo_department_assets", description: "Read a department's r
 tools.push({ name: "session_send", description: "Contact an existing Office colleague directly using your own actorId and their threadId. The server resolves your current recorded name and labels the message. Reuse requestId on retry; this is a message, not task delegation or acceptance. The shared service credential does not authenticate an individual; actorId follows the existing Office tool convention. Never supply another employee's actorId.", annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }, inputSchema: { type: "object", properties: {
   actorId: properties.actorId, threadId: { type: "string", minLength: 1 }, message: { type: "string", minLength: 1 }, requestId: { type: "string", minLength: 1, maxLength: 100 },
 }, required: ["actorId", "threadId", "message", "requestId"], additionalProperties: false } });
+tools.push({ name: "important_notify", description: "Department Heads: notify the website owner about a useful independently verified result, a complete combined result, a needed decision or a substantive blocker. Do not notify routine progress or treat worker submit as completion. Merge nearby updates to the same matter using the same stable eventId. The lock screen is generic; title and brief are read after website sign-in. No automatic call or model request. actorId uses the current shared-service convention, not individual authentication.", annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }, inputSchema: { type: "object", properties: {
+  actorId: properties.actorId, eventId: { type: "string", minLength: 1, maxLength: 160 }, title: { type: "string", minLength: 1, maxLength: 120 }, brief: { type: "string", minLength: 1, maxLength: 2400 }, reason: { type: "string", enum: ["result", "decision", "block"] }, taskId: { type: "string", maxLength: 100 },
+}, required: ["actorId", "eventId", "title", "brief", "reason"], additionalProperties: false } });
 const scheduleConfig = {
   name: { type: "string", minLength: 1, maxLength: 120 }, threadId: { type: "string", minLength: 1, description: "Existing Office executor session, not a native thread or OS process." },
   prompt: { type: "string", minLength: 1, maxLength: 32768, description: "Same job/checkpoint, original task/phase and Q, and next action. Files alone do not wake an Agent." },
@@ -186,7 +189,7 @@ async function handle(frame) {
         if (params.threadId === undefined) params.threadId = params.actorId;
         if (typeof params.threadId !== "string" || !params.threadId.trim()) throw new Error("Choose an Office target threadId");
       }
-      const result = await gateway(tool.name.startsWith("schedule_") ? `schedule.${tool.name.slice(9)}` : tool.name === "session_send" ? "session.send" : tool.name === "question_context" ? "question.context" : `todo.${tool.name.slice(5)}`, params);
+      const result = await gateway(tool.name === "important_notify" ? "office.notify" : tool.name.startsWith("schedule_") ? `schedule.${tool.name.slice(9)}` : tool.name === "session_send" ? "session.send" : tool.name === "question_context" ? "question.context" : `todo.${tool.name.slice(5)}`, params);
       const visible = tool.name === "schedule_list" ? { tasks: result.tasks.filter(task => task.threadId === params.threadId) } : modelResult(tool.name, args, result);
       return { content: [{ type: "text", text: JSON.stringify(visible) }] };
     }

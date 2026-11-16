@@ -185,7 +185,7 @@ function createGatewayProxy(options) {
 
   const wss = new WebSocketServer({ noServer: true, verifyClient });
 
-  wss.on("connection", (browserWs) => {
+  wss.on("connection", (browserWs, request) => {
     let upstreamWs = null;
     let upstreamReady = false;
     let upstreamUrl = "";
@@ -335,6 +335,7 @@ function createGatewayProxy(options) {
 
       upstreamWs = new WebSocket(upstreamUrl, {
         origin: upstreamOrigin,
+        headers: request?.headers["x-office-push-identity"] ? { "x-office-push-identity": request.headers["x-office-push-identity"] } : {},
         handshakeTimeout: upstreamHandshakeTimeoutMs,
       });
 

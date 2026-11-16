@@ -4,6 +4,9 @@ const path = require("node:path");
 const http = require("node:http");
 const crypto = require("node:crypto");
 const { WebSocketServer, WebSocket } = require("ws");
+const { OfficeNotifications } = require("./office-notifications");
+const { HEADER: PUSH_IDENTITY_HEADER } = require("./office-push-identity");
+const { isDepartmentManager } = require("../src/lib/office/organization-structure");
 const { CodexOfficeClient, officeEnvironment } = require("./codex-office-client");
 const { CodexOfficeAccount } = require("./codex-office-account");
 const { CodexOfficeStore } = require("./codex-office-store");
@@ -153,6 +156,22 @@ replyContext.options.source = async source => {
 store.questionContext = id => replyContext.forModel(id);
 const company = new OfficeCompany(store);
 store.companyContext = id => company.forTurn(id);
+const notificationSecret = process.env.CLAW3D_PROXY_TOKEN || "";
+const notificationOrigins = new Set((process.env.CLAW3D_PUBLIC_ORIGINS || "").split(",").map(s => s.trim()));
+const notifications = new OfficeNotifications(directory, {
+  actor: id => { const p = company.context(id); return { head: typeof p.title === "string" && isDepartmentManager(p), name: store.get(id).name }; },
+  owner: async identity => {
+    if (!notificationSecret) throw new Error("Website reminders require the authenticated web entry");
+    if (identity && !notificationOrigins.has(identity.origin)) return { valid: false };
+    const port = Number(process.env.CLAW3D_ACCESS_PORT || 3035);
+    if (identity && identity.port !== port) return { valid: false };
+    const response = await fetch(`http://127.0.0.1:${port}/internal/push-identity`, { method: "POST", headers: { "Content-Type": "application/json", "x-office-proxy-token": notificationSecret }, body: JSON.stringify(identity ? { owner: identity.owner, device: identity.device } : {}), signal: AbortSignal.timeout(3000) });
+    if (!response.ok) throw new Error("Website notification identity is unavailable");
+    return response.json();
+  }, changed: () => broadcast("notifications.updated", {}),
+});
+const browserIdentity = ws => notifications.identity(ws.pushIdentity, notificationSecret);
+
 store.todoContext = id => ({ ...todos.context(id), departmentId: store.get(id).projectId ?? null });
 delegation = new OfficeDelegation({ store, todos, company, stopping: () => stopping,
   canRecall: async id => {
@@ -216,6 +235,11 @@ const methods = {
     } catch (error) { if (delivery?.recipientId === recipient) todos.delivery(row.id, delivery.requestId, "uncertain", error.message); delegation.pauseAttempt(row.id, undefined, recipient, p.requestId, "failed to start"); throw error; }
   }),
   "office.account": account,
+  "office.notify": p => notifications.notify(p),
+  "office.notifications.settings": async (_p, ws) => notifications.settings(await browserIdentity(ws)),
+  "office.notifications.subscribe": async (p, ws) => notifications.subscribe(await browserIdentity(ws), p.subscription),
+  "office.notifications.unsubscribe": async (_p, ws) => notifications.unsubscribe(await browserIdentity(ws)),
+  "office.notifications.detail": async (p, ws) => notifications.detail(await browserIdentity(ws), p.notificationId),
   "office.usage": () => readAiCenter(native),
   "office.usage.detail": p => tokenUsage.detail(p),
   "office.resetCredit.consume": p => consumeOpenAiResetCredit(native, p),
@@ -282,7 +306,9 @@ const methods = {
   "session.settings.update": p => { store.get(p.threadId); if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before changing settings"); return controls.updateSettings(p.threadId, p.settings); },
   "session.voice.options": () => voice.choices(),
   "session.voice.previews": p => voicePreviews.read(p),
-  "session.voice.start": async (p, ws) => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before calling"); if (controls.state(p.threadId).editUncertain && !await controls.reconcileEdit(p.threadId)) throw new Error("A previous rewind is still unconfirmed. Wait before calling."); if (controls.state(p.threadId).editCommit) throw new Error("Wait for the edit to finish before calling"); return voice.start(ws, p.threadId, p.sdp, p.voiceId, p.voice); },
+  "session.voice.start": async (p, ws) => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before calling"); if (controls.state(p.threadId).editUncertain && !await controls.reconcileEdit(p.threadId)) throw new Error("A previous rewind is still unconfirmed. Wait before calling."); if (controls.state(p.threadId).editCommit) throw new Error("Wait for the edit to finish before calling"); const brief = p.notificationId === undefined ? undefined : notifications.detail(await browserIdentity(ws), p.notificationId);
+    if (brief && brief.headId !== p.threadId) throw new Error("Open the Head associated with this reminder");
+    return voice.start(ws, p.threadId, p.sdp, p.voiceId, p.voice, brief); },
   "session.voice.stop": (p, ws) => { store.get(p.threadId); return voice.stop(ws, p.threadId, p.voiceId); },
   "session.question.reply": async p => {
     store.get(p.threadId);
@@ -330,7 +356,8 @@ const server = http.createServer((req, res) => {
   res.writeHead(native.ready ? 200 : 503, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: native.ready, runtime: "Office-owned Codex", agents: store.list().length, readOnly: false, features, configuration: { rules, defaults, extraSkillRoots: native.profile.skillRoots.length, warnings } }));
 });
 const wss = new WebSocketServer({ server, maxPayload: 256 * 1024 });
-wss.on("connection", ws => {
+wss.on("connection", (ws, req) => {
+  ws.pushIdentity = req.headers[PUSH_IDENTITY_HEADER];
   let connected = false;
   const send = frame => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame)); };
   send({ type: "event", event: "connect.challenge", payload: { nonce: crypto.randomUUID() } });
@@ -359,7 +386,7 @@ wss.on("connection", ws => {
 const checkpoint = setInterval(() => { try { todos.checkpoint(); } catch (error) { console.error("Could not save task timer:", error.message); } }, 15000); checkpoint.unref();
 const tick = setInterval(() => broadcast("tick", { ts: Date.now() }), 30000); tick.unref();
 async function close(code = 0) {
-  if (stopping) return; stopping = true; clearInterval(tick); clearInterval(checkpoint); todos?.close(); clearTimeout(rosterTimer); const dictationClosed = Promise.all([dictate.close(), voicePreviews.close()]); schedules.close(); controls.close();
+  if (stopping) return; stopping = true; clearInterval(tick); clearInterval(checkpoint); todos?.close(); await notifications.close(); clearTimeout(rosterTimer); const dictationClosed = Promise.all([dictate.close(), voicePreviews.close()]); schedules.close(); controls.close();
   for (const ws of clients) { stream.disconnected(ws); ws.close(1001, "Office stopping"); }
   wss.close(); server.close(); await dictationClosed; await tokenUsage.close(); await workspace.close(); await native.close(); process.exitCode = code;
 }

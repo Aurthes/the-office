@@ -542,6 +542,15 @@ describe("independent Office runtime", () => {
     await expect(f.store.call("thread/resume", { threadId: id })).rejects.toThrow("no rollout");
     expect(f.store.get(id).codexThreadId).toBe("uncertain");
   });
+  it("passes only the verified saved notification brief into native voice initialItems, not an extra native parameter", async () => {
+    const f = fixture(), id = await session(f);
+    const brief = { id: "notice-fixture", title: "Ready", brief: "Exact verified result" };
+    await f.store.call("thread/realtime/start", { threadId: id, version: "v3", officeNotificationBrief: brief });
+    const params = f.client.call.mock.calls.at(-1)?.[1] as { initialItems: {role:string; text:string}[] };
+    expect(params).not.toHaveProperty("officeNotificationBrief");
+    expect(params.initialItems.at(-1)).toEqual({role:"developer",text:expect.stringContaining(JSON.stringify(brief))});
+    expect(f.client.call.mock.calls.filter(([method]) => method === "turn/start")).toHaveLength(0);
+  });
   it("opens voice on an empty Office chat with its current folders and permissions, and maps voice events back", async () => {
     const f = fixture(), id = await session(f), second = path.join(f.root, "second"); mkdirSync(second);
     const row = f.store.get(id), project = f.store.projects()[0];

@@ -51,3 +51,36 @@ Task Progress in the chat Workspace lists Running work first, recent recorded pr
 Phase-mode tool calls require an explicit `phaseId`; submissions, reviews and recalls also require the exact `handoffId` from the notification or task record. Managers retain acceptance through the actual reporting chain. The legitimately completed final phase archives the task once every phase is complete and no handoff remains open, without another parent approval step.
 
 Existing tasks keep their original whole-task workflow and recorded history. To configure future phases independently, finish old handoffs and pause the timer, then explicitly choose independent assignments. Existing completed phases keep their IDs and recorded time; missing historical assignees remain unknown. The Owner coordinates assignments without restricting ordinary member or user edits.
+
+### Important task reminders
+
+Department Heads can explicitly use `office_tasks.important_notify` with a stable
+`eventId` and short saved brief for verified useful results, decisions or real
+blockers. Routine progress and worker submission do not automatically notify.
+Updates to the same event replace its notification. Reading a brief makes no model
+request; its separate voice button starts the existing call only after a click.
+
+Enable notifications in **Settings → Notifications**. iPhone requires iOS 16.4+
+and opening Office from **Safari → Share → Add to Home Screen** before enabling.
+The current site address is the installation boundary: changing it requires a new
+Home Screen installation, permission and subscription. Delivery remains subject
+to browser permission, Focus and network conditions; push-service acceptance is
+not proof of lock-screen display. Actual iPhone delivery requires a device check.
+
+This uses standard Web Push and a notification-only service worker, without
+an offline cache. Lock-screen payloads contain only an opaque reminder ID and
+generic text; details require the existing website login. Single-owner identity
+and installation binding use the existing trusted Auth proxy, including logout
+and password/MFA version invalidation. Gateway and Auth must share the existing
+`CLAW3D_PROXY_TOKEN`; the Auth loopback port is `CLAW3D_ACCESS_PORT` (default 3035).
+Native shared-service `actorId` remains an actor convention, not individual
+cryptographic authentication. No third-party callback URLs are accepted.
+
+Private Gateway files `push-vapid.json` and `important-notifications.json` retain
+keys, subscriptions and bounded retry state across restart. Protect them like
+other private runtime state; do not rotate/delete keys as a routine upgrade.
+Push delivery has bounded retries and expiry; 404/410 subscriptions are retired.
+Notification tags mitigate crash-window duplicate delivery, without claiming
+exactly-once delivery. Corrupt reminder state disables reminders while leaving
+chat available. No automatic microphone access, phone call or paid synthesis is
+triggered by a notification.

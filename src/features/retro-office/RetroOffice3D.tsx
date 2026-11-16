@@ -1807,6 +1807,7 @@ export function RetroOffice3D({
   monitorByAgentId = EMPTY_MONITOR_MAP,
 
   voiceSettings,
+  notificationSettings,
   officeTitle = "Luke Headquarters",
   officeTitleLoaded = false,
 
@@ -1880,6 +1881,7 @@ export function RetroOffice3D({
   monitorByAgentId?: OfficeDeskMonitorMap;
 
   voiceSettings?: React.ReactNode;
+  notificationSettings?: React.ReactNode;
   officeTitle?: string;
   officeTitleLoaded?: boolean;
 
@@ -6070,6 +6072,7 @@ export function RetroOffice3D({
             <div className="min-h-0 flex-1 overflow-y-auto">
               <SettingsPanel
                 voiceSettings={voiceSettings}
+                notificationSettings={notificationSettings}
                 gatewayStatus={gatewayStatus}
                 gatewayUrl={gatewayUrl}
                 gatewayToken={gatewayToken}

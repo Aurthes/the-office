@@ -42,8 +42,10 @@ describe("createGatewayProxy", () => {
 
     let seenToken: string | null = null;
     let seenOrigin: string | undefined;
+    let seenIdentity: string | undefined;
     upstream.on("connection", (ws, req) => {
       seenOrigin = req.headers.origin;
+      seenIdentity = req.headers["x-office-push-identity"] as string | undefined;
       ws.on("message", (raw) => {
         const parsed = JSON.parse(String(raw));
         if (parsed?.method === "connect") {
@@ -76,7 +78,7 @@ describe("createGatewayProxy", () => {
       throw new Error("expected proxy server to have a port");
     }
 
-    const browser = new WebSocket(`ws://127.0.0.1:${proxyAddr.port}/api/gateway/ws`);
+    const browser = new WebSocket(`ws://127.0.0.1:${proxyAddr.port}/api/gateway/ws`, { headers: { "x-office-push-identity": "signed-proxy-proof" } });
     try {
       await waitForEvent(browser, "open");
 
@@ -93,6 +95,7 @@ describe("createGatewayProxy", () => {
 
       expect(seenToken).toBe("token-123");
       expect(seenOrigin).toBe(`http://localhost:${address.port}`);
+      expect(seenIdentity).toBe("signed-proxy-proof");
     } finally {
       for (const client of upstream.clients) {
         client.close();

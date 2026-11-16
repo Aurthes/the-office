@@ -5,6 +5,9 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Claw3D",
+  manifest: "/office.webmanifest",
+  appleWebApp: { capable: true, title: "Office", statusBarStyle: "default" },
+  icons: { apple: "/office-icon-192.png" },
   description: "Focused operator studio for the OpenClaw gateway.",
 };
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", interactiveWidget: "resizes-content" };

@@ -33,6 +33,7 @@ import { RetainedSessionPanels } from "@/features/office/components/RetainedSess
 import { SessionMessageLocation } from "@/features/office/components/SessionMessageLocation";
 import type { MessageSearchTarget } from "@/features/office/components/MessageSearchResults";
 import { useSessionVoice } from "@/features/office/components/useSessionVoice";
+import { ImportantNotificationBrief, NotificationSettings } from "@/features/office/components/ImportantNotifications";
 import { FloatingSessionVoice, SessionVoiceSettings } from "@/features/office/components/SessionVoice";
 import { SessionListDivider } from "@/features/office/components/SessionListDivider";
 import { SessionChatResizer } from "@/features/office/components/SessionChatResizer";
@@ -3462,6 +3463,7 @@ export function OfficeScreen({
           onOpenOnboarding={handleOpenOnboarding}
           feedEvents={feedEvents}
           gatewayStatus={status}
+          notificationSettings={sessionView ? <NotificationSettings client={client} connected={status === "connected"} /> : undefined}
           voiceSettings={sessionView ? <SessionVoiceSettings client={client} voice={voice} /> : undefined}
           runCountByAgentId={runCountByAgentId}
           lastSeenByAgentId={lastSeenByAgentId}
@@ -3776,6 +3778,7 @@ export function OfficeScreen({
       ) : null}
 
       {sessionView ? <DepartmentPanel key={gatewayUrl} organization={organization} state={departmentPanel} onSelect={openDepartment} onClose={() => setDepartmentPanel(previous => ({ ...previous, open: false }))} tasks={{ ...currentTasks, error: status === "connected" ? currentTasks.error : "Current tasks are unavailable." }} onOpenTask={id => setTaskBoardRequest({ id })} /> : null}
+      {sessionView ? <ImportantNotificationBrief client={client} connected={status === "connected"} voice={voice} onOpenHead={handleOpenAgentChat} onOpenTask={openTaskDetails} /> : null}
       {sessionView && teaserBoardOpen ? <TeaserDashboard onClose={() => setTeaserBoardOpen(false)} target={teaserTarget} unavailableReason={status === "connected" ? teaserResolution.reason : "Connection unavailable. Please reconnect before sending."} solutionSender={teaserSolutions} onOpenSession={handleOpenAgentChat} /> : null}
 
       {sessionView ? <TaskBoard open={!!taskBoardRequest} taskId={taskBoardRequest?.id} phaseId={taskBoardRequest?.phaseId} onClose={() => setTaskBoardRequest(null)} onOpenSession={handleOpenAgentChat} client={client} connected={status === "connected"} /> : null}

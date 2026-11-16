@@ -56,10 +56,10 @@ function alive(pid) {
   }
 }
 function describe(bytes, file, validateBuild = false) {
-  const value = plist(bytes), kind = value.Label?.match(/^[\w.-]+\.claw3d\.(gateway|studio)$/)?.[1];
-  if (!kind) throw new Error("Only Office gateway/studio LaunchAgents are allowed");
+  const value = plist(bytes), kind = value.Label?.match(/^[\w.-]+\.claw3d\.(gateway|studio|auth)$/)?.[1];
+  if (!kind) throw new Error("Only Office gateway/studio/auth LaunchAgents are allowed");
   const args = value.ProgramArguments, cwd = value.WorkingDirectory;
-  const script = kind === "gateway" ? "server/codex-office-gateway.js" : "server/index.js";
+  const script = kind === "gateway" ? "server/codex-office-gateway.js" : kind === "auth" ? "server/web-access/index.js" : "server/index.js";
   if (!path.isAbsolute(cwd || "") || !Array.isArray(args) || args.length !== 2 ||
       args[1] !== path.join(cwd, script) || !path.isAbsolute(args[0])) {
     throw new Error(`Unexpected Office entry point: ${file}`);
@@ -134,7 +134,7 @@ async function healthy(service) {
   try {
     const value = plist(fs.readFileSync(service.plist));
     const token = value.EnvironmentVariables?.CLAW3D_PROXY_TOKEN;
-    const response = await fetch(service.health, { redirect: "error", signal: AbortSignal.timeout(600), headers: token ? { "x-office-proxy-token": token } : {} });
+    const response = await fetch(service.health, { redirect: "error", signal: AbortSignal.timeout(600), headers: { ...(token ? { "x-office-proxy-token": token } : {}), ...(service.kind === "auth" ? { "x-forwarded-proto": "https" } : {}) } });
     if (response.status !== 200) return false;
     return service.kind !== "gateway" || (await response.json()).ok === true;
   } catch { return false; }

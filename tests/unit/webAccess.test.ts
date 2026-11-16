@@ -328,3 +328,29 @@ describe("office form login", () => {
     expect(untrusted).toBe(403);
   });
 });
+
+it("keeps PWA files public only by exact path, preserves reminder return through login, and signs/revokes the real device", async () => {
+  const secret = "push-fixture-private-proxy-key-".repeat(2);
+  await stop(); await start(false, false, { proxyToken: secret });
+  let captured: string | undefined;
+  gateway.on("request", req => { captured = req.headers["x-office-push-identity"] as string | undefined; });
+  for (const route of ["/office-sw.js", "/office.webmanifest", "/office-icon-192.png", "/office-icon-512.png"]) {
+    const response = await fetch(base + route, { headers: { "x-office-push-identity": "forged" } }); expect(response.status).toBe(200); expect(captured).toBeUndefined();
+  }
+  expect((await fetch(base + "/office-sw.js/extra", { redirect: "manual" })).status).toBe(303);
+  expect((await fetch(base + "/api/health")).status).toBe(401);
+  const id="11111111-1111-4111-8111-111111111111";
+  expect((await fetch(base + `/office?notification=${id}`, {redirect:"manual"})).headers.get("location")).toBe(`/login?notification=${id}`);
+  const page=await fetch(base+`/login?notification=${id}`); const csrf=(await page.text()).match(/name="csrf" value="([^"]+)"/)?.[1] || "";
+  const signedIn=await fetch(base+"/auth/login",{method:"POST",redirect:"manual",headers:{Cookie:cookie(page),Origin:base},body:new URLSearchParams({username:credentials.username,password:credentials.password,csrf})});
+  expect(signedIn.headers.get("location")).toBe(`/office?notification=${id}`);
+  const loggedCookie=cookie(signedIn);
+  await fetch(base+"/office",{headers:{Cookie:loggedCookie,"x-office-push-identity":"forged"}});
+  const { readIdentity }=await import("../../server/office-push-identity.js"); const proof=readIdentity(captured,secret); expect(proof).toMatchObject({port:Number(new URL(base).port),origin:base.replace("http:","https:")});
+  const introspect=()=>fetch(base+"/internal/push-identity",{method:"POST",headers:{"content-type":"application/json","x-office-proxy-token":secret},body:JSON.stringify(proof)}).then(r=>r.json());
+  expect((await introspect()).valid).toBe(true);
+  const session=await fetch(base+"/auth/session",{headers:{Cookie:loggedCookie}}).then(r=>r.json());
+  await fetch(base+"/auth/logout",{method:"POST",headers:{Cookie:loggedCookie,Origin:base},body:new URLSearchParams({csrf:session.csrf})});
+  expect((await introspect()).valid).toBe(false);
+  expect((await fetch(base+"/internal/push-identity",{method:"POST",headers:{"content-type":"application/json"},body:"{}"})).status).toBe(401);
+});

@@ -60,14 +60,14 @@ async function fixture(t, kinds = ["gateway"]) {
   for (const kind of kinds) {
     const number = await port(), label = `test.${path.basename(root)}.claw3d.${kind}`;
     labels.push(label);
-    const entry = kind === "gateway" ? "codex-office-gateway.js" : "index.js";
+    const entry = kind === "gateway" ? "codex-office-gateway.js" : kind === "auth" ? "web-access/index.js" : "index.js";
     const value = release => ({ Label: label,
       ProgramArguments: [process.execPath, path.join(root, release, "server", entry)],
       WorkingDirectory: path.join(root, release), RunAtLoad: true, KeepAlive: false,
       StandardOutPath: path.join(root, `${kind}.log`), StandardErrorPath: path.join(root, `${kind}.err`),
     });
     for (const release of ["old", "new"]) {
-      fs.mkdirSync(path.join(root, release, "server"), { recursive: true });
+      fs.mkdirSync(path.join(root, release, "server", path.dirname(entry)), { recursive: true });
       fs.writeFileSync(path.join(root, release, "server", entry), `
 const http = require('node:http');
 const fs = require('node:fs');
@@ -346,5 +346,18 @@ test("real accepted cutover automatically removes a previously deployed obsolete
   assert.equal(result.cleanup.entries.find(row => row.path === obsolete)?.action, "removed");
   assert.ok(!fs.existsSync(obsolete));
   for (const name of ["old", "new"]) assert.ok(fs.existsSync(path.join(f.root, name)));
+  assert.equal(await version(f.services[0].health), "new");
+});
+
+// Authentication is the same independent controller with its fixed entry point.
+test("prepares the existing Auth service without requiring or changing Studio", mac, async t => {
+  const f = await fixture(t, ["auth"]);
+  const planFile = path.join(f.root, "auth-plan.json");
+  fs.writeFileSync(planFile, JSON.stringify({ services: f.services }));
+  const job = prepare(planFile, path.join(f.root, "jobs"));
+  assert.equal(job.services[0].kind, "auth");
+  assert.equal(job.services.length, 1);
+  const result = await f.start();
+  assert.equal(result.phase, "succeeded", JSON.stringify(result));
   assert.equal(await version(f.services[0].health), "new");
 });
