@@ -54,13 +54,13 @@ export function NotificationSettings({ client, connected }: { client: SessionCli
     } catch { if (generation.current === current) setError("Could not finish disabling reminders. Reconnect and retry."); }
     finally { if (generation.current === current) setBusy(false); }
   };
-  return <section className="space-y-3 text-sm text-[var(--foreground)]" aria-label="Important task reminders">
+  return <section className="space-y-3 rounded-lg bg-[var(--card)] p-4 text-sm text-[var(--foreground)]" aria-label="Important task reminders">
     <h3 className="font-semibold text-[var(--foreground)]">Important task reminders</h3>
     <p>Heads can notify you about verified results, needed decisions and real blockers. Routine progress stays in the task.</p>
     <p>iPhone: open this address in Safari, Share → Add to Home Screen. Open the installed Office, then enable notifications here. Requires iOS 16.4 or later.</p>
     <p className="text-amber-800 dark:text-amber-100">This is a temporary address. If it changes, add Office to your Home Screen again and grant permission and subscribe again. Notifications cannot move between addresses.</p>
     <p>Lock-screen text stays generic. Open Office and sign in to read the brief. Focus, browser and network settings can delay or block delivery.</p>
-    <p role="status">{!supported ? "Push notifications are unavailable here. On iPhone, use the Home Screen app." : !connected ? "Disconnected — reconnect to manage reminders." : settings?.enabled ? "Enabled on this installation" : settings ? "Not enabled on this installation" : "Loading reminder settings…"}</p>
+    <p role="status">{!supported ? "Push notifications are unavailable here. On iPhone, use the Home Screen app." : !connected ? "Disconnected — reconnect to manage reminders." : settings?.enabled ? "Enabled on this installation" : settings ? "Not enabled on this installation" : error ? "Reminders unavailable — reconnect and retry." : "Loading reminder settings…"}</p>
     {supported ? <div className="flex flex-wrap gap-2"><button type="button" className={button} disabled={!connected || !settings || busy} onClick={() => void enable()}>{settings?.enabled ? "Refresh subscription" : "Enable notifications"}</button><button type="button" className={button} disabled={!connected || !settings?.enabled || busy} onClick={() => void disable()}>Disable on this device</button></div> : null}
     {error || settings?.lastError ? <p role="alert" className="text-rose-700 dark:text-rose-200 break-words">{error || settings?.lastError}</p> : null}
   </section>;
