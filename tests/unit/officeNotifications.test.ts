@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 const require = createRequire(import.meta.url);
-const { OfficeNotifications, subscription } = require("../../server/office-notifications");
+const { OfficeNotifications, subscription, pushProxy, pushError } = require("../../server/office-notifications");
 const { PushIdentity, signIdentity, readIdentity } = require("../../server/office-push-identity");
 const close: Array<() => unknown> = [];
 afterEach(async () => { for (const action of close.splice(0).reverse()) await action(); });
@@ -89,4 +89,42 @@ it("rebinds an existing subscription after website re-login without duplicating 
  const renewed={...identity,device:"22222222-2222-4222-8222-222222222222"};await f.store.subscribe(renewed,sub);
  expect(f.store.data.subscriptions).toHaveLength(1);expect((await f.store.settings(identity)).enabled).toBe(false);expect((await f.store.settings(renewed)).enabled).toBe(true);
  await f.store.notify(input);f.advance(1000);await f.store.flush();expect(f.send).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+ [{HTTPS_PROXY:"http://127.0.0.1:7890"},"http://127.0.0.1:7890"],
+ [{HTTP_PROXY:"http://proxy:8080"},"http://proxy:8080"],
+ [{ALL_PROXY:"http://proxy:8081"},"http://proxy:8081"],
+ [{https_proxy:"http://lower:8080",HTTPS_PROXY:"http://upper:8080"},"http://lower:8080"],
+ [{HTTPS_PROXY:"http://proxy:8",NO_PROXY:"localhost, fcm.googleapis.com"},undefined],
+ [{HTTPS_PROXY:"http://proxy:8",NO_PROXY:".googleapis.com:443"},undefined],
+ [{HTTPS_PROXY:"http://proxy:8",no_proxy:"*.googleapis.com"},undefined],
+ [{HTTPS_PROXY:"http://proxy:8",NO_PROXY:"*googleapis.com"},undefined],
+ [{HTTPS_PROXY:"http://proxy:8",NO_PROXY:"*"},undefined],
+ [{HTTPS_PROXY:"http://proxy:8",NO_PROXY:"fcm.googleapis.com:8443"},"http://proxy:8"],
+ [{HTTPS_PROXY:"http://proxy:8",NO_PROXY:"googleapis.com"},"http://proxy:8"],
+ [{},undefined],
+])("selects only the configured outbound push route %j", (env,expected)=>expect(pushProxy(sub.endpoint,env)).toBe(expected));
+it("rejects unsupported proxy configuration with a bounded code",()=>{
+ expect(()=>pushProxy(sub.endpoint,{ALL_PROXY:"socks5://proxy:8"})).toThrow("Invalid push proxy");
+ expect(pushError({code:"https://private",message:"secret",body:"private",statusCode:999})).toEqual({code:"TRANSPORT_ERROR",statusCode:null});
+ expect(pushError(new Error("Socket timeout"))).toEqual({code:"ETIMEDOUT",statusCode:null});
+});
+it("passes the proxy only to push sends and persists safe failure fields",async()=>{
+ const send=vi.fn<(...args: unknown[]) => Promise<unknown>>(async()=>{throw Object.assign(new Error("private endpoint keys body"),{code:"ECONNREFUSED",body:"private",headers:{secret:"private"}})});
+ const f=fixture(send,{env:{HTTPS_PROXY:"http://127.0.0.1:7890",NO_PROXY:"localhost,127.0.0.1"}});await f.store.subscribe(identity,sub);await f.store.notify(input);f.advance(1000);await f.store.flush();
+ expect(send.mock.calls[0][2]).toMatchObject({proxy:"http://127.0.0.1:7890"});
+ const delivery=Object.values(f.store.data.events[0].delivery)[0];expect(delivery).toMatchObject({attempts:1,error:{code:"ECONNREFUSED",statusCode:null}});
+ expect(JSON.stringify(delivery)).not.toContain("private");expect(f.store.data.subscriptions[0].lastError).toContain("ECONNREFUSED");
+});
+it("the installed web-push uses its explicit CONNECT proxy without contacting a real device",async()=>{
+ const http=await import("node:http"),crypto=await import("node:crypto"),webpush=require("web-push");
+ const proxy=http.createServer();let connects=0;
+ proxy.on("connect",(_req,socket)=>{connects++;socket.end("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");});
+ await new Promise<void>(resolve=>proxy.listen(0,"127.0.0.1",resolve));
+ try {
+  const port=(proxy.address() as {port:number}).port,key=crypto.createECDH("prime256v1");key.generateKeys();
+  await expect(webpush.sendNotification({endpoint:sub.endpoint,keys:{p256dh:key.getPublicKey().toString("base64url"),auth:Buffer.alloc(16,1).toString("base64url")}},"fixture",{proxy:`http://127.0.0.1:${port}`,timeout:1000,vapidDetails:{subject:identity.origin,...webpush.generateVAPIDKeys()}})).rejects.toMatchObject({statusCode:502});
+  expect(connects).toBe(1);
+ } finally {await new Promise<void>((resolve,reject)=>proxy.close(e=>e?reject(e):resolve()));}
 });

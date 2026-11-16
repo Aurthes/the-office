@@ -20,9 +20,32 @@ function subscription(value) {
   if (!keys || !/^[A-Za-z0-9_-]{87}$/.test(keys.p256dh) || !/^[A-Za-z0-9_-]{22}$/.test(keys.auth) || Buffer.from(keys.p256dh, "base64url").length !== 65 || Buffer.from(keys.auth, "base64url").length !== 16) throw new Error("Invalid push keys");
   return { endpoint: url.href, keys: { p256dh: keys.p256dh, auth: keys.auth } };
 }
+// Keep outbound push transport separate from loopback identity requests.
+function pushProxy(endpoint, env) {
+  const url = new URL(endpoint), host = url.hostname.toLowerCase(), port = url.port || "443";
+  const exclusions = (env.no_proxy || env.NO_PROXY || "").toLowerCase().split(/[\s,]+/).filter(Boolean);
+  if (exclusions.some(entry => {
+    if (entry === "*") return true;
+    const match = /^(.*):(\d+)$/.exec(entry);
+    if (match) { if (match[2] !== port) return false; entry = match[1]; }
+    if (entry.startsWith("*")) return host.endsWith(entry.slice(1));
+    return entry.startsWith(".") ? host.endsWith(entry) : host === entry;
+  })) return undefined;
+  const proxy = env.https_proxy || env.HTTPS_PROXY || env.http_proxy || env.HTTP_PROXY || env.all_proxy || env.ALL_PROXY;
+  if (!proxy) return undefined;
+  try { if (["http:", "https:"].includes(new URL(proxy).protocol)) return proxy; } catch { /* project a safe code below */ }
+  throw Object.assign(new Error("Invalid push proxy configuration"), { code: "EPROXYCONFIG" });
+}
+function pushError(error) {
+  const value = Number(error?.statusCode);
+  const statusCode = Number.isInteger(value) && value >= 100 && value <= 599 ? value : null;
+  const allowed = ["ETIMEDOUT", "ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH", "EPROTO", "CERT_HAS_EXPIRED", "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "EPROXYCONFIG"];
+  const code = allowed.includes(error?.code) ? error.code : error?.message === "Socket timeout" ? "ETIMEDOUT" : statusCode ? "HTTP_ERROR" : "TRANSPORT_ERROR";
+  return { code, statusCode };
+}
 class OfficeNotifications {
-  constructor(directory, { actor, owner, now = Date.now, send = webpush.sendNotification, changed = () => {}, mergeMs = 1500 } = {}) {
-    this.actor = actor; this.owner = owner; this.now = now; this.send = send; this.changed = changed; this.mergeMs = mergeMs;
+  constructor(directory, { actor, owner, now = Date.now, send = webpush.sendNotification, changed = () => {}, mergeMs = 1500, env = process.env } = {}) {
+    this.env = env; this.actor = actor; this.owner = owner; this.now = now; this.send = send; this.changed = changed; this.mergeMs = mergeMs;
     this.filename = path.join(directory, "important-notifications.json");
     const keysFile = path.join(directory, "push-vapid.json");
     try {
@@ -136,13 +159,15 @@ class OfficeNotifications {
         await this.persist(); // Durable before external I/O; replay replaces the same visible tag.
         try {
           await this.send(sub.subscription, JSON.stringify({ eventId: event.id }), { TTL: 3600, urgency: "normal", topic: hash(event.id).slice(0, 32), timeout: 10000,
+            proxy: pushProxy(sub.subscription.endpoint, this.env),
             vapidDetails: { subject: sub.origin, publicKey: this.keys.publicKey, privateKey: this.keys.privateKey } });
-          if (event.version === version) { delivery.done = "accepted"; sub.lastError = null; }
+          if (event.version === version) { delivery.done = "accepted"; delete delivery.error; sub.lastError = null; }
         } catch (error) {
-          const status = Number(error.statusCode);
+          const safe = pushError(error), status = safe.statusCode;
+          if (event.version === version) delivery.error = safe;
           if ([404, 410].includes(status)) { this.data.subscriptions = this.data.subscriptions.filter(s => s.id !== id); delivery.done = "retired"; }
           else if (event.version === version) {
-            sub.lastError = status === 401 || status === 403 ? "Push authorization failed; enable this device again" : "Push delivery failed; retries are limited";
+            sub.lastError = status === 401 || status === 403 ? "Push authorization failed; enable this device again" : `Push delivery failed (${safe.statusCode || safe.code}); retries are limited`;
             if (status && status !== 429 && status < 500) delivery.done = "failed";
           }
         }
@@ -154,4 +179,4 @@ class OfficeNotifications {
   }
   async close() { this.closed = true; clearTimeout(this.timer); await this.writes; }
 }
-module.exports = { OfficeNotifications, subscription };
+module.exports = { OfficeNotifications, subscription, pushProxy, pushError };
