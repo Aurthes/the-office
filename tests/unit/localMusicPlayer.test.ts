@@ -168,14 +168,14 @@ it("keeps Random Mix as the default and avoids a repeat at a batch boundary", as
   fireEvent.ended(audio); await waitFor(() => expect(audio).toHaveAttribute("src", "/api/music/local?id=one"));
 });
 
-it.each([0, 0.64, 1])("starts actual local audio and mini volume at 25%, then preserves user volume %s across tracks and panel changes", async value => {
+it.each([0, 0.64, 1])("starts actual local audio and mini volume at 15%, then preserves user volume %s across tracks and panel changes", async value => {
   localStorage.setItem(MUSIC_PROVIDER_KEY, "local");
   const view = render(createElement(MusicPlayerDialog, { ...props, autoPlay: true, open: false }));
   const audio = document.querySelector("audio")!;
-  expect(audio.volume).toBe(0.25);
+  expect(audio.volume).toBe(0.15);
   await waitFor(() => expect(audio).toHaveAttribute("src", "/api/music/local?id=one"));
   fireEvent.click(screen.getByRole("button", { name: "Music volume" }));
-  expect(screen.getByRole("slider", { name: "Music volume" })).toHaveValue("0.25");
+  expect(screen.getByRole("slider", { name: "Music volume" })).toHaveValue("0.15");
   fireEvent.change(screen.getByRole("slider"), { target: { value: String(value) } });
   expect(audio.volume).toBe(value);
   fireEvent.loadedMetadata(audio); fireEvent.click(screen.getByRole("button", { name: "Next track" }));
