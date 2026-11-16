@@ -99,6 +99,7 @@ function createWebAccessServer({ dataDir, credentials, upstream = "http://127.0.
   const attachPushIdentity = req => {
     if (!proxyToken) return;
     const device = pushIdentity.register(req.session);
+    if (!device) return; // Optional reminder failure must not block ordinary authenticated Office.
     req.officePushIdentity = signIdentity({ owner: pushIdentity.fingerprint(), device, origin: `https://${req.headers.host}`, port: req.socket.localPort }, proxyToken);
   };
   const proxy = httpProxy.createProxyServer({ target: upstream, ws: true });

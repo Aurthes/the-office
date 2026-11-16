@@ -354,3 +354,8 @@ it("keeps PWA files public only by exact path, preserves reminder return through
   expect((await introspect()).valid).toBe(false);
   expect((await fetch(base+"/internal/push-identity",{method:"POST",headers:{"content-type":"application/json"},body:"{}"})).status).toBe(401);
 });
+it("keeps ordinary login and Office available when the optional push identity file is corrupt", async()=>{
+ await stop();const {writeFileSync,readFileSync}=await import("node:fs");writeFileSync(join(dataDir,"push-devices.json"),"broken");await start(false,false,{proxyToken:"corrupt-feature-fixture-token".repeat(2)});
+ const signed=await login();const response=await fetch(base+"/office",{headers:{Cookie:signed.cookie}});expect(response.status).toBe(200);expect(readFileSync(join(dataDir,"push-devices.json"),"utf8")).toBe("broken");
+ const state=await fetch(base+"/auth/session",{headers:{Cookie:signed.cookie}}).then(r=>r.json());expect((await fetch(base+"/auth/logout",{method:"POST",headers:{Cookie:signed.cookie,Origin:base},body:new URLSearchParams({csrf:state.csrf})})).status).toBe(204);
+});

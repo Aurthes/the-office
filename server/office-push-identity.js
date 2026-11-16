@@ -28,19 +28,24 @@ function writePrivate(filename, data) {
 class PushIdentity {
   constructor(directory, owner) {
     this.filename = path.join(directory, "push-devices.json"); this.owner = owner;
-    this.devices = fs.existsSync(this.filename) ? JSON.parse(fs.readFileSync(this.filename, "utf8")) : [];
+    try {
+      this.devices = fs.existsSync(this.filename) ? JSON.parse(fs.readFileSync(this.filename, "utf8")) : [];
+      if (!Array.isArray(this.devices) || this.devices.length > 128 || this.devices.some(d => !d || typeof d.id !== "string" || typeof d.owner !== "string")) throw new Error("Invalid device state");
+    } catch { this.devices = []; this.unavailable = true; }
   }
   fingerprint() { return digest(this.owner()); }
   register(session) {
+    if (this.unavailable) return null;
     const owner = this.fingerprint();
     if (!session.pushDevice || !this.devices.some(d => d.id === session.pushDevice && d.owner === owner)) {
       session.pushDevice = crypto.randomUUID();
       this.devices = [...this.devices.filter(d => d.owner === owner), { id: session.pushDevice, owner }].slice(-128);
-      writePrivate(this.filename, this.devices);
+      try { writePrivate(this.filename, this.devices); }
+      catch { this.unavailable = true; return null; }
     }
     return session.pushDevice;
   }
-  valid(value) { return value.owner === this.fingerprint() && this.devices.some(d => d.id === value.device && d.owner === value.owner); }
-  revoke(device) { this.devices = this.devices.filter(d => d.id !== device); writePrivate(this.filename, this.devices); }
+  valid(value) { return !this.unavailable && value.owner === this.fingerprint() && this.devices.some(d => d.id === value.device && d.owner === value.owner); }
+  revoke(device) { if (this.unavailable) return; this.devices = this.devices.filter(d => d.id !== device); try { writePrivate(this.filename, this.devices); } catch { this.unavailable = true; } }
 }
 module.exports = { HEADER, signIdentity, readIdentity, PushIdentity, writePrivate };
