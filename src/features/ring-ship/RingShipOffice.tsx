@@ -379,8 +379,11 @@ export function RingShipOffice(props: Props) {
   const { agents, companyRoster, companyActions, onOpenTeaserBoard, onCloseTeaserBoard, gatewayStatus = "disconnected", officeTitle = "Orbital Headquarters", storageNamespace = "default", gatewayUrl = "", officeCenterSignal = 0, navigationPreview = true } = props;
   const roster = companyRoster || EMPTY_ROSTER;
   const layout = useShipLayout(companyRoster || null, `claw3d:ship:v1:${storageNamespace}:${gatewayUrl}`);
-  const { state: navigation, dispatch: navigate } = useStarNavigation(`claw3d:star-system:${storageNamespace}`);
+  const patchExperience = props.experience?.patch;
+  const recordGalaxy = useCallback((galaxy: typeof STAR_SYSTEMS[number]["id"]) => patchExperience?.({ galaxy }), [patchExperience]);
+  const { state: navigation, dispatch: navigate } = useStarNavigation(`claw3d:star-system:${storageNamespace}`, props.experience ? { ready: props.experience.ready, galaxy: props.experience.value.galaxy, onArrive: recordGalaxy } : undefined);
   const system = navigationPreview ? starSystem(navigation.current) : STAR_SYSTEMS[0];
+  const listeningSystem = navigation.phase === "idle" && !navigation.arrived && props.experience?.value.galaxy ? starSystem(props.experience.value.galaxy) : system;
   const activityEnabled = navigationPreview;
   const spaceMotion = useRef(emptySpaceMotion()), spaceCaption = useRef<HTMLElement | null>(null);
   const navigationOpen = navigationPreview && navigation.phase !== "idle";
@@ -607,7 +610,7 @@ export function RingShipOffice(props: Props) {
           {!navigationOpen && props.organization?.openDepartment ? <DepartmentOverviewButton layout={currentLayout} cabin={cabin} onOpen={() => props.organization?.openDepartment?.()} /> : null}
           {!navigationOpen ? <TaskWhiteboard layout={currentLayout} cabin={cabin} onOpen={openTaskBoard} /> : null}
           {!navigationOpen ? <TaskRoomScreen layout={currentLayout} cabin={cabin} onOpen={openTasks} /> : null}
-          {navigationPreview ? <NavigationConsole layout={currentLayout} cabin={cabin} state={navigation} onAction={action => { closeObject(); navigate(action); }} disabled={busy || !!returnFlight || !!props.activeChatAgentId || navigation.phase === "warp"} /> : null}
+          {navigationPreview ? <NavigationConsole layout={currentLayout} cabin={cabin} state={navigation} onAction={action => { closeObject(); navigate(action); }} disabled={busy || !!returnFlight || !!props.activeChatAgentId || navigation.phase === "warp" || props.experience?.ready === false} /> : null}
         </group>)}
         {visibleDeck === 0 && !navigationOpen ? currentLayout.cabins.filter(c => c.kind === "servers").map(cabin => <ServerRoomScreen key={cabin.id} layout={currentLayout} cabin={cabin} hosts={serverHosts} showLabels={objectEnabled && selected?.id === cabin.id} onOpen={openServers} />) : null}
       </group> : null}
@@ -664,7 +667,7 @@ export function RingShipOffice(props: Props) {
     {navigationPreview && !navigationOpen ? <div className="star-location"><span style={{ color: system.color }}>{t(system.name)}</span><small>{t(system.description)}</small>{activityEnabled ? <small ref={spaceCaption} className="star-cruise-status">{t("Cruising")}</small> : null}</div> : null}
     </div>
     </div>
-    <MusicPlayerDialog autoPlay open={musicOpen} scene={system.id} sceneName={system.name} onOpen={() => setMusicOpen(true)} onClose={() => setMusicOpen(false)} />
+    <MusicPlayerDialog autoPlay={!props.experience} preferences={props.experience} autoSceneChange={navigation.arrived} open={musicOpen} scene={listeningSystem.id} sceneName={listeningSystem.name} onOpen={() => setMusicOpen(true)} onClose={() => setMusicOpen(false)} />
     {navigationOpen && navigation.phase !== "warp" ? <NavigationOverlay state={navigation} onAction={navigate} /> : null}
     {navigationPreview && navigation.phase === "warp" && navigation.destination ? <WarpJourney destination={starSystem(navigation.destination)} onArrive={arriveSystem} onComplete={completeWarp} /> : null}
     <MonitorDashboard open={monitorOpen} onClose={() => setMonitorOpen(false)} />

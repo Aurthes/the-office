@@ -1,3 +1,4 @@
+import { mergeExperience, type ExperiencePreference } from "./experience";
 import { mergeDepartmentAssetPatches } from "@/lib/office/department-assets";
 import { fetchJson } from "@/lib/http";
 import type { AgentAvatarProfile } from "@/lib/avatars/profile";
@@ -236,6 +237,8 @@ const mergeStudioPatch = (
 ): StudioSettingsPatch => {
   if (!current) {
     return {
+      ...(next.experience !== undefined ? { experience: mergeExperience(undefined, next.experience) } : {}),
+      ...(next.experienceSeed !== undefined ? { experienceSeed: mergeExperience(undefined, next.experienceSeed) } : {}),
       ...(next.gateway !== undefined ? { gateway: mergeGatewayPatch(undefined, next.gateway) } : {}),
       ...(next.activeFloorId !== undefined ? { activeFloorId: next.activeFloorId } : {}),
       ...(next.focused ? { focused: { ...next.focused } } : {}),
@@ -247,6 +250,8 @@ const mergeStudioPatch = (
       ...(next.officeFloors ? { officeFloors: { ...next.officeFloors } } : {}),
     };
   }
+  const experience = current.experience || next.experience ? mergeExperience(current.experience, next.experience) : undefined;
+  const experienceSeed = current.experienceSeed || next.experienceSeed ? mergeExperience(current.experienceSeed, next.experienceSeed) : undefined;
   const focused = mergeFocusedPatch(current.focused, next.focused);
   const avatars = mergeAvatarsPatch(current.avatars, next.avatars);
   const deskAssignments = mergeDeskAssignmentsPatch(
@@ -269,6 +274,8 @@ const mergeStudioPatch = (
       : current.activeFloorId !== undefined
         ? { activeFloorId: current.activeFloorId }
         : {}),
+    ...(experience ? { experience } : {}),
+    ...(experienceSeed ? { experienceSeed } : {}),
     ...(focused ? { focused } : {}),
     ...(avatars ? { avatars } : {}),
     ...(deskAssignments ? { deskAssignments } : {}),
@@ -280,6 +287,8 @@ const mergeStudioPatch = (
 };
 
 export class StudioSettingsCoordinator {
+  private experienceOverlay: ExperiencePreference = {};
+  private experienceGeneration = 0;
   private pendingPatch: StudioSettingsPatch | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private queue: Promise<void> = Promise.resolve();
@@ -295,6 +304,7 @@ export class StudioSettingsCoordinator {
   ) {}
 
   private primeCache(response: StudioSettingsResponse): StudioSettingsResponse {
+    response = { ...response, settings: { ...response.settings, ...(response.settings.experience || Object.keys(this.experienceOverlay).length ? { experience: mergeExperience(response.settings.experience, this.experienceOverlay) } : {}) } };
     this.cachedEnvelope = response;
     this.cachedAtMs = Date.now();
     return response;
@@ -333,9 +343,10 @@ export class StudioSettingsCoordinator {
     // that need authoritative state (e.g. useGatewayConnection on startup)
     // always get a fresh fetch rather than a possibly-stale pending one.
 
+    const generation = this.experienceGeneration;
     const loadPromise = this.transport
       .fetchSettings()
-      .then((response) => this.primeCache(response))
+      .then((response) => generation === this.experienceGeneration ? this.primeCache(response) : { ...response, settings: { ...response.settings, experience: mergeExperience(response.settings.experience, this.experienceOverlay) } })
       .finally(() => {
         if (this.pendingLoadPromise === loadPromise) {
           this.pendingLoadPromise = null;
@@ -353,6 +364,8 @@ export class StudioSettingsCoordinator {
       void this.applyPatchNow(patch).catch(err => console.error("Failed to reset department descriptions.", err));
       return;
     }
+    if (patch.experience || patch.experienceSeed) this.experienceGeneration++;
+    if (patch.experience) this.experienceOverlay = mergeExperience(this.experienceOverlay, patch.experience);
     this.pendingPatch = mergeStudioPatch(this.pendingPatch, patch);
     if (this.timer) {
       clearTimeout(this.timer);
@@ -367,6 +380,8 @@ export class StudioSettingsCoordinator {
 
   async applyPatchNow(patch: StudioSettingsPatch): Promise<void> {
     if (this.disposed) return;
+    if (patch.experience || patch.experienceSeed) this.experienceGeneration++;
+    if (patch.experience) this.experienceOverlay = mergeExperience(this.experienceOverlay, patch.experience);
     this.pendingPatch = mergeStudioPatch(this.pendingPatch, patch);
     await this.flushPending();
   }

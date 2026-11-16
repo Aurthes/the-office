@@ -12,9 +12,10 @@ export type StarSystemId = StarSystem["id"];
 export const starSystem = (id: string | null): StarSystem => STAR_SYSTEMS.find(system => system.id === id) ?? STAR_SYSTEMS[0];
 
 export type NavigationState = { current: StarSystemId; destination: StarSystemId | null; phase: "idle" | "chart" | "confirm" | "warp"; arrived: boolean };
-export type NavigationAction = { type: "open" | "close" | "cancel" | "engage" | "arrive" | "complete" } | { type: "select"; id: StarSystemId };
+export type NavigationAction = { type: "restore"; id: StarSystemId } | { type: "open" | "close" | "cancel" | "engage" | "arrive" | "complete" } | { type: "select"; id: StarSystemId };
 
 export function navigationReducer(state: NavigationState, action: NavigationAction): NavigationState {
+  if (action.type === "restore") return { current: action.id, destination: null, phase: "idle", arrived: false };
   if (action.type === "open" && state.phase === "idle") return { ...state, phase: "chart", destination: null };
   if (action.type === "close" && (state.phase === "chart" || state.phase === "confirm")) return { ...state, phase: "idle", destination: null };
   if (action.type === "select" && state.phase === "chart") {

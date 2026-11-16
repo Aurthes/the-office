@@ -1,4 +1,5 @@
 "use client";
+import { useExperiencePreferences } from "@/features/ring-ship/useExperiencePreferences";
 
 import {
   type ReactNode,
@@ -956,6 +957,7 @@ export function OfficeScreen({
     [activeFloorId],
   );
 
+  const experience = useExperiencePreferences(settingsCoordinator, sessionView);
   useEffect(() => {
     activeFloorIdRef.current = activeFloorId;
   }, [activeFloorId]);
@@ -3420,6 +3422,7 @@ export function OfficeScreen({
           agents={sessionView && !companyRoster ? [] : allVisibleAgents}
           organization={sessionView ? organization : undefined}
           storageNamespace={activeFloor.id}
+          experience={sessionView ? experience : undefined}
           layoutPreset={activeFloor.kind === "lobby" ? "lobby" : "office"}
           officeCenterSignal={officeCameraCenterSignal}
           animationState={officeAnimationState}

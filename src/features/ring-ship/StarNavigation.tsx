@@ -7,17 +7,22 @@ import { useUiText } from "@/lib/i18n/ui-language";
 import { cabinAngle, shipPoint, type ShipCabin, type ShipLayout } from "./layout";
 import { navigationReducer, STAR_SYSTEMS, starSystem, type NavigationAction, type NavigationState, type StarSystemId } from "./galaxy";
 
-export function useStarNavigation(key: string) {
+export function useStarNavigation(key: string, saved?: { ready: boolean; galaxy?: string; onArrive: (id: typeof STAR_SYSTEMS[number]["id"]) => void }) {
   const [state, dispatch] = useReducer(navigationReducer, key, storageKey => {
     let id: string | null = null;
     try { id = localStorage.getItem(storageKey); } catch { /* Storage is optional. */ }
     return { current: starSystem(id).id, destination: null, phase: "idle", arrived: false } as NavigationState;
   });
-  const { current, arrived } = state;
+  const { current, arrived, phase } = state;
+  const ready = saved?.ready, galaxy = saved?.galaxy, onArrive = saved?.onArrive;
+  useEffect(() => {
+    if (ready && galaxy && !arrived && phase === "idle" && current !== galaxy) dispatch({ type: "restore", id: starSystem(galaxy).id });
+  }, [ready, galaxy, phase, current, arrived]);
   useEffect(() => {
     if (!arrived) return;
+    onArrive?.(current);
     try { localStorage.setItem(key, current); } catch { /* The current view still works. */ }
-  }, [key, current, arrived]);
+  }, [key, current, arrived, onArrive]);
   return { state, dispatch };
 }
 

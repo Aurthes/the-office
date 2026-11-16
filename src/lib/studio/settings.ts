@@ -1,3 +1,4 @@
+import { mergeExperience, normalizeExperience, type ExperiencePreference } from "./experience";
 import { normalizeDepartmentAssets, mergeDepartmentAssets, type DepartmentAssets, type DepartmentAssetPatch } from "@/lib/office/department-assets";
 import { normalizeAgentInterfaces, mergeAgentInterfaces, type AgentInterfaces, type AgentInterfacePatch } from "@/lib/office/agent-interface";
 import { CEO_ID, LEGACY_CEO_ID, normalizeOrganization, mergeOrganization, type OfficeOrganization, type OfficePosition } from "@/lib/office/organization";
@@ -183,6 +184,7 @@ export type StudioFloorRuntimeStatePatch = {
 };
 
 export type StudioSettings = {
+  experience?: ExperiencePreference;
   version: 1;
   gateway: StudioGatewaySettings | null;
   activeFloorId: FloorId;
@@ -202,6 +204,8 @@ export type StudioSettingsPublic = Omit<StudioSettings, "gateway" | "office"> & 
 };
 
 export type StudioSettingsPatch = {
+  experience?: ExperiencePreference;
+  experienceSeed?: ExperiencePreference;
   gateway?: StudioGatewaySettingsPatch | null;
   activeFloorId?: FloorId | null;
   officeFloors?: Partial<Record<FloorId, StudioFloorRuntimeStatePatch | null>>;
@@ -910,6 +914,7 @@ export const normalizeStudioSettings = (raw: unknown): StudioSettings => {
 
   return {
     version: SETTINGS_VERSION,
+    ...(raw.experience !== undefined ? { experience: normalizeExperience(raw.experience) } : {}),
     gateway,
     activeFloorId,
     officeFloors,
@@ -1072,6 +1077,7 @@ export const mergeStudioSettings = (
 
   return {
     version: SETTINGS_VERSION,
+    ...(current.experience !== undefined || patch.experience !== undefined || patch.experienceSeed !== undefined ? { experience: mergeExperience(mergeExperience(current.experience, patch.experienceSeed, true), patch.experience) } : {}),
     gateway: nextGateway ?? null,
     activeFloorId: nextActiveFloorId,
     officeFloors: nextOfficeFloors,

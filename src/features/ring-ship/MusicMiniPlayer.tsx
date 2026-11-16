@@ -1,9 +1,11 @@
 "use client";
+import type { ExperiencePreference } from "@/lib/studio/experience";
 import { useState } from "react";
 import { Pause, Play, SkipForward, Square, Volume2 } from "lucide-react";
 import { useUiText } from "@/lib/i18n/ui-language";
 
 export type MusicPlayerProps = {
+  preference?: ExperiencePreference["music"]; onPreference?: (value: NonNullable<ExperiencePreference["music"]>) => void; autoSceneChange?: boolean;
   autoPlay: boolean; scene: string; sceneName: string; controlsTarget: HTMLElement | null;
   minimized: boolean; onOpen: () => void; onStop: () => void;
 };

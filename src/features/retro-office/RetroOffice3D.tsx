@@ -1,4 +1,5 @@
 "use client";
+import type { ExperienceController } from "@/features/ring-ship/useExperiencePreferences";
 
 import {
   Pencil,
@@ -1880,6 +1881,7 @@ export function RetroOffice3D({
   monitorAgentId?: string | null;
   monitorByAgentId?: OfficeDeskMonitorMap;
 
+  experience?: ExperienceController;
   voiceSettings?: React.ReactNode;
   notificationSettings?: React.ReactNode;
   officeTitle?: string;
