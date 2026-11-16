@@ -4,6 +4,7 @@ const next = require("next");
 
 const { createAccessGate } = require("./access-gate");
 const { createAccountMonitorProxy } = require("./account-monitor-proxy");
+const { createMmPnlProxy } = require("./mm-pnl-proxy");
 const { createGatewayProxy } = require("./gateway-proxy");
 const { assertPublicHostAllowed, resolveHosts } = require("./network-policy");
 const { loadUpstreamGatewaySettings } = require("./studio-settings");
@@ -106,6 +107,7 @@ async function main() {
     required: process.env.NEXT_PUBLIC_CLAW3D_WEB_ACCESS === "1",
   });
   const accountMonitor = createAccountMonitorProxy(process.env.CLAW3D_ACCOUNT_MONITOR_URL);
+  const mmPnl = createMmPnlProxy();
 
   const proxy = createGatewayProxy({
     hostTokenOnly: process.env.CLAW3D_CODEX_GATEWAY === "1",
@@ -151,6 +153,7 @@ async function main() {
           if (!sameOrigin(req)) { res.writeHead(403); res.end("Origin rejected"); return; }
           if (accessGate.handleHttp(req, res)) return;
           if (accountMonitor(req, res)) return;
+          if (mmPnl(req, res)) return;
           handle(req, res);
         })
       : http.createServer((req, res) => {
@@ -158,6 +161,7 @@ async function main() {
           if (!sameOrigin(req)) { res.writeHead(403); res.end("Origin rejected"); return; }
           if (accessGate.handleHttp(req, res)) return;
           if (accountMonitor(req, res)) return;
+          if (mmPnl(req, res)) return;
           handle(req, res);
         });
 
