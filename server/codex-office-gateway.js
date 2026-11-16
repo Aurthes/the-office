@@ -13,6 +13,7 @@ const { CodexSessionWorkspace } = require("./codex-session-workspace");
 const { CodexOfficeVoice } = require("./codex-office-voice");
 const { loadSessionHistoryPage } = require("./codex-session-history");
 const { createOfficeDictation } = require("./office-model-services");
+const { createOfficeVoicePreviews } = require("./office-voice-previews");
 const { CodexSessionPredictions } = require("./codex-session-predictions");
 const { readAiCenter } = require("./ai-center");
 const { OfficeTokenUsage, userUsage } = require("./office-token-usage");
@@ -280,6 +281,7 @@ const methods = {
   "session.settings.choices": p => { store.get(p.threadId); return controls.choices(p.threadId); },
   "session.settings.update": p => { store.get(p.threadId); if (voice.active?.threadId === p.threadId) throw new Error("End the voice call before changing settings"); return controls.updateSettings(p.threadId, p.settings); },
   "session.voice.options": () => voice.choices(),
+  "session.voice.previews": p => voicePreviews.read(p),
   "session.voice.start": async (p, ws) => { store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before calling"); if (controls.state(p.threadId).editUncertain && !await controls.reconcileEdit(p.threadId)) throw new Error("A previous rewind is still unconfirmed. Wait before calling."); if (controls.state(p.threadId).editCommit) throw new Error("Wait for the edit to finish before calling"); return voice.start(ws, p.threadId, p.sdp, p.voiceId, p.voice); },
   "session.voice.stop": (p, ws) => { store.get(p.threadId); return voice.stop(ws, p.threadId, p.voiceId); },
   "session.question.reply": async p => {
@@ -310,6 +312,10 @@ const methods = {
   "agents.files.get": async () => ({ file: { missing: true } }),
   "exec.approvals.get": async () => ({ file: { agents: {} } }),
 };
+const voicePreviews = createOfficeVoicePreviews({ home: native.home,
+  readVoices: async () => (await voice.choices()).voices,
+  refreshAuth: () => native.call("account/read", { refreshToken: true }),
+});
 dictate = createOfficeDictation({ token, onUsage: value => tokenUsage.recordDictation(value), findThread: id => store.get(id), home: native.home,
   refreshAuth: () => native.call("account/read", { refreshToken: true }),
   onStatus: status => {
@@ -353,7 +359,7 @@ wss.on("connection", ws => {
 const checkpoint = setInterval(() => { try { todos.checkpoint(); } catch (error) { console.error("Could not save task timer:", error.message); } }, 15000); checkpoint.unref();
 const tick = setInterval(() => broadcast("tick", { ts: Date.now() }), 30000); tick.unref();
 async function close(code = 0) {
-  if (stopping) return; stopping = true; clearInterval(tick); clearInterval(checkpoint); todos?.close(); clearTimeout(rosterTimer); const dictationClosed = dictate.close(); schedules.close(); controls.close();
+  if (stopping) return; stopping = true; clearInterval(tick); clearInterval(checkpoint); todos?.close(); clearTimeout(rosterTimer); const dictationClosed = Promise.all([dictate.close(), voicePreviews.close()]); schedules.close(); controls.close();
   for (const ws of clients) { stream.disconnected(ws); ws.close(1001, "Office stopping"); }
   wss.close(); server.close(); await dictationClosed; await tokenUsage.close(); await workspace.close(); await native.close(); process.exitCode = code;
 }

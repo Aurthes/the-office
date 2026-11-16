@@ -1,7 +1,6 @@
 "use strict";
 const crypto = require("node:crypto");
-const fs = require("node:fs");
-const path = require("node:path");
+const { readOfficeChatGPTLogin } = require("./office-chatgpt-auth");
 const { EnvHttpProxyAgent } = require("undici");
 const { transcriptionUsage, emptyUsage } = require("./office-usage-adapters");
 
@@ -22,11 +21,7 @@ function createOfficeDictation({ token, findThread, home, refreshAuth, onStatus 
     // An explicitly configured API key retains the public API path. There is no
     // automatic fallback between accounts or separately billed providers.
     if (process.env.OPENAI_API_KEY) return { apiKey: true, accessToken: process.env.OPENAI_API_KEY };
-    try {
-      const auth = JSON.parse(fs.readFileSync(path.join(home, "auth.json"), "utf8"));
-      if (auth.auth_mode !== "chatgpt" || !auth.tokens?.access_token) return null;
-      return { accessToken: auth.tokens.access_token, accountId: auth.tokens.account_id };
-    } catch { return null; }
+    return readOfficeChatGPTLogin(home);
   }
   function publish(available, reason = null, retryAt = null) {
     const next = { dictation: available, dictationReason: reason, dictationRetryAt: retryAt };

@@ -4,7 +4,8 @@ import { Mic, MicOff, PhoneOff, Volume2, ChevronRight, ChevronLeft } from "lucid
 import { voiceTimelineGroups, type VoiceCaption } from "./voiceTranscript";
 import type { LiveSessionItem, SessionClient } from "./SessionControls";
 import type { SessionVoiceController } from "./useSessionVoice";
-import { useUiText } from "@/lib/i18n/ui-language";
+import { VoicePreviews } from "./VoicePreviews";
+import { useUiLanguage, useUiText } from "@/lib/i18n/ui-language";
 
 export function SessionVoiceCall({ voice, owner, onReturn, compact = false, onExpand }: { voice: SessionVoiceController; owner?: string; onReturn?: () => void; compact?: boolean; onExpand?: () => void }) {
   const t = useUiText();
@@ -68,17 +69,23 @@ export function SessionVoiceHistory({ messages, currentCallId, currentBoundaryId
 
 export function SessionVoiceSettings({ client, voice }: { client: SessionClient; voice: SessionVoiceController }) {
   const t = useUiText();
+  const { language } = useUiLanguage();
   const [voices, setVoices] = useState<string[] | null>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
-    let stopped = false;
-    void client.call("session.voice.options", {}).then(value => {
-      if (stopped) return;
-      const result = value as { voices?: unknown };
-      if (!Array.isArray(result?.voices) || !result.voices.length) { setError(true); return; }
-      setVoices(result.voices.filter((v): v is string => typeof v === "string"));
-    }).catch(() => { if (!stopped) setError(true); });
-    return () => { stopped = true; };
+    let stopped = false, generation = 0;
+    const load = () => {
+      const request = ++generation;
+      void client.call("session.voice.options", {}).then(value => {
+        if (stopped || request !== generation) return;
+        const result = value as { voices?: unknown };
+        if (!Array.isArray(result?.voices) || !result.voices.length) { setError(true); return; }
+        setVoices(result.voices.filter((v): v is string => typeof v === "string"));
+      }).catch(() => { if (!stopped && request === generation) setError(true); });
+    };
+    load();
+    const unsubscribe = client.onEvent?.(event => { if (event.event === "office.account") { setVoices(null); setError(false); load(); } });
+    return () => { stopped = true; unsubscribe?.(); };
   }, [client]);
   return <section aria-label={t("Voice settings")} className="mb-3 rounded-xl border border-white/15 bg-black/15 p-3 text-xs text-white">
     <h3 className="mb-2 font-semibold">{t("Voice settings")}</h3>
@@ -91,6 +98,7 @@ export function SessionVoiceSettings({ client, voice }: { client: SessionClient;
     <div className="mt-3 space-y-3">{([
       ["echoCancellation", "Echo cancellation"], ["noiseSuppression", "Noise suppression"], ["autoGainControl", "Automatic microphone gain"],
     ] as const).map(([key, label]) => <label key={key} className="flex min-h-8 items-center justify-between gap-3">{t(label)}<input type="checkbox" checked={voice.settings[key]} onChange={event => voice.updateSettings({ ...voice.settings, [key]: event.target.checked })} /></label>)}</div>
+    {voices ? <VoicePreviews key={language} client={client} voices={voices} /> : null}
     <p className="mt-3 text-[11px] text-white/45">{t("Changes apply to your next call. Microphone processing depends on your browser.")}</p>
   </section>;
 }

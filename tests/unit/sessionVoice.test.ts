@@ -152,6 +152,7 @@ describe("voice lifetime and original session ownership", () => {
     const view = render(React.createElement(Office, { selected: "original" }));
     expect(screen.queryByRole("button", { name: "Voice settings" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Close voice settings" })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Voice" }));
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Select voice" })).not.toBeDisabled());
     fireEvent.change(screen.getByRole("combobox", { name: "Select voice" }), { target: { value: "cove" } });
     fireEvent.click(screen.getByRole("checkbox", { name: "Noise suppression" }));
