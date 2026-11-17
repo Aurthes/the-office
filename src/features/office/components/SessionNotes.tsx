@@ -100,7 +100,7 @@ export function SessionNotes({ client, threadId, gateway, agents = [], connected
     {error ? <p role="alert" className="text-sm">{t(error)}</p> : null}
     {conflict ? <p role="alert" className="text-sm">{t("Notes changed on another device. Your draft is kept. Copy it before loading the saved version.")}</p> : null}
     {backupError ? <p role="alert" className="text-sm">{t("Local draft backup unavailable. Save before closing.")}</p> : null}
-    <textarea aria-label={t("Notes text")} className="min-h-40 min-w-0 flex-1 resize-none rounded-lg border p-3 text-base leading-6" style={{ background: "var(--input)", color: "var(--foreground)", borderColor: "var(--sidebar-input-border)" }} maxLength={64000} value={text} disabled={loading || saving || !note}
+    <textarea aria-label={t("Notes text")} className="min-h-40 min-w-0 flex-1 resize-none rounded-lg border p-3 text-base leading-6" style={{ fontSize: 16, background: "var(--input)", color: "var(--foreground)", borderColor: "var(--sidebar-input-border)" }} maxLength={64000} value={text} disabled={loading || saving || !note}
       onChange={event => { const value = event.target.value; setText(value); setSelection({ start: event.target.selectionStart, end: event.target.selectionEnd }); if (note) { if (value === note.text) { try { localStorage.removeItem(draftKey); } catch { setBackupError(true); } } else backup(value, note.revision); } }}
       onSelect={event => setSelection({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd })} />
     <p className="text-xs">{t("Save syncs notes across devices. Reload to get changes from another device.")}</p>
