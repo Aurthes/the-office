@@ -60,6 +60,8 @@ blockers. Routine progress and worker submission do not automatically notify.
 Updates to the same event replace its notification. Reading a brief makes no model
 request; its separate voice button starts the existing call only after a click.
 
+Installed app labels distinguish local/private entry hosts (**Office · LAN**, LAN badge) from public entry hosts (**Office · Remote**, NET badge). Existing installations may retain their old name/icon; reinstalling can require login and notification permission again. The manifest identity, launch URL and scope remain unchanged.
+
 Enable notifications in **Settings → Notifications**. iPhone requires iOS 16.4+
 and opening Office from **Safari → Share → Add to Home Screen** before enabling.
 The current site address is the installation boundary: changing it requires a new

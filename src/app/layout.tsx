@@ -1,15 +1,20 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
+import { headers } from "next/headers";
+import { installBrand } from "../../server/install-branding";
 import { Bebas_Neue, IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "Claw3D",
-  manifest: "/office.webmanifest",
-  appleWebApp: { capable: true, title: "Office", statusBarStyle: "default" },
-  icons: { apple: "/office-icon-192.png" },
-  description: "Focused operator studio for the OpenClaw gateway.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const brand = installBrand((await headers()).get("host"));
+  return {
+    title: "Claw3D",
+    manifest: "/office.webmanifest",
+    appleWebApp: { capable: true, title: brand.name, statusBarStyle: "default" },
+    icons: { apple: "/office-icon-192.png" },
+    description: "Focused operator studio for the OpenClaw gateway.",
+  };
+}
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", interactiveWidget: "resizes-content" };
 
 const display = Bebas_Neue({

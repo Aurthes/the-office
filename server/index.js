@@ -2,6 +2,7 @@ const http = require("node:http");
 const https = require("node:https");
 const next = require("next");
 
+const { createInstallAssets } = require("./install-assets");
 const { createAccessGate } = require("./access-gate");
 const { createAccountMonitorProxy } = require("./account-monitor-proxy");
 const { createMmPnlProxy } = require("./mm-pnl-proxy");
@@ -108,6 +109,7 @@ async function main() {
   });
   const accountMonitor = createAccountMonitorProxy(process.env.CLAW3D_ACCOUNT_MONITOR_URL);
   const mmPnl = createMmPnlProxy();
+  const installAssets = createInstallAssets();
 
   const proxy = createGatewayProxy({
     hostTokenOnly: process.env.CLAW3D_CODEX_GATEWAY === "1",
@@ -152,6 +154,7 @@ async function main() {
           const rejected = proxyBoundary(req); if (rejected) { res.writeHead(rejected); res.end("Access rejected"); return; }
           if (!sameOrigin(req)) { res.writeHead(403); res.end("Origin rejected"); return; }
           if (accessGate.handleHttp(req, res)) return;
+          if (installAssets(req, res)) return;
           if (accountMonitor(req, res)) return;
           if (mmPnl(req, res)) return;
           handle(req, res);
@@ -160,6 +163,7 @@ async function main() {
           const rejected = proxyBoundary(req); if (rejected) { res.writeHead(rejected); res.end("Access rejected"); return; }
           if (!sameOrigin(req)) { res.writeHead(403); res.end("Origin rejected"); return; }
           if (accessGate.handleHttp(req, res)) return;
+          if (installAssets(req, res)) return;
           if (accountMonitor(req, res)) return;
           if (mmPnl(req, res)) return;
           handle(req, res);
