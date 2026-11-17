@@ -3924,7 +3924,7 @@ export function OfficeScreen({
                   onOpenTeaserBoard={() => setTeaserBoardOpen(true)}
                   taskProgress={taskProgressAgentIds(organization).has(agent.agentId) ? <HeadTaskOverview embedded name={organizationNames.get(agent.agentId) || agent.agentId} rows={headTaskRows(agent.agentId, [...progressHistory.summaries, ...currentTasks.summaries])} names={organizationNames} observedAt={currentTasks.observedAt} loading={currentTasks.loading || progressHistory.loading} historyLimited={progressHistory.limited} error={status === "connected" ? currentTasks.error || progressHistory.error : "Current tasks are unavailable."} onOpenTask={openTaskDetails} /> : undefined}
                   onSaveInterfacePreset={agentInterfaces.loaded && interfaceRoster.some(item => item.id === agent.agentId) ? preset => agentInterfaces.save(agent.agentId, preset) : undefined}
-                  externalSends={teaserSolutions.forThread(agent.agentId)} onExternalReceipt={teaserSolutions.reconcile}
+                  noteAgents={interfaceRoster} gateway={gatewayUrl} connected={status === "connected"} externalSends={teaserSolutions.forThread(agent.agentId)} onExternalReceipt={teaserSolutions.reconcile}
                   messageTarget={messageTarget?.threadId === agent.agentId && !messageTarget.archived ? messageTarget : null} onCloseMessage={() => setMessageSelection(null)}
                   headerStart={sessionListToggle} headerEnd={sessionWindowActions} voice={voice} onOpenThread={acceptCreatedSession}
                   forkDisabled={!!cloneRequest || !!returnRequest || status !== "connected"}

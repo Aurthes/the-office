@@ -39,7 +39,7 @@ function reconcileLocalSends(messages: Message[]) {
   return messages.filter(message => !message.delivery || !received.has(message.clientId));
 }
 
-export function ExistingSessionPanel({ client, threadId, active = true, focusMode = false, onToggleFocus, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, onOpenThread, onFork, forkDisabled, headerStart, headerEnd, projects = [], voice, organization, messageTarget, onCloseMessage, interfacePreset = "standard", onSaveInterfacePreset, onOpenTeaserBoard, taskProgress, externalSends, onExternalReceipt }: {
+export function ExistingSessionPanel({ client, threadId, active = true, focusMode = false, onToggleFocus, onReturnToEarth, returnDisabled, avatarProfile, agentStatus, agentModel, onSaveCharacter, agentName, onSessionRenamed, onOpenWorkspace, onOpenThread, onFork, forkDisabled, headerStart, headerEnd, projects = [], voice, organization, messageTarget, onCloseMessage, interfacePreset = "standard", onSaveInterfacePreset, onOpenTeaserBoard, taskProgress, externalSends, onExternalReceipt, noteAgents, gateway, connected }: {
   client: SessionClient;
   active?: boolean;
   focusMode?: boolean;
@@ -68,6 +68,9 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   onSaveInterfacePreset?: (preset: AgentInterfacePreset) => Promise<void>;
   onOpenTeaserBoard?: () => void;
   taskProgress?: ReactNode;
+  noteAgents?: readonly import("@/lib/office/agent-interface").InterfaceAgent[];
+  gateway?: string;
+  connected?: boolean;
   externalSends?: readonly LiveSessionItem[];
   onExternalReceipt?: (threadId: string, clientId: string) => void;
 }) {
@@ -388,7 +391,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     {data?.runtime === "office" ? <OfficeCodexAccount client={client} quiet /> : null}
     {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onHistoryReset={onHistoryReset} onActiveTurnChange={setActiveTurnId} onSendState={onSendState} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
     </div>
-    {workspaceOpen ? <SessionWorkspace key={threadId} toolbox={<SessionToolbox threadId={threadId} organization={organization} />} taskProgress={taskProgress} progressRequest={progressRequest} active={active && !shownMessageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
+    {workspaceOpen ? <SessionWorkspace key={threadId} noteAgents={noteAgents} gateway={gateway} connected={connected} toolbox={<SessionToolbox threadId={threadId} organization={organization} />} taskProgress={taskProgress} progressRequest={progressRequest} active={active && !shownMessageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
       assets={[...new Map(messages.flatMap(message => message.assets || []).map(asset => [asset.url, asset])).values()].slice(-40)}
       onSelectAsset={setPreviewAsset} onClose={() => setWorkspaceOpen(false)} /> : null}
     </div>
