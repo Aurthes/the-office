@@ -157,9 +157,14 @@ export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, 
   const followed = useRef<{ id: string; x: number; z: number } | null>(null);
   const move = useRef<{ target: THREE.Vector3; position: THREE.Vector3; zoom: number; instant?: boolean } | null>(null);
   const followSpace = useRef(false);
+  const viewIntent = useRef<unknown[] | null>(null), manualView = useRef(false);
   const npcCenter = useRef<THREE.Vector3 | null>(null);
   const npcDelta = useRef(new THREE.Vector3());
   useEffect(() => {
+    const intent = [focus.id, focus.request, size.width, size.height, chatAgentId, chatExpanded, deck, whole, busy, podFocus, navigationFocus, objectFocus, cloneFocus];
+    const initial = viewIntent.current === null;
+    if (!viewIntent.current?.every((value, index) => Object.is(value, intent[index]))) manualView.current = false;
+    viewIntent.current = intent;
     followSpace.current = !!objectFocus?.space;
     npcCenter.current = null;
     if (cloneFocus && controlsRef.current) {
@@ -178,7 +183,7 @@ export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, 
       move.current = { target, position: target.clone().add(offset), zoom: Math.min(size.width / 7.8, size.height / 6.5, 110) };
       return;
     }
-    if (previousNavigationView.current) { move.current = previousNavigationView.current; previousNavigationView.current = null; return; }
+    if (previousNavigationView.current) { move.current = previousNavigationView.current; previousNavigationView.current = null; manualView.current = true; return; }
     const targetAgentId = chatAgentId || (layout.seats[focus.id] ? focus.id : null);
     const person = targetAgentId ? lookupRef.current.get(targetAgentId) : null;
     const point = person ? worldPoint(person) : targetAgentId ? layout.seats[targetAgentId] : null;
@@ -192,7 +197,7 @@ export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, 
       return;
     }
     followed.current = null;
-    if (previousView.current) { move.current = previousView.current; previousView.current = null; followed.current = null; return; }
+    if (previousView.current) { move.current = previousView.current; previousView.current = null; followed.current = null; manualView.current = true; return; }
     if (podFocus) {
       const {point,launch}=podFocus;
       const target = new THREE.Vector3(point.x,launch?-8.3:1.1,point.z);
@@ -207,11 +212,12 @@ export function CameraRig({ layout, focus, controlsRef, lookupRef, chatAgentId, 
       }
       return;
     }
-    move.current = shipCameraPose(layout, size.width, size.height, deck, whole, focus.id);
+    // Roster refreshes update geometry, but must not undo a chosen orbit/zoom.
+    if (!manualView.current) move.current = { ...shipCameraPose(layout, size.width, size.height, deck, whole, focus.id), instant: initial };
   }, [layout, focus, size.width, size.height, camera, gl, controlsRef, lookupRef, chatAgentId, chatExpanded, deck, whole, busy, podFocus, navigationFocus, objectFocus, cloneFocus]);
   useEffect(() => {
     const controls = controlsRef.current;
-    const stop = () => { move.current = null; followSpace.current = false; if (!chatAgentId) followed.current = null; };
+    const stop = () => { manualView.current = true; move.current = null; followSpace.current = false; if (!chatAgentId) followed.current = null; };
     controls?.addEventListener("start", stop);
     return () => controls?.removeEventListener("start", stop);
   }, [controlsRef, chatAgentId]);
@@ -390,7 +396,7 @@ export function RingShipOffice(props: Props) {
   const commandCabin = layout.cabins.find(cabin => cabin.kind === "monitor");
   const navigationFocus = useMemo(() => navigationOpen && navigation.phase !== "warp" && commandCabin ? { point: navigationConsolePose(layout, commandCabin).point, deck: commandCabin.deck } : null, [navigationOpen, navigation.phase, commandCabin, layout]);
   const completeWarp = useCallback(() => navigate({ type: "complete" }), [navigate]);
-  const [deck, setDeck] = useState<DeckIndex>(0), [whole, setWhole] = useState(false), [liftOpen, setLiftOpen] = useState(false);
+  const [deck, setDeck] = useState<DeckIndex>(() => commandCabin?.deck ?? 0), [whole, setWhole] = useState(false), [liftOpen, setLiftOpen] = useState(false);
   const [trip, setTrip] = useState<LiftTrip | null>(null);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [serversOpen, setServersOpen] = useState(false);
@@ -432,8 +438,8 @@ export function RingShipOffice(props: Props) {
   const currentLayout = decks[visibleDeck];
   const visibleAgents = useMemo(() => agents.filter(a => currentLayout.seats[a.id]), [agents, currentLayout]);
   const counts = decks.map(d => agents.filter(a => d.seats[a.id]).length);
-  // Only the explicit preview starts at the console; the office keeps its overview.
-  const [focus, setFocus] = useState({ id: props.musicPreview ? "public:bar" : props.navigationPreview ? commandCabin?.id ?? "" : "", request: 0 });
+  // Start at the real Control Center once; later selections remain explicit.
+  const [focus, setFocus] = useState({ id: props.musicPreview ? "public:bar" : commandCabin?.id ?? "", request: 0 });
   const arriveSystem = useCallback(() => {
     setWhole(false);
     setFocus(previous => ({ id: "", request: previous.request + 1 }));

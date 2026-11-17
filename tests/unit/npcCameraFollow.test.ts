@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three-stdlib";
 import type { RootState } from "@react-three/fiber";
 import { CameraRig } from "@/features/ring-ship/RingShipOffice";
+import { shipCameraPose } from "@/features/ring-ship/cameraPose";
 import { buildShipLayout, shipDeck } from "@/features/ring-ship/layout";
 import { shipObjectCameraPose, type ShipObject } from "@/features/ring-ship/shipObjects";
 
@@ -71,4 +72,35 @@ it("still lets manual camera input interrupt a stationary object's focus", () =>
   const position = camera.position.clone(), target = controls.target.clone();
   object.bounds.translate(new THREE.Vector3(3, 0, 2)); frames();
   expect(camera.position).toEqual(position); expect(controls.target).toEqual(target);
+});
+
+it.each([[1280,900],[390,844]])("frames the real control center on %sx%s and preserves manual input across roster refresh", (width,height) => {
+  const s=setup();harness.state.size={...harness.state.size,width,height};
+  const cabin=layout.cabins.find(c=>c.kind==="monitor")!;
+  const focus={id:cabin.id,request:1},props={...s.props,focus,objectFocus:null};
+  s.view.rerender(createElement(CameraRig,props));s.frames(150);
+  const boundsPose=shipCameraPose(layout,width,height,0,false,cabin.id);
+  expect(s.controls.target.distanceTo(boundsPose.target)).toBeLessThan(.02);
+  expect(s.camera.zoom).toBeCloseTo(boundsPose.zoom,2);
+  expect(s.camera.zoom).toBeGreaterThan(shipCameraPose(layout,width,height,0).zoom*2);
+  s.controls.dispatchEvent({type:"start",target:s.controls});s.camera.zoom*=1.3;s.camera.position.add(new THREE.Vector3(3,1,-2));
+  const position=s.camera.position.clone(),zoom=s.camera.zoom;
+  const refreshed=shipDeck(buildShipLayout({projects:[{id:"p",name:"Project"}],members:[]},layout.allocation),0);
+  s.view.rerender(createElement(CameraRig,{...props,layout:refreshed}));s.frames(150);
+  expect(s.camera.position.distanceTo(position)).toBeLessThan(1e-8);expect(s.camera.zoom).toBe(zoom);
+  s.view.rerender(createElement(CameraRig,{...props,layout:refreshed,whole:true}));s.frames(150);
+  expect(s.camera.zoom).toBeCloseTo(shipCameraPose(refreshed,width,height,0,true).zoom,2);
+  s.view.rerender(createElement(CameraRig,{...props,layout:refreshed,focus:{...focus,request:2}}));s.frames(150);
+  expect(s.camera.zoom).toBeCloseTo(shipCameraPose(refreshed,width,height,0,false,cabin.id).zoom,2);
+});
+
+it("restores the manual view after chatting and does not reframe it on the next roster refresh",()=>{
+ const s=setup(),cabin=layout.cabins.find(c=>c.kind==="monitor")!,focus={id:cabin.id,request:1};
+ const roster={projects:[{id:"p",name:"P"}],members:[{id:"a",projectId:"p"}]};const hydrated=buildShipLayout(roster,layout.allocation);
+ const props={...s.props,layout:hydrated,focus,objectFocus:null};s.view.rerender(createElement(CameraRig,props));s.frames(150);
+ s.controls.dispatchEvent({type:"start",target:s.controls});s.camera.zoom=29;s.camera.position.add(new THREE.Vector3(2,1,4));const position=s.camera.position.clone(),target=s.controls.target.clone();
+ s.view.rerender(createElement(CameraRig,{...props,chatAgentId:"a"}));s.frames(150);expect(s.controls.target.distanceTo(target)).toBeGreaterThan(1);
+ s.view.rerender(createElement(CameraRig,props));s.frames(150);expect(s.camera.zoom).toBeCloseTo(29,2);
+ s.view.rerender(createElement(CameraRig,{...props,layout:buildShipLayout({...roster,projects:[{id:"p",name:"Renamed"}]},hydrated.allocation)}));s.frames(150);
+ expect(s.camera.position.distanceTo(position)).toBeLessThan(.04);expect(s.controls.target.distanceTo(target)).toBeLessThan(.04);expect(s.camera.zoom).toBeCloseTo(29,2);
 });
