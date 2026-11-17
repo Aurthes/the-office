@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { ExternalLink, Play, RotateCw, Search, SkipForward } from "lucide-react";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { MusicMiniPlayer, type MusicPlayerProps } from "./MusicMiniPlayer";
+import { usePlaybackRecorder } from "./musicPlaybackIntent";
 import { shuffledSongs } from "./musicQueue";
 
 const API = "/api/music/netease";
@@ -28,7 +29,9 @@ async function request<T>(url: string, signal: AbortSignal, method = "GET"): Pro
   return result;
 }
 
-export function NeteaseMusicPlayer({ autoPlay, preference, onPreference, autoSceneChange = true, scene, sceneName, controlsTarget, minimized, onOpen, onStop }: MusicPlayerProps) {
+export function NeteaseMusicPlayer({ autoPlay, resumeTrackId, rememberPlayback, preference, onPreference, autoSceneChange = true, scene, sceneName, controlsTarget, minimized, onOpen, onStop }: MusicPlayerProps) {
+  const recordPlayback = usePlaybackRecorder("netease", rememberPlayback);
+  const resumeAttempted = useRef(false);
   const t = useUiText();
   const audio = useRef<HTMLAudioElement>(null);
   const activeRequest = useRef<AbortController | null>(null);
@@ -53,7 +56,7 @@ export function NeteaseMusicPlayer({ autoPlay, preference, onPreference, autoSce
   const [playing, setPlaying] = useState(false);
   const [volume, setVolume] = useState(preference?.volume ?? 0.15);
   const initialVolume = useRef(preference?.volume ?? 0.15), reportedVolume = useRef(preference?.volume ?? 0.15);
-  const previousTrack = preference?.lastTrack?.provider === "netease" ? preference.lastTrack.id : null;
+  const previousTrack = resumeTrackId || (preference?.lastTrack?.provider === "netease" ? preference.lastTrack.id : null);
   const changeVolume = (value: number) => { setVolume(value); if (reportedVolume.current !== value) { reportedVolume.current = value; onPreference?.({ volume: value }); } };
   const [loadingTrack, setLoadingTrack] = useState(false);
   const restoreVolume = useEffectEvent((value: number) => { reportedVolume.current = value; if (audio.current) audio.current.volume = value; });
@@ -76,14 +79,14 @@ export function NeteaseMusicPlayer({ autoPlay, preference, onPreference, autoSce
     void audio.current.play().catch(cause => { if (cause.name !== "AbortError" && wantsPlayback.current) setPlayHint(true); });
   }, [track]);
   useEffect(() => {
-    if (!playHint) return;
+    if (!playHint || resumeTrackId) return;
     const retry = (event: Event) => {
       if (event.target instanceof Element && event.target.closest(".music-mini, .music-dialog")) return;
       if (wantsPlayback.current && audio.current?.paused) void audio.current.play().catch(() => {});
     };
     document.addEventListener("click", retry); document.addEventListener("keydown", retry);
     return () => { document.removeEventListener("click", retry); document.removeEventListener("keydown", retry); };
-  }, [playHint]);
+  }, [playHint, resumeTrackId]);
   useEffect(() => {
     if (!login || !["waiting", "confirm"].includes(login.state)) return;
     const controller = new AbortController();
@@ -143,15 +146,17 @@ export function NeteaseMusicPlayer({ autoPlay, preference, onPreference, autoSce
     finally { if (playRequest.current === controller) { playRequest.current = null; setLoadingTrack(false); } }
   };
   const play = (song: Song) => {
+    resumeAttempted.current = true;
     started.current = true; appliedScene.current = scene; failedSongs.current.clear(); wantsPlayback.current = true;
     const current = { songs: songs || [song], source, scene, batch };
     void startAt(current, Math.max(0, current.songs.findIndex(item => item.id === song.id)));
   };
   const resumePrevious = () => {
-    if (!previousTrack || !connection?.authorized || loadingTrack) return;
+    if (!previousTrack || !connection?.authorized || loadingTrack || playRequest.current) return;
+    resumeAttempted.current = true;
     const id = previousTrack, controller = new AbortController();
     restoringPrevious.current = true;
-    playRequest.current?.abort(); playRequest.current = controller;
+    playRequest.current = controller;
     started.current = true; wantsPlayback.current = true; setLoadingTrack(true); setError("");
     void request<Track>(API + "?action=track&id=" + encodeURIComponent(id), controller.signal).then(result => {
       if (controller.signal.aborted) return;
@@ -160,6 +165,12 @@ export function NeteaseMusicPlayer({ autoPlay, preference, onPreference, autoSce
       queue.current = { songs: [song], source: "search", scene, batch: 0 };
     }).catch(cause => { if (!controller.signal.aborted) { wantsPlayback.current = false; setError("Your previous track could not be restored. Choose another track."); if (cause.code === "AUTH_REQUIRED") setConnection({ configured: true, authorized: false }); } }).finally(() => { if (playRequest.current === controller) { playRequest.current = null; setLoadingTrack(false); } });
   };
+  const resumeSaved = useEffectEvent(resumePrevious);
+  useEffect(() => {
+    if (!resumeTrackId || !connection?.authorized || resumeAttempted.current) return;
+    const timer = setTimeout(() => { if (!resumeAttempted.current) resumeSaved(); }, 0);
+    return () => clearTimeout(timer);
+  }, [resumeTrackId, connection?.authorized]);
   const applyRecommendations = useEffectEvent((collection: Collection, requestedScene: string, requestedSource: Source, requestedBatch: number) => {
     if (requestedScene !== scene) return;
     const sceneChanged = appliedScene.current !== scene;
@@ -196,7 +207,7 @@ export function NeteaseMusicPlayer({ autoPlay, preference, onPreference, autoSce
       await startAt({ ...queue.current, songs: [] }, 0);
     } else await startAt(queue.current, queue.current.songs.findIndex(song => song.id === selected?.id) + 1);
   };
-  const pause = () => { wantsPlayback.current = false; setPlayHint(false); playRequest.current?.abort(); audio.current?.pause(); };
+  const pause = () => { resumeAttempted.current = true; recordPlayback(null); wantsPlayback.current = false; setPlayHint(false); playRequest.current?.abort(); audio.current?.pause(); };
   const resume = () => {
     wantsPlayback.current = true;
     if (queue.current.scene !== scene) { void startAt({ ...queue.current, songs: [], source: "scene" }, 0); return; }
@@ -256,24 +267,26 @@ export function NeteaseMusicPlayer({ autoPlay, preference, onPreference, autoSce
       <div className="music-track-heading"><div><strong>{selected?.name}</strong><small>{selected?.artists}{track?.preview ? " · " + t("Preview · {seconds}s", { seconds: track.preview.end - track.preview.start }) : ""}</small></div><button type="button" className="music-icon-button" aria-label={t("Next track")} disabled={loadingTrack} onClick={() => { void next(true); }}><SkipForward size={18} /></button></div>
       <audio ref={audio} controls preload="metadata" src={track?.url} aria-label={t("Music playback")}
         onLoadedMetadata={() => { switchingTrack.current = false; keepPreviewRange(); }} onSeeking={keepPreviewRange}
-        onPlay={() => { restoringPrevious.current = false; if (selected) onPreference?.({ provider: "netease", lastTrack: { provider: "netease", id: selected.id } });
+        onPlaying={() => { restoringPrevious.current = false; if (selected) recordPlayback(selected.id); }}
+        onPlay={() => { if (selected) onPreference?.({ provider: "netease", lastTrack: { provider: "netease", id: selected.id } });
           switchingTrack.current = false; wantsPlayback.current = true; setPlaying(true); setPlayHint(false);
           if (selected && queue.current.source === "scene") {
             try { localStorage.setItem(lastSceneTrackKey(queue.current.scene), selected.id); } catch { /* Playback works without storage. */ }
           }
           if (track?.preview && audio.current && audio.current.currentTime >= track.preview.end) audio.current.currentTime = track.preview.start;
         }}
-        onPause={() => { setPlaying(false); if (!switchingTrack.current && audio.current && !audio.current.ended) { wantsPlayback.current = false; playRequest.current?.abort(); } }}
+        onPause={() => { setPlaying(false); if (!switchingTrack.current && audio.current && !audio.current.ended) { recordPlayback(null); wantsPlayback.current = false; playRequest.current?.abort(); } }}
         onEnded={() => { setPlaying(false); void next(); }}
         onVolumeChange={() => { if (audio.current) changeVolume(audio.current.muted ? 0 : audio.current.volume); }}
         onTimeUpdate={() => { if (track?.preview && audio.current && audio.current.currentTime >= track.preview.end && !switchingTrack.current) { switchingTrack.current = true; audio.current.pause(); void next(); } }}
-        onError={() => { setPlaying(false); if (restoringPrevious.current) { wantsPlayback.current = false; setError("Your previous track could not be restored. Choose another track."); return; } if (track && selected) { failedSongs.current.add(selected.id); void next(); } }} />
+        onError={() => { recordPlayback(null); setPlaying(false); if (restoringPrevious.current) { wantsPlayback.current = false; setError("Your previous track could not be restored. Choose another track."); return; } if (track && selected) { failedSongs.current.add(selected.id); void next(); } }} />
       {playHint ? <p role="status">{t("Press play to start listening.")}</p> : null}
+      {playHint && resumeTrackId ? <button type="button" className="music-action" onClick={resume}>{t("Resume music")}</button> : null}
     </footer>
   </section>
     {controlsTarget && minimized && track && selected ? createPortal(<MusicMiniPlayer title={selected.name} subtitle={selected.artists} playing={playing} loading={loadingTrack} playHint={playHint} volume={volume} onOpen={onOpen}
       onTogglePlay={() => { if (!audio.current) return; if (audio.current.paused) resume(); else pause(); }} onNext={() => { void next(true); }}
       onVolumeChange={value => { if (audio.current) { audio.current.volume = value; audio.current.muted = false; } changeVolume(value); }}
-      onStop={() => { wantsPlayback.current = false; onStop(); }} />, controlsTarget) : null}
+      onStop={() => { resumeAttempted.current = true; recordPlayback(null); wantsPlayback.current = false; onStop(); }} />, controlsTarget) : null}
   </>;
 }

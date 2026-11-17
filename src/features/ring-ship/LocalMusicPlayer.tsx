@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { Play, SkipForward, Star } from "lucide-react";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { MusicMiniPlayer, type MusicPlayerProps } from "./MusicMiniPlayer";
+import { usePlaybackRecorder } from "./musicPlaybackIntent";
 import { shuffledSongs } from "./musicQueue";
 
 const API = "/api/music/local", LAST_TRACK = "claw3d:music:local:last-track", MODE_KEY = "claw3d:music:local:mode", PREFERRED_TRACK = "claw3d:music:local:preferred-track";
@@ -18,7 +19,9 @@ function mix(songs: Song[], previousId?: string) {
   return shuffledSongs(songs, previousId);
 }
 
-export function LocalMusicPlayer({ autoPlay, preference, onPreference, controlsTarget, minimized, onOpen, onStop }: MusicPlayerProps) {
+export function LocalMusicPlayer({ autoPlay, resumeTrackId, rememberPlayback, preference, onPreference, controlsTarget, minimized, onOpen, onStop }: MusicPlayerProps) {
+  const recordPlayback = usePlaybackRecorder("local", rememberPlayback);
+  const resumeAttempted = useRef(false);
   const t = useUiText(), audio = useRef<HTMLAudioElement>(null);
   const [mode, setMode] = useState<PlaybackMode>(savedMode), modeRef = useRef(mode);
   const [preferredId, setPreferredId] = useState(() => { try { return localStorage.getItem(PREFERRED_TRACK) || ""; } catch { return ""; } });
@@ -29,7 +32,7 @@ export function LocalMusicPlayer({ autoPlay, preference, onPreference, controlsT
   const [playing, setPlaying] = useState(false), [playHint, setPlayHint] = useState(false), [volume, setVolume] = useState(preference?.volume ?? 0.15);
   const initialVolume = useRef(preference?.volume ?? 0.15), reportedVolume = useRef(preference?.volume ?? 0.15);
   const changeVolume = (value: number) => { setVolume(value); if (reportedVolume.current !== value) { reportedVolume.current = value; onPreference?.({ volume: value }); } };
-  const restoreId = preference?.lastTrack?.provider === "local" ? preference.lastTrack.id : null;
+  const restoreId = resumeTrackId || (preference?.lastTrack?.provider === "local" ? preference.lastTrack.id : null);
   const selected = selection || songs?.find(song => song.id === restoreId) || null;
   const [buffering, setBuffering] = useState(false);
   const restoreVolume = useEffectEvent((value: number) => { reportedVolume.current = value; if (audio.current) audio.current.volume = value; });
@@ -49,12 +52,17 @@ export function LocalMusicPlayer({ autoPlay, preference, onPreference, controlsT
   }, []);
   const resume = () => { wantsPlayback.current = true; setBuffering(true); void audio.current?.play().catch(cause => { if (cause.name !== "AbortError" && wantsPlayback.current) setPlayHint(true); }); };
   useEffect(() => {
+    if (!resumeTrackId || !songs || resumeAttempted.current) return;
+    resumeAttempted.current = true;
+    if (songs.some(song => song.id === resumeTrackId)) wantsPlayback.current = true;
+  }, [resumeTrackId, songs]);
+  useEffect(() => {
     const element = audio.current;
     if (!selected || !element) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const start = () => {
       if (!wantsPlayback.current || !element.paused || timer !== undefined) return;
-      const play = () => { if (wantsPlayback.current) void element.play().catch(cause => { if (cause.name !== "AbortError" && wantsPlayback.current) setPlayHint(true); }); };
+      const play = () => { if (wantsPlayback.current && element.paused) void element.play().catch(cause => { if (cause.name !== "AbortError" && wantsPlayback.current) { if (resumeTrackId && cause.name === "NotAllowedError") wantsPlayback.current = false; setPlayHint(true); } }); };
       // Demuxers read ahead of audible sound. Give incomplete streams a short
       // download reserve; waiting on buffered alone can deadlock limited preload.
       const ahead = element.buffered.length ? element.buffered.end(0) - element.currentTime : 0;
@@ -64,17 +72,18 @@ export function LocalMusicPlayer({ autoPlay, preference, onPreference, controlsT
     element.addEventListener("canplay", start);
     if (element.readyState >= 3) start();
     return () => { clearTimeout(timer); element.removeEventListener("canplay", start); };
-  }, [selected]);
+  }, [selected, resumeTrackId]);
   useEffect(() => {
-    if (!playHint) return;
+    if (!playHint || resumeTrackId) return;
     const retry = (event: Event) => {
       if (event.target instanceof Element && event.target.closest(".music-mini, .music-dialog")) return;
       if (wantsPlayback.current && audio.current?.paused) void audio.current.play().catch(() => {});
     };
     document.addEventListener("click", retry); document.addEventListener("keydown", retry);
     return () => { document.removeEventListener("click", retry); document.removeEventListener("keydown", retry); };
-  }, [playHint]);
+  }, [playHint, resumeTrackId]);
   const play = (song: Song) => {
+    resumeAttempted.current = true;
     wantsPlayback.current = true; switching.current = true; setBuffering(true); setError(""); setPlayHint(false);
     if (song.id === selected?.id && audio.current) { audio.current.currentTime = 0; resume(); }
     else setSelected(song);
@@ -101,7 +110,7 @@ export function LocalMusicPlayer({ autoPlay, preference, onPreference, controlsT
     if (mode === "shuffle") queue.current = [first, ...queue.current.filter(song => song.id !== first.id)];
     play(first);
   };
-  const pause = () => { wantsPlayback.current = false; setBuffering(false); setPlayHint(false); audio.current?.pause(); };
+  const pause = () => { resumeAttempted.current = true; recordPlayback(null); wantsPlayback.current = false; setBuffering(false); setPlayHint(false); audio.current?.pause(); };
   return <><section className="music-netease-player" aria-label={t("Local music")}>
     {restoreId && songs && !selection && !songs.some(song => song.id === restoreId) ? <p className="music-notice" role="alert">Your previous track is unavailable. Choose a track from this library.</p> : null}
     {error ? <p className="music-notice" role="alert">{t(error)}</p> : null}
@@ -119,10 +128,10 @@ export function LocalMusicPlayer({ autoPlay, preference, onPreference, controlsT
       <div className="music-track-heading"><div><strong>{selected?.name}</strong><small>{selected?.artists}</small></div><button type="button" className="music-icon-button" aria-label={t("Next track")} onClick={next}><SkipForward size={18} /></button></div>
       <audio ref={audio} controls loop={mode === "repeat-one"} preload="auto" src={selected ? API + "?id=" + encodeURIComponent(selected.id) + (selected.revision ? "&v=" + encodeURIComponent(selected.revision) : "") : undefined} aria-label={t("Music playback")}
         onLoadStart={() => setBuffering(wantsPlayback.current)}
-        onPlaying={() => setBuffering(false)} onWaiting={() => setBuffering(wantsPlayback.current)}
+        onPlaying={() => { setBuffering(false); if (selected) recordPlayback(selected.id); }} onWaiting={() => setBuffering(wantsPlayback.current)}
         onLoadedMetadata={() => { switching.current = false; }}
         onPlay={() => { if (selected) onPreference?.({ provider: "local", lastTrack: { provider: "local", id: selected.id } }); switching.current = false; wantsPlayback.current = true; setPlaying(true); setPlayHint(false); if (selected) { try { localStorage.setItem(LAST_TRACK, selected.id); } catch {} } }}
-        onPause={() => { setPlaying(false); if (!switching.current && !audio.current?.ended) { wantsPlayback.current = false; setBuffering(false); } }}
+        onPause={() => { setPlaying(false); if (!switching.current && !audio.current?.ended) { recordPlayback(null); wantsPlayback.current = false; setBuffering(false); } }}
         onEnded={() => {
           setPlaying(false);
           if (!wantsPlayback.current) return;
@@ -131,12 +140,13 @@ export function LocalMusicPlayer({ autoPlay, preference, onPreference, controlsT
           else next();
         }}
         onVolumeChange={() => { if (audio.current) changeVolume(audio.current.muted ? 0 : audio.current.volume); }}
-        onError={() => { wantsPlayback.current = false; switching.current = false; setBuffering(false); setPlaying(false); setError("This track could not be played. Try another track."); }} />
+        onError={() => { recordPlayback(null); wantsPlayback.current = false; switching.current = false; setBuffering(false); setPlaying(false); setError("This track could not be played. Try another track."); }} />
       {buffering && !playHint ? <p role="status">{t("Buffering music…")}</p> : null}
       {playHint ? <p role="status">{t("Press play to start listening.")}</p> : null}
+      {playHint && resumeTrackId ? <button type="button" className="music-action" onClick={resume}>{t("Resume music")}</button> : null}
     </footer>
   </section>{controlsTarget && minimized && selected ? createPortal(<MusicMiniPlayer title={selected.name} subtitle={buffering ? t("Buffering music…") : selected.artists} playing={playing} playHint={playHint} volume={volume} onOpen={onOpen}
     onTogglePlay={() => { if (audio.current?.paused) resume(); else pause(); }} onNext={next}
     onVolumeChange={value => { if (audio.current) { audio.current.volume = value; audio.current.muted = false; } changeVolume(value); }}
-    onStop={() => { wantsPlayback.current = false; onStop(); }} />, controlsTarget) : null}</>;
+    onStop={() => { resumeAttempted.current = true; recordPlayback(null); wantsPlayback.current = false; onStop(); }} />, controlsTarget) : null}</>;
 }

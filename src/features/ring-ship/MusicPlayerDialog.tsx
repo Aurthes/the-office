@@ -1,5 +1,6 @@
 "use client";
 
+import { clearPlaybackIntent, reloadPlaybackIntent } from "./musicPlaybackIntent";
 import type { ExperienceController } from "./useExperiencePreferences";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ArrowLeft, ArrowRight, Disc3, Music2, RotateCw, X } from "lucide-react";
@@ -17,9 +18,13 @@ export function MusicPlayerDialog({ preferences, autoSceneChange = true, open = 
   const t = useUiText();
   const dialog = useRef<HTMLDialogElement>(null);
   const preferred = useSyncExternalStore<Provider | null>(subscribe, savedProvider, () => null);
+  const [resumeIntent] = useState(() => preferences ? reloadPlaybackIntent() : null);
   const [choice, setPlayer] = useState<Provider | null | undefined>();
-  const player = preferences?.ready === false ? null : choice === undefined ? preferences ? preferences.value.music?.provider ?? null : (autoPlay ? preferred : null) : choice;
+  const player = preferences?.ready === false ? null : choice === undefined ? preferences ? resumeIntent?.provider ?? preferences.value.music?.provider ?? null : (autoPlay ? preferred : null) : choice;
   const [reload, setReload] = useState(0);
+  // Consume the old document receipt; only actual playing can arm another reload.
+  useEffect(() => { if (preferences?.ready) clearPlaybackIntent(); }, [preferences?.ready]);
+  const resumeTrackId = choice === undefined && reload === 0 && !preferences?.error && resumeIntent?.provider === player ? resumeIntent.id : undefined;
   // A closed native dialog hides its descendants, so the floating controls live beside it.
   const [controlsTarget, setControlsTarget] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -27,8 +32,8 @@ export function MusicPlayerDialog({ preferences, autoSceneChange = true, open = 
     if (open && !element?.open) element?.showModal();
     if (!open && element?.open) element.close();
   }, [open]);
-  const stop = () => { setPlayer(null); onClose(); };
-  const choose = (provider: Provider) => { setPlayer(provider); preferences?.patch({ music: { provider } }); try { localStorage.setItem(MUSIC_PROVIDER_KEY, provider); } catch { /* Playback works without storage. */ } };
+  const stop = () => { if (preferences) clearPlaybackIntent(); setPlayer(null); onClose(); };
+  const choose = (provider: Provider) => { if (preferences) clearPlaybackIntent(); setPlayer(provider); preferences?.patch({ music: { provider } }); try { localStorage.setItem(MUSIC_PROVIDER_KEY, provider); } catch { /* Playback works without storage. */ } };
 
   return <><dialog ref={dialog} className={`music-dialog${player ? " music-dialog-player" : ""}`} aria-labelledby="music-title"
     onCancel={event => { event.preventDefault(); onClose(); }}
@@ -41,12 +46,12 @@ export function MusicPlayerDialog({ preferences, autoSceneChange = true, open = 
       {preferences?.error ? <p role="alert" className="music-notice">{preferences.error} <button type="button" onClick={preferences.retry}>Retry</button></p> : null}
       {preferences?.ready === false ? <p role="status">Loading your preferences…</p> : player ? <>
         <div className="music-player-tools">
-          <button type="button" onClick={() => setPlayer(null)}><ArrowLeft size={15} />{t("Players")}</button>
+          <button type="button" onClick={() => { if (preferences) clearPlaybackIntent(); setPlayer(null); }}><ArrowLeft size={15} />{t("Players")}</button>
           <span>{t("Closing the panel keeps the music playing.")}</span>
-          <button type="button" onClick={() => setReload(value => value + 1)} aria-label={t("Reload music player")}><RotateCw size={15} />{t("Reload")}</button>
+          <button type="button" onClick={() => { if (preferences) clearPlaybackIntent(); setReload(value => value + 1); }} aria-label={t("Reload music player")}><RotateCw size={15} />{t("Reload")}</button>
         </div>
-        {player === "netease" ? <NeteaseMusicPlayer key={reload} autoPlay={autoPlay} scene={scene} sceneName={sceneName} preference={preferences?.value.music} onPreference={value => preferences?.patch({ music: value })} autoSceneChange={autoSceneChange} controlsTarget={controlsTarget} minimized={!open} onOpen={onOpen} onStop={stop} />
-          : <LocalMusicPlayer key={reload} autoPlay={autoPlay} scene={scene} sceneName={sceneName} preference={preferences?.value.music} onPreference={value => preferences?.patch({ music: value })} autoSceneChange={autoSceneChange} controlsTarget={controlsTarget} minimized={!open} onOpen={onOpen} onStop={stop} />}
+        {player === "netease" ? <NeteaseMusicPlayer key={reload} resumeTrackId={resumeTrackId} rememberPlayback={!!preferences} autoPlay={autoPlay} scene={scene} sceneName={sceneName} preference={preferences?.value.music} onPreference={value => preferences?.patch({ music: value })} autoSceneChange={autoSceneChange} controlsTarget={controlsTarget} minimized={!open} onOpen={onOpen} onStop={stop} />
+          : <LocalMusicPlayer key={reload} resumeTrackId={resumeTrackId} rememberPlayback={!!preferences} autoPlay={autoPlay} scene={scene} sceneName={sceneName} preference={preferences?.value.music} onPreference={value => preferences?.patch({ music: value })} autoSceneChange={autoSceneChange} controlsTarget={controlsTarget} minimized={!open} onOpen={onOpen} onStop={stop} />}
       </> : <div className="music-chooser">
         <div className="music-record-art" aria-hidden="true"><div className="music-vinyl"><span>33⅓</span></div><div className="music-arm" /></div>
         <p className="music-intro">{t("Pick a player. Set the mood.")}</p>
