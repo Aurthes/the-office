@@ -272,7 +272,7 @@ describe("independent Office runtime", () => {
     await f.store.call("turn/start", { threadId: id, input: [] });
     const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
     const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
-    const rule = "Return gaps to workers and reuse valid checks; when reports contain irrelevant detail or repeated bookkeeping, point out the specific passages for their author to trim. Keep your own replies focused on decisions; do not relay routine status again.";
+    const rule = "Return gaps to workers and reuse valid checks; when reports contain irrelevant detail or repeated bookkeeping, point out the specific passages for their author to trim.";
     expect(payload.includes(rule)).toBe(title === "Head");
     expect(payload).toContain("office_tasks.session_send"); expect(payload).toContain("recoverable job");
     if (title === "Head") expect(payload.split(rule)).toHaveLength(2);
@@ -697,7 +697,7 @@ it.each(["Worker", "Head"])("refreshes unchanged-progress %s guidance through th
   const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
   const current = "Record unchanged routine progress in the task instead of wakeup, acknowledgement or waiting messages. Proactively report completion/failure, new blockers or risks, needed decisions or material ETA changes; answer explicit user progress questions and needed agreed updates, and preserve necessary handoffs. Keep full records in the task or linked evidence; send conclusions, decisive facts and material limits.";
   const previous = "Keep complete execution and verification records in the task or linked evidence; send the outcome, decisive facts, material limits and any needed decision.";
-  const head = "Keep your own replies focused on decisions; do not relay routine status again.", oldHead = "Keep your own replies focused on what affects the decision.";
+  const head = "Judge progress against the original goal and choose the next question.", oldHead = "Keep your own replies focused on what affects the decision.";
   expect(payload.split(current)).toHaveLength(2);
   expect(payload.includes(head)).toBe(title === "Head");
   expect(payload).toContain("If D <= 5 minutes");
@@ -748,7 +748,7 @@ it.each(["Worker", "Head"])("refreshes purposeful intermediate-report %s guidanc
   await f.store.call("turn/start", { threadId: id, input: [] });
   const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
   const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
-  const shared = "Before sending, distill what the recipient needs to decide or act, using shared context; send intermediate reports for a clear coordination need or next decision or action.";
+  const shared = "Send intermediate reports for a clear coordination need or next decision or action.";
   const requested = "answer explicit user progress questions and needed agreed updates, and preserve necessary handoffs.";
   const manager = "Require intermediate reports only for a clear follow-up decision or action; do not impose acknowledgement or status receipts without that purpose.";
   expect(payload).toContain(shared); expect(payload).toContain(requested);
@@ -781,4 +781,31 @@ it.each(["Worker", "Head"])("replaces the immediately prior single ETA point for
  await restored.call("turn/start",{threadId:id,input:[]});
  const again=new CodexOfficeStore(f.directory,f.client);again.companyContext=f.store.companyContext;
  await again.call("turn/start",{threadId:id,input:[]});expect(injections()).toHaveLength(2);
+});
+
+it.each(["Head", "Manager", "CEO", "Worker"])("refreshes the prior %s manager-synthesis rule once on its existing thread and then caches it", async title => {
+  const f = fixture();
+  const id = title === "CEO" ? (f.store.ensureCeo(), CEO_ID) : await session(f);
+  f.store.companyContext = () => ({ agentId: id, title, canRecruit: false });
+  const rule = "Managers, including the CEO, turn team reports into their own judgment and the key facts, risks and decisions the recipient needs. Distill requests downward too; do not simply relay messages.";
+  await f.store.call("turn/start", { threadId: id, input: [] });
+  const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+  const payload = (injections()[0][1] as { items: Array<{ role: string; content: Array<{ text: string }> }> }).items[0].content[0].text;
+  expect(payload.split(rule)).toHaveLength(2);
+  expect(payload.includes(DEPARTMENT_HEAD_GUIDELINE)).toBe(["Head", "Manager"].includes(title));
+  expect(payload).not.toContain("Keep your own replies focused on decisions; do not relay routine status again.");
+  expect(JSON.parse(payload.split("\n")[1]).company.canRecruit).toBe(false);
+  const oldShared = OFFICE_COLLABORATION_GUIDELINE.replace(rule + " ", "").replace("using shared context. Send intermediate", "using shared context; send intermediate");
+  const oldHead = DEPARTMENT_HEAD_GUIDELINE.replace(" Reserve intervention", " Keep your own replies focused on decisions; do not relay routine status again. Reserve intervention");
+  f.store.get(id).projectContext = createHash("sha256").update(payload.replace(OFFICE_COLLABORATION_GUIDELINE, oldShared).replace(DEPARTMENT_HEAD_GUIDELINE, oldHead)).digest("hex"); f.store.save();
+  const nativeThreadId = f.store.get(id).codexThreadId;
+  const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const updated = injections()[1][1] as { threadId: string; items: Array<{ role: string; content: Array<{ text: string }> }> };
+  expect(updated.threadId).toBe(nativeThreadId); expect(updated.items[0].role).toBe("developer"); expect(updated.items[0].content[0].text).toBe(payload);
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const reloaded = new CodexOfficeStore(f.directory, f.client); reloaded.companyContext = f.store.companyContext;
+  await reloaded.call("turn/start", { threadId: id, input: [] });
+  expect(injections()).toHaveLength(2);
+  expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
 });
