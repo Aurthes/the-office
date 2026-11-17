@@ -43,6 +43,36 @@ function commit(push: (value: unknown) => void, call: ReturnType<typeof makeClie
 }
 
 describe("voice lifetime and original session ownership", () => {
+  it("observes only the active call on demand without starting calls or changing canonical captions", async () => {
+    const { client, call, push } = makeClient();
+    const { result, unmount } = renderHook(() => useSessionVoice(client));
+    const api = window.officeVoiceDiagnostics!;
+    api.start();
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(call).not.toHaveBeenCalled();
+    await act(async () => result.current.start("owner"));
+    const first = Peer.all[0];
+    const voiceId = (call.mock.calls.find(([method]) => method === "session.voice.start")![1] as { voiceId: string }).voiceId;
+    act(() => {
+      first.message({ type: "turn.created", turn: { id: "turn-1", role: "user", transcript: "PRIVATE" } });
+      push({ threadId: "other", voiceId, method: "thread/realtime/transcript/done", params: { text: "PRIVATE" } });
+      push({ threadId: "owner", voiceId: "stale", method: "thread/realtime/transcript/done", params: {} });
+      push({ threadId: "owner", voiceId, method: "thread/realtime/transcript/done", params: { role: "user", text: "PRIVATE" } });
+    });
+    expect(api.snapshot().entries).toHaveLength(2);
+    expect(result.current.captions).toEqual([]);
+    expect(JSON.stringify(api.snapshot())).not.toContain("PRIVATE");
+    act(() => result.current.stop());
+    await act(async () => result.current.start("next"));
+    first.message({ type: "stale.event" });
+    expect(api.snapshot().entries).toHaveLength(2);
+    Peer.all[1].message({ type: "new.event" });
+    expect(api.snapshot().entries.at(-1)?.threadId).toBe("next");
+    expect(call.mock.calls.some(([method]) => /append|send|steer/.test(method))).toBe(false);
+    unmount();
+    expect(window.officeVoiceDiagnostics).toBeUndefined();
+    expect(api.snapshot().entries).toEqual([]);
+  });
   it("keeps the same call and captions while keyed chat panels switch, and mutes without hanging up", async () => {
     const { client, call, push } = makeClient();
     let current!: SessionVoiceController;

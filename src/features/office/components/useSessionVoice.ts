@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { callTimeline, mergeCallTimeline, type VoiceCaption } from "./voiceTranscript";
 import type { LiveSessionItem, SessionClient } from "./SessionControls";
 import { prepareAndroidVoice, type AndroidVoiceLease } from "./androidVoiceHost";
+import { createVoiceDiagnostics } from "./voiceDiagnostics";
 
 export type VoiceSettings = { voice: string; echoCancellation: boolean; noiseSuppression: boolean; autoGainControl: boolean };
 const defaults: VoiceSettings = { voice: "", echoCancellation: true, noiseSuppression: true, autoGainControl: true };
@@ -23,6 +24,15 @@ type VoiceConnection = { id: string; threadId: string; muted: boolean; abort: Ab
 // Owned by the Office screen, so changing the selected conversation does not
 // dispose the call. Every request stays bound to the originating thread.
 export function useSessionVoice(client: SessionClient) {
+  const [diagnostics] = useState(createVoiceDiagnostics);
+  useEffect(() => {
+    const api = { start: diagnostics.start, stop: diagnostics.stop, clear: diagnostics.clear, snapshot: diagnostics.snapshot };
+    window.officeVoiceDiagnostics = api;
+    return () => {
+      diagnostics.stop(); diagnostics.clear();
+      if (window.officeVoiceDiagnostics === api) delete window.officeVoiceDiagnostics;
+    };
+  }, [diagnostics]);
   const connection = useRef<VoiceConnection | null>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [status, setStatus] = useState<"off" | "connecting" | "connected">("off");
@@ -154,11 +164,15 @@ export function useSessionVoice(client: SessionClient) {
     };
     // Keep the native WebRTC data channel open for transport. Captions have
     // one authority: committed native timeline items, never Peer turn/item IDs.
-    session.pc.createDataChannel("oai-events");
+    const channel = session.pc.createDataChannel("oai-events");
+    channel.onmessage = event => {
+      if (connection.current === session) diagnostics.observe("peer", session.threadId, session.id, event.data);
+    };
     session.unsubscribe = client.onEvent?.(event => {
       const value = event.payload as { threadId?: string; voiceId?: string; method?: string; params?: { sdp?: string; role?: string; text?: string; message?: string; reason?: string } };
       if (event.event !== "session.voice" || value?.threadId !== session.threadId || value.voiceId !== session.id || connection.current !== session) return;
       const params = value.params || {};
+      diagnostics.observe("native", session.threadId, session.id, { ...params, type: value.method });
       if (value.method === "thread/realtime/sdp" && params.sdp) void session.pc.setRemoteDescription({ type: "answer", sdp: params.sdp }).catch(() => finish(session, true, "Voice negotiation failed. Please retry."));
       // Flat native transcript/done has no call/item identity. Dialogue comes
       // from exact committed native items instead.
@@ -191,7 +205,7 @@ export function useSessionVoice(client: SessionClient) {
     } catch (cause) {
       finish(session, true, cause instanceof DOMException && cause.name === "NotAllowedError" ? "Allow microphone access for this page, then retry." : cause instanceof Error ? cause.message : "Could not connect voice");
     }
-  }, [client, settings, finish, toggleMute]);
+  }, [client, settings, finish, toggleMute, diagnostics]);
   const play = async () => {
     try { await connection.current?.audio.play(); setPlaybackBlocked(false); }
     catch { setError("Audio playback was blocked. Click Play audio again."); }
