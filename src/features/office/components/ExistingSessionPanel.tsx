@@ -9,6 +9,7 @@ import type { CompanyProject } from "@/features/retro-office/core/companyLayout"
 import type { SessionVoiceController } from "./useSessionVoice";
 import { SessionControls, type LiveSessionItem, type SessionClient, type ReplySource } from "./SessionControls";
 import { SessionPreviewContext } from "./SessionPreviewContext";
+import { SessionToolbox } from "./SessionToolbox";
 import { SessionWorkspace } from "./SessionWorkspace";
 import type { SessionAsset } from "./SessionControls";
 import { SessionVoiceHistory } from "./SessionVoice";
@@ -387,7 +388,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     {data?.runtime === "office" ? <OfficeCodexAccount client={client} quiet /> : null}
     {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onHistoryReset={onHistoryReset} onActiveTurnChange={setActiveTurnId} onSendState={onSendState} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
     </div>
-    {workspaceOpen ? <SessionWorkspace key={threadId} taskProgress={taskProgress} progressRequest={progressRequest} active={active && !shownMessageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
+    {workspaceOpen ? <SessionWorkspace key={threadId} toolbox={<SessionToolbox threadId={threadId} organization={organization} />} taskProgress={taskProgress} progressRequest={progressRequest} active={active && !shownMessageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
       assets={[...new Map(messages.flatMap(message => message.assets || []).map(asset => [asset.url, asset])).values()].slice(-40)}
       onSelectAsset={setPreviewAsset} onClose={() => setWorkspaceOpen(false)} /> : null}
     </div>

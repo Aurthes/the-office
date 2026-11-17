@@ -17,7 +17,7 @@ function AssetCard({ id, entry, edit, deprecate, busy }: { id: string; entry: De
     </div> : null}
   </details>;
 }
-export function DepartmentAssetsPanel({ departmentId, entries, save }: { departmentId: string; entries: Record<string, DepartmentAsset>; save?: Save }) {
+export function DepartmentAssetsPanel({ departmentId, entries, save, kind: onlyKind }: { kind?: DepartmentAsset["kind"]; departmentId: string; entries: Record<string, DepartmentAsset>; save?: Save }) {
   const t = useUiText(), formId = useId();
   const [draft, setDraft] = useState<DepartmentAsset | null>(null), [assetId, setAssetId] = useState("");
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
@@ -39,7 +39,7 @@ export function DepartmentAssetsPanel({ departmentId, entries, save }: { departm
       <label htmlFor={formId+"status"}>{t("Asset status")}</label><select id={formId+"status"} value={draft.status} disabled={busy} onChange={event => setDraft({ ...draft, status: event.target.value as DepartmentAsset["status"] })}>{ASSET_STATUSES.map(status => <option key={status} value={status}>{t(statusLabels[status as keyof typeof statusLabels])}</option>)}</select>
       <div className="department-actions"><button type="button" disabled={busy} onClick={() => { setDraft(null); setError(""); }}>{t("Cancel")}</button><button type="submit" disabled={busy}>{t(busy ? "Saving…" : "Save asset")}</button></div>
     </form> : null}
-    {ASSET_KINDS.map(kind => {
+    {ASSET_KINDS.filter(kind => !onlyKind || kind === onlyKind).map(kind => {
       const rows = Object.entries(entries).filter(([, entry]) => entry.kind === kind).sort(([a], [b]) => a.localeCompare(b));
       return <section key={kind} aria-label={t(kindLabels[kind as keyof typeof kindLabels])}><h3>{t(kindLabels[kind as keyof typeof kindLabels])} · {rows.length}</h3>
         {rows.length ? rows.map(([id, entry]) => <AssetCard key={id} id={id} entry={entry} busy={busy} edit={save ? () => { setAssetId(id); setDraft({ ...entry }); setError(""); } : undefined} deprecate={save ? () => void persist(id, { ...entry, status: "deprecated" }) : undefined} />) : <p>{t("No assets registered yet.")}</p>}

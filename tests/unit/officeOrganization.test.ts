@@ -86,3 +86,46 @@ it("saves department assets through the real coordinator, preserves siblings and
   hook.unmount();const next=renderHook(()=>useOfficeOrganization(f.props));
   await waitFor(()=>expect(next.result.current.departmentAssets?.[OPEN_DEPARTMENT_ID]?.one).toEqual(asset));
 });
+
+function deferred<T>() { let resolve!: (value:T)=>void, reject!: (error:Error)=>void; const promise=new Promise<T>((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject}; }
+it("scopes assets immediately on gateway switch and ignores old successful or failed reads", async()=>{
+ const f=fixture();const reads=[deferred<ReturnType<typeof sanitizeStudioSettings>>(),deferred<ReturnType<typeof sanitizeStudioSettings>>()];let i=0;
+ const fake={loadSettings:vi.fn(()=>reads[i++].promise),applyPatchNow:vi.fn(async()=>{})} as unknown as StudioSettingsCoordinator;
+ const hook=renderHook(props=>useOfficeOrganization(props),{initialProps:{...f.props,coordinator:fake}});
+ expect(hook.result.current.departmentAssetsState).toMatchObject({ready:false,scope:"gateway"});
+ hook.rerender({...f.props,coordinator:fake,gatewayUrl:"other"});expect(hook.result.current.departmentAssets).toEqual({});expect(hook.result.current.departmentAssetsState).toMatchObject({ready:false,scope:"other"});
+ const asset={kind:"tool" as const,name:"B tool",summary:"B",instructions:"B",source:"B",version:"1",status:"active" as const};
+ await act(async()=>reads[1].resolve(sanitizeStudioSettings(mergeStudioSettings(defaultStudioSettings(),{office:{other:{departmentAssets:{[OPEN_DEPARTMENT_ID]:{b:asset}}}}}))));
+ await waitFor(()=>expect(hook.result.current.departmentAssetsState?.ready).toBe(true));
+ await act(async()=>reads[0].resolve(sanitizeStudioSettings(mergeStudioSettings(defaultStudioSettings(),{office:{gateway:{departmentAssets:{[OPEN_DEPARTMENT_ID]:{a:{...asset,name:"OLD"}}}}}}))));
+ expect(hook.result.current.departmentAssets?.[OPEN_DEPARTMENT_ID]).toEqual({b:asset});
+ hook.unmount();f.coordinator.dispose();
+});
+it("reports asset read failure instead of an empty registry, keeps same-scope data on refresh failure",async()=>{
+ const f=fixture();vi.spyOn(console,"error").mockImplementation(()=>{});f.fetchSettings.mockRejectedValueOnce(new Error("offline"));
+ const hook=renderHook(()=>useOfficeOrganization(f.props));await waitFor(()=>expect(hook.result.current.departmentAssetsState?.error).toBeTruthy());expect(hook.result.current.departmentAssetsState?.ready).toBe(false);
+ await act(async()=>window.dispatchEvent(new Event("focus")));await waitFor(()=>expect(hook.result.current.departmentAssetsState?.ready).toBe(true));
+ f.fetchSettings.mockRejectedValueOnce(new Error("offline"));await act(async()=>window.dispatchEvent(new Event("focus")));await waitFor(()=>expect(hook.result.current.departmentAssetsState?.error).toBeTruthy());expect(hook.result.current.departmentAssetsState?.ready).toBe(true);
+ hook.unmount();f.coordinator.dispose();
+});
+it("does not leak an old gateway save acknowledgement into the new asset snapshot",async()=>{
+ const f=fixture(),save=deferred<void>();
+ const hook=renderHook(props=>useOfficeOrganization(props),{initialProps:f.props});await waitFor(()=>expect(hook.result.current.departmentAssetsState?.ready).toBe(true));
+ vi.spyOn(f.coordinator,"applyPatchNow").mockImplementationOnce(()=>save.promise as ReturnType<StudioSettingsCoordinator["applyPatchNow"]>);
+ const asset={kind:"tool" as const,name:"Old save",summary:"s",instructions:"i",source:"s",version:"1",status:"active" as const};let pending!:Promise<void>;
+ act(()=>{pending=hook.result.current.saveDepartmentAsset!(OPEN_DEPARTMENT_ID,"old",asset);});
+ hook.rerender({...f.props,gatewayUrl:"new"});await waitFor(()=>expect(hook.result.current.departmentAssetsState).toMatchObject({scope:"new",ready:true}));
+ await act(async()=>{save.resolve();await pending;});expect(hook.result.current.departmentAssets).toEqual({});
+ hook.rerender({...f.props,enabled:false});expect(hook.result.current.departmentAssets).toEqual({});expect(hook.result.current.departmentAssetsState?.scope).toBe("");hook.unmount();f.coordinator.dispose();
+});
+it("keeps both same-scope save acknowledgements while rejecting a save from a previous visit to that gateway",async()=>{
+ const f=fixture(),hook=renderHook(props=>useOfficeOrganization(props),{initialProps:f.props});await waitFor(()=>expect(hook.result.current.departmentAssetsState?.ready).toBe(true));
+ const a=deferred<void>(),b=deferred<void>();vi.spyOn(f.coordinator,"applyPatchNow").mockImplementationOnce(()=>a.promise).mockImplementationOnce(()=>b.promise);
+ const asset={kind:"tool" as const,name:"Tool",summary:"s",instructions:"i",source:"s",version:"1",status:"active" as const};let pa!:Promise<void>,pb!:Promise<void>;
+ act(()=>{pa=hook.result.current.saveDepartmentAsset!(OPEN_DEPARTMENT_ID,"a",asset);pb=hook.result.current.saveDepartmentAsset!(OPEN_DEPARTMENT_ID,"b",asset);});
+ await act(async()=>{a.resolve();await pa;b.resolve();await pb;});expect(Object.keys(hook.result.current.departmentAssets![OPEN_DEPARTMENT_ID]).sort()).toEqual(["a","b"]);
+ const stale=deferred<void>();vi.spyOn(f.coordinator,"applyPatchNow").mockImplementationOnce(()=>stale.promise);let pending!:Promise<void>;act(()=>{pending=hook.result.current.saveDepartmentAsset!(OPEN_DEPARTMENT_ID,"stale",asset);});
+ hook.rerender({...f.props,gatewayUrl:"other"});await waitFor(()=>expect(hook.result.current.departmentAssetsState).toMatchObject({scope:"other",ready:true}));
+ hook.rerender(f.props);await waitFor(()=>expect(hook.result.current.departmentAssetsState).toMatchObject({scope:"gateway",ready:true}));
+ await act(async()=>{stale.resolve();await pending;});expect(hook.result.current.departmentAssets?.[OPEN_DEPARTMENT_ID]?.stale).toBeUndefined();hook.unmount();f.coordinator.dispose();
+});
