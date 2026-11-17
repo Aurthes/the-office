@@ -18,3 +18,4 @@
 .todo-watcher-choices input { flex: none; width: 16px; height: 16px; }
 .todo-watcher-choices span { min-width: 0; overflow-wrap: anywhere; }
 .todo-watcher-choices small { display: block; font-size: 11px; opacity: .7; }
+.todo-priority{white-space:nowrap;font-size:11px;color:#bce7df;border:1px solid #a4c6c52c;border-radius:4px;padding:2px 5px}

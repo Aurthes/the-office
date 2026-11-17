@@ -360,3 +360,17 @@ it("sends explicit removed phase IDs only after the user removes persisted phase
  await waitFor(()=>expect(f.call.mock.calls.filter(([m])=>m==="todo.edit")).toHaveLength(2));
  expect(f.call.mock.calls.filter(([m])=>m==="todo.edit")[1][1]).not.toHaveProperty("removedPhaseIds");
 });
+it("edits priority alone with a minimal CAS metadata request, shows a badge and clears to null", async () => {
+  const f = fixture(undefined, { priority: 12 }, "todo");
+  expect(await screen.findByText(/P12/)).toBeTruthy();
+  fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+  const input = screen.getByRole("spinbutton", { name: "Priority" });
+  expect(input).toHaveAttribute("min", "1"); expect(input).toHaveAttribute("max", "999");
+  fireEvent.change(input, { target: { value: "1" } }); fireEvent.click(screen.getByRole("button", { name: "Save to-do" }));
+  await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.edit", expect.objectContaining({ id: "todo", revision: 4, priority: 1 })));
+  expect(Object.keys(f.call.mock.calls.find(([method]) => method === "todo.edit")![1] as object).sort()).toEqual(["id", "priority", "requestId", "revision"]);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+  fireEvent.change(screen.getByRole("spinbutton", { name: "Priority" }), { target: { value: "" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save to-do" }));
+  await waitFor(() => expect(f.call).toHaveBeenCalledWith("todo.edit", expect.objectContaining({ id: "todo", revision: 4, priority: null })));
+});

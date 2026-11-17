@@ -84,13 +84,13 @@ describe("compact model-facing Office information", () => {
       catch (error) { ws.send(JSON.stringify({ type: "res", id: frame.id, ok: false, error: { message: String(error) } })); }
     });
     const call = await mcp(f.url);
-    const created = (await call("todo_create", { actorId: "alice", assigneeId: "alice", title: "Same title", requestId: "task-code", phases: [{ title: "Verify" }] })).todo;
-    expect(created.code).toBe("T1"); expect(created.id).not.toBe("T1");
+    const created = (await call("todo_create", { actorId: "alice", assigneeId: "alice", title: "Same title", priority: 12, requestId: "task-code", phases: [{ title: "Verify" }] })).todo;
+    expect(created.priority).toBe(12); expect(created.code).toBe("T1"); expect(created.id).not.toBe("T1");
     const read = (await call("todo_get", { id: "T1" })).todo;
     expect(read.id).toBe(created.id); expect(read).not.toHaveProperty("events");
-    const edited = (await call("todo_edit", { actorId: "alice", id: "T1", revision: read.revision, title: "Renamed" })).todo;
-    expect(edited).toMatchObject({ id: created.id, code: "T1" }); expect(edited).not.toHaveProperty("documentation");
-    expect((await call("todo_list", { query: "T1" })).todos[0]).toMatchObject({ id: created.id, code: "T1", title: "Renamed" });
+    const edited = (await call("todo_edit", { actorId: "alice", id: "T1", revision: read.revision, priority: 1, title: "Renamed" })).todo;
+    expect(edited).toMatchObject({ id: created.id, code: "T1", priority: 1 }); expect(edited).not.toHaveProperty("documentation");
+    expect((await call("todo_list", { query: "T1" })).todos[0]).toMatchObject({ id: created.id, code: "T1", priority: 1, title: "Renamed" });
     const delegated = (await call("todo_delegate", { actorId: "alice", id: "T1", revision: edited.revision, phaseId: created.phases[0].id, assigneeId: "bob", instructions: "Implement", acceptanceCriteria: "Verify", requestId: "delegate-code" })).todo;
     expect((await call("todo_edit", { actorId: "alice", id: "T1", revision: delegated.revision, title: "Shared edit" })).todo).toMatchObject({ id: created.id, code: "T1" });
   });
@@ -380,4 +380,31 @@ it("exposes and passes phasePatch/explicit removal/restore through the existing 
  await expect(edit({phases:[task.phases[0]]})).rejects.toThrow(/removedPhaseIds/);
  const original=structuredClone(todos.raw(task.id).phases[1]);await edit({phases:[todos.raw(task.id).phases[0]],removedPhaseIds:[original.id]});
  await edit({restorePhase:{phase:original,index:1}});expect(todos.raw(task.id).phases[1]).toEqual(original);
+});
+it("exposes numeric priority for create/edit only with a bounded nullable contract", () => {
+  const { tools } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");
+  for (const name of ["todo_create", "todo_edit"]) {
+    const tool = tools.find((t: { name: string }) => t.name === name);
+    expect(tool.inputSchema.properties.priority).toMatchObject({ type: ["integer", "null"], minimum: 1, maximum: 999 });
+  }
+  expect(tools.find((t: { name: string }) => t.name === "todo_start").inputSchema.properties).not.toHaveProperty("priority");
+});
+it("keeps priority on real MCP compact edit/get/list for existing legacy and phased records", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "priority-mcp-")); cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+  const { OfficeTodos } = createRequire(import.meta.url)("../../server/office-todos.js");
+  const todos = new OfficeTodos(directory, { agents: () => [{ id: "alice", name: "Alice" }], projects: () => [] });
+  const tasks = [undefined, "phases"].map(executionMode => todos.create({ actorId: "alice", requestId: executionMode || "legacy", executionMode, title: "Priority fixture", priority: 12, phases: [{ title: "Work" }] }).todo);
+  const f = await fixture((ws, frame) => {
+    try { const action = frame.method.slice(5); reply(ws, frame, ["get", "list"].includes(action) ? todos[action](frame.params) : todos.change(frame.params, action)); }
+    catch (error) { ws.send(JSON.stringify({ type: "res", id: frame.id, ok: false, error: { message: String(error) } })); }
+  });
+  const call = await mcp(f.url);
+  for (const task of tasks) {
+    const edited = (await call("todo_edit", { id: task.id, revision: task.revision, actorId: "alice", priority: 1 })).todo;
+    expect(edited.priority).toBe(1);
+    expect((await call("todo_get", { id: task.id })).todo.priority).toBe(1);
+    expect((await call("todo_list", {})).todos.find((t: { id: string }) => t.id === task.id).priority).toBe(1);
+  }
+  const loaded = new OfficeTodos(directory, { agents: () => [{ id: "alice", name: "Alice" }], projects: () => [] });
+  expect(tasks.map(t => loaded.get({ id: t.id }).todo.priority)).toEqual([1, 1]);
 });

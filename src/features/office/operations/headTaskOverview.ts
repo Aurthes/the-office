@@ -5,7 +5,7 @@ export type HeadWork = {
   id: string; phaseId?: string; title: string; status: string; scopeLabel?: string; active?: boolean; running?: boolean;
   people: { role: string; agentId?: string | null }[]; state?: TaskProgressState; progressAt?: number | null;
 };
-export type HeadTaskRow = { id: string; code: string; title: string; work: HeadWork[]; tracking?: TaskTracking; closed?: boolean; recentAt?: number | null; progressAt?: number | null; completed?: { id: string; title: string; at: number | null }[] };
+export type HeadTaskRow = { id: string; code: string; title: string; priority?: number | null; work: HeadWork[]; tracking?: TaskTracking; closed?: boolean; recentAt?: number | null; progressAt?: number | null; completed?: { id: string; title: string; at: number | null }[] };
 
 export function taskProgressAgentIds(organization: OrganizationView): Set<string> {
   return new Set([
@@ -62,7 +62,7 @@ export function headTaskRows(headId: string, tasks: readonly DirectoryTaskSummar
     const rank = (w: HeadWork) => w.active ? w.running ? -1 : 0 : w.status === "Awaiting manager review" ? 1 : w.status === "Needs user decision" ? 2 : 3;
     work.sort((a, b) => rank(a) - rank(b));
     const completed = (task.phases || []).filter(p => p.id && p.completedAt != null).map(p => ({ id: p.id!, title: p.title || shortPhaseCode(p.id!), at: p.completedAt ?? null }));
-    return { id: task.id, code: task.code || task.id, title: task.title, work, tracking: task.tracking, closed: !needsFollowUp(task), recentAt: task.tracking?.lastUpdateAt ?? lastTaskProgress(task), progressAt: lastTaskProgress(task), ...(completed.length ? { completed } : {}) };
+    return { id: task.id, priority: task.priority ?? null, code: task.code || task.id, title: task.title, work, tracking: task.tracking, closed: !needsFollowUp(task), recentAt: task.tracking?.lastUpdateAt ?? lastTaskProgress(task), progressAt: lastTaskProgress(task), ...(completed.length ? { completed } : {}) };
   });
 }
 
@@ -85,5 +85,5 @@ export function groupHeadTaskRows(rows: readonly HeadTaskRow[], now: number, win
     const recent = recentAt != null && recentAt <= now && now - recentAt < windowMinutes * 60000;
     if (row.closed && !recent) return [];
     return [{ ...row, running, activityGroup: active ? "active" as const : recent ? "recent" as const : "other" as const }];
-  }).sort((a, b) => ({ active: 0, recent: 1, other: 2 }[a.activityGroup] - { active: 0, recent: 1, other: 2 }[b.activityGroup]) || Number(b.running) - Number(a.running) || (b.recentAt ?? b.progressAt ?? -1) - (a.recentAt ?? a.progressAt ?? -1) || a.id.localeCompare(b.id));
+  }).sort((a, b) => ({ active: 0, recent: 1, other: 2 }[a.activityGroup] - { active: 0, recent: 1, other: 2 }[b.activityGroup]) || (a.priority ?? Infinity) - (b.priority ?? Infinity) || Number(b.running) - Number(a.running) || (b.recentAt ?? b.progressAt ?? -1) - (a.recentAt ?? a.progressAt ?? -1) || a.id.localeCompare(b.id));
 }

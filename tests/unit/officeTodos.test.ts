@@ -347,3 +347,61 @@ describe("collaborative metadata edits preserve workflow authority", () => {
     expect(() => f.change(task.id, "edit", { actorId: "bob", ownerId: "bob" })).toThrow(/Restore this archived/);
   });
 });
+
+describe("numeric task priority", () => {
+  it.each([undefined, "phases"])("persists, clears and preserves omitted priority in %s mode without touching work", mode => {
+    const f = fixture(), task = f.create({ actorId: "alice", ...(mode ? { executionMode: mode, phases: [{ title: "Plan", assigneeId: "alice" }, { title: "Verify", assigneeId: "alice" }] } : {}), priority: 12 });
+    expect(task.priority).toBe(12);
+    const id = task.id, phaseId = task.phases[0].id;
+    f.change(id, "start", { actorId: "alice", ...(mode ? { phaseId } : {}) });
+    f.advance(5000);
+    const before = structuredClone(f.todos.raw(id));
+    const { taskTracking } = createRequire(import.meta.url)("../../server/office-todo-progress.js");
+    const tracking = taskTracking(before), bindings = [...f.todos.bindings];
+    f.change(id, "edit", { actorId: "bob", priority: 1 });
+    const after = structuredClone(f.todos.raw(id));
+    expect(after.priority).toBe(1); expect(after.revision).toBe(before.revision + 1);
+    for (const key of ["phases", "activity", "status", "lastStartedAt", "lastUpdateAt", "acceptanceManagerId", "delegations", "ownerId", "assigneeId"]) expect(after[key]).toEqual(before[key]);
+    expect([...f.todos.bindings]).toEqual(bindings); expect(taskTracking(after)).toEqual(tracking);
+    expect(f.todos.list({ includeProgress: true }).todos.find((r: { id: string }) => r.id === id).priority).toBe(1);
+    expect(f.todos.context("alice").priority).toBe(1);
+    f.change(id, "pause", { actorId: "alice", ...(mode ? { phaseId } : {}) });
+    f.change(id, "edit", { documentation: "Only docs" });
+    expect(f.todos.get({ id }).todo.priority).toBe(1);
+    const loaded = new OfficeTodos(f.directory, f.deps);
+    expect(loaded.get({ id }).todo.priority).toBe(1);
+    f.change(id, "edit", { priority: null }); expect(f.todos.get({ id }).todo.priority).toBeNull();
+    expect(() => f.todos.change({ id, revision: 1, priority: 2 }, "edit")).toThrow(/changed/);
+  });
+  it("rejects invalid values atomically on create and both edit paths", () => {
+    for (const priority of [0, 1000, -1, 1.1, true, false, NaN, Infinity, "1", {}, []]) {
+      const f = fixture(); expect(() => f.create({ priority })).toThrow(/Priority/);
+      for (const mode of [undefined, "phases"]) {
+        const task = f.create({ ...(mode ? { executionMode: mode } : {}) });
+        const before = structuredClone(f.todos.raw(task.id));
+        for (const extra of [{}, { documentation: "Other edit" }]) expect(() => f.change(task.id, "edit", { ...extra, priority })).toThrow(/Priority/);
+        expect(f.todos.raw(task.id)).toEqual(before);
+      }
+    }
+  });
+  it("sorts numerically before pagination, null last, retaining previous tie order", () => {
+    const f = fixture(); const a = f.create({ priority: 2 }); f.advance(1);
+    const b = f.create({ priority: 2 }); f.advance(1);
+    const unset = f.create(); const high = f.create({ priority: 1 });
+    expect(f.todos.list().todos.map((r: { id: string }) => r.id)).toEqual([high.id, b.id, a.id, unset.id]);
+    expect(f.todos.list({ offset: 1, limit: 1 }).todos[0].id).toBe(b.id);
+    delete f.todos.raw(unset.id).priority; expect(f.todos.get({ id: unset.id }).todo.priority).toBeNull();
+    expect(f.todos.list().todos.at(-1).priority).toBeNull();
+    const requestId = "priority-dedup"; const t = f.create({ priority: 999, requestId });
+    expect(f.create({ priority: 999, requestId }).id).toBe(t.id);
+    expect(() => f.create({ priority: 1, requestId })).toThrow(/conflict/);
+  });
+  it.each([undefined, "phases"])("does not reopen completed %s tasks when changing priority", mode => {
+    const f = fixture(); const t = f.create({ ...(mode ? { executionMode: mode } : {}) });
+    for (const phase of t.phases) f.change(t.id, "complete", { phaseId: phase.id });
+    const before = structuredClone(f.todos.raw(t.id)); f.advance(5000);
+    const result = f.change(t.id, "edit", { priority: 1 });
+    expect(result).toMatchObject({ status: "done", archived: true, completedAt: before.completedAt, priority: 1 });
+    expect(result.phases).toMatchObject(before.phases);
+  });
+});

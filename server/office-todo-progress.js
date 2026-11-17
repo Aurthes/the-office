@@ -2,7 +2,7 @@
 
 // Read-only, bounded projection of records already kept by OfficeTodos.
 // No events are added, history is not backfilled, and edits are not progress.
-const bookkeeping = message => /^(Agent turn .*(; activity timer stopped|timer paused|waiting for follow-up.*)$|Agent switched task; activity timer stopped$|Office (stopped; activity timers stopped$|restarted; activity timers stopped at the last checkpoint$)|Separated execution assignment|Completed task automatically archived)/.test(message || "");
+const bookkeeping = message => /^(Task priority updated$|Agent turn .*(; activity timer stopped|timer paused|waiting for follow-up.*)$|Agent switched task; activity timer stopped$|Office (stopped; activity timers stopped$|restarted; activity timers stopped at the last checkpoint$)|Separated execution assignment|Completed task automatically archived)/.test(message || "");
 const short = value => typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 180) : null;
 const time = value => Number.isFinite(value) && value >= 0 ? value : null;
 const metadata = /^(Agent turn .*; activity timer stopped$|Agent switched task; activity timer stopped$|Office (stopped; activity timers stopped$|restarted; activity timers stopped at the last checkpoint$)|Plan, .*updated$|Removed phase:|Separated execution assignment|Completed task automatically archived|To-do archived$|To-do restored$)/;
@@ -25,7 +25,7 @@ function taskTracking(row) {
       for (const change of event.followup) if (["running", "paused"].includes(change.status) && (!mode && change.phaseId === null || mode && phases.some(p => p.id === change.phaseId))) add(change.status === "running" ? "Following resumed" : "Paused", event.at, event.actor, change.phaseId, null, "event");
       continue;
     }
-    if (time(event.at) === null) continue;
+    if (time(event.at) === null || message === "Task priority updated") continue;
     if (/^Plan, .*updated$/.test(message)) { add("Updated", event.at, event.actor, event.phaseId, null, "event"); continue; }
     if (metadata.test(message)) continue;
     const match = /^(Started phase: |Completed phase: |Reopened phase: |Delegated phase: |Submitted phase for manager acceptance: |Manager accepted phase |Manager returned phase |Paused phase: )/.exec(message);

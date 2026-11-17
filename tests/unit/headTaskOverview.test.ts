@@ -300,3 +300,13 @@ it("shows Active independently of Running and never labels a retained activity i
   view.rerender(createElement(HeadTaskOverview,{embedded:true,name:"Head",rows:headTaskRows("head",[phased]),names,loading:false,error:"",onOpenTask:vi.fn()}));
   expect(screen.getByText("Running")).toBeVisible();
 });
+it("sorts priority within existing activity groups without changing exact Running facts", () => {
+  const now = Date.now();
+  const make = (id: string, priority: number | null, status = "running") => ({ ...task, id, priority, status });
+  const rows = headTaskRows("head", [make("low", 9), make("high", 1), make("unset", null), make("cold", 1, "paused")]);
+  const grouped = groupHeadTaskRows(rows, now, 60);
+  expect(grouped.map(row => row.id)).toEqual(["high", "low", "unset", "cold"]);
+  expect(grouped[0]).toMatchObject({ priority: 1, activityGroup: "active", running: false });
+  render(createElement(HeadTaskOverview, { embedded: true, name: "Head", rows, names, loading: false, error: "", onOpenTask: vi.fn() }));
+  expect(screen.getAllByText(/P1/).length).toBeGreaterThan(0);
+});
