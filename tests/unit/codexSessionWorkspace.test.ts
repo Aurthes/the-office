@@ -9,10 +9,20 @@ const roots: string[] = [];
 afterEach(() => { vi.useRealTimers(); for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 const setup = () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "claw-workspace-")); roots.push(root);
-  const client = { ready: true, call: vi.fn(async (method: string) => method === "fs/readDirectory" ? { entries: [{ fileName: "a.ts", isFile: true }, { fileName: "src", isDirectory: true }, { fileName: "../bad", isFile: true }] } : method === "fs/readFile" ? { dataBase64: Buffer.from("const answer = 42;").toString("base64") } : {}) };
+  const client = { ready: true, call: vi.fn<(method: string, params: unknown, timeout?: number) => Promise<unknown>>(async method => method === "fs/readDirectory" ? { entries: [{ fileName: "a.ts", isFile: true }, { fileName: "src", isDirectory: true }, { fileName: "../bad", isFile: true }] } : method === "fs/readFile" ? { dataBase64: Buffer.from("const answer = 42;").toString("base64") } : {}) };
   return { root, row: { id: "original", workspace: root }, client, workspace: new CodexSessionWorkspace(client) };
 };
 describe("native Codex workspace", () => {
+  it.each([[true, "command/exec"], [false, "process/spawn"]] as const)(
+    "advertises xterm capabilities to the native PTY (%s)",
+    async (commandExec, method) => {
+      const { row, client } = setup();
+      const workspace = new CodexSessionWorkspace(client, { commandExec, policy: () => ({ type: "readOnly" }) });
+      await workspace.start(row);
+      expect(client.call.mock.calls[0]?.[0]).toBe(method);
+      expect(client.call.mock.calls[0]?.[1]).toMatchObject({ tty: true, env: { TERM: "xterm-256color" } });
+    },
+  );
   it("lists and reads through Codex, and rejects parent traversal, symlinks and oversized files", async () => {
     const { root, row, client, workspace } = setup(); fs.writeFileSync(path.join(root, "a.ts"), "const answer = 42;");
     expect((await workspace.files(row)).entries).toEqual([{ name: "src", directory: true }, { name: "a.ts", directory: false }]);

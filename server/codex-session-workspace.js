@@ -72,9 +72,12 @@ class CodexSessionWorkspace {
     const { root } = await this.target(row);
     const terminal = { threadId: row.id, handle: crypto.randomUUID(), output: Buffer.alloc(0), pending: Buffer.alloc(0), offset: 0, running: true, exitCode: null, timer: null, reset: false };
     this.terminals.set(row.id, terminal);
+    // Match the browser xterm so shell line editors emit cursor movement and
+    // erase sequences even when the gateway has no inherited TERM.
+    const env = { TERM: "xterm-256color" };
     if (this.options.commandExec) {
       // Public command/exec stays pending until exit; output arrives as events.
-      void this.client.call("command/exec", { processId: terminal.handle, command: [os.userInfo().shell || process.env.SHELL || "/bin/sh", "-l"], cwd: root,
+      void this.client.call("command/exec", { processId: terminal.handle, command: [os.userInfo().shell || process.env.SHELL || "/bin/sh", "-l"], cwd: root, env,
         tty: true, streamStdin: true, streamStdoutStderr: true, disableTimeout: true, disableOutputCap: true, size: { rows: 24, cols: 80 }, sandboxPolicy: policy }, 0)
         .then(result => { terminal.running = false; terminal.exitCode = result.exitCode; this.flush(terminal); }, error => {
           terminal.running = false; terminal.exitCode = -1; terminal.pending = Buffer.from(error.message + "\r\n"); terminal.output = terminal.pending; this.flush(terminal);
@@ -82,7 +85,7 @@ class CodexSessionWorkspace {
       return this.snapshot(row.id);
     }
     try {
-      await this.client.call("process/spawn", { processHandle: terminal.handle, command: [os.userInfo().shell || process.env.SHELL || "/bin/sh", "-l"], cwd: root,
+      await this.client.call("process/spawn", { processHandle: terminal.handle, command: [os.userInfo().shell || process.env.SHELL || "/bin/sh", "-l"], cwd: root, env,
         tty: true, streamStdin: true, streamStdoutStderr: true, outputBytesCap: null, timeoutMs: null, size: { rows: 24, cols: 80 } });
     } catch (error) {
       // A native rejection is definitive; a timeout is not. Keep the handle
