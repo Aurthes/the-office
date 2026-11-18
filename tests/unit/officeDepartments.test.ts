@@ -178,7 +178,7 @@ describe("Head recruitment using persistent Office sessions", () => {
     const tool = tools.find((t: { name: string }) => t.name === "todo_recruit");
     expect(tool.inputSchema.required).toEqual(["actorId", "name", "reason", "requestId"]); expect(tool.inputSchema.properties).not.toHaveProperty("departmentId");
     expect(tool.annotations.readOnlyHint).toBe(false);
-    expect(WORKFLOW).toContain("First check"); expect(WORKFLOW).toContain("If none is available");
+    expect(WORKFLOW).toContain("coordinated by the CEO"); expect(WORKFLOW).toContain("add no approval gates");
   });
 });
 
@@ -231,6 +231,12 @@ describe("specialized worker titles using the existing organization and turn con
     for (const id of [worker, f.head]) await f.store.call("turn/start", { threadId: id, input: [] });
     expect(f.store.get(worker).projectContext).not.toBe(before[0]); expect(f.store.get(f.head).projectContext).not.toBe(before[1]);
     expect(JSON.stringify(injected().at(-1))).toContain("Daily running, monitoring and maintenance.");
+    for (const entry of injected()) {
+      const payload = JSON.stringify(entry);
+      expect(payload).toContain("Infra owns shared repositories and hardware");
+      expect(payload).toContain("Office owns the work platform and UI");
+      expect(payload).toContain("the CEO owns departments, staffing and recruitment");
+    }
     const count = injected().length;
     for (const id of [worker, f.head]) await f.store.call("turn/start", { threadId: id, input: [] }); expect(injected()).toHaveLength(count);
     changedDescription = true; await f.store.call("turn/start", { threadId: worker, input: [] }); expect(injected()).toHaveLength(count+1);
@@ -278,4 +284,21 @@ describe("department registry discovery through real company/turn modules", () =
     const restored = new CodexOfficeStore(path.join(f.root, "office"), { ready: true, call: f.call });restored.companyContext = (id: string) => f.company.forTurn(id);
     await restored.call("turn/start", { threadId: f.worker, input: [] });expect(injections()).toHaveLength(n+1);
   });
+});
+
+it("refreshes the shared responsibility rule once in existing CEO, Head and Worker threads", async () => {
+  const f = await fixture(); f.store.companyContext = (id: string) => f.company.forTurn(id);
+  for (const id of [CEO, f.head, f.worker]) {
+    const row = f.store.get(id); row.codexThreadId = `old-${id}`; row.projectContext = "previous-rule-hash";
+    f.call.mockClear();
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    const injections = () => f.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+    expect(injections()).toHaveLength(1);
+    const payload = JSON.stringify(injections()[0]);
+    expect(payload).toContain("Infra owns shared repositories and hardware");
+    expect(payload).toContain("Office owns the work platform and UI");
+    expect(payload).toContain("the CEO owns departments, staffing and recruitment");
+    await f.store.call("turn/start", { threadId: id, input: [] });
+    expect(injections()).toHaveLength(1);
+  }
 });
