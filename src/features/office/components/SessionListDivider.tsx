@@ -4,7 +4,7 @@ import { useLayoutEffect, useRef } from "react";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { sessionListWidth } from "../operations/sessionListLayout";
 
-export function SessionListDivider({ onResize }: { onResize?: () => void }) {
+export function SessionListDivider({ onResize, pane = "list" }: { onResize?: () => void; pane?: "list" | "workspace" }) {
   const t = useUiText();
   const handleRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: number; x: number; width: number } | null>(null);
@@ -12,28 +12,38 @@ export function SessionListDivider({ onResize }: { onResize?: () => void }) {
     const handle = handleRef.current, container = handle?.parentElement, list = handle?.previousElementSibling;
     if (!handle || !container || !list) return;
     const update = () => {
-      const total = container.getBoundingClientRect().width;
+      const total = container.getBoundingClientRect().width - (pane === "workspace" ? handle.getBoundingClientRect().width : 0);
       if (!total) return;
       handle.setAttribute("aria-valuenow", String(Math.round(list.getBoundingClientRect().width / total * 100)));
-      handle.setAttribute("aria-valuemin", String(Math.round(96 / total * 100)));
-      handle.setAttribute("aria-valuemax", String(Math.round(sessionListWidth(total, 360) / total * 100)));
+      const minimum = pane === "workspace" ? Math.min(200, total / 2) : 96;
+      const maximum = pane === "workspace" ? total - minimum : sessionListWidth(total, 360);
+      handle.setAttribute("aria-valuemin", String(Math.round(minimum / total * 100)));
+      handle.setAttribute("aria-valuemax", String(Math.round(maximum / total * 100)));
     };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(container); observer.observe(list);
     return () => observer.disconnect();
-  }, []);
+  }, [pane]);
   const resize = (handle: HTMLDivElement, width: number) => {
     const container = handle.parentElement;
     if (!container) return;
     const total = container.getBoundingClientRect().width;
-    const next = sessionListWidth(total, width);
-    container.style.setProperty("--session-list-width", `${next}px`);
+    if (!total) return;
+    if (pane === "workspace") {
+      const available = Math.max(0, total - handle.getBoundingClientRect().width);
+      const minimum = Math.min(200, available / 2);
+      const next = Math.max(minimum, Math.min(width, available - minimum));
+      // Percentages follow later frame resizes without a new saved preference.
+      container.style.setProperty("--session-conversation-width", `${next / total * 100}%`);
+    } else {
+      container.style.setProperty("--session-list-width", `${sessionListWidth(total, width)}px`);
+    }
     onResize?.();
   };
 
-  return <div ref={handleRef} role="separator" aria-label={t("Resize session list")} aria-orientation="vertical"
-    aria-valuemin={0} aria-valuemax={50} aria-valuenow={40} tabIndex={0} className="session-list-divider"
+  return <div ref={handleRef} role="separator" aria-label={t(pane === "workspace" ? "Resize chat and workspace" : "Resize session list")} aria-orientation="vertical"
+    aria-valuemin={0} aria-valuemax={pane === "workspace" ? 100 : 50} aria-valuenow={40} tabIndex={0} className={`session-list-divider${pane === "workspace" ? " session-workspace-divider" : ""}`}
     onPointerDown={event => {
       if (event.button !== 0) return;
       event.preventDefault();

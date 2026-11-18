@@ -1,12 +1,13 @@
 import React from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ExistingSessionPanel } from "../../src/features/office/components/ExistingSessionPanel";
 
 const deferred = () => { let resolve!: (value: unknown) => void; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const metadata = (id = "original") => ({ id, name: `Name ${id}`, workspace: "/repo", project: "Project", status: "idle" });
 const page = (text: string, nextCursor: string | null, threadId = "original") => ({ threadId, nextCursor, messages: [{ id: text, content: text, role: "assistant" }] });
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+beforeEach(() => { vi.stubGlobal("ResizeObserver",class { observe() {} disconnect() {} }); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 function sessionEvents() {
   // Match the real client: account, roster and transcript observers coexist.
@@ -402,6 +403,7 @@ it("keeps only the More progress action and Workspace tab while preserving the r
     await screen.findByRole("button",{name:"Remove attachment retained.txt"});
     const triggers=screen.getAllByRole("button",{name:"Task progress"});expect(triggers).toHaveLength(1);expect(triggers[0]).toHaveClass("session-interface-overflow");expect(document.querySelector(".session-interface-inline[data-interface-capability=task-progress]")).toBeNull();fireEvent.click(triggers[0]);
     expect(screen.getByRole("tab",{name:"Task progress"})).toHaveAttribute("aria-selected","true");
+    expect(screen.getByRole("separator",{name:"Resize chat and workspace"})).toBeTruthy();
     expect(screen.getByText("Actual progress content")).toBeVisible();expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("textbox",{name:"Send to session"})).toBe(input);expect(input).toHaveValue("Draft with @reference remains");
     expect(screen.getByRole("button",{name:"Remove attachment retained.txt"})).toBeTruthy();

@@ -2031,6 +2031,7 @@ export const ZH_CN: Record<string, string> = {
   "Close session list": "收起会话列表",
   "Dismiss session list": "关闭会话列表浮层",
   "Resize session list": "调整会话列表宽度",
+  "Resize chat and workspace": "调整聊天与工作区宽度",
   "Restore chat window": "还原聊天窗口",
   "Expand chat window": "放大聊天窗口",
   "Restore": "还原",

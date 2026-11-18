@@ -291,7 +291,9 @@
 @media (prefers-reduced-motion: reduce) { .session-message-toggle { transition: none; } }
 
 .session-workspace-layout { display: flex; }
-.session-workspace-layout--open .session-conversation { flex: 0 1 46%; }
+.session-workspace-layout--open .session-conversation { flex: 0 1 var(--session-conversation-width, 46%); }
+.session-workspace-layout--open > .session-conversation,
+.session-workspace-layout--open > .session-workspace { min-width: min(200px, calc(50% - 6px)); }
 .session-workspace { border-left: 1px solid #ffffff16; background: #10161d; }
 .session-workspace-tabs { display: flex; flex-shrink: 0; align-items: center; gap: 3px; padding: 6px; border-bottom: 1px solid #ffffff12; }
 .session-workspace-tabs button, .session-workspace-toolbar button, .session-workspace-link {
@@ -307,6 +309,7 @@
 .session-workspace-files button svg { flex-shrink: 0; }
 .session-workspace .xterm { height: 100%; }
 @media (max-width: 1023px) {
+  .session-workspace-divider { display: none; }
   .session-workspace-layout--open .session-conversation { display: none; }
   .session-workspace { border-left: 0; }
   .session-workspace-tabs button, .session-workspace-toolbar button { min-height: 40px; }
