@@ -17,7 +17,7 @@ export const ZH_CN: Record<string, string> = {
   "Sent as a follow-up to": "已作为后续指令发送给",
   "Sending to": "正在发送给",
   "Select text above, choose an agent, then send only that selection.": "选中上方的一段文字，选择 agent，再发送选中内容。",
-  "Save syncs notes across devices. Reload to get changes from another device.": "保存后会同步到其他设备。点击重新加载，获取其他设备的修改。",
+  "Edits save every 10 seconds. Reload to get changes from another device.": "改动每 10 秒自动保存。点击重新加载，获取其他设备的修改。",
   "Notes changed on another device. Your draft is kept. Copy it before loading the saved version.": "笔记已在其他设备上修改。当前草稿仍保留，请先复制草稿，再加载已保存版本。",
   "Discard this draft and load saved notes?": "丢弃当前草稿并加载已保存的笔记？",
   "Local draft backup unavailable. Save before closing.": "无法备份本地草稿，请保存后再关闭。",

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { Save, Send } from "lucide-react";
 import type { InterfaceAgent } from "@/lib/office/agent-interface";
 import { useUiText } from "@/lib/i18n/ui-language";
@@ -21,7 +21,7 @@ export function SessionNotes({ client, threadId, gateway, agents = [], connected
   const [error, setError] = useState(""), [backupError, setBackupError] = useState(false), [reload, setReload] = useState(0);
   const [selection, setSelection] = useState({ start: 0, end: 0 }), [targetId, setTargetId] = useState(threadId);
   const [delivery, setDelivery] = useState<{ status: "sending" | "accepted" | "failed" | "unknown"; name: string; outcome?: string } | null>(null);
-  const busy = useRef(false);
+  const busy = useRef(false), latestText = useRef("");
   const url = `/api/office/agents/${encodeURIComponent(threadId)}/notes`;
   const draftKey = `claw3d:notes-draft:${gateway}:${threadId}`;
   const dirty = !!note && text !== note.text;
@@ -44,7 +44,8 @@ export function SessionNotes({ client, threadId, gateway, agents = [], connected
       try { draft = JSON.parse(localStorage.getItem(draftKey) || "null"); } catch { /* Server copy remains available. */ }
       if (draft?.text === next.text) { try { localStorage.removeItem(draftKey); } catch { setBackupError(true); } }
       const restore = draft && typeof draft.text === "string" && draft.text.length <= 64000 && Number.isSafeInteger(draft.revision) && draft.text !== next.text;
-      setNote(next); setText(restore ? draft!.text as string : next.text);
+      latestText.current = restore ? draft!.text as string : next.text;
+      setNote(next); setText(latestText.current);
       setConflict(Boolean(restore && draft!.revision !== next.revision)); setError("");
     }).catch(() => { if (!controller.signal.aborted) setError("Could not load notes. Try again."); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
@@ -56,7 +57,7 @@ export function SessionNotes({ client, threadId, gateway, agents = [], connected
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
   const save = async () => {
-    if (!note || busy.current || !dirty || conflict) return;
+    if (!note || busy.current || loading || !dirty || conflict) return;
     busy.current = true; setSaving(true); setError("");
     const snapshot = text;
     try {
@@ -67,12 +68,22 @@ export function SessionNotes({ client, threadId, gateway, agents = [], connected
       if (next.text !== snapshot || next.revision <= note.revision) throw Error("Could not confirm the save. Reload saved notes before trying again.");
       setNote(next); try {
         const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
-        if (draft?.text === snapshot && draft.revision === note.revision) localStorage.removeItem(draftKey);
-        setBackupError(false);
+        const current = latestText.current;
+        if (draft?.text === current && draft.revision === note.revision) {
+          if (current === snapshot) localStorage.removeItem(draftKey);
+          else localStorage.setItem(draftKey, JSON.stringify({ text: current, revision: next.revision }));
+          setBackupError(false);
+        }
       } catch { setBackupError(true); }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save notes. Your draft is kept."); }
     finally { busy.current = false; setSaving(false); }
   };
+  const autosave = useEffectEvent(() => { void save(); });
+  useEffect(() => {
+    if (loading || !dirty || conflict) return;
+    const timer = window.setInterval(() => autosave(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [loading, dirty, conflict, draftKey]);
   const send = async () => {
     if (!available || !target || !selected.trim() || oversized || busy.current || delivery?.status === "unknown") return;
     // Freeze the text and UUID before any await. No composer drafts/references
@@ -100,10 +111,10 @@ export function SessionNotes({ client, threadId, gateway, agents = [], connected
     {error ? <p role="alert" className="text-sm">{t(error)}</p> : null}
     {conflict ? <p role="alert" className="text-sm">{t("Notes changed on another device. Your draft is kept. Copy it before loading the saved version.")}</p> : null}
     {backupError ? <p role="alert" className="text-sm">{t("Local draft backup unavailable. Save before closing.")}</p> : null}
-    <textarea aria-label={t("Notes text")} className="min-h-40 min-w-0 flex-1 resize-none rounded-lg border p-3 text-base leading-6" style={{ fontSize: 16, background: "var(--input)", color: "var(--foreground)", borderColor: "var(--sidebar-input-border)" }} maxLength={64000} value={text} disabled={loading || saving || !note}
-      onChange={event => { const value = event.target.value; setText(value); setSelection({ start: event.target.selectionStart, end: event.target.selectionEnd }); if (note) { if (value === note.text) { try { localStorage.removeItem(draftKey); } catch { setBackupError(true); } } else backup(value, note.revision); } }}
+    <textarea aria-label={t("Notes text")} className="min-h-40 min-w-0 flex-1 resize-none rounded-lg border p-3 text-base leading-6" style={{ fontSize: 16, background: "var(--input)", color: "var(--foreground)", borderColor: "var(--sidebar-input-border)" }} maxLength={64000} value={text} disabled={loading || !note}
+      onChange={event => { const value = event.target.value; latestText.current = value; setText(value); setSelection({ start: event.target.selectionStart, end: event.target.selectionEnd }); if (note) { if (value === note.text && !saving) { try { localStorage.removeItem(draftKey); } catch { setBackupError(true); } } else backup(value, note.revision); } }}
       onSelect={event => setSelection({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd })} />
-    <p className="text-xs">{t("Save syncs notes across devices. Reload to get changes from another device.")}</p>
+    <p className="text-xs">{t("Edits save every 10 seconds. Reload to get changes from another device.")}</p>
     <p className="text-xs">{t("Select text above, choose an agent, then send only that selection.")}</p>
     <div className="flex flex-wrap gap-2">
       <label className="flex min-w-0 flex-1 items-center gap-2 text-sm">{t("Send to")}<select aria-label={t("Send notes to agent")} className="min-h-10 min-w-0 flex-1 rounded border px-2" style={{ background: "var(--surface-2)", color: "var(--foreground)" }} value={targetId} disabled={delivery?.status === "sending"} onChange={event => setTargetId(event.target.value)}>

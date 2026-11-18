@@ -11,7 +11,7 @@ beforeEach(()=>{
  localStorage.clear();stored={id,text:"before SELECTED after",revision:0,updatedAt:null};
  fetcher=vi.fn(async(_url:string,init?:RequestInit)=>{if(init?.method==="PUT"){const input=JSON.parse(String(init.body));if(input.revision!==stored.revision)return Response.json({}, {status:409});stored={...stored,...input,revision:stored.revision+1,updatedAt:new Date().toISOString()};}return Response.json({note:stored});});vi.stubGlobal("fetch",fetcher);
 });
-afterEach(()=>{cleanup();vi.unstubAllGlobals();});
+afterEach(()=>{cleanup();vi.useRealTimers();vi.unstubAllGlobals();});
 const props=(call: SessionClient["call"]=vi.fn(async()=>({status:"started",turnId:"turn-1"})))=>({client:{call},threadId:id,gateway:"ws://fixture",agents:[{id,name:"worker4",status:"idle"},{id:target,name:"worker1",status:"running"}]});
 async function editor(){return await screen.findByRole("textbox",{name:"Notes text"}) as HTMLTextAreaElement;}
 function select(area:HTMLTextAreaElement,start=7,end=15){area.focus();area.setSelectionRange(start,end);fireEvent.select(area);}
@@ -54,6 +54,43 @@ describe("per-agent Notes",()=>{
   fireEvent.change(area,{target:{value:"  中文\nnew note  "}});expect(screen.getByText("Unsaved changes")).toBeTruthy();
   fireEvent.click(screen.getByRole("button",{name:"Save notes"}));await waitFor(()=>expect(stored.revision).toBe(1));await waitFor(()=>expect(localStorage.length).toBe(0));
   view.unmount();stored={...stored,text:"other device saved",revision:2};render(React.createElement(SessionNotes,props()));expect(await screen.findByDisplayValue("other device saved")).toBeTruthy();
+ });
+ it("saves the latest edit after ten seconds and stops writing once clean", async () => {
+  render(React.createElement(SessionNotes, props()));
+  const area = await editor(); await waitFor(() => expect(area).not.toBeDisabled());
+  vi.useFakeTimers();
+  fireEvent.change(area, { target: { value: "first edit" } });
+  await act(() => vi.advanceTimersByTimeAsync(9999));
+  expect(stored.revision).toBe(0);
+  fireEvent.change(area, { target: { value: "latest edit" } });
+  await act(() => vi.advanceTimersByTimeAsync(1));
+  expect(stored).toMatchObject({ text: "latest edit", revision: 1 });
+  expect(localStorage.length).toBe(0);
+  await act(() => vi.advanceTimersByTimeAsync(20000));
+  expect(stored.revision).toBe(1);
+ });
+ it("keeps typing during a save, rebases its draft, and stops on a server conflict", async () => {
+  render(React.createElement(SessionNotes, props()));
+  const area = await editor(); await waitFor(() => expect(area).not.toBeDisabled());
+  const respond = fetcher.getMockImplementation() as (url: string, init: RequestInit) => Promise<Response>;
+  let finish!: () => void;
+  fetcher.mockImplementationOnce((url: string, init: RequestInit) => new Promise<Response>(resolve => { finish = () => resolve(respond(url, init)); }));
+  vi.useFakeTimers();
+  fireEvent.change(area, { target: { value: "first edit" } });
+  await act(() => vi.advanceTimersByTimeAsync(10000));
+  expect(area).not.toBeDisabled();
+  fireEvent.change(area, { target: { value: "still typing" } });
+  await act(async () => finish());
+  expect(stored).toMatchObject({ text: "first edit", revision: 1 });
+  expect(JSON.parse(localStorage.getItem(`claw3d:notes-draft:ws://fixture:${id}`)!)).toEqual({ text: "still typing", revision: 1 });
+  stored = { ...stored, text: "other device", revision: 2 };
+  await act(() => vi.advanceTimersByTimeAsync(10000));
+  expect(screen.getByText(/Notes changed on another device/)).toBeTruthy();
+  expect(area.value).toBe("still typing");
+  const calls = fetcher.mock.calls.length;
+  await act(() => vi.advanceTimersByTimeAsync(20000));
+  expect(fetcher.mock.calls.length).toBe(calls);
+  expect(stored.text).toBe("other device");
  });
  it("restores unsaved drafts after close, but never overwrites another device on revision conflict",async()=>{
   const view=render(React.createElement(SessionNotes,props()));const area=await editor();await waitFor(()=>expect(area).not.toBeDisabled());fireEvent.change(area,{target:{value:"my unsaved draft"}});view.unmount();
