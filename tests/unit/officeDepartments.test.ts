@@ -178,7 +178,7 @@ describe("Head recruitment using persistent Office sessions", () => {
     const tool = tools.find((t: { name: string }) => t.name === "todo_recruit");
     expect(tool.inputSchema.required).toEqual(["actorId", "name", "reason", "requestId"]); expect(tool.inputSchema.properties).not.toHaveProperty("departmentId");
     expect(tool.annotations.readOnlyHint).toBe(false);
-    expect(WORKFLOW).toContain("coordinated by the CEO"); expect(WORKFLOW).toContain("add no approval gates");
+    expect(WORKFLOW).toContain("Heads independently manage recruitment, roles and direct reports"); expect(WORKFLOW).toContain("add no approval gates");
   });
 });
 
@@ -235,7 +235,9 @@ describe("specialized worker titles using the existing organization and turn con
       const payload = JSON.stringify(entry);
       expect(payload).toContain("Infra owns shared repositories and hardware");
       expect(payload).toContain("Office owns the work platform and UI");
-      expect(payload).toContain("the CEO owns departments, staffing and recruitment");
+    expect(payload).toContain("skip code, checks, data reads or process whose benefit does not justify its cost");
+    expect(payload).toContain("Challenge even user requests");
+      expect(payload).toContain("the CEO owns company-level departments and organization");
     }
     const count = injected().length;
     for (const id of [worker, f.head]) await f.store.call("turn/start", { threadId: id, input: [] }); expect(injected()).toHaveLength(count);
@@ -297,7 +299,9 @@ it("refreshes the shared responsibility rule once in existing CEO, Head and Work
     const payload = JSON.stringify(injections()[0]);
     expect(payload).toContain("Infra owns shared repositories and hardware");
     expect(payload).toContain("Office owns the work platform and UI");
-    expect(payload).toContain("the CEO owns departments, staffing and recruitment");
+    expect(payload).toContain("skip code, checks, data reads or process whose benefit does not justify its cost");
+    expect(payload).toContain("Challenge even user requests");
+    expect(payload).toContain("the CEO owns company-level departments and organization");
     await f.store.call("turn/start", { threadId: id, input: [] });
     expect(injections()).toHaveLength(1);
   }
