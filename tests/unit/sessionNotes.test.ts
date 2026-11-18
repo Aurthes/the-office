@@ -16,6 +16,27 @@ const props=(call: SessionClient["call"]=vi.fn(async()=>({status:"started",turnI
 async function editor(){return await screen.findByRole("textbox",{name:"Notes text"}) as HTMLTextAreaElement;}
 function select(area:HTMLTextAreaElement,start=7,end=15){area.focus();area.setSelectionRange(start,end);fireEvent.select(area);}
 describe("per-agent Notes",()=>{
+ it("defaults to the current agent and preserves a manual recipient across roster refreshes",async()=>{
+  const p=props();const view=render(React.createElement(SessionNotes,p));
+  const area=await editor();await waitFor(()=>expect(area).not.toBeDisabled());
+  expect(screen.getByLabelText("Send notes to agent")).toHaveValue(id);
+  select(area);fireEvent.click(screen.getByRole("button",{name:"Send selection"}));
+  await waitFor(()=>expect(p.client.call).toHaveBeenCalledWith("session.send",expect.objectContaining({threadId:id,message:"SELECTED"})));
+  fireEvent.change(screen.getByLabelText("Send notes to agent"),{target:{value:target}});
+  view.rerender(React.createElement(SessionNotes,{...p,agents:[...p.agents]}));
+  expect(screen.getByLabelText("Send notes to agent")).toHaveValue(target);
+ });
+ it("resets the recipient to the new current agent when Workspace changes chats",async()=>{
+  const p=props();p.client.call=vi.fn(async()=>({path:"",entries:[]}));
+  fetcher.mockImplementation(async(url:string)=>Response.json({note:{...stored,id:url.includes(target)?target:id}}));
+  const workspace={...p,noteAgents:p.agents,asset:null,assets:[],onSelectAsset:vi.fn(),onClose:vi.fn()};
+  const view=render(React.createElement(SessionWorkspace,{...workspace,key:id}));
+  fireEvent.click(screen.getByRole("tab",{name:"Notes"}));await waitFor(()=>expect(screen.getByLabelText("Send notes to agent")).toHaveValue(id));
+  // ExistingSessionPanel already keys Workspace by threadId.
+  view.rerender(React.createElement(SessionWorkspace,{...workspace,key:target,threadId:target}));
+  fireEvent.click(screen.getByRole("tab",{name:"Notes"}));
+  await waitFor(()=>expect(screen.getByLabelText("Send notes to agent")).toHaveValue(target));
+ });
  it("sends only exact selected text to the UUID, freezes selection, preserves the note, uses ordinary steer receipts",async()=>{
   let resolve!:(v:unknown)=>void;const call=vi.fn(()=>new Promise(r=>{resolve=r}));
   render(React.createElement(SessionNotes,props(call as ReturnType<typeof props>["client"]["call"])));

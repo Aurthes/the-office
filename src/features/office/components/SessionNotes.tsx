@@ -19,7 +19,7 @@ export function SessionNotes({ client, threadId, gateway, agents = [], connected
   const [note, setNote] = useState<Note | null>(null), [text, setText] = useState("");
   const [loading, setLoading] = useState(true), [saving, setSaving] = useState(false), [conflict, setConflict] = useState(false);
   const [error, setError] = useState(""), [backupError, setBackupError] = useState(false), [reload, setReload] = useState(0);
-  const [selection, setSelection] = useState({ start: 0, end: 0 }), [targetId, setTargetId] = useState("");
+  const [selection, setSelection] = useState({ start: 0, end: 0 }), [targetId, setTargetId] = useState(threadId);
   const [delivery, setDelivery] = useState<{ status: "sending" | "accepted" | "failed" | "unknown"; name: string; outcome?: string } | null>(null);
   const busy = useRef(false);
   const url = `/api/office/agents/${encodeURIComponent(threadId)}/notes`;
