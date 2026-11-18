@@ -98,6 +98,10 @@ class CodexOfficeStore {
       const id = crypto.randomUUID();
       const session = { id, name, workspace, projectId: project?.id ?? null, ...(recruitment ? { recruitment } : {}), updatedAt: Date.now(), status: "idle", settings,
         avatarSeed: id, avatarProfile: { version: 1, seed: id, duck: createDuckAppearanceFromSeed(id) } };
+      if (template?.title !== undefined) {
+        if (!this.initializePosition) throw new Error("Recruitment positions are unavailable; no employee was created");
+        await this.initializePosition(session, this.recruitmentTitle(template.title));
+      }
       this.data.sessions.push(session); return { threadId: session.id };
     });
   }
@@ -117,6 +121,10 @@ class CodexOfficeStore {
       { model: "", effort: null, accessMode: ":workspace" }, { ...choices, accessModes: choices.accessModes.filter(mode => ACCESS[mode.id]) });
     return { model: input.model, effort: input.effort, accessMode: input.accessMode };
   }
+  recruitmentTitle(value) {
+    if (typeof value !== "string" || !value.trim() || value.trim().length > 80) throw new Error("Default position must contain 1–80 characters");
+    return value.trim();
+  }
   saveRecruitmentTemplate(input) {
     return this.once(input, async () => {
       const project = input.projectId == null ? null : this.project(input.projectId);
@@ -124,7 +132,9 @@ class CodexOfficeStore {
       const name = this.name(input.name), settings = await this.recruitmentSettings(input, workspace);
       const templates = this.data.recruitmentTemplates || [];
       if (input.id !== undefined && !templates.some(row => row.id === input.id)) throw new Error("Recruitment template is unavailable");
-      const template = { id: input.id ?? crypto.randomUUID(), name, ...settings };
+      const oldTitle = templates.find(row => row.id === input.id)?.title;
+      const title = input.title === undefined ? oldTitle : this.recruitmentTitle(input.title);
+      const template = { id: input.id ?? crypto.randomUUID(), name, ...settings, ...(title === undefined ? {} : { title }) };
       this.data.recruitmentTemplates = [...templates.filter(row => row.id !== template.id), template];
       return { template };
     });

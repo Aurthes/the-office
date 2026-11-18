@@ -245,6 +245,7 @@ export const ZH_CN: Record<string, string> = {
   "Set department default": "设为部门默认",
   "Clear department default": "清除部门默认",
   "Template name": "模板名称",
+  "Default position": "默认岗位",
   "Template model": "模板模型",
   "Template effort": "模板推理强度",
   "Template access": "模板权限",

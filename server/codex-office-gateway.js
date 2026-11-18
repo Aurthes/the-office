@@ -156,6 +156,17 @@ replyContext.options.source = async source => {
 store.questionContext = id => replyContext.forModel(id);
 const company = new OfficeCompany(store);
 store.companyContext = id => company.forTurn(id);
+store.initializePosition = (session, title) => company.initializePosition(session, title, async (key, id, position) => {
+  // Use the existing settings owner/API, rather than adding a second file writer.
+  const response = await fetch(`http://127.0.0.1:${process.env.CLAW3D_STUDIO_PORT || 3033}/api/studio`, {
+    method: "PUT", signal: AbortSignal.timeout(10_000),
+    headers: { "Content-Type": "application/json", ...(process.env.CLAW3D_PROXY_TOKEN ? { "x-office-proxy-token": process.env.CLAW3D_PROXY_TOKEN } : {}) },
+    body: JSON.stringify({ office: { [key]: { organization: { [id]: position } } } }),
+  });
+  if (!response.ok) throw new Error("Could not save the recruitment position; no employee was created");
+  const saved = (await response.json()).settings?.office?.[key]?.organization?.[id];
+  if (saved?.title !== position.title || JSON.stringify(saved?.reportsTo) !== JSON.stringify(position.reportsTo)) throw new Error("Recruitment position was not confirmed; no employee was created");
+});
 const notificationSecret = process.env.CLAW3D_PROXY_TOKEN || "";
 const notificationOrigins = new Set((process.env.CLAW3D_PUBLIC_ORIGINS || "").split(",").map(s => s.trim()));
 const notifications = new OfficeNotifications(directory, {

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { SessionClient } from "./SessionControls";
 import { useUiText } from "@/lib/i18n/ui-language";
 
-type Template = { id: string; name: string; model: string; effort: string | null; accessMode: string };
+type Template = { id: string; name: string; title?: string; model: string; effort: string | null; accessMode: string };
 type Catalog = { templates: Template[]; defaults: Record<string, string> };
 type Choices = { models: { id: string; name: string; efforts: string[]; defaultEffort: string }[]; accessModes: { id: string; name: string; allowed: boolean }[] };
 const DEFAULT = "__department__", FRESH = "__fresh__";
@@ -56,12 +56,12 @@ export function RecruitmentTemplates({ client, projectId, workspace, selected, o
       {selected && !catalog.templates.some(row => row.id === selected) ? <option value={selected}>{t("Unavailable")}</option> : null}
       {catalog.templates.map(row => <option value={row.id} key={row.id}>{row.name}</option>)}
     </select></label>
-    {template ? <p className="break-words text-xs text-white/70" aria-label={t("Template configuration")}>{template.model} · {template.effort || t("Default")} · {t(choices?.accessModes.find(row => row.id === template.accessMode)?.name || template.accessMode)}</p> : !loading && choices ? <p className="text-xs text-white/60">{t(selectedId ? "Recruitment template is unavailable. Choose another template or Fresh defaults." : "Fresh session with default settings. No conversation is copied.")}</p> : null}
+    {template ? <p className="break-words text-xs text-white/70" aria-label={t("Template configuration")}>{template.title || "Worker"} · {template.model} · {template.effort || t("Default")} · {t(choices?.accessModes.find(row => row.id === template.accessMode)?.name || template.accessMode)}</p> : !loading && choices ? <p className="text-xs text-white/60">{t(selectedId ? "Recruitment template is unavailable. Choose another template or Fresh defaults." : "Fresh session with default settings. No conversation is copied.")}</p> : null}
     {loading ? <p role="status" className="text-xs">{t("Loading recruitment templates…")}</p> : null}
     {error ? <p role="alert" className="break-words text-xs text-amber-100">{t(error)} <button type="button" className="underline" disabled={locked} onClick={() => { setLoading(true); setAttempt(value => value + 1); }}>{t("Retry options")}</button></p> : null}
     <details><summary className="cursor-pointer text-xs">{t("Manage recruitment templates")}</summary>
       <div className="mt-2 flex flex-wrap gap-2 text-xs">
-        <button type="button" disabled={locked || !choices?.models.length} className="min-h-9 underline" onClick={() => { const first = choices!.models[0]; setDraft({ name: "", model: first.id, effort: first.defaultEffort || null, accessMode: ":workspace" }); setConfirmFullAccess(false); }}>{t("New template")}</button>
+        <button type="button" disabled={locked || !choices?.models.length} className="min-h-9 underline" onClick={() => { const first = choices!.models[0]; setDraft({ name: "", title: "Worker", model: first.id, effort: first.defaultEffort || null, accessMode: ":workspace" }); setConfirmFullAccess(false); }}>{t("New template")}</button>
         {template ? <><button type="button" disabled={locked} className="min-h-9 underline" onClick={() => { setDraft({ ...template }); setConfirmFullAccess(false); }}>{t("Edit template")}</button>
           <button type="button" disabled={locked} className="min-h-9 underline" onClick={() => void mutate("recruitment.delete", { id: template.id }, () => { onSelect(undefined); setDraft(null); })}>{t("Delete template")}</button>
           <button type="button" disabled={locked || catalog.defaults[key] === template.id} className="min-h-9 underline" onClick={() => void mutate("recruitment.default", { projectId, templateId: template.id })}>{t("Set department default")}</button></> : null}
@@ -73,6 +73,7 @@ export function RecruitmentTemplates({ client, projectId, workspace, selected, o
         if (event.key === "Enter" && event.target instanceof HTMLInputElement) event.preventDefault();
       }}>
         <label className="block text-xs">{t("Template name")}<input aria-label={t("Template name")} maxLength={120} value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} className={field} /></label>
+        <label className="block text-xs">{t("Default position")}<input aria-label={t("Default position")} maxLength={80} value={draft.title ?? "Worker"} onChange={event => setDraft({ ...draft, title: event.target.value })} className={field} /></label>
         <label className="block text-xs">{t("Model")}<select aria-label={t("Template model")} value={draft.model} onChange={event => { const next = choices?.models.find(row => row.id === event.target.value); setDraft({ ...draft, model: event.target.value, effort: next?.defaultEffort || null }); }} className={field}>
           {!model ? <option value={draft.model}>{draft.model} ({t("Unavailable")})</option> : null}{choices?.models.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
         </select></label>
@@ -83,7 +84,7 @@ export function RecruitmentTemplates({ client, projectId, workspace, selected, o
           {!access ? <option value={draft.accessMode}>{draft.accessMode} ({t("Unavailable")})</option> : null}{choices?.accessModes.map(row => <option key={row.id} value={row.id} disabled={!row.allowed}>{t(row.name)}</option>)}
         </select></label>
         {draft.accessMode === ":danger-full-access" ? <label className="block text-xs text-amber-100"><input type="checkbox" aria-label={t("Confirm full access")} checked={confirmFullAccess} onChange={event => setConfirmFullAccess(event.target.checked)} /> {t("Full access lets Codex access files outside the workspace, run commands, and use the network without individual approvals. Saving this template applies that access to employees recruited with it later and their future tasks.")}</label> : null}
-        <button type="button" className="min-h-10 underline" disabled={!draft.name.trim() || !model || !access?.allowed || (draft.accessMode === ":danger-full-access" && !confirmFullAccess)} onClick={() => void mutate("recruitment.save", { ...draft, projectId, ...(projectId ? {} : { workspace }), confirmFullAccess }, result => { onSelect((result as { template: Template }).template.id); setDraft(null); })}>{t("Save template")}</button>
+        <button type="button" className="min-h-10 underline" disabled={!draft.name.trim() || !(draft.title ?? "Worker").trim() || !model || !access?.allowed || (draft.accessMode === ":danger-full-access" && !confirmFullAccess)} onClick={() => void mutate("recruitment.save", { ...draft, projectId, ...(projectId ? {} : { workspace }), confirmFullAccess }, result => { onSelect((result as { template: Template }).template.id); setDraft(null); })}>{t("Save template")}</button>
         <button type="button" className="ml-3 min-h-10" onClick={() => setDraft(null)}>{t("Cancel")}</button>
       </fieldset> : null}
     </details>

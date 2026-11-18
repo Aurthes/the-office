@@ -2,7 +2,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
-const { normalizeOrganization, reconcileOrganization, delegationMode } = require("../src/lib/office/organization-structure");
+const { normalizeOrganization, reconcileOrganization, delegationMode, isDepartmentManager } = require("../src/lib/office/organization-structure");
 const { normalizeDepartmentDescriptions, organizationDepartments, OPEN_DEPARTMENT_ID } = require("../src/lib/office/department-structure");
 const { ceo: CEO_ID } = require("../src/lib/office/identities.json");
 const { normalizeDepartmentAssets, departmentAssetIndex, readDepartmentAssets } = require("../src/lib/office/department-assets-structure");
@@ -64,6 +64,14 @@ class OfficeCompany {
     return { agentId: id, title: person.title, ...(Object.keys(specialties).length ? { specialties } : {}), canRecruit, delegationMode: delegationMode(id, person, !!directReports.length),
       managers: people.filter(row => person.reportsTo.includes(row.id)), directReports,
       departmentScope: companyScope ? "company" : selected ? "selected" : "own", departments };
+  }
+  async initializePosition(session, title, persist) {
+    // Seed the canonical graph before publishing the new roster. Old clients
+    // then read the real position instead of persisting a guessed Worker role.
+    const people = this.organization();
+    const managerId = session.recruitment?.managerId || people.find(person => person.departmentId === session.projectId && isDepartmentManager(person))?.id || CEO_ID;
+    const position = { title, reportsTo: [managerId] };
+    await persist(this.key, session.id, position);
   }
   departmentAssets(input) {
     const context = this.context(input.actorId, { allDepartments: true });

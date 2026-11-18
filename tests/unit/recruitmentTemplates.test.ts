@@ -7,6 +7,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
+import { mergeStudioSettings, normalizeStudioSettings } from "@/lib/studio/settings";
 import { createDuckAppearanceFromSeed } from "@/lib/avatars/duck";
 const require = createRequire(import.meta.url);
 const { CodexOfficeStore } = require("../../server/codex-office-store");
@@ -36,6 +37,10 @@ async function fixture() {
   const file = path.join(root, "settings.json");
   writeFileSync(file, JSON.stringify({ office: { "ws://localhost:18790": { organization: { [CEO]: { title: "CEO", reportsTo: [] }, [manager]: { title: "Head", reportsTo: [CEO] }, [shared]: { title: "Head", reportsTo: [CEO] } } } } }));
   const company = new OfficeCompany(store, { settingsFile: file, gatewayUrl: "ws://127.0.0.1:18790" });
+  store.initializePosition = (session: unknown, title: string) => company.initializePosition(session, title, async (key: string, id: string, position: { title: string; reportsTo: string[] }) => {
+    const settings = normalizeStudioSettings(JSON.parse(readFileSync(file, "utf8")));
+    writeFileSync(file, JSON.stringify(mergeStudioSettings(settings, { office: { [key]: { organization: { [id]: position } } } })));
+  });
   const save = (extra = {}) => store.saveRecruitmentTemplate({ name: "Careful", projectId: project.id, model: "model-a", effort: "high", accessMode: ":workspace", requestId: crypto.randomUUID(), ...extra });
   const recruit = (extra = {}) => company.recruit({ actorId: manager, name: "New employee", reason: "No suitable available employee", requestId: crypto.randomUUID(), ...extra });
   return { root, workspace, directory, store, client, project, other, manager, shared, file, company, save, recruit, allowFull: (value: boolean) => { fullAllowed = value; }, allowModel: (value: boolean) => { modelAvailable = value; } };
@@ -189,4 +194,52 @@ it("rechecks project folder membership after asynchronous native configuration v
   release();
   await expect(creating).rejects.toThrow(/Project folders changed/);
   expect(f.store.list()).toHaveLength(count);
+});
+
+it("seeds the canonical Dev position before either recruitment path publishes its roster and preserves old-client template edits", async () => {
+  const f = await fixture(), template = (await f.save({ title: " Dev " })).template;
+  expect(template.title).toBe("Dev");
+  await f.store.setRecruitmentDefault({ projectId: f.project.id, templateId: template.id, requestId: "dev-default" });
+  const observed: string[] = [];
+  f.store.changed = () => {
+    const saved = JSON.parse(readFileSync(f.file, "utf8")).office["ws://localhost:18790"].organization;
+    for (const row of f.store.list().filter((row: { name: string }) => row.name === "Dev employee")) {
+      expect(saved[row.id]).toEqual({ title: "Dev", reportsTo: [f.manager] }); observed.push(row.id);
+    }
+  };
+  const manual = await f.store.createSession({ name: "Dev employee", projectId: f.project.id, requestId: "dev-manual" });
+  const head = await f.recruit({ name: "Dev employee" });
+  for (const id of [manual.threadId, head.threadId]) {
+    expect(observed).toContain(id);
+    expect(f.company.context(id)).toMatchObject({ title: "Dev", canRecruit: false, managers: [{ id: f.manager }] });
+    expect(f.store.get(id).settings).toEqual({ model: "model-a", effort: "high", accessMode: ":workspace" });
+  }
+  // An old template editor omits the newly supported field.
+  const edited = await f.save({ id: template.id, name: "Renamed" }); expect(edited.template.title).toBe("Dev");
+  const fresh = await f.store.createSession({ name: "Fresh", projectId: f.project.id, templateId: null, requestId: "dev-fresh" });
+  expect(f.company.context(fresh.threadId).title).toBe("Worker");
+  const other = await f.store.createSession({ name: "Other", projectId: f.other.id, requestId: "other-first" });
+  const peer = await f.store.createSession({ name: "Other peer", projectId: f.other.id, requestId: "other-peer" });
+  expect(f.company.context(other.threadId).title).toBe("Head"); expect(f.company.context(peer.threadId).title).toBe("Worker");
+  expect(new OfficeCompany(new CodexOfficeStore(f.directory, f.client), { settingsFile: f.file }).context(head.threadId).title).toBe("Dev");
+  expect(f.client.call.mock.calls.every(([method]) => ["model/list", "permissionProfile/list"].includes(method))).toBe(true);
+});
+it("does not create an employee if the canonical position cannot be saved, and rejects invalid template positions", async () => {
+  const f = await fixture(), template = (await f.save({ title: "Dev" })).template;
+  for (const title of [null, "", "   ", 5, "x".repeat(81)]) await expect(f.save({ title })).rejects.toThrow(/Default position/);
+  const count = f.store.list().length;
+  f.store.initializePosition = async () => { throw new Error("Settings unavailable"); };
+  await expect(f.recruit({ templateId: template.id })).rejects.toThrow(/Settings unavailable/);
+  expect(f.store.list()).toHaveLength(count);
+  expect(new CodexOfficeStore(f.directory, f.client).list()).toHaveLength(count);
+});
+
+it("writes a new position under the existing gateway settings spelling without creating an ambiguous alias", async () => {
+  const f = await fixture(), settings = JSON.parse(readFileSync(f.file, "utf8"));
+  settings.office["ws://127.0.0.1:18790"] = settings.office["ws://localhost:18790"]; delete settings.office["ws://localhost:18790"];
+  writeFileSync(f.file, JSON.stringify(settings));
+  const template = (await f.save({ title: "Dev" })).template;
+  const created = await f.recruit({ templateId: template.id });
+  expect(Object.keys(JSON.parse(readFileSync(f.file, "utf8")).office)).toEqual(["ws://localhost:18790"]);
+  expect(f.company.context(created.threadId).title).toBe("Dev");
 });

@@ -6,7 +6,7 @@ import { setUiLanguage } from "@/lib/i18n/ui-language";
 beforeEach(() => setUiLanguage("en"));
 afterEach(cleanup);
 function fixture(options: { fullAllowed?: boolean; failList?: boolean; openWorkspace?: boolean } = {}) {
-  type Template = { id: string; name: string; model: string; effort: string | null; accessMode: string };
+  type Template = { id: string; name: string; title?: string; model: string; effort: string | null; accessMode: string };
   let templates: Template[] = [{ id: "safe", name: "Careful", model: "model-a", effort: "high", accessMode: ":workspace" }, { id: "full", name: "Builder", model: "model-b", effort: "medium", accessMode: ":danger-full-access" }];
   const defaults: Record<string, string> = { a: "safe", b: "full", "open-workspace": "safe" };
   let fail = !!options.failList, serial = 0;
@@ -17,7 +17,7 @@ function fixture(options: { fullAllowed?: boolean; failList?: boolean; openWorks
     if (method === "project.folders.list") return { directory: "/fixture/work", parent: "/fixture", entries: [] };
     if (method === "recruitment.list") { if (fail) throw Error("Cannot load options"); return { templates: templates.map(row => ({ ...row })), defaults: { ...defaults } }; }
     if (method === "recruitment.choices") return choices;
-    if (method === "recruitment.save") { const template = { id: input.id || "new-template", name: input.name!, model: input.model!, effort: input.effort, accessMode: input.accessMode! }; templates = [...templates.filter(row => row.id !== template.id), template]; return { template }; }
+    if (method === "recruitment.save") { const template = { id: input.id || "new-template", name: input.name!, title: input.title ?? undefined, model: input.model!, effort: input.effort, accessMode: input.accessMode! }; templates = [...templates.filter(row => row.id !== template.id), template]; return { template }; }
     if (method === "recruitment.default") { const key = input.projectId ?? "open-workspace"; if (input.templateId === null) delete defaults[key]; else defaults[key] = input.templateId; return { updated: true }; }
     if (method === "recruitment.delete") { templates = templates.filter(row => row.id !== input.id); for (const key of Object.keys(defaults)) if (defaults[key] === input.id) delete defaults[key]; return { deleted: true }; }
     if (method === "session.create") return { threadId: `new-${++serial}` };
@@ -47,13 +47,15 @@ it("saves, previews, defaults, edits and deletes independent templates without c
   fireEvent.click(screen.getByText("Manage recruitment templates"));
   fireEvent.click(screen.getByRole("button", { name: "New template" }));
   fireEvent.change(screen.getByLabelText("Template name"), { target: { value: "Focused" } });
+  expect(screen.getByLabelText("Default position")).toHaveValue("Worker");
+  fireEvent.change(screen.getByLabelText("Default position"), { target: { value: "Dev" } });
   fireEvent.change(screen.getByLabelText("Template model"), { target: { value: "model-b" } });
   expect(screen.getByLabelText("Template effort")).toHaveValue("medium");
   fireEvent.change(screen.getByLabelText("Template access"), { target: { value: ":danger-full-access" } });
   expect(screen.getByRole("button", { name: "Save template" })).toBeDisabled();
   fireEvent.click(screen.getByRole("checkbox", { name: "Confirm full access" }));
   fireEvent.click(screen.getByRole("button", { name: "Save template" }));
-  await waitFor(() => expect(f.call).toHaveBeenCalledWith("recruitment.save", expect.objectContaining({ name: "Focused", model: "model-b", effort: "medium", accessMode: ":danger-full-access", confirmFullAccess: true, projectId: "a" })));
+  await waitFor(() => expect(f.call).toHaveBeenCalledWith("recruitment.save", expect.objectContaining({ name: "Focused", title: "Dev", model: "model-b", effort: "medium", accessMode: ":danger-full-access", confirmFullAccess: true, projectId: "a" })));
   await waitFor(() => expect(screen.getByLabelText("Recruitment template")).toHaveValue("new-template"));
   await waitFor(() => expect(screen.getByRole("button", { name: "Set department default" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Set department default" }));
@@ -61,6 +63,7 @@ it("saves, previews, defaults, edits and deletes independent templates without c
   await waitFor(() => expect(screen.getByRole("button", { name: "Edit template" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Edit template" }));
   expect(screen.getByLabelText("Template name")).toHaveValue("Focused");
+  expect(screen.getByLabelText("Default position")).toHaveValue("Dev");
   fireEvent.change(screen.getByLabelText("Template name"), { target: { value: "Safer" } });
   fireEvent.change(screen.getByLabelText("Template access"), { target: { value: ":read-only" } });
   fireEvent.click(screen.getByRole("button", { name: "Save template" }));
