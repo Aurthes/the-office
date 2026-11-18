@@ -2,7 +2,7 @@
 
 Recruitment templates are independent saved configuration, not employees or
 references to existing conversations. Each contains an ID, name, model, reasoning
-effort, and access mode. Every department, including Open Workspace, can select
+effort, access mode, and an optional default position (`title`, 1–80 characters). Every department, including Open Workspace, can select
 one default. Templates and defaults live in the Office runtime's existing state
 file alongside its own project and session metadata.
 
@@ -24,7 +24,17 @@ Selection semantics are the same for both manual and Head recruitment:
 Unknown template references, unavailable models/efforts, or currently disallowed
 access modes fail before employee creation. They never fall back silently.
 Deleting a template clears defaults referring to it in the same state save.
-Changing a template or default does not change existing employee settings.
+Changing a template or default does not change existing employee settings or positions.
+New templates start with Worker; a department can select a separate Dev template
+without changing other departments. Older templates and Fresh keep their existing
+role bootstrap behavior. An older editor omitting `title` preserves its saved value.
+
+For explicit template positions, the shared initializer saves the canonical title
+and reporting line through the existing Studio settings API before publishing the
+new employee. Manual recruitment reports to the current department Head; Head
+recruitment reports to its recruiter. If the settings save cannot be confirmed,
+no employee is created. Studio must be reachable at loopback port 3033 (override
+with `CLAW3D_STUDIO_PORT` for other local layouts).
 
 Full access uses the existing permission validator and requires confirmation when
 the user saves the template. The confirmation explicitly covers employees later
