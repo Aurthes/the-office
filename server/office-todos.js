@@ -456,7 +456,13 @@ class OfficeTodos {
       if (entry) throw new Error("Submit and obtain this phase's manager acceptance before checking it complete or reopening it");
       if (action === "reopen") {
         if (actor.id && actor.id !== owner && actor.id !== phase.acceptanceManagerId) throw new Error("Only the Owner or this phase's acceptance manager can reopen it");
-      } else if (actor.id && actor.id !== (phase.acceptanceManagerId || owner)) throw new Error("Only this phase's responsible manager can complete it");
+      } else {
+        // A recalled acceptance route is history; the current Owner coordinates
+        // subsequent work. Accepted routes keep their existing review authority.
+        const lastAcceptance = (row.delegations || []).findLast(e => e.phaseId === phase.id && e.managerId === phase.acceptanceManagerId);
+        const manager = lastAcceptance?.state === "recalled" ? owner : phase.acceptanceManagerId || owner;
+        if (actor.id && actor.id !== manager) throw new Error("Only this phase's responsible manager can complete it");
+      }
       this.stopClock(row, this.now(), phase.id); delete phase.activity;
       phase.completedAt = action === "complete" ? phase.completedAt ?? this.now() : null; phase.status = action === "complete" ? "done" : "queued";
       message = `${action === "complete" ? "Completed" : "Reopened"} phase: ${phase.title}`;

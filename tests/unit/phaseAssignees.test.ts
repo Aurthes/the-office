@@ -497,6 +497,32 @@ describe("reopening accepted phases with distinct Owner, executor and acceptance
 });
 
 
+describe("completion after a recalled route moves to another Owner", () => {
+  it.each(["owner", "another executor"])("lets the current Owner close recalled work assigned to %s without rewriting history", async assignment => {
+    const f = await fixture(); await f.delegate(f.pa, f.c);
+    f.advance(500);
+    await f.runtime.recall(f.input(f.pa, f.owner, { handoffId: f.entry(f.pa).id, reason: "Transferred to another department" }));
+    f.todos.change(f.input(f.pa, f.owner, { ownerId: f.a, phasePatch: { id: f.pa, assigneeId: assignment === "owner" ? f.a : f.b } }), "edit");
+    const before = structuredClone(f.todos.raw(f.task.id)), calls = f.send.mock.calls.length;
+    expect(() => f.todos.change(f.input(f.pa, f.owner), "complete")).toThrow(/responsible/);
+    const restored = new OfficeTodos(path.join(f.root, "office"), f.deps);
+    restored.change({ ...f.input(f.pa, f.a), revision: before.revision }, "complete");
+    const after = restored.raw(f.task.id);
+    expect(after.phases[0]).toMatchObject({ status: "done", acceptanceManagerId: f.owner, assigneeId: before.phases[0].assigneeId, elapsedMs: before.phases[0].elapsedMs });
+    expect(after.phases.slice(1)).toEqual(before.phases.slice(1));
+    expect(after.delegations).toEqual(before.delegations);
+    expect(after.archived).toBe(false); expect(f.send).toHaveBeenCalledTimes(calls);
+  });
+  it("does not reuse an older recall to bypass a later accepted route", async () => {
+    const f = await fixture(); await f.delegate(f.pa, f.c, f.a);
+    await f.runtime.recall(f.input(f.pa, f.a, { handoffId: f.entry(f.pa).id, reason: "Rework scope" }));
+    await f.delegate(f.pa, f.c, f.a); await f.submit(f.pa, f.c); await f.settle(); await f.review(f.pa, f.a);
+    f.todos.change(f.input(f.pa, f.owner), "reopen");
+    expect(() => f.todos.change(f.input(f.pa, f.owner), "complete")).toThrow(/responsible manager/);
+    expect(f.phase(f.pa).completedAt).toBeNull();
+  });
+});
+
 describe("explicit Owner takeover of their own old upstream", () => {
   const transferInput = (f: Awaited<ReturnType<typeof fixture>>, handoffId: string) => f.input(f.pa, f.a, { handoffId, reason: "User transferred responsibility to the current Owner" });
   it.each(["working", "review"])("records %s upstream as transferred, keeps the real executor and survives restart", async state => {
