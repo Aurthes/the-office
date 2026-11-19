@@ -580,6 +580,8 @@ describe("independent Office runtime", () => {
     expect(f.client.call.mock.calls.some(([method]) => method === "thread/resume")).toBe(false);
     const params = f.client.call.mock.calls.at(-1)?.[1] as { initialItems: { role: string; text: string }[]; includeStartupContext: boolean };
     expect(params.includeStartupContext).toBe(false);
+    expect(params.initialItems[0]).toMatchObject({ role: "developer", text: expect.stringMatching(/^Speak like a concise colleague\. Lead with the answer or result/) });
+    expect(JSON.stringify(f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items"))).not.toContain("Speak like a concise colleague");
     expect(params.initialItems).toContainEqual({ role: "user", text: "Current request" });
     expect(JSON.stringify(params.initialItems)).not.toContain("PRIVATE_WORK_LOG");
     expect(params.initialItems.reduce((size, item) => size + Buffer.byteLength(item.text), 0)).toBeLessThanOrEqual(16000);
