@@ -235,8 +235,10 @@ describe("specialized worker titles using the existing organization and turn con
       const payload = JSON.stringify(entry);
       expect(payload).toContain("Infra owns shared repositories and hardware");
       expect(payload).toContain("Office owns the work platform and UI");
-    expect(payload).toContain("skip code, checks, data reads or process whose benefit does not justify its cost");
-    expect(payload).toContain("Challenge even user requests");
+      expect(payload).toContain("Define the goal. Take the shortest reliable path");
+      expect(payload).toContain("skip unnecessary code, checks, reads, and process");
+      expect(payload).toContain("easy to use without prior context, with safe defaults and clear errors for common mistakes");
+      expect(payload).toContain("Challenge even user requests");
       expect(payload).toContain("the CEO owns company-level departments and organization");
     }
     const count = injected().length;
@@ -299,7 +301,9 @@ it("refreshes the shared responsibility rule once in existing CEO, Head and Work
     const payload = JSON.stringify(injections()[0]);
     expect(payload).toContain("Infra owns shared repositories and hardware");
     expect(payload).toContain("Office owns the work platform and UI");
-    expect(payload).toContain("skip code, checks, data reads or process whose benefit does not justify its cost");
+    expect(payload).toContain("Define the goal. Take the shortest reliable path");
+    expect(payload).toContain("skip unnecessary code, checks, reads, and process");
+    expect(payload).toContain("easy to use without prior context, with safe defaults and clear errors for common mistakes");
     expect(payload).toContain("Challenge even user requests");
     expect(payload).toContain("the CEO owns company-level departments and organization");
     await f.store.call("turn/start", { threadId: id, input: [] });
