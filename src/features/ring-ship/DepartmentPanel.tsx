@@ -1,23 +1,25 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Building2, X } from "lucide-react";
-import { OPEN_DEPARTMENT_ID, type OrganizationView } from "@/lib/office/organization";
+import { BookOpen, Building2, Wrench, X } from "lucide-react";
+import { OPEN_DEPARTMENT_ID, type DepartmentResourcePage, type OrganizationView } from "@/lib/office/organization";
 import { departmentButtonLabel, MAX_DEPARTMENT_DESCRIPTION, type OrganizationDepartment } from "@/lib/office/departments";
 import { useUiText } from "@/lib/i18n/ui-language";
 import { needsFollowUp, type DirectoryTaskSummary } from "@/features/office/operations/agentDirectory";
+import { DepartmentLibrary } from "./DepartmentLibrary";
 import { DepartmentAssetsPanel } from "./DepartmentAssetsPanel";
 import "./scheduled-tasks.css";
 import "./department-panel.css";
 
-export type DepartmentPanelState = { open: boolean; selectedId: string | null; tabs: string[] };
-export function openDepartmentTab(current: DepartmentPanelState, id?: string): DepartmentPanelState {
-  return { open: true, selectedId: id ?? null, tabs: id && !current.tabs.includes(id) ? [...current.tabs, id] : current.tabs };
+export type DepartmentPanelState = { open: boolean; selectedId: string | null; tabs: string[]; page?: DepartmentResourcePage };
+export function openDepartmentTab(current: DepartmentPanelState, id?: string, page?: DepartmentResourcePage): DepartmentPanelState {
+  return { open: true, ...(page ? { page } : {}), selectedId: id ?? null, tabs: id && !current.tabs.includes(id) ? [...current.tabs, id] : current.tabs };
 }
 
 export type DepartmentTaskState = { summaries: DirectoryTaskSummary[]; loading: boolean; error: string };
-export function DepartmentPanel({ organization, state, onSelect, onClose, tasks, onOpenTask }: {
+export function DepartmentPanel({ organization, state, onSelect, onResource, onClose, tasks, onOpenTask }: {
   organization: OrganizationView; state: DepartmentPanelState; onSelect: (id?: string) => void; onClose: () => void;
+  onResource?: (id: string, page: DepartmentResourcePage) => void;
   tasks?: DepartmentTaskState; onOpenTask?: (id: string) => void;
 }) {
   const t = useUiText(), dialog = useRef<HTMLDialogElement>(null);
@@ -50,7 +52,19 @@ export function DepartmentPanel({ organization, state, onSelect, onClose, tasks,
           </article>)}</div>
         </section>
         {state.tabs.map(id => <section key={id} role="tabpanel" hidden={state.selectedId !== id} aria-label={departmentName(id)}>
-          {departments.find(d => d.id === id) ? <><DepartmentDetail department={departments.find(d => d.id === id)!} organization={organization} onClose={onClose} />{tasks ? <DepartmentTasks departmentId={id} tasks={tasks} onOpenTask={onOpenTask ? taskId => { onClose(); onOpenTask(taskId); } : undefined} /> : null}</> : <p>{t("Department unavailable")}</p>}
+          {state.open && state.selectedId === id && state.page && departments.some(d => d.id === id) ? <>
+            <button type="button" onClick={() => onSelect(id)}>{t("Back to department resources")}</button>
+            <h1>{departmentName(id)} · {t(state.page === "toolbox" ? "Toolbox" : "Library")}</h1>
+            {state.page === "library" ? <DepartmentLibrary key={id} departmentId={id} /> : <>
+              {organization.departmentAssetsState?.error ? <p role="alert">{t(organization.departmentAssetsState.error)}</p> : null}
+              {organization.departmentAssetsState?.ready === false ? !organization.departmentAssetsState.error && <p role="status">{t("Loading department tools…")}</p> :
+                <DepartmentAssetsPanel departmentId={id} entries={organization.departmentAssets?.[id] || {}} kind="tool" save={organization.saveDepartmentAsset} />}
+            </>}
+          </> : departments.find(d => d.id === id) ? <>
+            {onResource ? <nav className="department-resource-cards" aria-label={t("Department resources")}>
+              <button type="button" onClick={() => onResource(id, "toolbox")}><Wrench size={18} />{t("Toolbox")}</button>
+              <button type="button" onClick={() => onResource(id, "library")}><BookOpen size={18} />{t("Library")}</button>
+            </nav> : null}<DepartmentDetail department={departments.find(d => d.id === id)!} separateToolbox={!!onResource} organization={organization} onClose={onClose} />{tasks ? <DepartmentTasks departmentId={id} tasks={tasks} onOpenTask={onOpenTask ? taskId => { onClose(); onOpenTask(taskId); } : undefined} /> : null}</> : <p>{t("Department unavailable")}</p>}
         </section>)}
       </div>
     </div>
@@ -83,7 +97,7 @@ function MemberList({ department, organization, onClose }: { department: Organiz
   </ul>;
 }
 
-function DepartmentDetail({ department, organization, onClose }: { department: OrganizationDepartment; organization: OrganizationView; onClose: () => void }) {
+function DepartmentDetail({ department, organization, onClose, separateToolbox }: { department: OrganizationDepartment; separateToolbox: boolean; organization: OrganizationView; onClose: () => void }) {
   const t = useUiText(), [editing, setEditing] = useState(false), [draft, setDraft] = useState(department.description);
   const [saving, setSaving] = useState(false), [error, setError] = useState("");
   return <>
@@ -104,6 +118,6 @@ function DepartmentDetail({ department, organization, onClose }: { department: O
     </>}
     <h2>{t("Department Head")}</h2><p>{department.heads.map(head => `${head.name} · ${["Worker", "Head", "CEO"].includes(head.title) ? t(head.title) : head.title}`).join(", ") || t("Head position vacant")}</p>
     <h2>{t("Members")}</h2><MemberList department={department} organization={organization} onClose={onClose} />
-    <DepartmentAssetsPanel departmentId={department.id} entries={organization.departmentAssets?.[department.id] || {}} save={organization.saveDepartmentAsset} />
+    <DepartmentAssetsPanel hideTools={separateToolbox} departmentId={department.id} entries={organization.departmentAssets?.[department.id] || {}} save={organization.saveDepartmentAsset} />
   </>;
 }

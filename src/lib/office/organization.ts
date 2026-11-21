@@ -12,7 +12,8 @@ export type DelegationMode = "self" | "auto" | "prefer";
 export type OfficePosition = { title: string; reportsTo: string[]; delegationMode?: DelegationMode | null };
 export type OfficeOrganization = Record<string, OfficePosition>;
 export type OrganizationPerson = OfficePosition & { id: string; name: string; department: string; departmentId: string | null };
-export type OrganizationView = { departmentAssetsState?: { scope: string; ready: boolean; error: string }; departmentAssets?: DepartmentAssets; saveDepartmentAsset?: (departmentId: string, assetId: string, entry: DepartmentAsset) => Promise<void>; departments?: OrganizationDepartment[]; openDepartment?: (id?: string) => void; saveDepartmentDescription?: (id: string, description: string) => Promise<void>; focusPerson?: (id: string) => void; focusRequest?: { id: string; request: number } | null; people: OrganizationPerson[]; ceoAvatar: AgentAvatarProfile | null; savePosition: (id: string, position: OfficePosition) => Promise<void> };
+export type DepartmentResourcePage = "toolbox" | "library";
+export type OrganizationView = { openDepartmentResource?: (id: string, page: DepartmentResourcePage) => void; departmentAssetsState?: { scope: string; ready: boolean; error: string }; departmentAssets?: DepartmentAssets; saveDepartmentAsset?: (departmentId: string, assetId: string, entry: DepartmentAsset) => Promise<void>; departments?: OrganizationDepartment[]; openDepartment?: (id?: string) => void; saveDepartmentDescription?: (id: string, description: string) => Promise<void>; focusPerson?: (id: string) => void; focusRequest?: { id: string; request: number } | null; people: OrganizationPerson[]; ceoAvatar: AgentAvatarProfile | null; savePosition: (id: string, position: OfficePosition) => Promise<void> };
 
 export { isDepartmentManager, normalizeOrganization, assertReportingStructure, mergeOrganization, reconcileOrganization, delegationMode } from "./organization-structure";
 

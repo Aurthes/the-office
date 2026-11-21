@@ -64,7 +64,7 @@ import { MusicPlayerDialog } from "./MusicPlayerDialog";
 import { AiComputationCore } from "./AiComputationCore";
 import { AiCenterDashboard } from "./AiCenterDashboard";
 import { ShipObjectScene, ShipObjectCard } from "./ShipObjectInteraction";
-import { shipObjectCameraPose, type ShipObject } from "./shipObjects";
+import { departmentResourceAt, shipObjectCameraPose, type ShipObject } from "./shipObjects";
 import { useDuckFocusAudio } from "./useDuckFocusAudio";
 
 type Props = ComponentProps<typeof RetroOffice3D> & { navigationPreview?: boolean; musicPreview?: boolean; onFirefight?: FirefightHandler;
@@ -551,12 +551,21 @@ export function RingShipOffice(props: Props) {
   const duckFocus = !busy && !cloneFlight && !navigationOpen && !returnFlight && !monitorOpen && !serversOpen && !terminalHost && !tasksOpen && !todoOpen && !teasersOpen && !musicOpen && !settingsOpen && !aiOpen && !shipView
     ? props.activeChatAgentId || (!objectFocus && currentLayout.seats[validFocus] ? validFocus : null) : null;
   const duckAudio = useDuckFocusAudio(duckFocus, agents);
+  const openDepartmentResource = props.organization?.openDepartmentResource;
   const inspectObject = useCallback((object: ShipObject) => {
+    if (object.kind === "departmentToolbox" || object.kind === "departmentLibrary") {
+      const destination = objectEnabled ? departmentResourceAt(currentLayout, object, visibleDeck) : null;
+      if (destination && openDepartmentResource) {
+        closeObject();
+        openDepartmentResource(destination.id, destination.page);
+      }
+      return;
+    }
     if (object.kind === "taskWhiteboard") { openTaskBoard(); return; }
     if (object.kind === "teaserBoard") { openTeasers(); return; }
     setInspectedObject(object); setFocus(previous => ({ id: "", request: previous.request + 1 }));
     if (!object.space) setDeck(object.deck); setWhole(false); setLiftOpen(false);
-  }, [openTaskBoard, openTeasers]);
+  }, [openTaskBoard, openTeasers, currentLayout, visibleDeck, closeObject, objectEnabled, openDepartmentResource]);
   const reserveCount = layout.cabins.filter(c => c.kind === "reserve").length;
   const travel = useCallback((destination: DeckIndex, id = "") => {
     if (busy || destination === visibleDeck) return;

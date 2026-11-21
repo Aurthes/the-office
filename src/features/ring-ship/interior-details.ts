@@ -45,10 +45,28 @@ export function addCabinDetails(b: Builder, layout: ShipLayout, c: ShipCabin) {
     return;
   }
   if (c.kind === 'work') {
+    const assignment = c.projectId ? layout.allocation.projects[c.projectId] : undefined;
+    const resources = assignment && assignment.slot === c.slot && (assignment.deck ?? 0) === c.deck && assignment.ring === c.ring;
     for (const side of [-1, 1]) {
-      bookcase(side * width * .39, -edge);
-      plant(side * width * .39, edge - .35);
-      plant(side * width * .25, -edge, .38);
+      const shelf = side * width * .39, bin = side * width * .25;
+      if (resources && side === -1) {
+        b.object('departmentLibrary', () => {
+          if (!bookcase(shelf, -edge)) {
+            box(shelf, -edge, .68, [.85, 1.2, .48], '#826851');
+            for (const height of [.36, .74, 1.1]) box(shelf, -edge + .235, height, [.72, .065, .035], '#d8bb8e');
+          }
+        });
+        b.object('departmentToolbox', () => {
+          box(bin, -edge, .19, [.37, .22, .40], '#c76435');
+          box(bin, -edge, .31, [.37, .05, .40], '#ef9852');
+          box(bin, -edge, .35, [.17, .045, .08], '#4c3b36');
+          box(bin, -edge + .198, .27, [.11, .08, .02], '#e7d3a0');
+        });
+      } else {
+        bookcase(shelf, -edge);
+        plant(bin, -edge, .38);
+      }
+      plant(shelf, edge - .35);
     }
     // Keep small teams' cabins compact; larger cabins have a break corner.
     if (c.ring === 0) {

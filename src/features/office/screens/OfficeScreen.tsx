@@ -883,7 +883,11 @@ export function OfficeScreen({
     const target = id === undefined ? undefined : organizationState.departments?.some(department => department.id === id) ? id : OPEN_DEPARTMENT_ID;
     setDepartmentPanel(previous => openDepartmentTab(previous, target));
   };
-  const organization = { ...organizationState, openDepartment, focusRequest: organizationFocus, focusPerson: (id: string) => {
+  const openDepartmentResource = (id: string, page: NonNullable<DepartmentPanelState["page"]>) => {
+    if (!organizationState.departments?.some(department => department.id === id)) return;
+    setDepartmentPanel(previous => openDepartmentTab(previous, id, page));
+  };
+  const organization = { ...organizationState, openDepartment, openDepartmentResource, focusRequest: organizationFocus, focusPerson: (id: string) => {
     setDirectoryView("organization"); setChatRosterCollapsed(false); setSessionSearch(""); setChatOpen(true);
     setOrganizationFocus(previous => ({ id, request: (previous?.request || 0) + 1 }));
   } };
@@ -3780,7 +3784,7 @@ export function OfficeScreen({
         </section>
       ) : null}
 
-      {sessionView ? <DepartmentPanel key={gatewayUrl} organization={organization} state={departmentPanel} onSelect={openDepartment} onClose={() => setDepartmentPanel(previous => ({ ...previous, open: false }))} tasks={{ ...currentTasks, error: status === "connected" ? currentTasks.error : "Current tasks are unavailable." }} onOpenTask={id => setTaskBoardRequest({ id })} /> : null}
+      {sessionView ? <DepartmentPanel key={gatewayUrl} organization={organization} state={departmentPanel} onSelect={openDepartment} onResource={openDepartmentResource} onClose={() => setDepartmentPanel(previous => ({ ...previous, open: false }))} tasks={{ ...currentTasks, error: status === "connected" ? currentTasks.error : "Current tasks are unavailable." }} onOpenTask={id => setTaskBoardRequest({ id })} /> : null}
       {sessionView ? <ImportantNotificationBrief client={client} connected={status === "connected"} voice={voice} onOpenHead={handleOpenAgentChat} onOpenTask={openTaskDetails} /> : null}
       {sessionView && teaserBoardOpen ? <TeaserDashboard onClose={() => setTeaserBoardOpen(false)} target={teaserTarget} unavailableReason={status === "connected" ? teaserResolution.reason : "Connection unavailable. Please reconnect before sending."} solutionSender={teaserSolutions} onOpenSession={handleOpenAgentChat} /> : null}
 

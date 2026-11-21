@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { DECK_STEP, type DeckIndex } from "./layout";
+import { DECK_STEP, type DeckIndex, type ShipLayout } from "./layout";
 
 export const SHIP_OBJECT_INFO = {
   taskWhiteboard: ["Task whiteboard", "Open the task board for all departments."],
@@ -59,6 +59,8 @@ export const SHIP_OBJECT_INFO = {
   bed: ["Crew bunk", "Dreams travel faster than light."],
   telescope: ["Telescope", "For checking what the neighbours are up to."],
   workbench: ["Workbench", "The birthplace of surprisingly good fixes."],
+  departmentToolbox: ["Toolbox", "Browse this department’s tools."],
+  departmentLibrary: ["Library", "Open this department’s saved files and links."],
   toolbox: ["Toolbox", "Somewhere in here is exactly the right tool."],
   tools: ["Spare tools", "Ready for a little hands-on problem solving."],
   tropicalPlant: ["Tropical plant", "Taking the scenic route toward the sunlight."],
@@ -81,6 +83,13 @@ export type ShipObject = {
   space?: { kind: "asteroid" | "ship"; index: number; generation: number; seed: number };
   npc?: { name: string; activity: string };
 };
+export function departmentResourceAt(layout: ShipLayout, object: ShipObject, deck: DeckIndex) {
+  if (object.deck !== deck || (object.kind !== "departmentToolbox" && object.kind !== "departmentLibrary")) return null;
+  const cabin = layout.cabins.find(item => item.id === object.cabinId && item.deck === deck && item.kind === "work");
+  if (!cabin?.projectId) return null;
+  return { id: cabin.projectId, page: object.kind === "departmentToolbox" ? "toolbox" as const : "library" as const };
+}
+
 export type ShipObjectRange = { object: ShipObject; start: number; count: number };
 
 // The original material batches stay intact. Ray hits identify the exact prop
