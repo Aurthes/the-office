@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MonitorDashboard, ServerRoomDashboard } from "@/features/ring-ship/MonitorDashboard";
 import { formatBytes, ServerDashboard } from "@/features/ring-ship/ServerDashboard";
