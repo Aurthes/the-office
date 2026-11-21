@@ -21,12 +21,11 @@ const embedsParticipation = (link: MonitorLink) => link.url === "/market-partici
 const embedsCapacity = (link: MonitorLink) => link.url === "/rate-limit-capacity/";
 const embedsFillProbability = (link: MonitorLink) => link.url === "/fill-probability/";
 const embedsMarkout = (link: MonitorLink) => link.url === "/maker-markout/";
-const embedsMonitor = (link: MonitorLink) => embedsAccountHistory(link) || embedsParticipation(link) || embedsCapacity(link) || embedsFillProbability(link) || embedsMarkout(link);
-const embedsAccountHistory = (link: MonitorLink) => link.url === "/account-history/";
+const embedsMonitor = (link: MonitorLink) => embedsParticipation(link) || embedsCapacity(link) || embedsFillProbability(link) || embedsMarkout(link);
 
 export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useUiText(), dialog = useRef<HTMLDialogElement>(null);
-  const [view, setView] = useState<"hub" | "configure" | "account-history" | "participation" | "capacity" | "fill-probability" | "maker-markout">("hub");
+  const [view, setView] = useState<"hub" | "configure" | "participation" | "capacity" | "fill-probability" | "maker-markout">("hub");
   const [embedded, setEmbedded] = useState<MonitorLink | null>(null);
   const [links, setLinks] = useState<MonitorLink[]>(() => {
     const url = strategyMonitorUrl();
@@ -57,7 +56,6 @@ export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: ()
     if (embedsFillProbability(link)) { setEmbedded(link); setView("fill-probability"); setError(""); return; }
     if (embedsCapacity(link)) { setEmbedded(link); setView("capacity"); setError(""); return; }
     if (embedsParticipation(link)) { setEmbedded(link); setView("participation"); setError(""); return; }
-    if (embedsAccountHistory(link)) { setEmbedded(link); setView("account-history"); setError(""); return; }
     setError(openStrategyMonitor(link.url, Date.now(), link.id) ? "" : "Allow pop-ups for this site, then try again.");
   };
   const save = async () => {
@@ -82,7 +80,7 @@ export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: ()
     <div className="monitor-frame" data-view={view}>
       <header className="monitor-header">
         <button className="monitor-icon-button" type="button" aria-label={view === "hub" ? t("Back to ship") : t("Back to monitors")} onClick={() => { if (view === "hub") close(); else back(); }}><ArrowLeft size={18} /></button>
-        <div className="monitor-title"><span><Monitor size={14} />{t("MONITOR ROOM")}</span><h1>{view === "account-history" || view === "participation" || view === "capacity" || view === "fill-probability" || view === "maker-markout" ? embedded?.label : view === "configure" ? t("Configure monitors") : t("Operations console")}</h1></div>
+        <div className="monitor-title"><span><Monitor size={14} />{t("MONITOR ROOM")}</span><h1>{view === "participation" || view === "capacity" || view === "fill-probability" || view === "maker-markout" ? embedded?.label : view === "configure" ? t("Configure monitors") : t("Operations console")}</h1></div>
         <span className="monitor-header-detail">{t("SHIP SYSTEMS")}</span>
         {view === "hub" ? <button className="monitor-action" type="button" onClick={configure} disabled={loading}><Settings2 size={15} /><span>{t("Configure")}</span></button> : null}
         <button className="monitor-icon-button" type="button" onClick={close} aria-label={t("Close monitoring dashboard")}><X size={19} /></button>
@@ -100,13 +98,6 @@ export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: ()
           </div>
           <p className="monitor-footnote">{t("The illustrations are shortcuts. Live data appears in the dashboards you open.")}</p>
         </> : null}
-        {open && view === "account-history" && embedded ? <iframe className="monitor-embedded-frame" src={embedded.url} title={embedded.label} referrerPolicy="same-origin" onLoad={event => {
-          try {
-            event.currentTarget.contentWindow?.addEventListener("keydown", key => {
-              if (key.key === "Escape" && !key.defaultPrevented) { key.preventDefault(); close(); }
-            });
-          } catch { /* A browser-blocked frame must leave the console's back/close controls usable. */ }
-        }} /> : null}
         {open && view === "participation" ? <ParticipationDashboard /> : null}
         {open && view === "capacity" ? <CapacityDashboard /> : null}
         {open && view === "fill-probability" ? <FillProbabilityDashboard /> : null}
@@ -122,7 +113,7 @@ export function MonitorDashboard({ open, onClose }: { open: boolean; onClose: ()
           <div className="monitor-config-footer"><button className="monitor-action" type="button" disabled={draft.length >= 8 || saving} onClick={() => setDraft(current => [...current, { id: crypto.randomUUID(), label: "", url: "", visual: "chart" }])}><Plus size={15} />{t("Add a monitor")}</button><button type="submit" className="monitor-primary" disabled={saving}><Check size={16} />{saving ? t("Saving…") : t("Save monitors")}</button></div>
         </form> : null}
       </div>
-      <footer className="monitor-frame-footer"><span>{t("MONITOR ROOM")}</span><span>{view === "account-history" || view === "capacity" || view === "fill-probability" || view === "maker-markout" ? t("Dashboard") : t("DASHBOARD LAUNCHER")}</span><span>{t("ESC TO RETURN")}</span></footer>
+      <footer className="monitor-frame-footer"><span>{t("MONITOR ROOM")}</span><span>{view === "capacity" || view === "fill-probability" || view === "maker-markout" ? t("Dashboard") : t("DASHBOARD LAUNCHER")}</span><span>{t("ESC TO RETURN")}</span></footer>
     </div>
   </dialog>, document.body);
 }

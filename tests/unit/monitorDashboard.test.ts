@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MonitorDashboard, ServerRoomDashboard } from "@/features/ring-ship/MonitorDashboard";
 import { formatBytes, ServerDashboard } from "@/features/ring-ship/ServerDashboard";
@@ -43,43 +43,21 @@ it("saves configured labels and links without translating user names", async () 
   expect(JSON.parse(String(save?.[1]?.body)).links[0]).toMatchObject({ label: "My custom metrics", url: "https://metrics.example.com/d/new" });
 });
 
-it("embeds Lead-Lag on demand without opening a tab and removes it on back and close", async () => {
+it("opens Lead-Lag in its reusable same-origin tab, with popup failure visible", async () => {
   vi.mocked(fetch).mockResolvedValue(Response.json({ links: [...links, leadlag] }));
-  const open = vi.spyOn(window, "open").mockReturnValue(null), close = vi.fn();
-  render(createElement(MonitorDashboard, { open: true, onClose: close }));
+  const tab = { closed: false, focus: vi.fn(), location: { href: "" } };
+  const open = vi.spyOn(window, "open").mockReturnValueOnce(null).mockReturnValue(tab as unknown as Window);
+  render(createElement(MonitorDashboard, { open: true, onClose: vi.fn() }));
   const card = await screen.findByRole("button", { name: `Open monitor: ${leadlag.label}` });
-  expect(document.querySelector("iframe")).toBeNull();
+  expect(within(card).getByText("Opens in a reusable browser tab")).toBeVisible();
   fireEvent.click(card);
-  expect(screen.getByTitle(leadlag.label)).toHaveAttribute("src", leadlag.url);
-  expect(screen.getByRole("heading", { name: leadlag.label })).toBeInTheDocument();
-  expect(open).not.toHaveBeenCalled();
-  expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/servers"))).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "Back to monitors" }));
-  expect(document.querySelector("iframe")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: `Open monitor: ${leadlag.label}` }));
-  fireEvent.click(screen.getByRole("button", { name: "Close monitoring dashboard" }));
-  expect(document.querySelector("iframe")).toBeNull();
-  expect(close).toHaveBeenCalledOnce();
-});
-
-it("unmounts the embedded document when the parent closes the console", async () => {
-  vi.mocked(fetch).mockResolvedValue(Response.json({ links: [leadlag] }));
-  const view = render(createElement(MonitorDashboard, { open: true, onClose: vi.fn() }));
-  fireEvent.click(await screen.findByRole("button", { name: `Open monitor: ${leadlag.label}` }));
-  expect(screen.getByTitle(leadlag.label)).toBeInTheDocument();
-  view.rerender(createElement(MonitorDashboard, { open: false, onClose: vi.fn() }));
-  expect(document.querySelector("iframe")).toBeNull();
-});
-
-it("closes the console when Escape is pressed inside the embedded page", async () => {
-  vi.mocked(fetch).mockResolvedValue(Response.json({ links: [leadlag] }));
-  const close = vi.fn();
-  render(createElement(MonitorDashboard, { open: true, onClose: close }));
-  fireEvent.click(await screen.findByRole("button", { name: `Open monitor: ${leadlag.label}` }));
-  const frame = screen.getByTitle(leadlag.label) as HTMLIFrameElement;
-  fireEvent.load(frame);
-  act(() => { frame.contentWindow?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true })); });
-  expect(close).toHaveBeenCalledOnce();
+  expect(screen.getByRole("alert")).toHaveTextContent("Allow pop-ups");
+  fireEvent.click(card);
+  expect(tab.location.href).toBe(window.location.origin + leadlag.url);
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.click(card);
+  expect(open).toHaveBeenCalledTimes(2);
+  expect(tab.focus).toHaveBeenCalledTimes(2);
   expect(document.querySelector("iframe")).toBeNull();
 });
 
