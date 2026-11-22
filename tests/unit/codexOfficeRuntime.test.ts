@@ -272,7 +272,7 @@ describe("independent Office runtime", () => {
     await f.store.call("turn/start", { threadId: id, input: [] });
     const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
     const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
-    const rule = "Return gaps to workers and reuse valid checks; when reports contain irrelevant detail or repeated bookkeeping, point out the specific passages for their author to trim.";
+    const rule = "Return gaps to workers; when reports contain irrelevant detail or repeated bookkeeping, point out the specific passages for their author to trim.";
     expect(payload.includes(rule)).toBe(title === "Head");
     expect(payload).toContain("office_tasks.session_send"); expect(payload).toContain("recoverable job");
     if (title === "Head") expect(payload.split(rule)).toHaveLength(2);
@@ -808,6 +808,31 @@ it.each(["Head", "Manager", "CEO", "Worker"])("refreshes the prior %s manager-sy
   await restored.call("turn/start", { threadId: id, input: [] });
   const reloaded = new CodexOfficeStore(f.directory, f.client); reloaded.companyContext = f.store.companyContext;
   await reloaded.call("turn/start", { threadId: id, input: [] });
+  expect(injections()).toHaveLength(2);
+  expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
+});
+
+it.each(["CEO", "Head", "Manager", "Worker"])("refreshes answer-progress guidance for %s once on the existing thread, then reuses its hash", async title => {
+  const f = fixture();
+  const id = title === "CEO" ? (f.store.ensureCeo(), CEO_ID) : await session(f);
+  f.store.companyContext = () => ({ agentId: id, title, canRecruit: false });
+  const current = "When answering, state what the evidence establishes. Do not stop at ruling out a cause or saying it is unconfirmed; if still unknown, give the next concrete check and what it would resolve. Ask only for the missing fact, not a complete restatement.";
+  const old = "If a key fact is missing, ask for it rather than requiring a complete restatement.";
+  const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+  await f.store.call("turn/start", { threadId: id, input: [] });
+  const nativeThread = f.store.get(id).codexThreadId;
+  const payload = (injections()[0][1] as { items: Array<{ role: string; content: Array<{ text: string }> }> }).items[0].content[0].text;
+  expect(payload.split(current)).toHaveLength(2); expect(payload).not.toContain(old);
+  expect(payload.includes(DEPARTMENT_HEAD_GUIDELINE)).toBe(["Head", "Manager"].includes(title));
+  expect(JSON.parse(payload.split("\n")[1]).company).toEqual({ agentId: id, title, canRecruit: false });
+  f.store.get(id).projectContext = createHash("sha256").update(payload.replace(current, old)).digest("hex"); f.store.save();
+  const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const updated = injections()[1][1] as { threadId: string; items: Array<{ role: string; content: Array<{ text: string }> }> };
+  expect(updated.threadId).toBe(nativeThread); expect(updated.items[0].role).toBe("developer"); expect(updated.items[0].content[0].text).toBe(payload);
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const restarted = new CodexOfficeStore(f.directory, f.client); restarted.companyContext = f.store.companyContext;
+  await restarted.call("turn/start", { threadId: id, input: [] });
   expect(injections()).toHaveLength(2);
   expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
 });
