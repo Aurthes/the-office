@@ -54,7 +54,7 @@ describe("independent Office runtime", () => {
       expect(text).toContain("replaces earlier communication wording");
       expect(text).toContain("Before sending, distill what the recipient needs to decide or act");
       expect(text).toContain("Keep full records in the task or linked evidence");
-      expect(text).toContain("If a key fact is missing, ask for it");
+      expect(text).toContain("Ask only for the missing fact, not a complete restatement.");
       expect(text).toContain("preserve its original-message link through question_context and reply metadata");
       expect(text).toContain("Do not copy their UUIDs or URLs into prose unless needed to disambiguate");
       expect(text).not.toContain("every public response must identify");
