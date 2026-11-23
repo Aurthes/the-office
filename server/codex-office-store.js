@@ -237,12 +237,15 @@ class CodexOfficeStore {
       // Capture context and policy together before any await. Project edits during
       // dispatch or execution apply to the next turn, never this one.
       const dispatchTasks = starting && this.todoContext ? this.todoContext(row.id) : null;
-      const dispatchQuestions = starting && this.questionContext ? this.questionContext(row.id) : null;
+      const dispatchQuestions = starting && this.questionContext ? this.questionContext(row.id, params.clientUserMessageId) : null;
       const dispatchCompany = starting && this.companyContext ? this.companyContext(row.id) : null;
       const dispatchIsHead = row.id !== CEO_ID && !dispatchCompany?.unavailable && typeof dispatchCompany?.title === "string" && isDepartmentManager(dispatchCompany);
-      const dispatchBinding = starting ? { taskId: dispatchTasks?.todoId, phaseId: dispatchTasks?.runningPhaseId,
-        handoffId: dispatchTasks?.handoffId, activityId: dispatchTasks?.activityId, activityRole: dispatchTasks?.activityRole,
-        previousTurnId: dispatchTasks?.activityTurnId ?? null, dispatchedAt: Date.now(),
+      // Receiving a batch is not an execution handoff for its first/last task,
+      // nor a restart of the recipient's previously followed phase.
+      const bindingTasks = usage?.trigger === "agentMessage" && usage.deliveryId === params.clientUserMessageId && Array.isArray(dispatchQuestions?.context?.deliveries) ? null : dispatchTasks;
+      const dispatchBinding = starting ? { taskId: bindingTasks?.todoId, phaseId: bindingTasks?.runningPhaseId,
+        handoffId: bindingTasks?.handoffId, activityId: bindingTasks?.activityId, activityRole: bindingTasks?.activityRole,
+        previousTurnId: bindingTasks?.activityTurnId ?? null, dispatchedAt: Date.now(),
         questionIds: Array.isArray(dispatchQuestions?.answering) ? [...dispatchQuestions.answering] : [] } : null;
       // Dispatch identity stays local; nonce changes must not churn model context.
       const context = starting ? JSON.stringify({ project: row.projectId == null ? "Open Workspace" : this.project(row.projectId).name, workingDirectory: row.workspace, folders: this.sessionFolders(row), ...(dispatchTasks ? { tasks: { ...dispatchTasks, activityId: undefined, activityRole: undefined, activityTurnId: undefined } } : {}), ...(this.companyContext ? { company: dispatchCompany } : {}) }) : null;

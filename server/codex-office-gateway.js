@@ -32,9 +32,10 @@ const { OfficeReplyContext, taskReplyContext, sourceOf } = require("./office-rep
 
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
+const { OfficeDelivery } = require("./office-delivery");
 const directory = officeEnvironment(path.resolve(process.env.CLAW3D_OFFICE_DATA_DIR || path.join(process.env.CLAW3D_DATA_DIR || path.join(os.homedir(), ".local/share/claw3d"), "office-runtime"))).home;
 const replyContext = new OfficeReplyContext(directory);
-const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer, todos, dictate, delegation, tokenUsage;
+const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer, todos, dictate, delegation, tokenUsage, delivery;
 let restoredSessionStates = Promise.resolve();
 const features = { dictation: false, dictationHTTP: true, voice: true, prediction: false, terminal: true, schedules: true, todos: true, composer: true, accountVersion: 0 };
 const broadcast = (event, payload) => { const frame = JSON.stringify({ type: "event", event, seq: seq++, payload }); for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame); };
@@ -56,6 +57,7 @@ const native = new CodexOfficeClient({
   if (frame.method === "account/login/completed") { login = null; features.accountVersion++; store.defaultModel = null; for (const state of controls.states.values()) state.version++; stream.refresh(); broadcast("office.account", { changed: true, success: frame.params.success, error: frame.params.error }); }
   if (["account/login/completed", "account/updated"].includes(frame.method)) dictate?.refresh({ reset: true });
   workspace?.handle(frame);
+  if (["account/login/completed", "account/updated", "process/exited", "thread/realtime/closed"].includes(frame.method)) setImmediate(() => void delivery?.flush());
   if (composer?.handleToolCall(frame)) return;
   tokenUsage?.observeNative(frame, native.scopeGeneration);
   if (["thread/tokenUsage/updated", "turn/started", "turn/completed"].includes(frame.method)) tokenUsage?.hint(frame.params?.threadId);
@@ -65,9 +67,9 @@ const native = new CodexOfficeClient({
   schedules?.handle(mapped);
   if (mapped.method === "turn/completed") {
     todos?.finishTurn(mapped.params.threadId, mapped.params.turn?.status || "completed", mapped.params.turn?.id);
-    if (mapped.params.turn?.status === "completed") setImmediate(() => void delegation?.flush());
+    setImmediate(() => void delegation?.flush());
   }
-  if (mapped.id !== undefined || ["serverRequest/resolved", "turn/completed"].includes(mapped.method)) changed();
+  if (mapped.id !== undefined || ["serverRequest/resolved", "turn/completed"].includes(mapped.method)) { changed(); setImmediate(() => void delivery?.flush()); }
 } });
 const accountContext = new CodexOfficeAccount(native);
 store = new CodexOfficeStore(directory, native, changed, id => Boolean(voice?.active?.threadId === id || controls?.state(id).activeTurnId || workspace?.snapshot(id)?.running || workspace?.starts.has(id)));
@@ -84,7 +86,7 @@ store.onTurnDispatch = value => {
   todos?.recordTurn(value, state?.lastTurnId === value.turnId ? state : store.get(value.agentId));
 };
 controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features, replyContext, usageMetadata: true,
-  changed: id => { stream?.changed(id); changed(); },
+  changed: id => { stream?.changed(id); changed(); setImmediate(() => delivery?.notify(id)); },
   editBlocked: id => voice?.active?.threadId === id || store.starting.has(id),
   history: {
     read: id => store.get(id).historyEpoch,
@@ -107,7 +109,7 @@ controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { s
 });
 stream = new CodexSessionStream(controls);
 const predictions = new CodexSessionPredictions(store, controls, { sample: value => tokenUsage.recordSample(value), unavailable: () => tokenUsage.sampleUnavailable() });
-workspace = new CodexSessionWorkspace(native, { commandExec: true, policy: id => store.overrides(id).sandboxPolicy, roots: row => store.sessionFolders(row) });
+workspace = new CodexSessionWorkspace(native, { ended: id => delivery?.notify(id), commandExec: true, policy: id => store.overrides(id).sandboxPolicy, roots: row => store.sessionFolders(row) });
 composer = new CodexSessionComposer(store, workspace); controls.options.composer = composer;
 const messageSearch = new CodexMessageSearch(store, replyContext);
 voice = new CodexOfficeVoice(store, controls, (ws, payload) => {
@@ -153,7 +155,7 @@ replyContext.options.source = async source => {
   const page = await messageSearch.context(source);
   return sourceOf(source.threadId, page.messages.find(item => item.id === page.messageId));
 };
-store.questionContext = id => replyContext.forModel(id);
+store.questionContext = (id, requestId) => replyContext.forModel(id, requestId);
 const company = new OfficeCompany(store);
 store.companyContext = id => company.forTurn(id);
 store.initializePosition = (session, title) => company.initializePosition(session, title, async (key, id, position) => {
@@ -185,7 +187,7 @@ const notifications = new OfficeNotifications(directory, {
 });
 const browserIdentity = ws => notifications.identity(ws.pushIdentity, notificationSecret);
 
-store.todoContext = id => ({ ...todos.context(id), departmentId: store.get(id).projectId ?? null });
+store.todoContext = id => ({ ...todos.context(id), communication: delivery?.summary(id), departmentId: store.get(id).projectId ?? null });
 delegation = new OfficeDelegation({ store, todos, company, stopping: () => stopping,
   canRecall: async id => {
     if (store.data.sessions.find(row => row.id === id)?.archived) return true;
@@ -200,6 +202,27 @@ delegation = new OfficeDelegation({ store, todos, company, stopping: () => stopp
   },
   send: (id, message, requestId, context, usage) => controls.send(id, message, requestId, [], { onlyIfIdle: true, replyContext: context, usage }),
 });
+controls.options.idleDispatchAllowed = id => !stopping && !store.isBusy(id) && !store.starting.has(id)
+  && voice.active?.threadId !== id && !workspace.snapshot(id)?.running
+  && !store.pendingQuestions(id).length && !controls.approvalCount(id) && !controls.questions(id).some(q => !q.submitted);
+delivery = new OfficeDelivery({ directory,
+  sources: () => delegation.deliverySources(),
+  update: (member, state, error) => todos.delivery(member.taskId, member.id, state, error),
+  stopping: () => stopping,
+  canSend: id => delegation.canSend(id),
+  send: (id, message, requestId, context, urgent) => controls.send(id, message, requestId, [], {
+    onlyIfIdle: !urgent, replyContext: context,
+    usage: { purpose: "collaboration_mixed", trigger: "agentMessage", deliveryId: requestId },
+  }),
+  receipt: async (id, requestId) => {
+    const previous = controls.sends.get(requestId)?.result;
+    if (previous) return previous;
+    const user = [...controls.state(id).items.values()].find(item => item.role === "user" && item.clientId === requestId);
+    return user?.turnId ? { status: "accepted", turnId: user.turnId } : null;
+  },
+  changed: id => broadcast("office.delivery", { recipientId: id }),
+});
+delegation.deliveryCoordinator = delivery;
 const methods = {
   "question.context": p => { store.get(p.actorId); return replyContext.context(p.actorId, p); },
   "todo.organization": p => company.context(p.actorId, p),
@@ -303,7 +326,24 @@ const methods = {
   "session.attach": async p => { store.get(p.threadId); await controls.attach(p.threadId); return controls.snapshot(p.threadId); },
   "session.subscribe": (p, ws) => { store.get(p.threadId); return stream.subscribe(ws, p.threadId, p.subscriptionId); },
   "session.unsubscribe": (p, ws) => stream.unsubscribe(ws, p.subscriptionId),
-  "session.send": async p => { const message = directMessage(store, p); const usage = { ...userUsage(p.sourcePurpose), ...(p.actorId ? { senderId: p.actorId, trigger: "agentMessage" } : {}) }; store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, message, p.requestId, p.attachments, { references: p.references || [], usage }); store.clearQuestions(p.threadId, pending); return result; },
+  "session.delivery": p => { store.get(p.actorId); return { deliveries: delivery.status(p.actorId, p.threadId), inbox: delivery.summary(p.actorId), batches: delivery.receipts(p.actorId) }; },
+  "session.send": async p => {
+    if (Object.hasOwn(p, "actorId")) {
+      store.get(p.threadId);
+      const message = directMessage(store, p), sender = store.get(p.actorId);
+      if (p.actorId === p.threadId) throw new Error("Continue your current work directly; do not send yourself another model message");
+      if (p.attachments?.length || p.references?.length) throw new Error("Agent delivery accepts message text only");
+      const scope = todos.context(sender.id);
+      const context = { ...(replyContext.current(sender.id) || {}), ...(scope.todoId ? {
+        origin: { taskId: scope.todoId, phaseId: scope.runningPhaseId, handoffId: scope.handoffId, role: scope.activityRole },
+      } : {}) };
+      // A new contribution carries its own Q/origin, not a recursively copied
+      // inbox of earlier correspondents.
+      delete context.deliveries;
+      return delivery.enqueue({ ...p, recipient: p.threadId, message,
+        originalMessage: p.message, sender: { source: "agent", id: sender.id, name: sender.name }, context });
+    }
+    const message = directMessage(store, p); const usage = { ...userUsage(p.sourcePurpose), ...(p.actorId ? { senderId: p.actorId, trigger: "agentMessage" } : {}) }; store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, message, p.requestId, p.attachments, { references: p.references || [], usage }); store.clearQuestions(p.threadId, pending); return result; },
   "session.edit.prepare": p => { store.get(p.threadId); return controls.prepareEdit(p.threadId); },
   "session.edit.commit": async p => {
     store.get(p.threadId);
@@ -399,7 +439,7 @@ wss.on("connection", (ws, req) => {
 const checkpoint = setInterval(() => { try { todos.checkpoint(); } catch (error) { console.error("Could not save task timer:", error.message); } }, 15000); checkpoint.unref();
 const tick = setInterval(() => broadcast("tick", { ts: Date.now() }), 30000); tick.unref();
 async function close(code = 0) {
-  if (stopping) return; stopping = true; clearInterval(tick); clearInterval(checkpoint); todos?.close(); await notifications.close(); clearTimeout(rosterTimer); const dictationClosed = Promise.all([dictate.close(), voicePreviews.close()]); schedules.close(); controls.close();
+  if (stopping) return; stopping = true; delivery?.close(); clearInterval(tick); clearInterval(checkpoint); todos?.close(); await notifications.close(); clearTimeout(rosterTimer); const dictationClosed = Promise.all([dictate.close(), voicePreviews.close()]); schedules.close(); controls.close();
   for (const ws of clients) { stream.disconnected(ws); ws.close(1001, "Office stopping"); }
   wss.close(); server.close(); await dictationClosed; await tokenUsage.close(); await workspace.close(); await native.close(); process.exitCode = code;
 }

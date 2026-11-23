@@ -56,6 +56,14 @@ Phase-mode tool calls require an explicit `phaseId`; submissions, reviews and re
 
 Existing tasks keep their original whole-task workflow and recorded history. To configure future phases independently, finish old handoffs and pause the timer, then explicitly choose independent assignments. Existing completed phases keep their IDs and recorded time; missing historical assignees remain unknown. The Owner coordinates assignments without restricting ordinary member or user edits.
 
+### Agent message delivery
+
+Ordinary Agent messages and task notices are saved and combined after the recipient's current turn ends. User messages and Stop remain immediate. An Agent may specify `urgency: "urgent"` with an `urgentReason` only when the recipient must change current action. Contributors should end their turn after submitting rather than wait for a queued reply.
+
+Each batch preserves its original senders, questions and independent handoffs. `office_tasks.delivery_status` exposes queued and uncertain receipts; reuse the original request ID when checking a direct message. A transport timeout or interrupted send is not automatically replayed: only an exact client-ID receipt confirms delivery. This does not promise exactly-once native execution.
+
+The private `delivery-inbox.json` in the Office runtime directory persists messages and batch receipts. Batches contain at most eight messages / 128 KiB. The inbox has hard storage and receipt limits (8 MiB, 2,048 direct messages, 4,096 batches); full storage rejects new direct messages explicitly, while accepted pending work remains visible. Include it with task files in host backups. Existing task acceptance and actor conventions remain unchanged.
+
 ### Important task reminders
 
 Department Heads can explicitly use `office_tasks.important_notify` with a stable

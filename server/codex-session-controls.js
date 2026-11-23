@@ -101,7 +101,9 @@ class CodexSessionControls {
     return { updated: true };
   }
   async refreshTurn(id) {
-    const state = this.state(id), version = state.turnVersion;
+    const state = this.state(id);
+    if (state.startDispatch) return;
+    const version = state.turnVersion;
     const result = await this.client.call("thread/turns/list", { threadId: id, limit: 1, itemsView: "notLoaded", sortDirection: "desc" });
     // Token usage, questions and item updates do not supersede a turn read.
     // Only a newer turn lifecycle event can make its status obsolete.
@@ -244,7 +246,7 @@ class CodexSessionControls {
   async sendInput(id, text, requestId, attachments = [], { resumeInterrupted = false, onlyIfIdle = false, automaticRetry = null, references = [], replyContext = null, usage = null } = {}) {
     this.requireReady();
     const usageEntry = usage ? { ...usage, entryAt: Date.now(), entryId: requestId } : null;
-    if (!automaticRetry) this.cancelRetry(id);
+    if (!automaticRetry && !onlyIfIdle) this.cancelRetry(id);
     const prepared = this.options.composer ? await this.options.composer.prepare(id, text, references) : { text, items: [] };
     const input = [...await messageInput(prepared.text, attachments, id), ...prepared.items];
     if (typeof requestId !== "string" || requestId.length > 100 || !requestId) throw new Error("缺少发送请求 ID");
@@ -257,12 +259,12 @@ class CodexSessionControls {
     const entry = { id, clientId: requestId, resumeInterrupted, hash: crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex") };
     this.sends.set(requestId, entry);
     if (this.sends.size > 128) this.sends.delete(this.sends.keys().next().value);
-    if (!automaticRetry) this.saveRecovery(id, { attempts: 0, stopped: false });
+    if (!automaticRetry && !onlyIfIdle) this.saveRecovery(id, { attempts: 0, stopped: false });
     const refreshed = await this.attach(id);
     // Live lifecycle notifications keep ordinary sends current. Exceptional
     // dispatches still verify native state; uncertain outcomes require a read.
-    if (!this.state(id).turnStateKnown || (!refreshed && (automaticRetry || onlyIfIdle || resumeInterrupted))) await this.refreshTurn(id);
-    const active = this.state(id).activeTurnId;
+    if (!this.state(id).startDispatch && (!this.state(id).turnStateKnown || (!refreshed && (automaticRetry || onlyIfIdle || resumeInterrupted)))) await this.refreshTurn(id);
+    let active = this.state(id).activeTurnId;
     if (automaticRetry) {
       const allowed = !this.options.canRetry || await this.options.canRetry(id);
       const state = this.state(id);
@@ -277,13 +279,27 @@ class CodexSessionControls {
     if (resumeInterrupted && (active || this.state(id).turnStatus !== "interrupted")) throw new Error("This task is no longer interrupted. Refresh the conversation before continuing.");
     // The desktop uses this identity to display external steering as a user
     // message. Reuse the send ID so duplicate requests keep the same identity.
+    // Only the final start decision is reserved. Stop remains independent.
+    const dispatch = this.state(id);
+    while (dispatch.startDispatch && !dispatch.activeTurnId) {
+      if (onlyIfIdle) { this.sends.delete(requestId); return { status: "busy" }; }
+      await dispatch.startDispatch;
+      if (!dispatch.startDispatch && !dispatch.turnStateKnown) await this.refreshTurn(id);
+    }
+    active = this.state(id).activeTurnId;
+    if (onlyIfIdle && (active || dispatch.pendingSends > 1 || dispatch.editCommit || dispatch.editUncertain ||
+        dispatch.retry || dispatch.recovery.stopped || this.options.idleDispatchAllowed?.(id) === false)) {
+      this.sends.delete(requestId); return { status: "busy" };
+    }
     const submittedAt = Date.now();
     this.options.replyContext?.prepare(id, requestId, replyContext || ((automaticRetry || resumeInterrupted) ? this.options.replyContext.current(id) : null), (automaticRetry || resumeInterrupted) ? "continue" : replyContext ? "handoff" : "user");
     const current = this.state(id);
     const previousTurnId = current.lastTurnId;
     let result;
     if (automaticRetry) current.autoStarting = automaticRetry;
-    current.turnStateKnown = false;
+    let releaseStart;
+    if (!active) dispatch.startDispatch = new Promise(resolve => { releaseStart = resolve; });
+    current.turnVersion++; current.turnStateKnown = false;
     try {
       entry.dispatched = true;
       const metadata = automaticRetry || resumeInterrupted ? { trigger: automaticRetry ? "automaticRetry" : "continue", inheritTurnId: automaticRetry?.turnId || previousTurnId, entryId: requestId, entryAt: submittedAt } : usageEntry;
@@ -293,7 +309,10 @@ class CodexSessionControls {
       result = await this.client.call(active ? "turn/steer" : "turn/start", params, ...(this.options.usageMetadata && metadata ? [metadata] : []));
     } catch (error) {
       current.turnStateKnown = false; throw error;
-    } finally { if (current.autoStarting === automaticRetry) current.autoStarting = null; }
+    } finally {
+      if (releaseStart) { dispatch.turnVersion++; dispatch.startDispatch = null; releaseStart(); }
+      if (current.autoStarting === automaticRetry) current.autoStarting = null;
+    }
     const turnId = result.turn?.id || result.turnId;
     const state = this.state(id);
     // Native completion can arrive before the start RPC resolves. Its terminal

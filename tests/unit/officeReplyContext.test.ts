@@ -222,3 +222,19 @@ it("binds explicit self phase context and overrides a different candidate phase 
   expect(projected).toMatchObject({ taskId: "shared", phaseId: "a", phaseTitle: "Teaser", questions: [{ id: selected.opened.q }] });
   expect(projected.questions[0].sources).toEqual(context.current("head").questions[0].sources);
 });
+
+it("publishes incoming batch context before dispatch and retains each handoff after canonical recording and restart", async () => {
+  const { root, context } = fixture();
+  context.record("sender", user("question", "Original goal"));
+  const first = (await define(context, "sender", "One goal")).opened.q;
+  const question = context.describeQuestion(first);
+  const deliveries = [
+    { deliveryId: "one", sender: { id: "a", name: "A" }, taskId: "task-a", phaseId: "phase-a", handoffId: "handoff-a", questions: [question] },
+    { deliveryId: "two", sender: { id: "b", name: "B" }, taskId: "task-b", phaseId: "phase-b", handoffId: "handoff-b", questions: [question] },
+  ];
+  context.prepare("head", "batch-request", { questions: [question], deliveries });
+  expect(context.forModel("head", "batch-request").context).toMatchObject({ deliveries });
+  expect(context.forModel("head", "batch-request").context.taskId).toBeUndefined();
+  context.record("head", user("batch", "**From agent: A**", "received"), "batch-request");
+  expect(new OfficeReplyContext(root).forModel("head").context.deliveries).toEqual(deliveries);
+});

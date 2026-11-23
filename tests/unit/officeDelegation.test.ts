@@ -26,7 +26,7 @@ async function fixture() {
   const deps = { projects: () => store.projects(), agents: () => store.list() };
   const todos = new OfficeTodos(path.join(root, "office"), deps);
   const available = new Map<string, boolean>();
-  const canSend = vi.fn(async (id: string) => available.get(id) !== false), send = vi.fn<(id: string, message: string, requestId: string) => Promise<{ status: string }>>(async () => ({ status: "started" }));
+  const canSend = vi.fn(async (id: string) => available.get(id) !== false), send = vi.fn<(id: string, message: string, requestId: string, context?: { deliveries?: Array<Record<string, unknown>> }) => Promise<{ status: string }>>(async () => ({ status: "started", turnId: "native-turn" }));
   const runtime = new OfficeDelegation({ store, todos, company, canSend, send });
   const create = (assigneeId = manager) => todos.create({ requestId: crypto.randomUUID(), actorId: assigneeId, title: "One user goal", assigneeId, phases: [{ title: "Execute" }, { title: "Final acceptance" }] }).todo;
   const input = (id: string, actorId: string, extra = {}) => ({ id, actorId, revision: todos.raw(id).revision, requestId: crypto.randomUUID(), ...extra });
@@ -432,4 +432,42 @@ describe("optional additional acceptance conditions through both delegation path
       expect(f.todos.raw(task.id)).toEqual(before); expect(f.send).not.toHaveBeenCalled();
     }
   });
+});
+
+it("merges two real task reports while preserving their independent original review chains", async () => {
+  const f = await fixture();
+  const one = f.create(), two = f.create();
+  await f.delegate(one.id);
+  await f.delegate(two.id);
+  f.available.set(f.manager, false);
+  const { OfficeDelivery } = require("../../server/office-delivery");
+  const queue = new OfficeDelivery({
+    directory: path.join(f.root, "inbox"),
+    sources: () => f.runtime.deliverySources(),
+    update: (member: { taskId: string; id: string }, state: string, error?: string) => f.todos.delivery(member.taskId, member.id, state, error),
+    canSend: f.canSend, send: f.send, receipt: async () => null,
+  });
+  f.runtime.deliveryCoordinator = queue;
+  f.send.mockClear();
+  await f.runtime.submit(f.input(one.id, f.worker, { report: "Result for one" }));
+  await f.runtime.submit(f.input(two.id, f.worker, { report: "Result for two" }));
+  await queue.flush(); expect(f.send).not.toHaveBeenCalled();
+  f.available.set(f.manager, true);
+  await queue.flush();
+  expect(f.send).toHaveBeenCalledTimes(1);
+  expect(f.send.mock.calls[0][1]).toContain("Result for one");
+  expect(f.send.mock.calls[0][1]).toContain("Result for two");
+  const deliveries = f.send.mock.calls[0][3]!.deliveries!;
+  expect(deliveries).toHaveLength(2);
+  expect(deliveries.find(item => item.taskId === one.id)).toMatchObject({
+    handoffId: activeDelegation(f.todos.raw(one.id)).id,
+    notice: { revision: f.todos.raw(one.id).revision }, managerId: f.manager, workerId: f.worker, role: "reviewer",
+  });
+  expect(activeDelegation(f.todos.raw(one.id)).delivery.state).toBe("sent");
+  expect(activeDelegation(f.todos.raw(two.id)).delivery.state).toBe("sent");
+  await f.runtime.review(f.input(one.id, f.manager, { accept: true, notes: "One verified" }));
+  expect(activeDelegation(f.todos.raw(two.id)).state).toBe("review");
+  await f.runtime.review(f.input(two.id, f.manager, { accept: false, notes: "Two needs evidence" }));
+  expect(activeDelegation(f.todos.raw(two.id)).state).toBe("working");
+  queue.close();
 });

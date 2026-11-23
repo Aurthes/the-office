@@ -20,7 +20,7 @@ import { prepareComposerMessage, referenceSerializer } from "./inlineReferences"
 export type SessionAsset = { source: string; name: string; kind: "image" | "markdown" | "html" | "file"; url: string; inline?: boolean; attached?: boolean };
 export type ReplySource = { threadId: string; turnId: string; itemId: string; excerpt: string };
 export type ReplyQuestion = { id: string; summary: string; sources: ReplySource[]; parentQuestionId?: string; parents?: { id: string; summary: string }[] };
-export type ReplyContext = { questions?: ReplyQuestion[]; taskId?: string; taskTitle?: string; phaseId?: string; phaseTitle?: string; sources?: ReplySource[] };
+export type ReplyContext = { deliveries?: Array<{ deliveryId: string; sender?: { source: string; id?: string; name?: string }; handoffId?: string; taskId?: string; taskTitle?: string; phaseId?: string; phaseTitle?: string; questions?: ReplyQuestion[]; sources?: ReplySource[] }>; questions?: ReplyQuestion[]; taskId?: string; taskTitle?: string; phaseId?: string; phaseTitle?: string; sources?: ReplySource[] };
 export type LiveSessionItem = { historyEpoch?: string; id: string; clientId?: string; turnId?: string; source?: "voice" | "voice-delegation"; voiceBoundary?: "started" | "closed"; voiceCallId?: string; voiceItemId?: string; role: string; phase?: string; content: string; assets?: SessionAsset[]; truncated?: boolean; status?: string; version?: number; timestamp?: number; replyContext?: ReplyContext;
   delivery?: "sending" | "accepted" | "failed" | "unknown"; attachmentNames?: string[]; deliveryError?: string };
 export type SessionClient = {

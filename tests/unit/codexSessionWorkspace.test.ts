@@ -100,3 +100,14 @@ describe("native Codex workspace", () => {
   });
 
 });
+it("wakes queued delivery on terminal end, without waking on streaming output", async () => {
+  const f = setup(), ended = vi.fn();
+  f.workspace.options.ended = ended;
+  const terminal = await f.workspace.start(f.row);
+  f.workspace.handle({ method: "process/outputDelta", params: { processId: terminal.handle, deltaBase64: Buffer.from("output").toString("base64") } });
+  expect(ended).not.toHaveBeenCalled();
+  // The existing snapshot/flush path also covers command/exec settlement.
+  const entry = f.workspace.terminals.get(f.row.id); entry.running = false; f.workspace.flush(entry);
+  expect(ended).toHaveBeenCalledWith(f.row.id);
+  await f.workspace.close();
+});

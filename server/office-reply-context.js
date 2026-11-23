@@ -171,15 +171,21 @@ class OfficeReplyContext {
       knownQuestions: data.known.slice(-12).map(questionId => { const question = this.getQuestion(questionId); return { id: question.id, summary: question.summary, parentQuestionId: question.parentQuestionId, sources: question.sources.map(source => ({ ...source, excerpt: clipText(source.excerpt, 160).content })) }; }),
       recentSources: this.sources(id) };
   }
-  forModel(id) {
+  forModel(id, requestId) {
     const state = this.state(id);
+    const incoming = requestId && this.read(id).pending[requestId]?.context;
+    if (incoming) {
+      state.context = incoming;
+      state.answering = (incoming.questions || []).map(question => question.id);
+    }
     const question = ({ id, summary }) => ({ id, summary });
     const selected = new Set(state.answering);
     // Exact provenance and ancestry stay in stored/UI records. Keep the short
     // selection index so choosing a known Q never needs a discovery query.
     return { answering: state.answering,
       context: state.context ? { ...Object.fromEntries(["taskId", "taskTitle", "phaseId", "phaseTitle"].filter(key => state.context[key] !== undefined).map(key => [key, state.context[key]])),
-        questions: (state.context.questions || []).map(question) } : null,
+        questions: (state.context.questions || []).map(question),
+        ...(state.context.deliveries ? { deliveries: state.context.deliveries } : {}) } : null,
       knownQuestions: state.knownQuestions.filter(({ id }) => !selected.has(id)).map(question),
       // Unique sources resolve directly in context(). Multiple candidates still
       // need exact IDs and excerpts so the agent can disambiguate in one call.
@@ -206,7 +212,8 @@ class OfficeReplyContext {
         if (context?.questions?.length) {
           data.focus = { questionIds: context.questions.map(question => this.getQuestion(question.id).id),
             ...(context.taskId ? { taskId: context.taskId, taskTitle: context.taskTitle } : {}),
-            ...(context.phaseId ? { phaseId: context.phaseId, phaseTitle: context.phaseTitle } : {}) };
+            ...(context.phaseId ? { phaseId: context.phaseId, phaseTitle: context.phaseTitle } : {}),
+            ...(context.deliveries ? { deliveries: context.deliveries } : {}) };
           data.known = [...new Set([...data.known, ...data.focus.questionIds])].slice(-64); delete data.legacyContext;
         } else if (pending.kind === "handoff") { data.focus = { questionIds: [] }; data.legacyContext = context; }
         // A continuation without metadata never becomes a new Q or source.

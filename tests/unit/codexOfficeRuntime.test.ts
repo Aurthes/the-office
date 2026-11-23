@@ -313,6 +313,22 @@ describe("independent Office runtime", () => {
     expect(f.client.call.mock.calls.slice(startAt).map(([method]) => method)).toEqual(["thread/inject_items", "turn/start", "turn/start", "turn/start"]);
   });
 
+  it("captures the incoming batch context by exact client ID once before native dispatch", async () => {
+    const f = fixture(), id = await session(f);
+    const deliveries = [{ deliveryId: "one", sender: { id: "a" }, taskId: "task-a", handoffId: "h-a", questions: [{ id: "q-a" }] },
+      { deliveryId: "two", sender: { id: "b" }, taskId: "task-b", handoffId: "h-b", questions: [{ id: "q-b" }] }];
+    f.store.questionContext = vi.fn(() => ({ context: { questions: [], deliveries } }));
+    f.store.todoContext = () => ({ todoId: "previous-followed-task", runningPhaseId: "old-phase" });
+    const capture = vi.fn(); f.store.onTurnDispatch = capture;
+    await f.store.call("turn/start", { threadId: id, clientUserMessageId: "batch-client", input: [] }, { trigger: "agentMessage", deliveryId: "batch-client" });
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({ taskId: undefined, phaseId: undefined }));
+    expect(f.store.questionContext).toHaveBeenCalledExactlyOnceWith(id, "batch-client");
+    const injected = f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+    expect(JSON.stringify(injected)).toContain("h-a"); expect(JSON.stringify(injected)).toContain("h-b");
+    expect(OFFICE_COLLABORATION_GUIDELINE).toContain("Choose one synthesis owner");
+    expect(OFFICE_COLLABORATION_GUIDELINE).toContain("end the turn rather than staying active");
+  });
+
   it("batches independently cached Q and project context without queries or repeated organization data", async () => {
     const f = fixture(), id = await session(f);
     let title = "Head", summary = "First question";

@@ -1,5 +1,6 @@
 "use strict";
 const { activeDelegation, handlingAgentId, isPhaseTask, canTransferOwnHandoff } = require("./office-todos");
+const { hash, urgency } = require("./office-delivery");
 const { taskReplyContext } = require("./office-reply-context");
 
 function taskNotification(row, entry = activeDelegation(row), _phaseId, sender = entry?.delivery?.sender) {
@@ -82,7 +83,27 @@ class OfficeDelegation {
       return this.todos.change(input, "recall");
     });
   }
+  deliverySources() {
+    return [...this.todos.rows.values()].flatMap(row => (row.delegations || []).filter(entry =>
+      activeDelegation(row, entry.phaseId)?.id === entry.id && entry.delivery && !row.archived && row.status !== "done"
+    ).map(entry => {
+      const context = { ...(entry.replyContext || taskReplyContext(row, null, entry.phaseId)),
+        notice: { revision: row.revision }, managerId: entry.managerId, workerId: entry.workerId,
+        role: entry.state === "review" ? "reviewer" : "worker", handoffState: entry.state,
+        returnedForChanges: entry.state === "working" && entry.review?.accepted === false };
+      const source = { id: entry.delivery.requestId, recipient: entry.delivery.recipientId,
+        sender: entry.delivery.sender, message: taskNotification(row, entry, entry.phaseId),
+        context, taskId: row.id, phaseId: entry.phaseId, handoffId: entry.id,
+        createdAt: entry.createdAt, state: entry.delivery.state, error: entry.delivery.error, ...urgency(entry.delivery) };
+      return { ...source, hash: hash({ message: source.message, context, handoffId: entry.id, sender: source.sender, urgency: source.urgency, urgentReason: source.urgentReason }) };
+    }));
+  }
   async deliver(id, phaseId) {
+    if (this.deliveryCoordinator) {
+      const source = this.deliverySources().find(row => row.taskId === id && row.phaseId === phaseId);
+      if (source) this.deliveryCoordinator.notify(source.recipient);
+      return;
+    }
     const row = this.todos.raw(id), entry = activeDelegation(row, phaseId), delivery = entry?.delivery;
     if (!delivery || delivery.state !== "pending" || row.archived || row.status === "done" || this.stopping() || this.inflight.has(delivery.recipientId)) return;
     const recipient = delivery.recipientId, requestId = delivery.requestId;
@@ -161,6 +182,7 @@ class OfficeDelegation {
     });
   }
   async flush(id) {
+    if (this.deliveryCoordinator) return this.deliveryCoordinator.flush();
     try {
       const rows = id ? [this.todos.raw(id)] : [...this.todos.rows.values()];
       await Promise.all(rows.flatMap(row => isPhaseTask(row) ? row.phases.filter(p => activeDelegation(row, p.id)?.delivery?.state === "pending").map(p => this.deliver(row.id, p.id)) : activeDelegation(row)?.delivery?.state === "pending" ? [this.deliver(row.id)] : []));

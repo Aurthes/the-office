@@ -294,3 +294,88 @@ it("stops only the exact observed task turn and refuses a stale task stop withou
   expect(client.call).toHaveBeenCalledWith("turn/interrupt", { threadId: "id", turnId: "active-turn" });
   expect(controls.state("id").recovery.stopped).toBe(true); controls.close();
 });
+
+it("reserves the final native start against idle-only mail while a user start awaits its ACK", async () => {
+  const { client, controls } = setup();
+  let complete!: (value: { turn: { id: string } }) => void;
+  const ack = new Promise<{ turn: { id: string } }>(resolve => { complete = resolve; });
+  const original = client.call.getMockImplementation()!;
+  client.call.mockImplementation(async (method: string) => method === "turn/start" ? ack : original(method));
+  const user = controls.send("id", "user", "user-start");
+  await vi.waitFor(() => expect(client.call.mock.calls.filter(([method]) => method === "turn/start")).toHaveLength(1));
+  expect(await controls.send("id", "mail", "mail-start", [], { onlyIfIdle: true })).toEqual({ status: "busy" });
+  expect(client.call.mock.calls.filter(([method]) => method === "turn/steer")).toHaveLength(0);
+  complete({ turn: { id: "real" } }); await user;
+  controls.close();
+});
+
+it("does not let normal mail clear a user's stop intent or pending retry", async () => {
+  const { client, controls } = setup();
+  await controls.attach("id");
+  controls.state("id").recovery.stopped = true;
+  expect(await controls.send("id", "mail", "stopped-mail", [], { onlyIfIdle: true })).toEqual({ status: "busy" });
+  expect(controls.state("id").recovery.stopped).toBe(true);
+  expect(client.call.mock.calls.filter(([method]) => method === "turn/start")).toHaveLength(0);
+  controls.close();
+});
+
+it("waits only for the same conversation's start result before steering later direct user input", async () => {
+  const { client, controls } = setup();
+  let complete!: (value: { turn: { id: string } }) => void;
+  const ack = new Promise<{ turn: { id: string } }>(resolve => { complete = resolve; });
+  const original = client.call.getMockImplementation()!;
+  client.call.mockImplementation(async (method: string) => method === "turn/start" ? ack : original(method));
+  const one = controls.send("id", "first", "one");
+  await vi.waitFor(() => expect(client.call.mock.calls.some(([method]) => method === "turn/start")).toBe(true));
+  const two = controls.send("id", "second", "two");
+  complete({ turn: { id: "new-turn" } });
+  await one; await two;
+  expect(client.call.mock.calls.filter(([method]) => method === "turn/start")).toHaveLength(1);
+  expect(client.call.mock.calls.filter(([method]) => method === "turn/steer")).toHaveLength(1);
+  controls.close();
+});
+
+it("rechecks the final reservation for several waiters after completion arrived before the first ACK", async () => {
+  const { client, controls } = setup();
+  const acknowledgements: Array<(value: { turn: { id: string } }) => void> = [];
+  const original = client.call.getMockImplementation()!;
+  client.call.mockImplementation(async (method: string) => method === "turn/start"
+    ? new Promise<{ turn: { id: string } }>(resolve => { acknowledgements.push(resolve); }) : original(method));
+  const first = controls.send("id", "first", "race-first");
+  await vi.waitFor(() => expect(acknowledgements).toHaveLength(1));
+  const second = controls.send("id", "second", "race-second");
+  const third = controls.send("id", "third", "race-third");
+  controls.handle({ method: "turn/completed", params: { threadId: "id", turn: { id: "first", status: "completed" } } });
+  acknowledgements[0]({ turn: { id: "first" } });
+  await first;
+  await vi.waitFor(() => expect(acknowledgements).toHaveLength(2));
+  expect(client.call.mock.calls.filter(([method]) => method === "turn/start")).toHaveLength(2);
+  acknowledgements[1]({ turn: { id: "second" } });
+  await second; await third;
+  expect(client.call.mock.calls.filter(([method]) => method === "turn/start")).toHaveLength(2);
+  expect(client.call.mock.calls.filter(([method]) => method === "turn/steer")).toHaveLength(1);
+  controls.close();
+});
+it("allows immediate user steering and Stop once native identifies a turn, without waiting for its start ACK", async () => {
+  const { client, controls } = setup();
+  let finish!: (value: { turn: { id: string } }) => void;
+  const original = client.call.getMockImplementation()!;
+  client.call.mockImplementation(async (method: string) => method === "turn/start"
+    ? new Promise<{ turn: { id: string } }>(resolve => { finish = resolve; }) : method === "turn/steer" ? { turnId: "native-turn" } : original(method));
+  const start = controls.send("id", "batch", "batch-start", [], { onlyIfIdle: true });
+  await vi.waitFor(() => expect(finish).toBeDefined());
+  controls.handle({ method: "turn/started", params: { threadId: "id", turn: { id: "native-turn" } } });
+  await expect(controls.send("id", "change now", "urgent-user")).resolves.toMatchObject({ status: "steered" });
+  expect(client.call).toHaveBeenCalledWith("turn/steer", expect.objectContaining({ expectedTurnId: "native-turn" }));
+  await controls.stop("id"); expect(client.call).toHaveBeenCalledWith("turn/interrupt", expect.objectContaining({ turnId: "native-turn" }));
+  finish({ turn: { id: "native-turn" } }); await start; controls.close();
+});
+it("honors final idle gates after earlier readiness, and a rejected batch does not consume its stable ID", async () => {
+  const { client, controls } = setup();
+  controls.options.idleDispatchAllowed = () => false;
+  expect(await controls.send("id", "batch", "gated", [], { onlyIfIdle: true })).toEqual({ status: "busy" });
+  expect(client.call.mock.calls.some(([method]) => method === "turn/start")).toBe(false);
+  controls.options.idleDispatchAllowed = () => true;
+  expect(await controls.send("id", "batch", "gated", [], { onlyIfIdle: true })).toMatchObject({ status: "started" });
+  controls.close();
+});

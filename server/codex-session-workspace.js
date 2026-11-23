@@ -139,6 +139,7 @@ class CodexSessionWorkspace {
     if (!terminal.timer) terminal.timer = setTimeout(() => { terminal.timer = null; this.flush(terminal); }, 30);
   }
   flush(terminal) {
+    if (!terminal.running) this.options.ended?.(terminal.threadId);
     const payload = { threadId: terminal.threadId, handle: terminal.handle, running: terminal.running, exitCode: terminal.exitCode, offset: terminal.offset, reset: terminal.reset, dataBase64: terminal.pending.toString("base64") };
     const frame = JSON.stringify({ type: "event", event: "session.terminal", payload });
     terminal.pending = Buffer.alloc(0); terminal.reset = false;

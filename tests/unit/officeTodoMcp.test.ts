@@ -408,3 +408,15 @@ it("keeps priority on real MCP compact edit/get/list for existing legacy and pha
   const loaded = new OfficeTodos(directory, { agents: () => [{ id: "alice", name: "Alice" }], projects: () => [] });
   expect(tasks.map(t => loaded.get({ id: t.id }).todo.priority)).toEqual([1, 1]);
 });
+it("exposes optional normal/urgent delivery and narrow receipt discovery without changing required legacy fields", () => {
+  const { tools } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");
+  for (const name of ["session_send", "todo_delegate", "todo_submit", "todo_review"]) {
+    const schema = tools.find((tool: { name: string }) => tool.name === name).inputSchema;
+    expect(schema.properties.urgency.enum).toEqual(["normal", "urgent"]);
+    expect(schema.properties.urgentReason.maxLength).toBe(500);
+    expect(schema.required).not.toContain("urgency");
+  }
+  const status = tools.find((tool: { name: string }) => tool.name === "delivery_status");
+  expect(status.annotations.readOnlyHint).toBe(true);
+  expect(status.inputSchema.required).toEqual(["actorId"]);
+});
