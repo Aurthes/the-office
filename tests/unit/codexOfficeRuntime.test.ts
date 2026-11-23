@@ -67,7 +67,7 @@ describe("independent Office runtime", () => {
     expect(worker).not.toContain(DEPARTMENT_HEAD_GUIDELINE);
     expect(head.split(DEPARTMENT_HEAD_GUIDELINE)).toHaveLength(2);
     expect(head).toContain("delegate the next complete outcome and relevant changes instead of repeating the plan or shared workflow");
-    expect(DEPARTMENT_HEAD_GUIDELINE).toContain("workers choose implementation and own execution");
+    expect(DEPARTMENT_HEAD_GUIDELINE).toContain("leave implementation and checks to executors and independent reviewers");
     expect(f.store.companyContext).toHaveBeenCalledTimes(2);
     expect(f.client.call.mock.calls.map(([method]) => method)).toEqual(["thread/start", "thread/inject_items", "turn/start", "thread/inject_items", "turn/start"]);
   });
@@ -135,7 +135,7 @@ describe("independent Office runtime", () => {
     expect(text.split(DEPARTMENT_HEAD_GUIDELINE)).toHaveLength(2);
     expect(text).toContain("inactive for other roles or unavailable role data");
     expect(text).toContain("replaces earlier Head role definitions");
-    expect(DEPARTMENT_HEAD_GUIDELINE).toContain("workers choose implementation and own execution");
+    expect(DEPARTMENT_HEAD_GUIDELINE).toContain("leave implementation and checks to executors and independent reviewers");
     expect(f.store.companyContext).toHaveBeenCalledExactlyOnceWith(id);
     expect(f.client.call.mock.calls.map(([method]) => method)).toEqual(["thread/start", "thread/inject_items", "turn/start"]);
   });
@@ -221,7 +221,7 @@ describe("independent Office runtime", () => {
     const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
     const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
     const asyncRule = " " + ETA_FOLLOWUP_RULE;
-    const dependencyRule = "For each dependency, specify the completion condition, successor, trigger owner and event, and handoff inputs; the trigger owner handles failure or uncertainty until the recorded handoff and actual execution state confirm pickup; escalate only missing, failed or actionable follow-up. ";
+    const dependencyRule = "Keep dependency inputs, completion conditions and next-step responsibility current in the task. Follow up on missing or failed pickup using recorded delivery and execution state, not conversational acknowledgements. ";
     expect(payload.split(asyncRule)).toHaveLength(2);
     expect(payload.includes(dependencyRule)).toBe(title === "Head");
     const previous = payload.replace(asyncRule, "").replace(dependencyRule, "").replace("coordinate people and parallel work", "coordinate people, dependencies and parallel work");
@@ -713,7 +713,7 @@ it.each(["Worker", "Head"])("refreshes unchanged-progress %s guidance through th
   await f.store.call("turn/start", { threadId: id, input: [] });
   const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
   const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
-  const current = "Record unchanged routine progress in the task instead of wakeup, acknowledgement or waiting messages. Proactively report completion/failure, new blockers or risks, needed decisions or material ETA changes; answer explicit user progress questions and needed agreed updates, and preserve necessary handoffs.";
+  const current = "Use the existing work and review chain. Send a message when new information changes the recipient's decision or action, reports a meaningful outcome, failure or material risk, or answers a requested update. Escalate substantive disagreements or blockers directly when needed. Keep other progress in the task and reference shared context rather than repeat it.";
   const previous = "Keep complete execution and verification records in the task or linked evidence; send the outcome, decisive facts, material limits and any needed decision.";
   const head = "Judge progress against the original goal and choose the next question.", oldHead = "Keep your own replies focused on what affects the decision.";
   expect(payload.split(current)).toHaveLength(2);
@@ -766,12 +766,12 @@ it.each(["Worker", "Head"])("refreshes purposeful intermediate-report %s guidanc
   await f.store.call("turn/start", { threadId: id, input: [] });
   const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
   const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
-  const shared = "Send intermediate reports for a clear coordination need or next decision or action.";
-  const requested = "answer explicit user progress questions and needed agreed updates, and preserve necessary handoffs.";
-  const manager = "Require intermediate reports only for a clear follow-up decision or action; do not impose acknowledgement or status receipts without that purpose.";
+  const shared = "Send a message when new information changes the recipient's decision or action, reports a meaningful outcome, failure or material risk, or answers a requested update.";
+  const requested = "or answers a requested update.";
+  const manager = "Manage outcomes and consequential decisions; leave implementation and checks to executors and independent reviewers. Intervene when changed requirements, material risk, ownership gaps or repeated failures require a decision, using the latest task state.";
   expect(payload).toContain(shared); expect(payload).toContain(requested);
   expect(payload.includes(manager)).toBe(title === "Head");
-  expect(payload).toContain("Proactively report completion/failure, new blockers or risks");
+  expect(payload).toContain("reports a meaningful outcome, failure or material risk");
   expect(payload).not.toContain("start receipt");
   const prior = payload.replace(shared, "Before sending, distill what the recipient needs to decide or act, using shared context.").replace(requested, "answer requested or agreed updates and preserve necessary handoffs.").replace(" " + manager, "");
   f.store.get(id).projectContext = createHash("sha256").update(prior).digest("hex"); f.store.save();
@@ -814,7 +814,7 @@ it.each(["Head", "Manager", "CEO", "Worker"])("refreshes the prior %s manager-sy
   expect(payload).not.toContain("Keep your own replies focused on decisions; do not relay routine status again.");
   expect(JSON.parse(payload.split("\n")[1]).company.canRecruit).toBe(false);
   const oldShared = OFFICE_COLLABORATION_GUIDELINE.replace(rule + " ", "").replace("using shared context. Send intermediate", "using shared context; send intermediate");
-  const oldHead = DEPARTMENT_HEAD_GUIDELINE.replace(" Reserve intervention", " Keep your own replies focused on decisions; do not relay routine status again. Reserve intervention");
+  const oldHead = DEPARTMENT_HEAD_GUIDELINE.replace(" Manage outcomes", " Keep your own replies focused on decisions; do not relay routine status again. Manage outcomes");
   f.store.get(id).projectContext = createHash("sha256").update(payload.replace(OFFICE_COLLABORATION_GUIDELINE, oldShared).replace(DEPARTMENT_HEAD_GUIDELINE, oldHead)).digest("hex"); f.store.save();
   const nativeThreadId = f.store.get(id).codexThreadId;
   const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
@@ -860,7 +860,7 @@ it.each(["Worker", "Head"])("loads single-report/receipt semantics into %s once 
   expect(payload).toContain("Formally report the conclusion once");
   expect(payload).toContain("follow-ups give only new facts"); expect(payload).toContain("sent does not prove read, actual startup or completion");
   expect(payload).not.toContain("worker-turn receipt");
-  expect(payload.includes("actual execution state confirm pickup")).toBe(title === "Head");
+  expect(payload.includes("using recorded delivery and execution state, not conversational acknowledgements")).toBe(title === "Head");
   const old = payload.replace("Formally report the conclusion once", "send conclusions").replace("actual execution state confirm pickup", "worker-turn receipt confirm pickup");
   f.store.get(id).projectContext = createHash("sha256").update(old).digest("hex"); f.store.save();
   const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
@@ -919,6 +919,42 @@ it.each(["CEO", "Worker"])("delivers the three approved pstack principles to %s 
   const updated = injections()[1][1] as { threadId: string; items: Array<{ role: string; content: Array<{ text: string }> }> };
   expect(updated.threadId).toBe(nativeThread); expect(updated.items[0].role).toBe("developer"); expect(updated.items[0].content[0].text).toBe(payload);
   await restored.call("turn/start", { threadId: id, input: [] });
+  expect(injections()).toHaveLength(2);
+  expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
+});
+
+it.each(["CEO", "Head", "Manager", "Worker"])("refreshes the approved outcome and communication rules for %s once after restore without changing review or native thread", async title => {
+  const f = fixture();
+  const id = title === "CEO" ? (f.store.ensureCeo(), CEO_ID) : await session(f);
+  f.store.companyContext = () => ({ agentId: id, title, canRecruit: false });
+  const replacements: Array<[string, string]> = [["Send intermediate reports for a clear coordination need or next decision or action. Record unchanged routine progress in the task instead of wakeup, acknowledgement or waiting messages. Proactively report completion/failure, new blockers or risks, needed decisions or material ETA changes; answer explicit user progress questions and needed agreed updates, and preserve necessary handoffs.", "Use the existing work and review chain. Send a message when new information changes the recipient's decision or action, reports a meaningful outcome, failure or material risk, or answers a requested update. Escalate substantive disagreements or blockers directly when needed. Keep other progress in the task and reference shared context rather than repeat it."], ["For each dependency, specify the completion condition, successor, trigger owner and event, and handoff inputs; the trigger owner handles failure or uncertainty until the recorded handoff and actual execution state confirm pickup; escalate only missing, failed or actionable follow-up.", "Keep dependency inputs, completion conditions and next-step responsibility current in the task. Follow up on missing or failed pickup using recorded delivery and execution state, not conversational acknowledgements."], ["Reserve intervention in execution for scope or authority changes, uncertain safety, or another owner\u2019s decision; preserve required independent acceptance.", "Manage outcomes and consequential decisions; leave implementation and checks to executors and independent reviewers. Intervene when changed requirements, material risk, ownership gaps or repeated failures require a decision, using the latest task state."], [" Require intermediate reports only for a clear follow-up decision or action; do not impose acknowledgement or status receipts without that purpose.", ""], ["Assign complete blocks to capable direct reports; coordinate people and parallel work while workers choose implementation and own execution, checks, delivery and cleanup.", "Assign complete blocks to capable direct reports and coordinate people and parallel work."], ["Contributors submit their results to that owner, who forms a judgment and reports along the existing handoff chain; disagreements, blockers and needed decisions may be raised directly.", "Contributors submit their results to that owner, who forms a judgment and reports along the existing handoff chain."]];
+  const rules = ["Use the existing work and review chain. Send a message when new information changes the recipient's decision or action, reports a meaningful outcome, failure or material risk, or answers a requested update. Escalate substantive disagreements or blockers directly when needed. Keep other progress in the task and reference shared context rather than repeat it.", "Keep dependency inputs, completion conditions and next-step responsibility current in the task. Follow up on missing or failed pickup using recorded delivery and execution state, not conversational acknowledgements.", "Manage outcomes and consequential decisions; leave implementation and checks to executors and independent reviewers. Intervene when changed requirements, material risk, ownership gaps or repeated failures require a decision, using the latest task state."];
+  await f.store.call("turn/start", { threadId: id, input: [] });
+  const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+  const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
+  expect(payload.split(rules[0])).toHaveLength(2);
+  const manager = ["Head", "Manager"].includes(title);
+  for (const rule of rules.slice(1)) expect(payload.includes(rule)).toBe(manager);
+  expect(payload).toContain("Escalate substantive disagreements or blockers directly when needed.");
+  expect(WORKFLOW).toContain("Use todo_review to accept with evidence or return gaps to the worker");
+  expect(payload).toContain("sent does not prove read, actual startup or completion");
+  expect(payload).toContain("Use urgent with a concrete urgentReason");
+  for (const [old, current] of replacements) if (old !== current && old) expect(payload).not.toContain(old);
+  let previous = payload;
+  for (const [old, current] of replacements) {
+    if (current) previous = previous.replace(current, old);
+    else if (manager) previous = previous.replace(" Ask the right questions:", old + " Ask the right questions:");
+  }
+  expect(previous).not.toBe(payload);
+  const nativeThreadId = f.store.get(id).codexThreadId;
+  f.store.get(id).projectContext = createHash("sha256").update(previous).digest("hex"); f.store.save();
+  const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const update = injections()[1][1] as { threadId: string; items: Array<{ role: string; content: Array<{ text: string }> }> };
+  expect(update.threadId).toBe(nativeThreadId); expect(update.items[0].role).toBe("developer"); expect(update.items[0].content[0].text).toBe(payload);
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const again = new CodexOfficeStore(f.directory, f.client); again.companyContext = f.store.companyContext;
+  await again.call("turn/start", { threadId: id, input: [] });
   expect(injections()).toHaveLength(2);
   expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
 });
