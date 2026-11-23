@@ -869,3 +869,34 @@ it.each(["Worker", "Head"])("loads single-report/receipt semantics into %s once 
   await restored.call("turn/start", { threadId: id, input: [] }); expect(injections()).toHaveLength(count + 1);
   expect(f.client.call.mock.calls.every(([method]) => ["thread/start", "thread/inject_items", "turn/start"].includes(method))).toBe(true);
 });
+
+
+it.each(["CEO", "Head", "Manager", "Worker"])("loads balanced model-first guidance for %s and refreshes the prior hash once", async title => {
+  const f = fixture();
+  const id = title === "CEO" ? (f.store.ensureCeo(), CEO_ID) : await session(f);
+  f.store.companyContext = () => ({ agentId: id, title, canRecruit: false });
+  const rule = "Before changing code, understand the underlying concepts, relationships, states and invariants. Model the underlying problem correctly rather than encoding individual cases. Then choose a proportionate implementation for current and near-term goals, weighing design benefit against change, complexity, migration, validation, risk and rework, not the smallest diff. A pragmatic local fix may be appropriate; state its limitations and do not mistake it for the underlying model. Avoid speculative generality or automatic promises to refactor later. Decide clear trade-offs yourself; ask the user when a consequential trade-off is unclear. Align changes to goals, business behavior, interfaces, permissions or major design first. Routine model corrections within agreed scope need no separate approval or design report. Reuse valid results and skip unnecessary code, checks, reads and process.";
+  const prior = "Take the shortest reliable path: reuse valid results and skip unnecessary code, checks, reads, and process.";
+  const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+  await f.store.call("turn/start", { threadId: id, input: [] });
+  const nativeThread = f.store.get(id).codexThreadId;
+  const payload = (injections()[0][1] as { items: Array<{ role: string; content: Array<{ text: string }> }> }).items[0].content[0].text;
+  expect(payload.split(rule)).toHaveLength(2); expect(payload).not.toContain(prior);
+  expect(payload).toContain("Model the underlying problem correctly rather than encoding individual cases.");
+  expect(payload).toContain("A pragmatic local fix may be appropriate; state its limitations");
+  expect(payload).toContain("migration, validation, risk and rework, not the smallest diff");
+  expect(payload).not.toContain("Keep a sound model; fix a flawed one instead of layering exceptions.");
+  expect(payload).not.toContain("least costly sound change");
+  expect(payload.includes(DEPARTMENT_HEAD_GUIDELINE)).toBe(["Head", "Manager"].includes(title));
+  expect(JSON.parse(payload.split("\n")[1]).company).toEqual({ agentId: id, title, canRecruit: false });
+  f.store.get(id).projectContext = createHash("sha256").update(payload.replace(rule, prior)).digest("hex"); f.store.save();
+  const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const updated = injections()[1][1] as { threadId: string; items: Array<{ role: string; content: Array<{ text: string }> }> };
+  expect(updated.threadId).toBe(nativeThread); expect(updated.items[0].role).toBe("developer"); expect(updated.items[0].content[0].text).toBe(payload);
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const restarted = new CodexOfficeStore(f.directory, f.client); restarted.companyContext = f.store.companyContext;
+  await restarted.call("turn/start", { threadId: id, input: [] });
+  expect(injections()).toHaveLength(2);
+  expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
+});
