@@ -221,7 +221,7 @@ describe("independent Office runtime", () => {
     const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
     const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
     const asyncRule = " " + ETA_FOLLOWUP_RULE;
-    const dependencyRule = "For each dependency, specify the completion condition, successor, trigger owner and event, and handoff inputs; the trigger owner handles failure or uncertainty until a real handoff and worker-turn receipt confirm pickup. ";
+    const dependencyRule = "For each dependency, specify the completion condition, successor, trigger owner and event, and handoff inputs; the trigger owner handles failure or uncertainty until the recorded handoff and actual execution state confirm pickup; escalate only missing, failed or actionable follow-up. ";
     expect(payload.split(asyncRule)).toHaveLength(2);
     expect(payload.includes(dependencyRule)).toBe(title === "Head");
     const previous = payload.replace(asyncRule, "").replace(dependencyRule, "").replace("coordinate people and parallel work", "coordinate people, dependencies and parallel work");
@@ -713,7 +713,7 @@ it.each(["Worker", "Head"])("refreshes unchanged-progress %s guidance through th
   await f.store.call("turn/start", { threadId: id, input: [] });
   const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
   const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
-  const current = "Record unchanged routine progress in the task instead of wakeup, acknowledgement or waiting messages. Proactively report completion/failure, new blockers or risks, needed decisions or material ETA changes; answer explicit user progress questions and needed agreed updates, and preserve necessary handoffs. Keep full records in the task or linked evidence; send conclusions, decisive facts and material limits.";
+  const current = "Record unchanged routine progress in the task instead of wakeup, acknowledgement or waiting messages. Proactively report completion/failure, new blockers or risks, needed decisions or material ETA changes; answer explicit user progress questions and needed agreed updates, and preserve necessary handoffs.";
   const previous = "Keep complete execution and verification records in the task or linked evidence; send the outcome, decisive facts, material limits and any needed decision.";
   const head = "Judge progress against the original goal and choose the next question.", oldHead = "Keep your own replies focused on what affects the decision.";
   expect(payload.split(current)).toHaveLength(2);
@@ -851,4 +851,21 @@ it.each(["CEO", "Head", "Manager", "Worker"])("refreshes answer-progress guidanc
   await restarted.call("turn/start", { threadId: id, input: [] });
   expect(injections()).toHaveLength(2);
   expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
+});
+it.each(["Worker", "Head"])("loads single-report/receipt semantics into %s once on an existing session without extra queries", async title => {
+  const f = fixture(), id = await session(f); f.store.companyContext = () => ({ agentId: id, title });
+  await f.store.call("turn/start", { threadId: id, input: [] });
+  const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+  const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
+  expect(payload).toContain("Formally report the conclusion once");
+  expect(payload).toContain("follow-ups give only new facts"); expect(payload).toContain("sent does not prove read, actual startup or completion");
+  expect(payload).not.toContain("worker-turn receipt");
+  expect(payload.includes("actual execution state confirm pickup")).toBe(title === "Head");
+  const old = payload.replace("Formally report the conclusion once", "send conclusions").replace("actual execution state confirm pickup", "worker-turn receipt confirm pickup");
+  f.store.get(id).projectContext = createHash("sha256").update(old).digest("hex"); f.store.save();
+  const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
+  const count = injections().length; await restored.call("turn/start", { threadId: id, input: [] });
+  expect(injections()).toHaveLength(count + 1);
+  await restored.call("turn/start", { threadId: id, input: [] }); expect(injections()).toHaveLength(count + 1);
+  expect(f.client.call.mock.calls.every(([method]) => ["thread/start", "thread/inject_items", "turn/start"].includes(method))).toBe(true);
 });

@@ -169,8 +169,10 @@ class OfficeTodos {
       const assigneeId = phase.assigneeId === undefined ? old ? old.assigneeId : mode ? null : undefined : phase.assigneeId;
       const agent = this.agents().find(a => a.id === assigneeId);
       if (mode && assigneeId != null && !agent && assigneeId !== old?.assigneeId) throw new Error("Choose an existing phase assignee");
-      if (mode && old && assigneeId !== old.assigneeId && old.completedAt != null) throw new Error("Reopen the phase before changing its recorded assignment");
-      return { ...(old || {}), ...(mode ? { ...(assigneeId !== undefined ? { assigneeId, assigneeName: agent?.name || old?.assigneeName || null } : {}), status: old?.status || (old?.completedAt != null ? "done" : "queued") } : {}), id, title: text(phase.title, "Phase title", 160), notes: text(phase.notes ?? old?.notes ?? "", "Phase notes", 3000, true),
+      if (mode && old && old.completedAt != null && (assigneeId !== old.assigneeId || phase.acceptanceManagerId !== undefined && phase.acceptanceManagerId !== old.acceptanceManagerId)) throw new Error("Reopen the phase before changing its recorded assignment");
+      if (phase.acceptanceManagerId !== undefined && (!mode || phase.acceptanceManagerId !== null && (typeof phase.acceptanceManagerId !== "string" ||
+        !this.agents().some(a => a.id === phase.acceptanceManagerId && !a.archived) && phase.acceptanceManagerId !== old?.acceptanceManagerId))) throw new Error("Choose an existing phase acceptance manager or Unassigned");
+      return { ...(old || {}), ...(mode && phase.acceptanceManagerId !== undefined ? { acceptanceManagerId: phase.acceptanceManagerId } : {}), ...(mode ? { ...(assigneeId !== undefined ? { assigneeId, assigneeName: agent?.name || old?.assigneeName || null } : {}), status: old?.status || (old?.completedAt != null ? "done" : "queued") } : {}), id, title: text(phase.title, "Phase title", 160), notes: text(phase.notes ?? old?.notes ?? "", "Phase notes", 3000, true),
         elapsedMs: old?.elapsedMs || 0, startedAt: old?.startedAt ?? null, completedAt: old?.completedAt ?? null };
     });
   }
@@ -178,11 +180,11 @@ class OfficeTodos {
     if (input.phasePatch !== undefined) {
       const patch = input.phasePatch;
       if (!patch || typeof patch !== "object" || Array.isArray(patch) || typeof patch.id !== "string"
-        || Object.keys(patch).some(key => !["id", "title", "notes", "assigneeId"].includes(key))) throw new Error("Choose one existing phase and only title, notes or assigneeId to patch");
+        || Object.keys(patch).some(key => !["id", "title", "notes", "assigneeId", "acceptanceManagerId"].includes(key))) throw new Error("Choose one existing phase and only title, notes, assigneeId or acceptanceManagerId to patch");
       if (input.phases !== undefined || input.removedPhaseIds !== undefined || input.restorePhase !== undefined) throw new Error("Use phasePatch separately from replacing, deleting or restoring phases");
       if (!row.phases.some(p => p.id === patch.id)) throw new Error("Phase is missing; refresh the to-do");
-      if (!isPhaseTask(row) && patch.assigneeId !== undefined) throw new Error("Legacy tasks use task-level assignment");
-      input = { ...input, phases: row.phases.map(p => p.id === patch.id ? { ...p, ...patch } : p) };
+      if (!isPhaseTask(row) && (patch.assigneeId !== undefined || patch.acceptanceManagerId !== undefined)) throw new Error("Legacy tasks use task-level assignment");
+      input = { ...input, phases: row.phases.map(p => p.id === patch.id ? { ...p, ...patch, ...(Object.hasOwn(patch, "acceptanceManagerId") ? {} : { acceptanceManagerId: undefined }) } : p) };
     }
     if (input.removedPhaseIds !== undefined && input.phases === undefined) throw new Error("removedPhaseIds requires the complete phases plan");
     if (input.phases !== undefined) {
@@ -208,8 +210,8 @@ class OfficeTodos {
     if (!isPhaseTask(previous) || previous.archived || previous.status === "done") throw new Error("Restore an unexecuted phase only in an unfinished phase-mode task");
     const keys = ["id", "title", "notes", "assigneeId", "assigneeName", "status", "elapsedMs", "startedAt", "completedAt"];
     if (!recovery || typeof recovery !== "object" || Array.isArray(recovery) || Object.keys(recovery).some(k => !["phase", "index", "sourceRevision", "sourceItemId", "sourceReceiptSha256"].includes(k))
-      || !p || typeof p !== "object" || Array.isArray(p) || Object.keys(p).length !== keys.length || keys.some(k => !Object.hasOwn(p, k))
-      || Object.keys(p).some(k => !keys.includes(k)) || !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(p.id || "") || p.status !== "queued" || p.elapsedMs !== 0 || p.startedAt !== null || p.completedAt !== null
+      || !p || typeof p !== "object" || Array.isArray(p) || keys.some(k => !Object.hasOwn(p, k))
+      || Object.keys(p).some(k => ![...keys, "acceptanceManagerId"].includes(k)) || p.acceptanceManagerId !== undefined && p.acceptanceManagerId !== null && typeof p.acceptanceManagerId !== "string" || !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(p.id || "") || p.status !== "queued" || p.elapsedMs !== 0 || p.startedAt !== null || p.completedAt !== null
       || !(p.assigneeId === null && p.assigneeName === null || typeof p.assigneeId === "string" && typeof p.assigneeName === "string" && this.agents().some(a => a.id === p.assigneeId))
       || !Number.isInteger(recovery.index) || recovery.index < 0 || recovery.index > previous.phases.length || previous.phases.length >= 20) throw new Error("Restore the exact queued, zero-time, unstarted original phase and its position");
     text(p.title, "Phase title", 160); text(p.notes, "Phase notes", 3000, true);
@@ -294,10 +296,22 @@ class OfficeTodos {
     const actor = this.actor(input), row = { ...(input.executionMode ? { executionMode: input.executionMode } : {}), version: 1, id: uuid(), code: this.nextCode(), revision: 1, priority: priorityValue(input.priority), title: text(input.title, "To-do title", 200),
       documentation: text(input.documentation || "", "Documentation", 24000, true), ...this.references({ ...input, ownerId: input.ownerId === undefined ? actor.id || null : input.ownerId }), phases: this.plan(input.phases, [], input.executionMode === "phases"),
       status: "queued", archived: false, completedAt: null, acceptanceManagerId: null, createdAt: this.now(), updatedAt: this.now(), events: [], requestId, requestHash: hash, sourceThreadId: input.sourceThreadId || null };
+    if (isPhaseTask(row)) this.assignmentReviewers(row, [], input.phases);
     const origin = actor.id && this.replyContext(actor.id);
     if (origin) row.replyContext = origin;
     this.event(row, "To-do created", actor); this.save(row); this.requests.set(requestId, row.id); this.changed(row.id);
     return { todo: this.view(row, true), serverTime: this.now() };
+  }
+  assignmentReviewers(row, previous, requested) {
+    for (const phase of row.phases) {
+      const old = previous.find(p => p.id === phase.id), input = requested.find(p => p.id === phase.id) || requested[row.phases.indexOf(phase)];
+      if (input?.acceptanceManagerId !== undefined) continue;
+      // Assignment records a route once. Owner edits and ordinary plan edits do
+      // not silently change the reviewer of an existing responsibility.
+      if (!old || old.assigneeId == null && phase.assigneeId != null && old.acceptanceManagerId == null || !Object.hasOwn(phase, "acceptanceManagerId") && input?.assigneeId !== undefined) {
+        phase.acceptanceManagerId = phase.assigneeId ? row.acceptanceManagerId || taskOwnerId(row) || null : null;
+      }
+    }
   }
   validatePhases(row) {
     if (!row.phases.length || row.phases.length > 20 || new Set(row.phases.map(p => p.id)).size !== row.phases.length) throw new Error("Invalid phase plan");
@@ -366,8 +380,9 @@ class OfficeTodos {
     const needsPhase = !["edit", "archive", "restore"].includes(action);
     const phase = needsPhase ? row.phases.find(p => p.id === input.phaseId) : null;
     if (needsPhase && !phase) throw new Error("Choose an explicit task phase");
-    const entry = phase && activeDelegation(row, phase.id), owner = taskOwnerId(row);
-    if (["submit", "review", "recall"].includes(action) && (!input.handoffId || entry?.id !== input.handoffId)) throw new Error("Choose the exact active phase handoff; refresh the task");
+    let entry = phase && activeDelegation(row, phase.id);
+    const owner = taskOwnerId(row);
+    if (["submit", "review", "recall"].includes(action) && (entry ? !input.handoffId || entry.id !== input.handoffId : action !== "submit" || input.handoffId !== undefined)) throw new Error("Choose the exact active phase handoff; refresh the task");
     if (phase && actor.id && !["delegate", "submit", "review", "recall", "reopen"].includes(action) && actor.id !== handlingAgentId(row, phase.id) && actor.id !== owner) throw new Error("Only this phase's responsible agent or Owner can change its execution");
     let message, followup;
     if (action === "edit") {
@@ -380,12 +395,16 @@ class OfficeTodos {
         for (const old of row.phases) {
           const updated = next.find(p => p.id === old.id);
           if (!updated && (row.delegations || []).some(e => e.phaseId === old.id)) throw new Error("Keep phases with recorded handoff history");
-          if ((!updated || updated.assigneeId !== old.assigneeId) && (old.startedAt != null || activeDelegation(row, old.id))) throw new Error("Pause and finish or recall this phase's handoff before reassigning or removing it");
+          if ((!updated || updated.assigneeId !== old.assigneeId || updated.acceptanceManagerId !== old.acceptanceManagerId) && (old.startedAt != null || activeDelegation(row, old.id))) throw new Error("Pause and finish or recall this phase's handoff before reassigning or removing it");
           if (updated && updated.assigneeId !== old.assigneeId) { delete updated.activity; delete updated.pauseContext; if (updated.completedAt == null) updated.status = "queued"; }
           if (!updated) this.removedPhase(row, old, actor);
         }
         row.phases = next;
-        if (row.acceptanceManagerId) for (const p of row.phases) if (p.completedAt == null) p.acceptanceManagerId ||= row.acceptanceManagerId;
+        this.assignmentReviewers(row, previous.phases, input.phases);
+        for (const old of previous.phases) {
+          const updated = row.phases.find(p => p.id === old.id);
+          if (updated && updated.acceptanceManagerId !== old.acceptanceManagerId && (old.startedAt != null || activeDelegation(row, old.id))) throw new Error("Pause and resolve the phase handoff before changing its acceptance manager");
+        }
       }
       if (input.status !== undefined) followup = this.followUp(row, input, actor);
       message = followup ? "Follow-up status updated" : "Plan, phase assignments or documentation updated";
@@ -405,7 +424,20 @@ class OfficeTodos {
       phase.assigneeId = input.assigneeId; phase.assigneeName = this.agents().find(a => a.id === input.assigneeId)?.name || input.assigneeId; phase.status = "queued";
       message = `Delegated phase: ${phase.title}`;
     } else if (action === "submit") {
-      if (entry.state !== "working" || actor.id !== entry.workerId) throw new Error("Only this handoff's worker can submit");
+      if (phase.completedAt != null) throw new Error("Reopen completed work before submitting a new result");
+      const initialSubmission = !entry;
+      if (initialSubmission) {
+        if (!actor.id || actor.id !== phase.assigneeId) throw new Error("Only the assigned phase worker can submit its result");
+        const manager = phase.acceptanceManagerId;
+        if (!manager || manager === actor.id || !this.agents().some(a => a.id === manager && !a.archived)) throw new Error("Record a valid independent acceptance manager on this phase before submitting");
+        const candidate = this.replyContext(actor.id);
+        entry = { id: uuid(), phaseId: phase.id, managerId: manager, workerId: actor.id,
+          origin: "phase-assignment", originActivity: structuredClone(phase.activity || null),
+          instructions: phase.notes || phase.title, acceptanceCriteria: "", state: "review", createdAt: this.now(),
+          replyContext: taskReplyContext(row, candidate, phase.id) };
+        (row.delegations ||= []).push(entry);
+      }
+      if (!initialSubmission && entry.state !== "working" || actor.id !== entry.workerId) throw new Error("Only this handoff's worker can submit");
       entry.report = text(input.report, "Delivery report and evidence", 6000); entry.submittedAt = this.now(); entry.state = "review";
       entry.delivery = { recipientId: entry.managerId, requestId: `delegation-${uuid()}`, state: "pending", sender: actor, ...urgency(input) };
       this.stopClock(row, this.now(), phase.id); delete phase.activity; phase.status = "review";
@@ -542,7 +574,7 @@ class OfficeTodos {
       // This is the received notice's CAS revision, not a per-turn clock nonce.
       ...(noticeRevision === undefined ? {} : { notice: { revision: noticeRevision } }),
       handlingAgentId: row ? handlingAgentId(row, phase?.id) : null, reviewerId: entry?.state === "review" ? entry.managerId : null,
-      ...(phase ? { runningPhaseId: phase.id, phaseTitle: phase.title, handoffId: entry?.id || null, activityId: phase.activity?.requestId, activityRole: phase.activity?.role, activityTurnId: phase.activity?.turnId ?? null } : row?.activity ? { activityId: row.activity.requestId, activityRole: "legacy", activityTurnId: row.activity.turnId ?? null, handoffId: entry?.id || null } : {}), delegatedTasks: this.delegated(agentId) };
+      ...(phase ? { runningPhaseId: phase.id, phaseTitle: phase.title, acceptanceManagerId: phase.acceptanceManagerId ?? null, handoffId: entry?.id || null, activityId: phase.activity?.requestId, activityRole: phase.activity?.role, activityTurnId: phase.activity?.turnId ?? null } : row?.activity ? { activityId: row.activity.requestId, activityRole: "legacy", activityTurnId: row.activity.turnId ?? null, handoffId: entry?.id || null } : {}), delegatedTasks: this.delegated(agentId) };
   }
   recordTurn(value, session) {
     const row = value.taskId && this.rows.get(value.taskId), phased = isPhaseTask(row || {});

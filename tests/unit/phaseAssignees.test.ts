@@ -13,7 +13,11 @@ const { OfficeDelegation } = require("../../server/office-delegation");
 const { WORKFLOW } = require("../../server/office-company");
 const { ceo: CEO } = require("../../src/lib/office/identities.json");
 const roots: string[] = [];
-afterEach(() => { roots.splice(0).forEach(p => rmSync(p, { recursive: true, force: true })); });
+afterEach(async () => {
+  // Settle fixture-local deliveries before removing their task files.
+  await new Promise<void>(resolve => setImmediate(resolve));
+  roots.splice(0).forEach(p => rmSync(p, { recursive: true, force: true }));
+});
 async function fixture() {
   const root = mkdtempSync(path.join(os.tmpdir(), "phase-runtime-")); roots.push(root);
   const workspace = path.join(root, "work"); mkdirSync(workspace);
@@ -654,4 +658,112 @@ it("restores real nested handoff follow-up after acceptance without inventing a 
   expect(f.phase(f.pa).startedAt).toBeNull(); expect(f.send).toHaveBeenCalledTimes(sends);
   expect(f.todos.get({ id: f.task.id }).todo.phases.find((p: { id: string }) => p.id === f.pa).handlingAgentId).toBe(f.a);
   await f.settle();
+});
+
+describe("assigned responsibility submits directly without a redundant delegation", () => {
+  it("captures a reviewer, preserves self execution/time/Q and notifies only the reviewer; accepted history stays immutable", async () => {
+    const f = await fixture(); f.available.set(f.owner, false);
+    const question = { id: "q-original", summary: "Original outcome", sources: [{ threadId: "user", turnId: "original", itemId: "request" }] };
+    f.todos.replyContext = () => ({ taskId: f.task.id, questions: [question] });
+    expect(f.phase(f.pa).acceptanceManagerId).toBe(f.owner);
+    f.todos.change(f.input(f.pa, f.a), "start"); const activity = structuredClone(f.phase(f.pa).activity);
+    expect(f.todos.context(f.a)).toMatchObject({ runningPhaseId: f.pa, acceptanceManagerId: f.owner });
+    f.advance(1234);
+    await f.runtime.submit(f.input(f.pa, f.a, { report: "Delivered; evidence.json" })); await f.settle();
+    const entry = f.entry(f.pa);
+    expect(entry).toMatchObject({ origin: "phase-assignment", state: "review", managerId: f.owner, workerId: f.a,
+      originActivity: activity, replyContext: { phaseId: f.pa, questions: [question] }, delivery: { recipientId: f.owner, state: "pending" } });
+    expect(f.phase(f.pa)).toMatchObject({ assigneeId: f.a, startedAt: null, elapsedMs: 1234, status: "review" });
+    expect(f.send).not.toHaveBeenCalled();
+    await f.review(f.pa); const old = structuredClone(f.todos.raw(f.task.id).delegations[0]);
+    expect(f.phase(f.pa).completedAt).not.toBeNull();
+    f.todos.change(f.input(f.pa, f.owner), "reopen");
+    await expect(f.runtime.submit(f.input(f.pa, f.a, { handoffId: old.id, report: "New result" }))).rejects.toThrow(/exact/);
+    await f.runtime.submit(f.input(f.pa, f.a, { report: "New result" })); await f.settle();
+    expect(f.entry(f.pa).id).not.toBe(old.id); expect(f.todos.raw(f.task.id).delegations[0]).toEqual(old);
+  });
+  it("returns actionable feedback on the new handoff, then requires its exact ID for the amended submission", async () => {
+    const f = await fixture(); f.available.set(f.owner, false); f.available.set(f.a, false);
+    await f.runtime.submit(f.input(f.pa, f.a, { report: "Initial result" })); await f.settle();
+    const id = f.entry(f.pa).id;
+    await f.review(f.pa, f.owner, false);
+    expect(f.entry(f.pa)).toMatchObject({ id, state: "working", delivery: { recipientId: f.a, state: "pending" } });
+    await expect(f.runtime.submit(f.input(f.pa, f.a, { report: "Corrected" }))).rejects.toThrow(/exact/);
+    await expect(f.runtime.review(f.input(f.pa, f.b, { handoffId: id, accept: true, notes: "Wrong manager" }))).rejects.toThrow(/manager/);
+    await f.runtime.submit(f.input(f.pa, f.a, { handoffId: id, report: "Corrected" }));
+    expect(f.entry(f.pa)).toMatchObject({ id, state: "review", report: "Corrected", workerId: f.a });
+  });
+  it.each(["missing", "self", "unavailable", "wrong actor", "done", "stale handoff"])("rejects %s instead of guessing an organization manager or reviving a previous handoff", async kind => {
+    const f = await fixture();
+    if (kind === "missing" || kind === "self") f.todos.change({ id: f.task.id, actorId: f.owner, revision: f.todos.raw(f.task.id).revision,
+      phasePatch: { id: f.pa, acceptanceManagerId: kind === "self" ? f.a : null } }, "edit");
+    if (kind === "unavailable") f.todos.agents = () => f.deps.agents().filter((a: { id: string }) => a.id !== f.owner);
+    if (kind === "done") f.todos.change(f.input(f.pa, f.owner), "complete");
+    const before = structuredClone(f.todos.raw(f.task.id));
+    await expect(f.runtime.submit(f.input(f.pa, kind === "wrong actor" ? f.b : f.a,
+      { report: "Result", ...(kind === "stale handoff" ? { handoffId: "old-id" } : {}) }))).rejects.toThrow();
+    expect(f.todos.raw(f.task.id)).toEqual(before); expect(f.send).not.toHaveBeenCalled();
+  });
+  it("snapshots responsibility on assignment, preserves it on Owner-only edits, and supports an explicit paused reviewer correction", async () => {
+    const f = await fixture();
+    f.todos.change({ id: f.task.id, actorId: f.owner, revision: f.todos.raw(f.task.id).revision, ownerId: f.c }, "edit");
+    expect(f.phase(f.pa).acceptanceManagerId).toBe(f.owner);
+    f.todos.change({ id: f.task.id, actorId: f.c, revision: f.todos.raw(f.task.id).revision, phasePatch: { id: f.pa, assigneeId: f.b } }, "edit");
+    expect(f.phase(f.pa)).toMatchObject({ assigneeId: f.b, acceptanceManagerId: f.owner });
+    f.todos.change({ id: f.task.id, actorId: f.c, revision: f.todos.raw(f.task.id).revision, phasePatch: { id: f.pa, acceptanceManagerId: f.owner } }, "edit");
+    f.todos.change(f.input(f.pa, f.b), "start");
+    expect(() => f.todos.change({ id: f.task.id, actorId: f.c, revision: f.todos.raw(f.task.id).revision, phasePatch: { id: f.pa, acceptanceManagerId: f.c } }, "edit")).toThrow(/Pause/);
+  });
+  it("keeps two simultaneous initial reports independent, rejects stale CAS, and restores durable idempotent receipts after restart", async () => {
+    const f = await fixture(); f.available.set(f.owner, false);
+    const revision = f.todos.raw(f.task.id).revision;
+    const one = f.input(f.pa, f.a, { report: "A result", requestId: "stable-initial-report" });
+    await f.runtime.submit(one); await f.settle();
+    await expect(f.runtime.submit(f.input(f.pb, f.b, { revision, report: "B result" }))).rejects.toThrow(/changed/);
+    await f.runtime.submit(f.input(f.pb, f.b, { report: "B result" })); await f.settle();
+    expect(f.entry(f.pa).id).not.toBe(f.entry(f.pb).id);
+    expect(f.phase(f.pa).assigneeId).toBe(f.a); expect(f.phase(f.pb).assigneeId).toBe(f.b);
+    const oldEntries = structuredClone(f.todos.raw(f.task.id).delegations);
+    f.runtime.store = new CodexOfficeStore(path.join(f.root, "office"), f.client);
+    f.runtime.todos = new OfficeTodos(path.join(f.root, "office"), f.deps);
+    await f.runtime.submit(one);
+    expect(f.runtime.todos.raw(f.task.id).delegations).toEqual(oldEntries);
+    expect(f.send).not.toHaveBeenCalled();
+  });
+});
+it("restores two initial-assignment reports through quiet delivery and reviews each handoff independently", async () => {
+  const f = await fixture(), { OfficeDelivery } = require("../../server/office-delivery");
+  let ready = false;
+  const options = { directory: path.join(f.root, "inbox"), sources: () => f.runtime.deliverySources(),
+    update: (member: { taskId: string; id: string }, state: string, error: string) => f.runtime.todos.delivery(member.taskId, member.id, state, error),
+    canSend: async () => ready, send: f.send, receipt: async () => null };
+  const queue = new OfficeDelivery(options); f.runtime.deliveryCoordinator = queue;
+  await f.runtime.submit(f.input(f.pa, f.a, { report: "A finished" }));
+  await f.runtime.submit(f.input(f.pb, f.b, { report: "B finished" })); await queue.flush();
+  expect(f.send).not.toHaveBeenCalled(); expect(queue.summary(f.owner).pending).toBe(2);
+  queue.close();
+  f.runtime.todos = new OfficeTodos(path.join(f.root, "office"), f.deps);
+  const restored = new OfficeDelivery(options); f.runtime.deliveryCoordinator = restored; ready = true;
+  await restored.flush(); expect(f.send).toHaveBeenCalledTimes(1);
+  expect(f.send.mock.calls[0][0]).toBe(f.owner);
+  const context = f.send.mock.calls[0][3] as { deliveries: Array<{ handoffId: string; workerId: string }> };
+  expect(new Set(context.deliveries.map(item => item.handoffId)).size).toBe(2);
+  expect(context.deliveries.map(item => item.workerId).sort()).toEqual([f.a, f.b].sort());
+  const current = f.runtime.todos.raw(f.task.id), entries = current.delegations;
+  await f.runtime.review({ id: current.id, phaseId: f.pa, handoffId: entries.find((e: { phaseId: string }) => e.phaseId === f.pa).id,
+    actorId: f.owner, revision: current.revision, requestId: "accept-a", accept: true, notes: "A verified" });
+  expect(f.runtime.todos.raw(f.task.id).phases.find((p: { id: string }) => p.id === f.pa).status).toBe("done");
+  expect(activeDelegation(f.runtime.todos.raw(f.task.id), f.pb).state).toBe("review"); restored.close();
+});
+it("records the Owner when previously unassigned work gains an executor, and a direct submit never stops another phase", async () => {
+  const f = await fixture(); f.available.set(f.owner, false);
+  f.todos.change({ id: f.task.id, actorId: f.owner, revision: f.todos.raw(f.task.id).revision,
+    phases: [...f.todos.raw(f.task.id).phases, { title: "Later", assigneeId: null }] }, "edit");
+  const later = f.todos.raw(f.task.id).phases.at(-1).id;
+  f.todos.change({ id: f.task.id, actorId: f.owner, revision: f.todos.raw(f.task.id).revision,
+    phasePatch: { id: later, assigneeId: f.c } }, "edit");
+  expect(f.phase(later).acceptanceManagerId).toBe(f.owner);
+  f.todos.change(f.input(f.pb, f.b), "start"); const other = structuredClone(f.phase(f.pb));
+  f.advance(500); await f.runtime.submit(f.input(f.pa, f.a, { report: "A independently delivered" })); await f.settle();
+  expect(f.phase(f.pb)).toEqual(other);
 });

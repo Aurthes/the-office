@@ -420,3 +420,14 @@ it("exposes optional normal/urgent delivery and narrow receipt discovery without
   expect(status.annotations.readOnlyHint).toBe(true);
   expect(status.inputSchema.required).toEqual(["actorId"]);
 });
+it("describes the direct assignment route and exposes the existing recorded reviewer without loosening active IDs", () => {
+  const { tools } = createRequire(import.meta.url)("../../server/office-todo-mcp.js");
+  const submit = tools.find((tool: { name: string }) => tool.name === "todo_submit");
+  expect(submit.description).toContain("With an active handoff use its exact handoffId");
+  expect(submit.description).toContain("recorded independent acceptance manager");
+  expect(submit.inputSchema.properties.report.description).toContain("Follow-ups contain only new facts");
+  for (const name of ["todo_create", "todo_edit"]) {
+    const schema = tools.find((tool: { name: string }) => tool.name === name).inputSchema;
+    expect(schema.properties.phases.items.properties.acceptanceManagerId.type).toEqual(["string", "null"]);
+  }
+});
