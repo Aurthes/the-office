@@ -78,7 +78,7 @@ describe("independent Office runtime", () => {
     f.client.call.mockResolvedValueOnce({ turnId: "turn-1" });
     await f.store.call("turn/steer", { threadId: id, expectedTurnId: "turn-1", input: [] }, { purpose: "chat_work" });
     expect(capture).toHaveBeenLastCalledWith(expect.objectContaining({ mode: "steer", turnId: "turn-1", usage: { purpose: "chat_work" } }));
-    expect(JSON.stringify(f.client.call.mock.calls)).not.toMatch(/automation|chat_work|originId/);
+    expect(JSON.stringify(f.client.call.mock.calls)).not.toMatch(/"(?:purpose|originId)":/);
     expect(f.client.call.mock.calls.every(call => call.length === 2)).toBe(true);
   });
   it("captures immutable dispatch IDs for optional telemetry without adding a native request or blocking chat", async () => {
@@ -897,6 +897,28 @@ it.each(["CEO", "Head", "Manager", "Worker"])("loads balanced model-first guidan
   await restored.call("turn/start", { threadId: id, input: [] });
   const restarted = new CodexOfficeStore(f.directory, f.client); restarted.companyContext = f.store.companyContext;
   await restarted.call("turn/start", { threadId: id, input: [] });
+  expect(injections()).toHaveLength(2);
+  expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
+});
+
+
+it.each(["CEO", "Worker"])("delivers the three approved pstack principles to %s and refreshes old cached context only once", async title => {
+  const f = fixture();
+  const id = title === "CEO" ? (f.store.ensureCeo(), CEO_ID) : await session(f);
+  f.store.companyContext = () => ({ agentId: id, title, canRecruit: false });
+  const rules = ["When repeated fixes fail, identify and test their shared premise before another fix.", "When a mistake recurs, prefer a proportionate structural safeguard such as a type, validation or automation over another reminder; retain concise guidance where judgment is required.", "Test observable behavior: catch broken results or effects while allowing behavior-preserving internal changes."];
+  const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+  await f.store.call("turn/start", { threadId: id, input: [] });
+  const payload = (injections()[0][1] as { items: Array<{ role: string; content: Array<{ text: string }> }> }).items[0].content[0].text;
+  for (const rule of rules) expect(payload.split(rule)).toHaveLength(2);
+  expect(payload).toContain("state its limitations and do not mistake it for the underlying model");
+  const nativeThread = f.store.get(id).codexThreadId;
+  f.store.get(id).projectContext = createHash("sha256").update(payload.replace(" " + rules.join(" "), "")).digest("hex"); f.store.save();
+  const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const updated = injections()[1][1] as { threadId: string; items: Array<{ role: string; content: Array<{ text: string }> }> };
+  expect(updated.threadId).toBe(nativeThread); expect(updated.items[0].role).toBe("developer"); expect(updated.items[0].content[0].text).toBe(payload);
+  await restored.call("turn/start", { threadId: id, input: [] });
   expect(injections()).toHaveLength(2);
   expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
 });
