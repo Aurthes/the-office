@@ -168,3 +168,70 @@ it("keeps a response without a turn identity explicitly uncertain rather than de
   expect(f.queue.status("worker")[0]).toMatchObject({ status: "uncertain", error: expect.stringContaining("did not identify") });
   await f.queue.flush(); expect(f.send).toHaveBeenCalledTimes(1);
 });
+
+it("reclaims delivered payloads while preserving exact deduplication, status and provenance across restart", async () => {
+  const f = fixture(); f.idle();
+  const context = { taskId: "original-task", questions: [{ id: "q-original", sources: [{ threadId: "user", turnId: "original", itemId: "item", excerpt: "large original text" }] }] };
+  f.queue.enqueue(f.input("delivered", { context })); await f.queue.flush();
+  expect(Object.keys(f.queue.data.messages)).toHaveLength(0);
+  expect(Object.keys(f.queue.data.batches)).toHaveLength(0);
+  const receipt = f.queue.archive.get("message", "delivered");
+  expect(receipt.message).toBeUndefined();
+  expect(receipt.context.questions[0]).toEqual({ id: "q-original", sources: [{ threadId: "user", turnId: "original", itemId: "item" }] });
+  f.queue.close(); const next = new OfficeDelivery(f.options);
+  expect(next.enqueue(f.input("delivered", { context: { taskId: "different" } }))).toMatchObject({ deliveryState: "sent", turnId: "turn" });
+  expect(() => next.enqueue(f.input("delivered", { message: "different payload" }))).toThrow("conflict");
+  await next.flush(); expect(f.send).toHaveBeenCalledTimes(1);
+  expect(next.status("worker")).toHaveLength(1);
+  expect(next.receipts("worker")[0]).toMatchObject({ status: "sent", deliveryIds: ["delivered"] });
+});
+
+it("migrates an over-capacity legacy inbox without dropping unresolved deliveries or replaying settled work", async () => {
+  const f = fixture(); f.queue.close();
+  const data = { version: 1, messages: {} as Record<string, unknown>, batches: {} as Record<string, unknown> };
+  for (let i = 0; i < 320; i++) {
+    const input = f.input("old" + i, { message: "x".repeat(11000) });
+    const row = { ...input, id: input.requestId, hash: hash({ recipient: input.recipient, senderId: input.sender.id, message: input.message, urgency: "normal" }), state: "sent", result: { turnId: "turn" + i }, createdAt: i };
+    data.messages[row.id] = row;
+    data.batches["b" + i] = { id: "b" + i, recipient: "head", state: "sent", appliedState: "sent", members: [row], result: row.result, createdAt: i };
+  }
+  const unresolved = { ...f.input("unresolved"), id: "unresolved", hash: "exact", state: "uncertain" };
+  data.messages.unresolved = unresolved;
+  data.batches.unknown = { id: "unknown", recipient: "head", state: "uncertain", members: [unresolved] };
+  const file = path.join(f.directory, "delivery-inbox.json");
+  expect(Buffer.byteLength(JSON.stringify(data))).toBeGreaterThan(6 * 1024 * 1024);
+  writeFileSync(file, JSON.stringify(data));
+  const next = new OfficeDelivery(f.options);
+  expect(next.data.messages.unresolved).toEqual(unresolved);
+  expect(next.data.batches.unknown).toEqual(data.batches.unknown);
+  expect(readFileSync(file).byteLength).toBeLessThan(4096);
+  expect(next.enqueue(f.input("new"))).toMatchObject({ status: "queued" });
+  expect(next.enqueue(f.input("old0", { message: "x".repeat(11000) }))).toMatchObject({ status: "sent" });
+  await next.flush(); expect(f.send).not.toHaveBeenCalled();
+});
+
+it("a crash after writing archive but before inbox commit preserves one receipt and no replay", async () => {
+  const f = fixture(); f.idle(); f.queue.enqueue(f.input("one")); await f.queue.flush();
+  const row = f.queue.archive.get("message", "one"), batch = f.queue.archive.list("batch")[0];
+  // The old inbox can still contain the same settled records after a failed rename.
+  writeFileSync(path.join(f.directory, "delivery-inbox.json"), JSON.stringify({ version: 1, messages: { one: row }, batches: { [batch.id]: batch } }));
+  f.queue.close(); const next = new OfficeDelivery(f.options);
+  await next.flush();
+  expect(next.status("worker")).toHaveLength(1);
+  expect(next.receipts("worker")).toHaveLength(1);
+  expect(f.send).toHaveBeenCalledTimes(1);
+});
+
+it("archive failure leaves the positive native receipt recoverable and never causes another send", async () => {
+  const f = fixture(); f.idle();
+  const put = f.queue.archive.put.bind(f.queue.archive);
+  f.queue.archive.put = (records: unknown[]) => { if (records.length) throw new Error("archive unavailable"); return put(records); };
+  f.queue.enqueue(f.input("one")); await f.queue.flush();
+  const persisted = JSON.parse(readFileSync(path.join(f.directory, "delivery-inbox.json"), "utf8"));
+  expect(Object.values(persisted.batches)).toEqual([expect.objectContaining({ state: "sent", result: expect.objectContaining({ turnId: "turn" }) })]);
+  expect(persisted.messages.one).toBeDefined();
+  f.queue.close(); const next = new OfficeDelivery(f.options); await next.flush();
+  expect(next.status("worker")[0]).toMatchObject({ status: "sent" });
+  expect(Object.keys(next.data.messages)).toHaveLength(0);
+  expect(f.send).toHaveBeenCalledTimes(1);
+});

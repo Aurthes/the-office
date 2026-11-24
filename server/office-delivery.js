@@ -2,6 +2,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { DeliveryReceipts, compactReceipt } = require("./office-delivery-receipts");
 
 const hash = value => crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 function urgency(input) {
@@ -15,6 +16,7 @@ class OfficeDelivery {
   constructor({ directory, sources, update, canSend, send, receipt, stopping = () => false, changed = () => {} }) {
     Object.assign(this, { sources, update, canSend, send, receipt, stopping, changed });
     this.file = path.join(directory, "delivery-inbox.json");
+    this.archive = new DeliveryReceipts(directory);
     this.data = fs.existsSync(this.file) ? JSON.parse(fs.readFileSync(this.file, "utf8")) : { version: 1, messages: {}, batches: {} };
     if (this.data.version !== 1) throw new Error("Unsupported Office delivery inbox");
     this.inflight = new Map();
@@ -30,6 +32,14 @@ class OfficeDelivery {
     this.save();
   }
   save() {
+    // Archive only after the positive native receipt AND every source update
+    // have committed. Uncertain/sending and partial task-file updates stay live.
+    const settled = Object.values(this.data.batches).filter(batch => batch.state === "sent" && batch.appliedState === "sent" && batch.result?.turnId);
+    const messages = settled.flatMap(batch => batch.members.filter(member => !member.taskId)
+      .map(member => this.data.messages[member.id]).filter(row => row?.state === "sent"));
+    this.archive.put([...messages.map(row => ["message", compactReceipt(row)]), ...settled.map(row => ["batch", compactReceipt(row)])]);
+    for (const row of messages) delete this.data.messages[row.id];
+    for (const row of settled) delete this.data.batches[row.id];
     if (Buffer.byteLength(JSON.stringify(this.data)) > 8 * 1024 * 1024) throw new Error("Office delivery storage is full; message was not accepted");
     fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });
     const temp = this.file + ".tmp";
@@ -37,7 +47,7 @@ class OfficeDelivery {
     fs.renameSync(temp, this.file);
   }
   receipts(actorId) {
-    return Object.values(this.data.batches).filter(batch => batch.recipient === actorId ||
+    return this.records("batch", this.data.batches).filter(batch => batch.recipient === actorId ||
       batch.members.some(member => member.sender?.id === actorId)).slice(-100)
       .map(({ id, recipient, state, members, result, error }) => ({ batchId: id, recipient, status: state,
         deliveryIds: members.map(member => member.id), result, error }));
@@ -49,15 +59,21 @@ class OfficeDelivery {
       statusTool: "office_tasks.delivery_status", ...(this.lastError ? { error: this.lastError } : {}) };
   }
   status(actorId, recipient) {
-    const direct = Object.values(this.data.messages).filter(row => row.sender.id === actorId && (!recipient || row.recipient === recipient));
+    const direct = this.records("message", this.data.messages).filter(row => row.sender.id === actorId && (!recipient || row.recipient === recipient));
     return direct.slice(-100).map(({ id, recipient, state, batchId, result, error }) => ({ deliveryId: id, recipient, status: state, batchId, result, error }));
+  }
+  records(kind, live) {
+    // A crash between archive and inbox commit can leave both copies. Prefer
+    // the live source and expose one receipt, never two deliveries.
+    return [...new Map([...this.archive.list(kind), ...Object.values(live)].map(row => [row.id, row])).values()]
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
   }
   enqueue(input) {
     if (typeof input.requestId !== "string" || !input.requestId || input.requestId.length > 100 || ["__proto__", "prototype", "constructor"].includes(input.requestId)) throw new Error("Choose a stable delivery requestId");
     if (typeof input.message !== "string" || !input.message.trim() || Buffer.byteLength(input.message) > 16000) throw new Error("Agent messages must contain 1–16000 bytes");
     const payload = { recipient: input.recipient, sender: input.sender, message: input.message, context: input.context || null, ...urgency(input) };
     const fingerprint = hash({ recipient: input.recipient, senderId: input.sender.id, message: input.originalMessage || input.message, ...urgency(input) });
-    const previous = this.data.messages[input.requestId];
+    const previous = this.data.messages[input.requestId] || this.archive.get("message", input.requestId);
     if (previous) {
       if (previous.hash !== fingerprint) throw new Error("Delivery requestId conflict; reuse the original payload");
       return { deliveryId: previous.id, status: previous.state, ...(previous.result || {}), deliveryState: previous.state, error: previous.error };
