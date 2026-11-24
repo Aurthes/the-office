@@ -66,7 +66,7 @@ describe("independent Office runtime", () => {
     }
     expect(worker).not.toContain(DEPARTMENT_HEAD_GUIDELINE);
     expect(head.split(DEPARTMENT_HEAD_GUIDELINE)).toHaveLength(2);
-    expect(head).toContain("delegate the next complete outcome and relevant changes instead of repeating the plan or shared workflow");
+    expect(head).toContain("delegate complete outcomes, not step-by-step instructions");
     expect(DEPARTMENT_HEAD_GUIDELINE).toContain("leave implementation and checks to executors and independent reviewers");
     expect(f.store.companyContext).toHaveBeenCalledTimes(2);
     expect(f.client.call.mock.calls.map(([method]) => method)).toEqual(["thread/start", "thread/inject_items", "turn/start", "thread/inject_items", "turn/start"]);
@@ -947,6 +947,37 @@ it.each(["CEO", "Head", "Manager", "Worker"])("refreshes the approved outcome an
   }
   expect(previous).not.toBe(payload);
   const nativeThreadId = f.store.get(id).codexThreadId;
+  f.store.get(id).projectContext = createHash("sha256").update(previous).digest("hex"); f.store.save();
+  const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const update = injections()[1][1] as { threadId: string; items: Array<{ role: string; content: Array<{ text: string }> }> };
+  expect(update.threadId).toBe(nativeThreadId); expect(update.items[0].role).toBe("developer"); expect(update.items[0].content[0].text).toBe(payload);
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const again = new CodexOfficeStore(f.directory, f.client); again.companyContext = f.store.companyContext;
+  await again.call("turn/start", { threadId: id, input: [] });
+  expect(injections()).toHaveLength(2);
+  expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
+});
+
+it.each(["CEO", "Head", "Manager", "Worker"])("delivers two-sided autonomy to %s on its existing thread once and keeps restored context cached", async title => {
+  const f = fixture();
+  const id = title === "CEO" ? (f.store.ensureCeo(), CEO_ID) : await session(f);
+  f.store.companyContext = () => ({ agentId: id, title, canRecruit: false });
+  const shared = "Give the goal, success conditions and real constraints, not step-by-step instructions. Let the executor decide how; don't add coordination steps or approvals for imagined risks. Before asking a colleague to get involved, ask what you need from them and whether you can reasonably solve it yourself. If you don't need their help or decision, keep working.";
+  const head = "Keep goals, success conditions and real boundaries current in the task; delegate complete outcomes, not step-by-step instructions.";
+  const oldShared = "State the goal, what changed, and real constraints; let the executor choose how.";
+  const oldHead = "Keep the big question, success conditions and fixed boundaries clear in the task; delegate the next complete outcome and relevant changes instead of repeating the plan or shared workflow.";
+  await f.store.call("turn/start", { threadId: id, input: [] });
+  const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+  const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
+  expect(payload.split(shared)).toHaveLength(2);
+  expect(payload.includes(head)).toBe(["Head", "Manager"].includes(title));
+  expect(payload).not.toContain(oldShared); expect(payload).not.toContain(oldHead);
+  expect(payload).toContain("Don't use messages as an execution log. Send results, decisions, or things that need action. Put routine progress in the task.");
+  expect(payload).toContain("Escalate substantive disagreements or blockers directly when needed.");
+  expect(payload).toContain("Answer requested updates.");
+  const nativeThreadId = f.store.get(id).codexThreadId;
+  const previous = payload.replace(shared, oldShared).replace(head, oldHead);
   f.store.get(id).projectContext = createHash("sha256").update(previous).digest("hex"); f.store.save();
   const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
   await restored.call("turn/start", { threadId: id, input: [] });
