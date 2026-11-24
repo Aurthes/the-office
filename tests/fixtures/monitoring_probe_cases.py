@@ -13,11 +13,11 @@ spec = importlib.util.spec_from_file_location('probe', sys.argv.pop(1))
 probe = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probe)
 
-S13 = '''1 0 8:2 / / rw - ext4 /dev/sda2 rw
+MOUNTS = '''1 0 8:2 / / rw - ext4 /dev/sda2 rw
 2 1 8:17 / /mnt/data rw - ext4 /dev/sdb1 rw
-3 1 0:56 / /home/xinge/hf_data rw - nfs4 host:/hf_data rw
-4 1 0:56 / /home/xinge/hf_task rw - nfs4 host:/hf_task rw
-5 1 0:56 / /home/xinge/user_storage rw - nfs4 host:/user_storage rw
+3 1 0:56 / /srv/nfs/data rw - nfs4 host:/hf_data rw
+4 1 0:56 / /srv/nfs/tasks rw - nfs4 host:/hf_task rw
+5 1 0:56 / /srv/nfs/shared rw - nfs4 host:/user_storage rw
 6 1 0:1 / /proc rw - proc proc rw
 10 1 0:2 / /dev/pts rw - devpts devpts rw
 11 1 0:3 / /sys/fs/bpf rw - bpf bpf rw
@@ -54,15 +54,15 @@ class FakeProcess:
 
 
 class ProbeTests(unittest.TestCase):
-    def test_s13_distinct_exports_and_visible_mounts(self):
-        rows = probe.mounts(S13)
-        self.assertEqual([r['mount'] for r in rows], ['/', '/mnt/data', '/home/xinge/hf_data', '/home/xinge/hf_task', '/home/xinge/user_storage'])
+    def test_distinct_exports_and_visible_mounts(self):
+        rows = probe.mounts(MOUNTS)
+        self.assertEqual([r['mount'] for r in rows], ['/', '/mnt/data', '/srv/nfs/data', '/srv/nfs/tasks', '/srv/nfs/shared'])
         self.assertEqual(len([r for r in rows if r['kind'] == 'network']), 3)
         self.assertEqual(probe.unescape(r'/a\011b\134c'), '/a\tb\\c')
         extra = '7 1 8:17 / /mnt/with\\040space rw - ext4 /dev/sdb1 rw\n8 7 8:18 / /mnt/with\\040space rw - xfs /dev/new rw\n'
         self.assertEqual(probe.mounts(extra)[0]['source'], '/dev/new')
         self.assertEqual(probe.mounts(extra)[0]['mount'], '/mnt/with space')
-        self.assertEqual(len(probe.mounts(S13 + '9 1 8:17 / /bind rw - ext4 /dev/sdb1 rw')), 6)
+        self.assertEqual(len(probe.mounts(MOUNTS + '9 1 8:17 / /bind rw - ext4 /dev/sdb1 rw')), 6)
         self.assertEqual(probe.mounts('1 0 0:1 / / rw - overlay overlay rw')[0]['mount'], '/')
 
     def test_deadline_ignores_unkillable_child_and_lock_blocks_next_probe(self):
@@ -73,22 +73,22 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(kwargs['stderr'], subprocess.DEVNULL)
             self.assertEqual(kwargs['stdin'], subprocess.DEVNULL)
             started.append(argv[-1])
-            child = FakeProcess(argv[-1] == '/home/xinge/hf_data', kwargs['pass_fds'][0])
+            child = FakeProcess(argv[-1] == '/srv/nfs/data', kwargs['pass_fds'][0])
             children.append(child)
             return child
         with tempfile.TemporaryDirectory() as root:
             try:
-                entries = probe.mounts(S13)
+                entries = probe.mounts(MOUNTS)
                 start = time.monotonic()
                 one = probe.capacities(entries, budget=0.04, directory=root + '/locks', launch=launch)
                 self.assertLess(time.monotonic() - start, 0.4)
                 self.assertEqual([r['status'] for r in one], ['ready', 'ready', 'unknown', 'ready', 'ready'])
                 two = probe.capacities(entries, budget=0.04, directory=root + '/locks', launch=launch)
                 self.assertEqual(two[2]['error'], 'Previous capacity query still in flight')
-                self.assertEqual(started.count('/home/xinge/hf_data'), 1)
-                self.assertEqual(two[2]['mount'], '/home/xinge/hf_data')
+                self.assertEqual(started.count('/srv/nfs/data'), 1)
+                self.assertEqual(two[2]['mount'], '/srv/nfs/data')
                 self.assertIsNone(two[2]['percent'])
-                self.assertTrue(all(r['status'] == 'ready' for r in two if r['mount'] != '/home/xinge/hf_data'))
+                self.assertTrue(all(r['status'] == 'ready' for r in two if r['mount'] != '/srv/nfs/data'))
             finally:
                 for child in children:
                     child.release()
@@ -110,7 +110,7 @@ class ProbeTests(unittest.TestCase):
             child.kill = lambda: None  # Simulate a kernel wait without a real NFS fault.
             return child
         with tempfile.TemporaryDirectory() as root:
-            entries = probe.mounts(S13)[:1]
+            entries = probe.mounts(MOUNTS)[:1]
             try:
                 first = probe.capacities(entries, budget=0.03, directory=root + '/locks', launch=launch)
                 self.assertEqual(first[0]['status'], 'unknown')
@@ -127,7 +127,7 @@ class ProbeTests(unittest.TestCase):
             os.mkdir(root + '/real')
             os.symlink(root + '/real', root + '/link')
             with patch.object(probe.subprocess, 'Popen') as launch:
-                rows = probe.capacities(probe.mounts(S13), directory=root + '/link', launch=launch)
+                rows = probe.capacities(probe.mounts(MOUNTS), directory=root + '/link', launch=launch)
                 launch.assert_not_called()
                 self.assertTrue(all(r['status'] == 'unknown' for r in rows))
 

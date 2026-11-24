@@ -124,12 +124,12 @@ it("opens the machine-room console directly on server metrics and stops loading 
   fireEvent(dialog, new Event("cancel", { cancelable: true }));
   expect(close).toHaveBeenCalledOnce();
 });
-it("shows all five S13 filesystem blocks by default, retaining unknown paths and a single disk action", () => {
-  const mounts = ["/", "/mnt/data", "/home/xinge/hf_data", "/home/xinge/hf_task", "/home/xinge/user_storage"];
+it("shows all five filesystem blocks by default, retaining unknown paths and a single disk action", () => {
+  const mounts = ["/", "/mnt/data", "/srv/nfs/data", "/srv/nfs/tasks", "/srv/nfs/shared"];
   const disks = mounts.map((mount, i) => ({ mount, fsType: i > 1 ? "nfs4" : "ext4", total: i === 3 ? null : 1000,
     used: i === 3 ? null : 940, percent: i === 3 ? null : 94, status: i === 3 ? "unknown" as const : "ready" as const,
     ...(i === 3 ? { error: "Capacity query timed out" } : {}) }));
-  const fleet = { snapshot: { configured: true, refreshing: false, updatedAt: Date.now(), servers: [{ alias: "S13", group: "offline" as const, active: true,
+  const fleet = { snapshot: { configured: true, refreshing: false, updatedAt: Date.now(), servers: [{ alias: "storage-host", group: "offline" as const, active: true,
     status: "ready" as const, sampledAt: Date.now(), checkedAt: Date.now(), error: null,
     metrics: { cores: 72, cpuPercent: 1, load1: 1, memoryTotal: 100, memoryUsed: 10, disks, rxBytesPerSecond: 0, txBytesPerSecond: 0, uptimeSeconds: 100 } }] },
     error: "", refresh: vi.fn() };
