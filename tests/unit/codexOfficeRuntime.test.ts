@@ -52,7 +52,7 @@ describe("independent Office runtime", () => {
       expect(text).not.toContain("target is not your direct report, explain the routing gap");
       expect(text.split(OFFICE_COLLABORATION_GUIDELINE)).toHaveLength(2);
       expect(text).toContain("replaces earlier communication wording");
-      expect(text).toContain("Before sending, distill what the recipient needs to decide or act");
+      expect(text).toContain("Don't use messages as an execution log.");
       expect(text).toContain("Keep full records in the task or linked evidence");
       expect(text).toContain("Ask only for the missing fact, not a complete restatement.");
       expect(text).toContain("preserve its original-message link through question_context and reply metadata");
@@ -713,7 +713,7 @@ it.each(["Worker", "Head"])("refreshes unchanged-progress %s guidance through th
   await f.store.call("turn/start", { threadId: id, input: [] });
   const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
   const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
-  const current = "Use the existing work and review chain. Send a message when new information changes the recipient's decision or action, reports a meaningful outcome, failure or material risk, or answers a requested update. Escalate substantive disagreements or blockers directly when needed. Keep other progress in the task and reference shared context rather than repeat it.";
+  const current = "Use the existing work and review chain. Don't use messages as an execution log. Send results, decisions, or things that need action. Put routine progress in the task. Escalate substantive disagreements or blockers directly when needed. Answer requested updates.";
   const previous = "Keep complete execution and verification records in the task or linked evidence; send the outcome, decisive facts, material limits and any needed decision.";
   const head = "Judge progress against the original goal and choose the next question.", oldHead = "Keep your own replies focused on what affects the decision.";
   expect(payload.split(current)).toHaveLength(2);
@@ -766,12 +766,12 @@ it.each(["Worker", "Head"])("refreshes purposeful intermediate-report %s guidanc
   await f.store.call("turn/start", { threadId: id, input: [] });
   const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
   const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
-  const shared = "Send a message when new information changes the recipient's decision or action, reports a meaningful outcome, failure or material risk, or answers a requested update.";
-  const requested = "or answers a requested update.";
+  const shared = "Don't use messages as an execution log. Send results, decisions, or things that need action. Put routine progress in the task.";
+  const requested = "Answer requested updates.";
   const manager = "Manage outcomes and consequential decisions; leave implementation and checks to executors and independent reviewers. Intervene when changed requirements, material risk, ownership gaps or repeated failures require a decision, using the latest task state.";
   expect(payload).toContain(shared); expect(payload).toContain(requested);
   expect(payload.includes(manager)).toBe(title === "Head");
-  expect(payload).toContain("reports a meaningful outcome, failure or material risk");
+  expect(payload).toContain("Escalate substantive disagreements or blockers directly when needed");
   expect(payload).not.toContain("start receipt");
   const prior = payload.replace(shared, "Before sending, distill what the recipient needs to decide or act, using shared context.").replace(requested, "answer requested or agreed updates and preserve necessary handoffs.").replace(" " + manager, "");
   f.store.get(id).projectContext = createHash("sha256").update(prior).digest("hex"); f.store.save();
@@ -927,8 +927,8 @@ it.each(["CEO", "Head", "Manager", "Worker"])("refreshes the approved outcome an
   const f = fixture();
   const id = title === "CEO" ? (f.store.ensureCeo(), CEO_ID) : await session(f);
   f.store.companyContext = () => ({ agentId: id, title, canRecruit: false });
-  const replacements: Array<[string, string]> = [["Send intermediate reports for a clear coordination need or next decision or action. Record unchanged routine progress in the task instead of wakeup, acknowledgement or waiting messages. Proactively report completion/failure, new blockers or risks, needed decisions or material ETA changes; answer explicit user progress questions and needed agreed updates, and preserve necessary handoffs.", "Use the existing work and review chain. Send a message when new information changes the recipient's decision or action, reports a meaningful outcome, failure or material risk, or answers a requested update. Escalate substantive disagreements or blockers directly when needed. Keep other progress in the task and reference shared context rather than repeat it."], ["For each dependency, specify the completion condition, successor, trigger owner and event, and handoff inputs; the trigger owner handles failure or uncertainty until the recorded handoff and actual execution state confirm pickup; escalate only missing, failed or actionable follow-up.", "Keep dependency inputs, completion conditions and next-step responsibility current in the task. Follow up on missing or failed pickup using recorded delivery and execution state, not conversational acknowledgements."], ["Reserve intervention in execution for scope or authority changes, uncertain safety, or another owner\u2019s decision; preserve required independent acceptance.", "Manage outcomes and consequential decisions; leave implementation and checks to executors and independent reviewers. Intervene when changed requirements, material risk, ownership gaps or repeated failures require a decision, using the latest task state."], [" Require intermediate reports only for a clear follow-up decision or action; do not impose acknowledgement or status receipts without that purpose.", ""], ["Assign complete blocks to capable direct reports; coordinate people and parallel work while workers choose implementation and own execution, checks, delivery and cleanup.", "Assign complete blocks to capable direct reports and coordinate people and parallel work."], ["Contributors submit their results to that owner, who forms a judgment and reports along the existing handoff chain; disagreements, blockers and needed decisions may be raised directly.", "Contributors submit their results to that owner, who forms a judgment and reports along the existing handoff chain."]];
-  const rules = ["Use the existing work and review chain. Send a message when new information changes the recipient's decision or action, reports a meaningful outcome, failure or material risk, or answers a requested update. Escalate substantive disagreements or blockers directly when needed. Keep other progress in the task and reference shared context rather than repeat it.", "Keep dependency inputs, completion conditions and next-step responsibility current in the task. Follow up on missing or failed pickup using recorded delivery and execution state, not conversational acknowledgements.", "Manage outcomes and consequential decisions; leave implementation and checks to executors and independent reviewers. Intervene when changed requirements, material risk, ownership gaps or repeated failures require a decision, using the latest task state."];
+  const replacements: Array<[string, string]> = [["Use the existing work and review chain. Send a message when new information changes the recipient's decision or action, reports a meaningful outcome, failure or material risk, or answers a requested update. Escalate substantive disagreements or blockers directly when needed. Keep other progress in the task and reference shared context rather than repeat it.", "Use the existing work and review chain. Don't use messages as an execution log. Send results, decisions, or things that need action. Put routine progress in the task. Escalate substantive disagreements or blockers directly when needed. Answer requested updates."], [" Before sending, distill what the recipient needs to decide or act, using shared context.", ""]];
+  const rules = ["Use the existing work and review chain. Don't use messages as an execution log. Send results, decisions, or things that need action. Put routine progress in the task. Escalate substantive disagreements or blockers directly when needed. Answer requested updates.", "Keep dependency inputs, completion conditions and next-step responsibility current in the task. Follow up on missing or failed pickup using recorded delivery and execution state, not conversational acknowledgements.", "Manage outcomes and consequential decisions; leave implementation and checks to executors and independent reviewers. Intervene when changed requirements, material risk, ownership gaps or repeated failures require a decision, using the latest task state."];
   await f.store.call("turn/start", { threadId: id, input: [] });
   const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
   const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
@@ -943,7 +943,7 @@ it.each(["CEO", "Head", "Manager", "Worker"])("refreshes the approved outcome an
   let previous = payload;
   for (const [old, current] of replacements) {
     if (current) previous = previous.replace(current, old);
-    else if (manager) previous = previous.replace(" Ask the right questions:", old + " Ask the right questions:");
+    else previous = previous.replace(" Managers, including the CEO,", old + " Managers, including the CEO,");
   }
   expect(previous).not.toBe(payload);
   const nativeThreadId = f.store.get(id).codexThreadId;
