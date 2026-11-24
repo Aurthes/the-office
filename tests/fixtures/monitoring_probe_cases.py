@@ -56,7 +56,7 @@ class FakeProcess:
 class ProbeTests(unittest.TestCase):
     def test_distinct_exports_and_visible_mounts(self):
         rows = probe.mounts(MOUNTS)
-        self.assertEqual([r['mount'] for r in rows], ['/', '/mnt/data', '/srv/nfs/data', '/srv/nfs/tasks', '/srv/nfs/shared'])
+        self.assertEqual([r['mount'] for r in rows], ['/', '/mnt/data', '/srv/nfs/data', '/srv/nfs/shared', '/srv/nfs/tasks'])
         self.assertEqual(len([r for r in rows if r['kind'] == 'network']), 3)
         self.assertEqual(probe.unescape(r'/a\011b\134c'), '/a\tb\\c')
         extra = '7 1 8:17 / /mnt/with\\040space rw - ext4 /dev/sdb1 rw\n8 7 8:18 / /mnt/with\\040space rw - xfs /dev/new rw\n'
