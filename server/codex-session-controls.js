@@ -21,6 +21,19 @@ class CodexSessionControls {
     if (JSON.stringify(next) === JSON.stringify(state.recovery)) return;
     state.recovery = next; this.options.recovery?.write(id, next);
   }
+  modelIssue(id, turnId, error, willRetry) {
+    const info = error?.codexErrorInfo;
+    const code = typeof info === "string" ? info : info && typeof info === "object" ? Object.keys(info)[0] : null;
+    // Provider metadata, never error prose, determines special handling labels.
+    const status = info && typeof info === "object" ? info[code]?.httpStatusCode : null;
+    const phase = code === "unauthorized" || status === 401 || status === 403 ? "action_required"
+      : code === "usageLimitExceeded" || status === 429 ? "rate_limited"
+      : willRetry ? ["httpConnectionFailed", "responseStreamConnectionFailed"].includes(code) ? "reconnecting" : "retrying" : "failed";
+    this.saveRecovery(id, { modelIssue: { layer: "model", turnId, phase, code: code || null,
+      message: typeof error?.message === "string" ? error.message.slice(0, 2000) : "Model request failed",
+      willRetry: willRetry === true, attempt: null, maxAttempts: null, nextRetryAt: null } });
+  }
+  clearModelIssue(id) { if (this.state(id).recovery.modelIssue) this.saveRecovery(id, { modelIssue: null }); }
   requireReady() { if (!this.client?.ready) throw new Error("Codex is disconnected"); }
   retryChanged(id) { this.state(id).version++; this.options.changed?.(id); }
   cancelRetry(id) {
@@ -33,7 +46,7 @@ class CodexSessionControls {
     if (this.closed || !turn?.id || !["failed", "interrupted"].includes(turn.status) || state.recovery.stopped
       || state.editCommit || state.editUncertain || state.recovery.attempts >= MAX_AUTO_RETRIES || state.retryHandledTurnId === turn.id) return;
     this.cancelRetry(id);
-    const retry = { turnId: turn.id, at: Date.now() + RETRY_DELAY_MS, dispatching: false };
+    const retry = { turnId: turn.id, attempt: state.recovery.attempts + 1, at: Date.now() + RETRY_DELAY_MS, dispatching: false };
     state.retryHandledTurnId = turn.id; state.retry = retry;
     retry.timer = setTimeout(() => {
       retry.dispatching = true; this.retryChanged(id);
@@ -117,6 +130,8 @@ class CodexSessionControls {
       : null;
     state.activeTurnId = turn?.status === "inProgress" ? turn.id : null;
     state.turnStatus = turn?.status || null; state.error = turn?.error?.message || null;
+    if (turn?.status === "completed" || (turn?.id && state.recovery.modelIssue?.turnId !== turn.id)) this.clearModelIssue(id);
+    if (turn?.error && turn.status === "failed") this.modelIssue(id, turn.id, turn.error, false);
     if (turn?.status === "completed") this.saveRecovery(id, { attempts: 0 });
     state.version++;
     return turn;
@@ -136,11 +151,20 @@ class CodexSessionControls {
       state.version++; return;
     }
     if (frame.method === "serverRequest/resolved") { this.requests.delete(String(p.requestId)); state.version++; return; }
+    if (frame.method === "error") {
+      // Only the exact current turn can report a model fault. Unscoped/old
+      // notifications cannot replace a newer turn's status.
+      if (!p.turnId || (state.activeTurnId || state.lastTurnId) !== p.turnId || state.turnStatus !== "inProgress") return;
+      state.turnVersion++; // Supersede a status read begun before this fault.
+      this.modelIssue(id, p.turnId, p.error, p.willRetry);
+      state.version++; return;
+    }
     if (frame.method === "turn/started") {
       state.turnStateKnown = true;
       state.turnVersion++;
       // Start notifications can follow their RPC response. They never reset
       // recovery metadata; only explicit new input or successful completion can.
+      if (state.recovery.modelIssue?.turnId !== p.turn.id) this.clearModelIssue(id);
       this.cancelRetry(id); state.lastTurnId = p.turn.id;
       state.activeTurnStartedAt = Number.isFinite(p.turn.startedAt) ? p.turn.startedAt * 1000
         : state.activeTurnId === p.turn.id ? state.activeTurnStartedAt : Date.now();
@@ -151,13 +175,20 @@ class CodexSessionControls {
       if (state.activeTurnId === p.turn.id || (!state.activeTurnId && !state.lastTurnId)) {
         state.turnStateKnown = true;
         state.lastTurnId = p.turn.id; state.activeTurnId = null; state.activeTurnStartedAt = null; state.turnStatus = p.turn.status; state.error = p.turn.error?.message || null;
-        if (p.turn.status === "completed") this.saveRecovery(id, { attempts: 0 });
+        if (p.turn.status === "completed") { this.saveRecovery(id, { attempts: 0 }); this.clearModelIssue(id); }
+        else if (p.turn.error) this.modelIssue(id, p.turn.id, p.turn.error, false);
         this.scheduleRetry(id, p.turn);
       }
       for (const [key, request] of this.requests) if (request.params.threadId === id && request.params.turnId === p.turn.id) this.requests.delete(key);
       state.version++;
     }
     const item = p.item;
+    // A matching newly received assistant output is evidence of model progress;
+    // tool updates, token accounting and arbitrary thread events are not.
+    if (state.recovery.modelIssue && p.turnId && p.turnId === state.activeTurnId && (frame.method === "item/agentMessage/delta" && p.delta
+      || frame.method === "item/completed" && item?.type === "agentMessage" && state.items.get(`${p.turnId}:${item.id}`)?.status !== "completed")) {
+      state.turnVersion++; this.clearModelIssue(id);
+    }
     if (frame.method === "item/agentMessage/delta") {
       const key = `${p.turnId}:${p.itemId}`, previous = state.items.get(key);
       const text = (previous?.content || "") + p.delta;
@@ -218,6 +249,9 @@ class CodexSessionControls {
     }
     const hasMore = items.length < changed.length;
     return { connected: true, historyEpoch: state.historyEpoch, version: hasMore ? items.at(-1).version : state.version, hasMore, activeTurnId: state.activeTurnId, activeTurnStartedAt: state.activeTurnStartedAt, turnStatus: state.turnStatus, error: state.error, retryAt: state.retry?.at ?? null, retrying: Boolean(state.retry?.dispatching),
+      retryAttempt: state.retry?.attempt ?? state.recovery.attempts,
+      retryMaxAttempts: MAX_AUTO_RETRIES, retryStopped: state.recovery.stopped,
+      modelRecovery: state.recovery.modelIssue || null,
       retryExhausted: !state.retry && !state.recovery.stopped && state.recovery.attempts >= MAX_AUTO_RETRIES && ["failed", "interrupted"].includes(state.turnStatus),
       settings: state.settings, tokenUsage: state.tokenUsage, ...(this.options.features ? { features: { ...this.options.features, ...(this.options.composer ? { chatReferences: this.options.composer.canReference(id) } : {}) } } : {}), items,
       questions,
@@ -320,6 +354,7 @@ class CodexSessionControls {
     if (state.lastTurnId === previousTurnId || state.activeTurnId === turnId) {
       state.activeTurnStartedAt = Number.isFinite(result.turn?.startedAt) ? result.turn.startedAt * 1000
         : state.activeTurnId === turnId ? state.activeTurnStartedAt : active ? null : submittedAt;
+      if (state.recovery.modelIssue?.turnId !== turnId) this.clearModelIssue(id);
       state.activeTurnId = turnId; state.turnStatus = "inProgress"; state.error = null;
       state.turnStateKnown = true;
     }
@@ -341,7 +376,7 @@ class CodexSessionControls {
     while (state.discardedTurns.size > 128) state.discardedTurns.delete(state.discardedTurns.values().next().value);
     state.historyEpoch = crypto.randomUUID(); state.items.clear(); state.turnVersion++;
     state.turnStateKnown = false; state.lastTurnId = null; state.activeTurnId = null; state.activeTurnStartedAt = null;
-    state.turnStatus = null; state.error = null; state.tokenUsage = null;
+    state.turnStatus = null; state.error = null; state.tokenUsage = null; this.clearModelIssue(id);
     for (const [key, request] of this.requests) if (request.params.threadId === id) this.requests.delete(key);
     this.options.history?.reset(id, state.historyEpoch, removedTurnId);
     state.version++; this.options.changed?.(id);

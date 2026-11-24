@@ -99,6 +99,12 @@ exactly-once delivery. Corrupt reminder state disables reminders while leaving
 chat available. No automatic microphone access, phone call or paid synthesis is
 triggered by a notification.
 
+### Session connection recovery
+
+Chat distinguishes a lost browser-to-Office connection from a native model failure. A reported model fault replaces the working label while preserving the active turn and Stop control. Native reconnect attempts and timestamps remain unknown when the installed protocol does not expose them; error text is not parsed to invent counters. A matching new assistant output or a successful turn clears the fault, while tool updates do not. The fault survives reconnect/restart until the same turn is reconciled.
+
+The existing Office continuation policy remains a 15-second wait with up to three attempts, showing its actual attempt and deadline. It starts only after a terminal failed/interrupted turn and does not compete with native stream recovery. This does not configure a fixed three-second native retry interval or a ten-attempt native budget. Original input and completed tools are not replayed by this UI change.
+
 ### Mounted filesystem monitoring
 
 The server dashboard's Disk column lists each reported local or network mount separately. It shows the mount path, filesystem type, used/total capacity and percentage; these values are not summed into a physical-disk total. Unavailable capacity stays unknown while CPU, memory and network metrics remain usable. Virtual filesystems are excluded and separate NFS exports remain separate even if they share a device number.

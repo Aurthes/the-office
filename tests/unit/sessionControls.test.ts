@@ -235,7 +235,7 @@ describe("shared-session composer", () => {
   it("shows a failed connection honestly and enables the same composer after reconnecting", async () => {
     const call = vi.fn().mockRejectedValueOnce(new Error("Required MCP unavailable")).mockResolvedValue(snapshot);
     render(React.createElement(SessionControls, { client: { call }, threadId: "cold-original", onItems: vi.fn() }));
-    await screen.findByText("Codex unavailable");
+    await screen.findAllByText("Office connection problem");
     expect(screen.queryByText("Connecting to Codex…")).toBeNull();
     expect((screen.getByLabelText("Send to session") as HTMLTextAreaElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
@@ -264,7 +264,7 @@ describe("shared-session composer", () => {
     expect(onItems).toHaveBeenCalledTimes(3); expect(call).toHaveBeenCalledTimes(1);
     vi.useFakeTimers(); await act(async () => vi.advanceTimersByTime(60000)); vi.useRealTimers();
     expect(call).toHaveBeenCalledTimes(1);
-    view.unmount(); expect(unsubscribe).toHaveBeenCalledTimes(1);
+    view.unmount(); expect(unsubscribe).toHaveBeenCalledTimes(onEvent.mock.calls.length);
     expect(call).toHaveBeenLastCalledWith("session.unsubscribe", { threadId: "original", subscriptionId: params.subscriptionId });
   });
   it("resubscribes on reconnection and ignores frames from a replaced subscription", async () => {

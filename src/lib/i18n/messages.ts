@@ -1,5 +1,19 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Model request problem · Retrying…": "模型请求异常 · 正在重试…",
+  "Office connection problem": "Office 连接异常",
+  "Office · Retrying the session…": "Office · 正在恢复会话…",
+  "Office · Waiting to retry": "Office · 等待重试",
+  "Office · Automatic retry failed": "Office · 自动重试失败",
+  "Model · Recovery stopped": "模型 · 已停止恢复",
+  "Model · Sign-in or access needs attention": "模型 · 请检查登录或访问权限",
+  "Model · Rate or usage limit": "模型 · 已限流或达到用量限制",
+  "Model connection problem · Reconnecting…": "模型连接异常 · 正在重连…",
+  "Model request failed": "模型请求失败",
+  "Attempt {attempt} of {max}": "第 {attempt}/{max} 次重试",
+  "Native retry count and next retry time are not available.": "原生尚未提供重连次数和下次重试时间。",
+  "Browser → Office disconnected. Reconnecting…": "浏览器到 Office 的连接已断开，正在重连…",
+
   "Notes": "笔记",
   "Agent notes": "Agent 笔记",
   "Notes text": "笔记内容",

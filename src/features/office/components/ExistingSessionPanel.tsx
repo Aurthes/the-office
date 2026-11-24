@@ -92,6 +92,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   const owner = useRef(threadId);
   useLayoutEffect(() => { owner.current = threadId; }, [threadId]);
   useLayoutEffect(() => { messagesRef.current = messages; }, [messages]);
+  const [recoveryStatus, setRecoveryStatus] = useState<string | null>(null);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [olderCursor, setOlderCursor] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -184,7 +185,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
       // Cancel every old read/cursor, including reads owned by hidden panels.
       readVersion++; busy = false; reloadLatest = false; cursor = null;
       liveItems.current.clear(); messagesRef.current = [];
-      setMessages([]); setOlderCursor(null); setLoaded(false); setActiveTurnId(null);
+      setMessages([]); setOlderCursor(null); setLoaded(false); setActiveTurnId(null); setRecoveryStatus(null);
       anchor.current = null; follow.current = true;
       void readPage("latest");
       return true;
@@ -194,7 +195,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     setData(null); setMessages([]); setOlderCursor(null); setLoaded(false); setError(""); setMetadataError("");
     follow.current = true; anchor.current = null; lastTop.current = 0;
     liveItems.current.clear();
-    setActiveTurnId(null);
+    setActiveTurnId(null); setRecoveryStatus(null);
     const readMetadata = async () => {
       if (metadataBusy || stopped) return;
       metadataBusy = true;
@@ -379,7 +380,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
       </div>
       {loaded && messages.length === 0 ? <p className="text-center text-xs text-white/50">{t("No chat text on this page (tool activity omitted).")}{olderCursor ? t("Scroll up or use the button above to load older messages.") : ""}</p> : null}
       <SessionVoiceHistory messages={messages} currentBoundaryId={voice?.threadId === threadId && voice.visible ? voice.boundaryId : null} currentCallId={voice?.threadId === threadId && voice.visible ? voice.nativeCallId : null} />
-      <SessionTranscript messages={messages} activeTurnId={activeTurnId} onForkFrom={onFork ? lastTurnId => onFork(undefined, lastTurnId) : undefined} forkDisabled={forkDisabled || !data?.controlsAvailable} onOpenQuestion={openQuestion} />
+      <SessionTranscript messages={messages} activeTurnId={activeTurnId} recoveryStatus={recoveryStatus} onForkFrom={onFork ? lastTurnId => onFork(undefined, lastTurnId) : undefined} forkDisabled={forkDisabled || !data?.controlsAvailable} onOpenQuestion={openQuestion} />
       </div>
     </div>
     {showLatest ? <button aria-label={t("Go to latest message")} onClick={() => {
@@ -390,7 +391,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     }} className="absolute bottom-3 left-1/2 z-10 min-h-10 -translate-x-1/2 rounded-full border border-white/20 bg-[#243346] px-4 text-xs text-white shadow-xl hover:bg-[#30445c]">{t("↓ Latest messages")}</button> : null}
     </div>
     {data?.runtime === "office" ? <OfficeCodexAccount client={client} quiet /> : null}
-    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onHistoryReset={onHistoryReset} onActiveTurnChange={setActiveTurnId} onSendState={onSendState} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
+    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onHistoryReset={onHistoryReset} onActiveTurnChange={setActiveTurnId} onRecoveryChange={setRecoveryStatus} onSendState={onSendState} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
     </div>
     {workspaceOpen ? <SessionListDivider pane="workspace" /> : null}
     {workspaceOpen ? <SessionWorkspace key={threadId} noteAgents={noteAgents} gateway={gateway} connected={connected} toolbox={<SessionToolbox threadId={threadId} organization={organization} />} taskProgress={taskProgress} progressRequest={progressRequest} active={active && !shownMessageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}

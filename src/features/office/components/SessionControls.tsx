@@ -10,6 +10,7 @@ import { useNativeDictation } from "./useNativeDictation";
 import { useDictationShortcut } from "./useDictationShortcut";
 import { dictationShortcutLabel } from "./dictationShortcutSettings";
 import { useUiText } from "@/lib/i18n/ui-language";
+import { recoveryLabel, SessionRecoveryDetails, type RecoveryState } from "./SessionRecovery";
 import { SessionRunTimer } from "./SessionRunTimer";
 import { useSessionComposer } from "./useSessionComposer";
 import { Mention, MentionsInput } from "react-mentions-ts";
@@ -30,7 +31,7 @@ export type SessionClient = {
   onGap?: (handler: (gap: { expected: number; received: number }) => void) => () => void;
 };
 type Approval = { requestId: string; method: string; params: Record<string, unknown>; details?: string; decisions: string[]; supported: boolean; submitted?: boolean };
-type Snapshot = { historyEpoch?: string; connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; activeTurnStartedAt?: number | null; turnStatus?: string; error?: string | null; retryAt?: number | null; retrying?: boolean; retryExhausted?: boolean; settings?: ChatSettings; features?: { dictation: boolean; dictationHTTP?: boolean; dictationReason?: string | null; dictationRetryAt?: number | null; voice: boolean; prediction: boolean; accountVersion?: number; composer?: boolean; chatReferences?: boolean }; tokenUsage?: { last: { inputTokens: number; outputTokens: number }; modelContextWindow?: number | null }; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number; questions?: SessionQuestionRequest[] };
+type Snapshot = RecoveryState & { historyEpoch?: string; connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; activeTurnStartedAt?: number | null; turnStatus?: string; error?: string | null; retryAt?: number | null; retrying?: boolean; retryExhausted?: boolean; settings?: ChatSettings; features?: { dictation: boolean; dictationHTTP?: boolean; dictationReason?: string | null; dictationRetryAt?: number | null; voice: boolean; prediction: boolean; accountVersion?: number; composer?: boolean; chatReferences?: boolean }; tokenUsage?: { last: { inputTokens: number; outputTokens: number }; modelContextWindow?: number | null }; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number; questions?: SessionQuestionRequest[] };
 type StreamSnapshot = Omit<Snapshot, "items"> & { threadId: string; subscriptionId: string;
   items: (LiveSessionItem | (Omit<LiveSessionItem, "content"> & { append: string; baseVersion: number }))[] };
 type Upload = { id: string; name: string; size: number; ref?: string; error?: string };
@@ -40,13 +41,14 @@ const attachmentDrafts = new Map<string, Upload[]>();
 type TurnEdit = { token: string; turnId: string; inputCount: number; originalText: string; originalUploads: Upload[]; outcome?: string };
 const turnEditDrafts = new Map<string, TurnEdit>();
 
-export function SessionControls({ client, threadId, active = true, onItems, onHistorySync, onHistoryReset, onActiveTurnChange, onSendState, voice: sharedVoice, onOpenThread, onRenamed, onFork }: {
+export function SessionControls({ client, threadId, active = true, onItems, onHistorySync, onHistoryReset, onActiveTurnChange, onRecoveryChange, onSendState, voice: sharedVoice, onOpenThread, onRenamed, onFork }: {
   client: SessionClient;
   active?: boolean;
   threadId: string; onItems: (items: LiveSessionItem[]) => void;
   onHistorySync?: () => void;
   onHistoryReset?: (epoch: string) => void;
   onActiveTurnChange?: (turnId: string | null) => void;
+  onRecoveryChange?: (label: string | null) => void;
   onSendState?: (threadId: string, item: LiveSessionItem) => void;
   voice?: SessionVoiceController;
   onOpenThread?: (id: string) => void | Promise<void>;
@@ -79,6 +81,8 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [error, setError] = useState("");
   const [connectionError, setConnectionError] = useState("");
+  const faultLabel = recoveryLabel(state, connectionError);
+  useEffect(() => { onRecoveryChange?.(faultLabel ? t(faultLabel) : null); }, [faultLabel, onRecoveryChange, t]);
   const [notice, setNotice] = useState("");
   const [commandResult, setCommandResult] = useState("");
   const [settingsPanel, setSettingsPanel] = useState<{ kind: "model" | "permissions"; nonce: string }>();
@@ -297,7 +301,7 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
     const unsubscribeStatus = client.onStatus?.(status => {
       connected = status === "connected";
       if (connected) void subscribe();
-      else { subscriptionId = null; setState(null); }
+      else { subscriptionId = null; setState(null); setConnectionError("Browser → Office disconnected. Reconnecting…"); }
     });
     const unsubscribeGap = client.onGap?.(() => { void subscribe(); });
     const onVisible = () => { if (document.visibilityState === "visible") void subscribe(); };
@@ -469,7 +473,7 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
       {dictation.busy ? <span role="status" className="session-composer-status min-w-0 truncate text-xs text-rose-200">
         {dictation.phase === "starting" ? t("Preparing microphone…") : dictation.phase === "transcribing" ? t("Transcribing…") : t("Recording · {time}", { time: `${Math.floor(dictation.seconds / 60)}:${String(Math.floor(dictation.seconds % 60)).padStart(2, "0")}` })}
       </span> : <span className="session-composer-status flex min-w-0 items-center gap-1 overflow-hidden text-xs text-white/45">
-        <span role={state?.turnStatus === "interrupted" ? "status" : undefined} className={state?.turnStatus === "interrupted" ? "flex min-w-0 items-center gap-1 truncate text-rose-300" : "hidden min-w-0 truncate sm:inline"}>{state?.turnStatus === "interrupted" ? <b aria-hidden="true">!</b> : null}{state?.connected ? state.activeTurnId ? t("Codex is working…") : state.turnStatus === "interrupted" ? t("Interrupted") : t("Codex · Connected") : connectionError ? t("Codex unavailable") : t("Connecting to Codex…")}</span>
+        <span role={faultLabel || state?.turnStatus === "interrupted" ? "status" : undefined} className={faultLabel || state?.turnStatus === "interrupted" ? (faultLabel ? "flex min-w-0 items-center gap-1 whitespace-normal break-words text-amber-200" : "flex min-w-0 items-center gap-1 truncate text-rose-300") : "hidden min-w-0 truncate sm:inline"}>{faultLabel || state?.turnStatus === "interrupted" ? <b aria-hidden="true">!</b> : null}{faultLabel ? t(faultLabel) : state?.connected ? state.activeTurnId ? t("Codex is working…") : state.turnStatus === "interrupted" ? t("Interrupted") : t("Codex · Connected") : t("Connecting to Codex…")}</span>
         {state?.connected && state.activeTurnId && typeof state.activeTurnStartedAt === "number" && Number.isFinite(state.activeTurnStartedAt) ? <span className="flex shrink-0 items-center gap-1">
           <span aria-hidden="true" className="hidden sm:inline">·</span>
           <SessionRunTimer key={`${threadId}:${state.activeTurnId}`} startedAt={state.activeTurnStartedAt} />
@@ -494,8 +498,8 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
     {commandResult ? <section aria-label={t("Command result")} className="relative mt-2 rounded-lg border border-white/15 bg-black/15 p-3"><button aria-label={t("Close command result")} onClick={() => setCommandResult("")} className="absolute right-1 top-1 grid min-h-9 min-w-9 place-items-center"><X size={13} /></button><pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words pr-7 text-xs text-white/70">{commandResult}</pre></section> : null}
     {voice.error && voice.threadId === threadId ? <p role="alert" className="mt-2 break-words text-xs text-amber-100">{t(voice.error)}</p> : null}
     {error ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{t(error)}</p> : null}
-    {state?.retryAt ? <p role="status" className="mt-2 break-words text-xs text-amber-100">{state.retrying ? t("Retrying the session…") : t("Retrying in {seconds} seconds…", { seconds: retrySeconds })}</p> : state?.error || state?.retryExhausted ? <p role="alert" className="mt-2 break-words text-xs text-rose-200">{state.retryExhausted ? <>{t("Automatic retry stopped after 3 attempts.")} </> : null}{state.error}</p> : null}
-    {connectionError ? <p role="alert" className="mt-2 break-words text-[10px] text-amber-100">{t(connectionError)} <button className="underline" onClick={() => void refresh.current?.()}>{t("Reconnect")}</button></p> : null}
+    <SessionRecoveryDetails state={state} connectionError={connectionError} seconds={retrySeconds} />
+    {connectionError ? <p className="mt-1 text-xs text-amber-100"><button className="underline" onClick={() => void refresh.current?.()}>{t("Reconnect")}</button></p> : null}
     </div>
   </div>;
 }
