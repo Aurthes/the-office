@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import os from "node:os";
+import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import type { DiskMetric, ServerMetrics } from "./types";
@@ -59,8 +60,10 @@ async function network() {
 export async function probeLocalMac(): Promise<ServerMetrics> {
   const firstCpu = os.cpus(), firstNet = await network();
   await delay(1000);
-  const [secondNet, memory, disks] = await Promise.all([
+  const [secondNet, memory, disks, mounted] = await Promise.all([
     network(), read("/usr/bin/vm_stat"), read("/bin/df", ["-k", "-P", "-l"]),
+    exec("python3", [path.join(process.cwd(), "server/monitoring-probe.py"), "--disks-only"], { timeout: 3000, maxBuffer: 512_000 })
+      .then(result => JSON.parse(result.stdout) as Pick<ServerMetrics, "disks" | "disksError">).catch(() => null),
   ]);
   const secondCpu = os.cpus(), elapsed = (secondNet.time - firstNet.time) / 1000;
   const shared = firstNet.counters && secondNet.counters ? [...firstNet.counters.keys()].filter(name => secondNet.counters!.has(name)) : [];
@@ -68,7 +71,7 @@ export async function probeLocalMac(): Promise<ServerMetrics> {
   const memoryTotal = os.totalmem();
   return {
     cores: secondCpu.length || 1, cpuPercent: cpuUsage(firstCpu, secondCpu), load1: os.loadavg()[0],
-    memoryTotal, memoryUsed: macMemoryUsed(memory, memoryTotal), disks: macDisks(disks),
+    memoryTotal, memoryUsed: macMemoryUsed(memory, memoryTotal), disks: mounted?.disks?.length ? mounted.disks : macDisks(disks), disksError: mounted?.disksError ?? (mounted ? null : "Mounted filesystem capacities unavailable"),
     rxBytesPerSecond: rate(0), txBytesPerSecond: rate(1), uptimeSeconds: os.uptime(),
   };
 }

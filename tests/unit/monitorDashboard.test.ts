@@ -124,3 +124,21 @@ it("opens the machine-room console directly on server metrics and stops loading 
   fireEvent(dialog, new Event("cancel", { cancelable: true }));
   expect(close).toHaveBeenCalledOnce();
 });
+it("shows all five S13 filesystem blocks by default, retaining unknown paths and a single disk action", () => {
+  const mounts = ["/", "/mnt/data", "/home/xinge/hf_data", "/home/xinge/hf_task", "/home/xinge/user_storage"];
+  const disks = mounts.map((mount, i) => ({ mount, fsType: i > 1 ? "nfs4" : "ext4", total: i === 3 ? null : 1000,
+    used: i === 3 ? null : 940, percent: i === 3 ? null : 94, status: i === 3 ? "unknown" as const : "ready" as const,
+    ...(i === 3 ? { error: "Capacity query timed out" } : {}) }));
+  const fleet = { snapshot: { configured: true, refreshing: false, updatedAt: Date.now(), servers: [{ alias: "S13", group: "offline" as const, active: true,
+    status: "ready" as const, sampledAt: Date.now(), checkedAt: Date.now(), error: null,
+    metrics: { cores: 72, cpuPercent: 1, load1: 1, memoryTotal: 100, memoryUsed: 10, disks, rxBytesPerSecond: 0, txBytesPerSecond: 0, uptimeSeconds: 100 } }] },
+    error: "", refresh: vi.fn() };
+  render(createElement(ServerDashboard, { active: true, fleet, onFirefight: vi.fn() }));
+  for (const mount of mounts) expect(screen.getByText(mount)).toBeVisible();
+  expect(document.querySelectorAll(".monitor-disk-block")).toHaveLength(5);
+  expect(document.querySelector(".monitor-disk-column details")).toBeNull();
+  expect(screen.getByText("Capacity query timed out")).toBeVisible();
+  const unknown = document.querySelector('[data-disk-status="unknown"]')!;
+  expect(unknown.textContent).toContain("— / —"); expect(unknown.textContent).not.toContain("0%");
+  expect(within(document.querySelector(".monitor-disk-column") as HTMLElement).getAllByRole("button")).toHaveLength(1);
+});

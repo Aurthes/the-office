@@ -94,3 +94,15 @@ it("keeps an uncertain dispatch visible and reuses its send identity on an expli
   expect(onFirefight).toHaveBeenCalledTimes(2);
   expect(onFirefight.mock.calls[1]).toEqual(onFirefight.mock.calls[0]);
 });
+it("ignores unknown filesystem capacities and keeps one aggregate disk alert for truly full filesystems", () => {
+  const hot = row(); hot.metrics!.cpuPercent = 0; hot.metrics!.memoryUsed = 0;
+  hot.metrics!.disks = [
+    { mount: "/unknown", fsType: "nfs4", total: null, used: null, percent: null, status: "unknown" },
+    { mount: "/not-current", total: 100, used: 99, percent: 99, status: "unknown" },
+    { mount: "/data", fsType: "ext4", total: 100, used: 95, percent: 95, status: "ready" },
+    { mount: "/nfs", fsType: "nfs4", total: 100, used: 93, percent: 93, status: "ready" },
+  ];
+  const alerts = firefighterAlerts(hot); expect(alerts).toHaveLength(1);
+  expect(alerts[0].detail).toContain("/data"); expect(alerts[0].detail).toContain("nfs4");
+  expect(alerts[0].detail).not.toContain("/unknown"); expect(alerts[0].detail).not.toContain("/not-current");
+});

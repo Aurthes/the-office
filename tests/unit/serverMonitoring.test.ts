@@ -91,3 +91,21 @@ it("does not start queued probes after their machines are removed", async () => 
   while (pending.length) { pending.shift()!(); await flush(); }
   expect(read([]).servers).toEqual([]); expect(probe).toHaveBeenCalledTimes(4); await flush();
 });
+it("preserves mounts with unknown capacities while keeping legacy numbers and real zero distinct", async () => {
+  const { metricsFromJson } = await import("@/lib/monitoring/servers");
+  const sample = metricsFromJson(JSON.stringify({ cores: 4, cpuPercent: 25, memoryTotal: 100, memoryUsed: 40, disks: [
+    { mount: "/", total: 1000, used: 0, percent: 0 },
+    { mount: "/nfs", fsType: "nfs4", source: "host:/export", total: null, used: null, percent: null, status: "unknown", error: "Capacity query timed out" },
+    { mount: "/bad", total: -1, used: "100", percent: null },
+    { mount: "/stale", status: "stale", total: 100, used: 99, percent: 99 },
+    { mount: 1, total: 100, used: 50, percent: 50 },
+  ] }));
+  expect(sample.disks).toHaveLength(4);
+  expect(sample.disks[0]).toMatchObject({ mount: "/", status: "ready", total: 1000, used: 0, percent: 0 });
+  expect(sample.disks[1]).toMatchObject({ mount: "/nfs", fsType: "nfs4", status: "unknown", percent: null });
+  expect(sample.disks[2]).toMatchObject({ mount: "/bad", status: "unknown", total: null });
+  expect(sample.disks[3]).toMatchObject({ status: "unknown", percent: null });
+  const read = createServerStatusStore(async () => sample);
+  const hosts: PoolHost[] = [{ alias: "nfs-fixture", group: "offline", active: true }]; read(hosts); await flush();
+  expect(read(hosts).servers[0]).toMatchObject({ status: "ready", metrics: { cpuPercent: 25, disks: sample.disks } });
+});

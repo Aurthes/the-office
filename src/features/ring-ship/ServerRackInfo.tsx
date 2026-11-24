@@ -8,7 +8,7 @@ export function ServerRackInfo({ row, onTerminal, onBackgroundProcesses }: { row
   const t = useUiText();
   if (!row) return <p>{t("Server registration is no longer available.")}</p>;
   const m = row.metrics, family = serverFamily(row);
-  const disk = m?.disks.reduce<typeof m.disks[number] | undefined>((best, value) => !best || value.percent > best.percent ? value : best, undefined);
+  const disk = m?.disks.reduce<typeof m.disks[number] | undefined>((best, value) => !best || (value.percent ?? -1) > (best.percent ?? -1) ? value : best, undefined);
   const metrics = [
     { label: "CPU", percent: m?.cpuPercent ?? null, detail: m ? `${m.cores} ${t("cores")}` : "—" },
     { label: t("Memory"), percent: m?.memoryTotal && m.memoryUsed !== null ? m.memoryUsed / m.memoryTotal * 100 : null, detail: m ? `${formatBytes(m.memoryUsed)} / ${formatBytes(m.memoryTotal)}` : "—" },

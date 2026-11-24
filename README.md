@@ -98,3 +98,9 @@ Notification tags mitigate crash-window duplicate delivery, without claiming
 exactly-once delivery. Corrupt reminder state disables reminders while leaving
 chat available. No automatic microphone access, phone call or paid synthesis is
 triggered by a notification.
+
+### Mounted filesystem monitoring
+
+The server dashboard's Disk column lists each reported local or network mount separately. It shows the mount path, filesystem type, used/total capacity and percentage; these values are not summed into a physical-disk total. Unavailable capacity stays unknown while CPU, memory and network metrics remain usable. Virtual filesystems are excluded and separate NFS exports remain separate even if they share a device number.
+
+Capacity helpers share a short deadline and a private per-user, per-mount advisory lock. The parent never waits indefinitely for a blocked `statvfs`, and subsequent probes do not pile up helpers for that mount. An uninterruptible kernel query can outlive its parent until the filesystem responds; its lock remains held. Empty lock files in the host's temporary `claw3d-monitoring-<uid>` directory are intentional coordination state and must not be removed while a helper holds them. No daemon or mount configuration is installed. The inventory is bounded to 64 mounts with an explicit notice if limited. Linux probes require Python 3; the local Mac reuses the same isolated lookup when Python is available, otherwise retaining legacy local readings with an incomplete-information notice.

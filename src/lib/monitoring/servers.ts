@@ -16,7 +16,7 @@ export function monitoringHosts(text: string, platform: NodeJS.Platform = os.pla
   return hosts;
 }
 
-function metricsFromJson(stdout: string): ServerMetrics {
+export function metricsFromJson(stdout: string): ServerMetrics {
   const value = JSON.parse(stdout);
   if (!value || typeof value !== "object" || !Number.isInteger(value.cores) || value.cores < 1 || !Array.isArray(value.disks)) throw new Error("Invalid host metrics.");
   const number = (n: unknown) => typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : null;
@@ -24,7 +24,17 @@ function metricsFromJson(stdout: string): ServerMetrics {
     cores: value.cores, cpuPercent: number(value.cpuPercent) === null ? null : Math.min(100, value.cpuPercent), load1: number(value.load1),
     memoryTotal: number(value.memoryTotal), memoryUsed: number(value.memoryUsed),
     rxBytesPerSecond: number(value.rxBytesPerSecond), txBytesPerSecond: number(value.txBytesPerSecond), uptimeSeconds: number(value.uptimeSeconds),
-    disks: value.disks.flatMap((d: Record<string, unknown>) => d && typeof d.mount === "string" && number(d.total) !== null && number(d.used) !== null && number(d.percent) !== null ? [{ mount: d.mount.slice(0, 160), total: d.total as number, used: d.used as number, percent: d.percent as number }] : []),
+    disks: value.disks.slice(0, 64).flatMap((d: Record<string, unknown>) => {
+      if (!d || typeof d.mount !== "string" || !d.mount.startsWith("/") || d.mount.length > 4096) return [];
+      const ready = (d.status === undefined || d.status === "ready") && [d.total, d.used, d.percent].every(n => number(n) !== null);
+      return [{ mount: d.mount, total: ready ? number(d.total) : null, used: ready ? number(d.used) : null,
+        percent: ready ? Math.min(100, d.percent as number) : null, status: ready ? "ready" as const : "unknown" as const,
+        ...(typeof d.fsType === "string" ? { fsType: d.fsType.slice(0, 64) } : {}),
+        ...(typeof d.source === "string" ? { source: d.source.slice(0, 1024) } : {}),
+        ...(d.kind === "local" || d.kind === "network" ? { kind: d.kind } : {}),
+        error: ready ? null : typeof d.error === "string" ? d.error.slice(0, 160) : "Capacity lookup unavailable" }];
+    }),
+    disksError: value.disks.length > 64 ? "Mount list limited to 64 entries" : typeof value.disksError === "string" ? value.disksError.slice(0, 160) : null,
   };
 }
 
@@ -35,7 +45,7 @@ export async function probeServer(host: PoolHost): Promise<ServerMetrics> {
   const stdout = await new Promise<string>((resolve, reject) => {
     const child = spawn("ssh", [...options, host.alias, "timeout", "6s", "python3", "-"], { cwd: os.homedir(), stdio: ["pipe", "pipe", "pipe"], timeout: 8500, killSignal: "SIGKILL" });
     let output = "", error = "";
-    child.stdout.on("data", chunk => { output += String(chunk); if (output.length > 128_000) child.kill("SIGKILL"); });
+    child.stdout.on("data", chunk => { output += String(chunk); if (output.length > 512_000) child.kill("SIGKILL"); });
     child.stderr.on("data", chunk => { error = (error + String(chunk)).slice(-4000); });
     child.on("error", reject);
     child.on("close", code => code === 0 ? resolve(output) : reject(new Error(error.includes("Permission denied") ? "SSH authentication failed" : error.includes("Host key verification failed") ? "SSH host key not trusted" : "Server is unreachable or the sample timed out")));

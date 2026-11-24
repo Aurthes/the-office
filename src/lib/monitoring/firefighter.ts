@@ -16,8 +16,8 @@ export function firefighterAlerts(row: ServerRow, now = Date.now()): Firefighter
   };
   add("cpu", m.cpuPercent, `${m.cores} cores; load1=${m.load1 ?? "unknown"}`);
   add("memory", m.memoryTotal && m.memoryUsed !== null ? m.memoryUsed / m.memoryTotal * 100 : null, `used=${m.memoryUsed}; total=${m.memoryTotal} bytes`);
-  const disks = m.disks.filter(d => d.percent >= HOT_THRESHOLD);
-  if (disks.length) add("disk", Math.max(...disks.map(d => d.percent)), JSON.stringify(disks));
+  const disks = m.disks.filter(d => d.status !== "unknown" && typeof d.percent === "number" && Number.isFinite(d.percent) && d.percent >= HOT_THRESHOLD);
+  if (disks.length) add("disk", Math.max(...disks.map(d => d.percent!)), JSON.stringify(disks));
   return alerts;
 }
 

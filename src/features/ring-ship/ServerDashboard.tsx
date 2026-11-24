@@ -34,13 +34,20 @@ function HostRow({ row, onFirefight, busy, onBackgroundProcesses }: { row: Serve
     return onFirefight && alert ? <button type="button" className="monitor-firefight" disabled={busy} onClick={() => onFirefight(alert)}
       aria-label={t("Firefight {host}: {metric}", { host: row.alias, metric: label })} title={t("Send this alert to firefighter")}><Flame size={12} /><span>{t("Firefight")}</span></button> : null;
   };
-  const disk = m?.disks.reduce<typeof m.disks[number] | undefined>((best, value) => !best || value.percent > best.percent ? value : best, undefined);
+
   const status = { ready: "Reachable", pending: "Sampling", unreachable: "Unreachable", disabled: "Registration disabled" }[row.status];
   return <div className="monitor-host-row" data-status={row.status}>
     <div className="monitor-host-name"><span className="monitor-host-dot" /><div><b>{row.alias}</b><small title={row.error ? t(row.error) : undefined}>{t(row.group === "online" ? "Production servers" : row.group === "offline" ? "Research and compute servers" : "Local machine")} · {t(status)}{stale && m ? ` · ${t("Stale sample")}` : ""}</small>{row.group === "local" && onBackgroundProcesses ? <button type="button" className="background-host-link" onClick={onBackgroundProcesses}>{t("Background tasks")}</button> : null}</div></div>
     <div><span className="monitor-mobile-label">CPU</span><Meter percent={m?.cpuPercent ?? null} text={m && m.cpuPercent !== null ? `${(m.cores * m.cpuPercent / 100).toFixed(1)} / ${m.cores}` : "—"} detail={t("Used / total cores")} stale={stale} action={rescue("cpu")} /></div>
     <div><span className="monitor-mobile-label">{t("Memory")}</span><Meter percent={m && m.memoryTotal && m.memoryUsed !== null ? m.memoryUsed / m.memoryTotal * 100 : null} text={m ? `${formatBytes(m.memoryUsed)} / ${formatBytes(m.memoryTotal)}` : "—"} detail={t("Used / total RAM")} stale={stale} action={rescue("memory")} /></div>
-    <div><span className="monitor-mobile-label">{t("Disk")}</span><Meter percent={disk?.percent ?? null} text={disk ? `${formatBytes(disk.used)} / ${formatBytes(disk.total)}` : "—"} detail={disk?.mount ?? t("Local filesystems")} stale={stale} action={rescue("disk")} />{m && m.disks.length > 1 ? <details className="monitor-disks"><summary>{t("{count} local filesystems", { count: m.disks.length })}</summary>{m.disks.map(d => <p key={d.mount}>{d.mount} · {formatBytes(d.used)} / {formatBytes(d.total)} · {d.percent}%</p>)}</details> : null}</div>
+    <div className="monitor-disk-column"><div className="monitor-disk-heading"><span className="monitor-mobile-label">{t("Disk")}</span>{rescue("disk")}</div>
+      {m?.disks.length ? <div className="monitor-disk-stack">{m.disks.map(d => <div className="monitor-disk-block" key={d.mount} data-disk-status={d.status ?? "ready"}>
+        <div className="monitor-disk-path" title={d.source}><span>{d.mount}</span><small>{d.fsType ?? t("Filesystem")}</small></div>
+        <Meter percent={d.status === "unknown" ? null : d.percent} text={`${formatBytes(d.used)} / ${formatBytes(d.total)}`}
+          detail={d.status === "unknown" ? t(d.error ?? "Capacity lookup unavailable") : t("Used / total capacity")} stale={stale} />
+      </div>)}</div> : <span className="monitor-disk-empty">{t("Mount list unavailable")}</span>}
+      {m?.disksError ? <small className="monitor-disk-error">{t(m.disksError)}</small> : null}
+    </div>
     <div className="monitor-host-network"><span className="monitor-mobile-label">{t("Network")}</span><span><ArrowDown size={11} />{formatBytes(m?.rxBytesPerSecond ?? null)}/s</span><span><ArrowUp size={11} />{formatBytes(m?.txBytesPerSecond ?? null)}/s</span></div>
     <div className="monitor-host-time" title={row.sampledAt ? new Date(row.sampledAt).toLocaleString() : undefined}>{row.sampledAt ? new Date(row.sampledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}</div>
   </div>;
@@ -82,12 +89,12 @@ export function ServerDashboard({ active, onFirefight, fleet, onBackgroundProces
         <div><span><MemoryStick size={13} />{t("Memory")}</span><b>{memoryReporting.length ? `${formatBytes(memoryUsed)} / ${formatBytes(memoryTotal)}` : "—"}</b><small>{t("Used / total RAM · reporting hosts")}</small></div>
       </div>
       {!snapshot ? <p role="status" className="monitor-empty">{t("Loading registered servers…")}</p> : <>
-        <div className="monitor-host-columns" aria-hidden="true"><span>{t("Server")}</span><span>CPU</span><span>{t("Memory")}</span><span><HardDrive size={12} />{t("Most-used local disk")}</span><span>{t("Network")}</span><span>{t("Sampled")}</span></div>
+        <div className="monitor-host-columns" aria-hidden="true"><span>{t("Server")}</span><span>CPU</span><span>{t("Memory")}</span><span><HardDrive size={12} />{t("Disk")}</span><span>{t("Network")}</span><span>{t("Sampled")}</span></div>
         {groupServers(rows).map(group => <section key={group.id} className="monitor-host-group" aria-label={(group.id === "local" || group.id === "other" ? t(group.label) : group.label)} data-server-family={group.id}>
           <h3><span style={{ color: group.color }}>{(group.id === "local" || group.id === "other" ? t(group.label) : group.label)}</span><small>{group.hosts.length} {t("registered")}</small></h3>
           {group.hosts.map(row => <HostRow key={row.alias} row={row} onFirefight={onFirefight ? alert => void rescue(alert) : undefined} busy={dispatching} onBackgroundProcesses={onBackgroundProcesses} />)}
         </section>)}
-        <p className="monitor-fleet-note">{t("Disk shows the fullest local filesystem. Expand a row to see its other local disks. Network filesystems are excluded.")}</p>
+        <p className="monitor-fleet-note">{t("All reported mounts · Local and network filesystems · Capacities are not a physical-disk total.")}</p>
       </>}
     </>}
   </section>;
