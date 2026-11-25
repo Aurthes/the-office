@@ -53,9 +53,12 @@ class CodexSessionControls {
   generation() { return typeof this.options.nativeGeneration === "function" ? this.options.nativeGeneration() : this.options.nativeGeneration; }
   nativeRetry(value) {
     const now = Date.now(), generation = this.generation();
+    const counted = ["sampling", "compaction"].includes(value?.kind) && Number.isSafeInteger(value.attempt) && Number.isSafeInteger(value.maxAttempts)
+      && value.attempt >= 1 && value.maxAttempts >= value.attempt && value.maxAttempts <= 10000;
+    const connection = value?.kind === "connection" && value.attempt === null && value.maxAttempts === null;
     if (this.closed || !generation || value?.generation !== generation || typeof value.turnId !== "string" || !Number.isFinite(value.emittedAt)
       || !Number.isFinite(value.observedAt) || value.observedAt > now + 5000 || now - value.observedAt > 1000 || value.emittedAt > now + 5000
-      || !Number.isSafeInteger(value.attempt) || !Number.isSafeInteger(value.maxAttempts) || value.attempt < 1 || value.maxAttempts < value.attempt || value.maxAttempts > 10000
+      || !(counted || connection)
       || typeof value.reason !== "string") return null;
     for (const [key, pending] of this.pendingNativeRetries) if (now - pending.observedAt > 1000) this.pendingNativeRetries.delete(key);
     const matches = [...this.states].filter(([, state]) => state.activeTurnId === value.turnId && state.nativeTurnId === value.turnId && state.nativeGeneration === generation);
@@ -70,9 +73,8 @@ class CodexSessionControls {
       return null;
     }
     const [id, state] = matches[0]; this.pendingNativeRetries.delete(value.turnId);
-    const key = `${value.timestamp}:${value.attempt}:${value.maxAttempts}`;
+    const key = `${value.kind}:${value.timestamp}:${value.attempt}:${value.maxAttempts}`;
     if (!this.modelFaultAllowed(state, value.turnId)
-
       || state.lastNativeRetryAt != null && value.emittedAt < state.lastNativeRetryAt || state.lastNativeRetryKey === key) return null;
     const reason = modelErrorDetails(value.reason); if (!reason) return null;
     const previous = state.recovery.modelIssue;
@@ -95,10 +97,12 @@ class CodexSessionControls {
     }
     // An old buffered diagnostic may still be useful to display, but must not
     // cancel work that has since recovered in the same turn.
-    if (Math.abs(now - value.emittedAt) <= 1000
-      && /^exceeded retry limit, last status: 429 Too Many Requests(?:, request id: .+)?$/.test(reason)) {
-      this.interruptRateLimit(id, value.turnId, { message: reason,
-        codexErrorInfo: { responseTooManyFailedAttempts: { httpStatusCode: 429 } } });
+    if (Math.abs(now - value.emittedAt) <= 1000) {
+      // The validated warning proves a retry is scheduled, irrespective of its
+      // cause. Only the pinned native HTTP formatter supplies an inferred status.
+      const status = /^exceeded retry limit, last status: ([1-5]\d{2})\b/.exec(reason)?.[1];
+      this.interruptNativeRetry(id, value.turnId, { message: reason,
+        ...(status ? { codexErrorInfo: { responseTooManyFailedAttempts: { httpStatusCode: Number(status) } } } : {}) });
     }
     state.turnVersion++; state.version++;
     return id;
@@ -112,29 +116,29 @@ class CodexSessionControls {
     const pending = this.pendingNativeRetries.get(state.activeTurnId);
     if (pending) { this.pendingNativeRetries.delete(state.activeTurnId); this.nativeRetry(pending); }
   }
-  interruptRateLimit(id, turnId, error) {
+  interruptNativeRetry(id, turnId, error) {
     const state = this.state(id);
     if (this.closed || !this.client.ready || state.activeTurnId !== turnId || state.turnStatus !== "inProgress"
-      || state.rateLimitInterrupt?.turnId === turnId) return;
+      || state.nativeRetryInterrupt?.turnId === turnId) return;
     const interruption = { turnId, error };
-    state.rateLimitInterrupt = interruption;
+    state.nativeRetryInterrupt = interruption;
     state.turnVersion++;
     this.modelIssue(id, turnId, error, true);
     this.retryChanged(id);
     // This is an error intervention, not a user's Stop. Preserve Office's
     // retry budget and wait for the native terminal event before retrying.
     void this.client.call("turn/interrupt", { threadId: id, turnId }).catch(failure => {
-      if (state.activeTurnId !== turnId || state.rateLimitInterrupt !== interruption) return;
-      state.rateLimitInterrupt = null;
-      state.error = `Could not stop Codex's 429 retry: ${failure.message}`;
+      if (state.activeTurnId !== turnId || state.nativeRetryInterrupt !== interruption) return;
+      state.nativeRetryInterrupt = null;
+      state.error = `Could not stop Codex's internal retry: ${failure.message}`;
       this.retryChanged(id);
     });
   }
-  interruptedRateLimit(id, turn) {
+  interruptedNativeRetry(id, turn) {
     if (turn?.status !== "interrupted") return null;
     const state = this.state(id);
-    if (state.rateLimitInterrupt?.turnId === turn.id) {
-      this.modelIssue(id, turn.id, state.rateLimitInterrupt.error, false);
+    if (state.nativeRetryInterrupt?.turnId === turn.id) {
+      this.modelIssue(id, turn.id, state.nativeRetryInterrupt.error, false);
       this.saveRecovery(id, { modelIssue: { ...state.recovery.modelIssue, interruptedByOffice: true } });
     }
     const issue = state.recovery.modelIssue;
@@ -236,7 +240,7 @@ class CodexSessionControls {
       : null;
     state.activeTurnId = turn?.status === "inProgress" ? turn.id : null;
     if (state.activeTurnId) this.acceptNativeTurn(state, turn.id);
-    state.turnStatus = turn?.status || null; state.error = turn?.error?.message || this.interruptedRateLimit(id, turn) || null;
+    state.turnStatus = turn?.status || null; state.error = turn?.error?.message || this.interruptedNativeRetry(id, turn) || null;
     if (turn?.status === "completed" || (turn?.id && state.recovery.modelIssue?.turnId !== turn.id)) this.clearModelIssue(id);
     if (turn?.error && turn.status === "failed") this.modelIssue(id, turn.id, turn.error, false);
     if (turn?.status === "completed") this.saveRecovery(id, { attempts: 0 });
@@ -264,8 +268,8 @@ class CodexSessionControls {
       // notifications cannot replace a newer turn's status.
       if (!this.modelFaultAllowed(state, p.turnId)) return;
       state.turnVersion++; // Supersede a status read begun before this fault.
-      const status = this.modelIssue(id, p.turnId, p.error, p.willRetry);
-      if (status === 429 && p.willRetry === true) this.interruptRateLimit(id, p.turnId, p.error);
+      this.modelIssue(id, p.turnId, p.error, p.willRetry);
+      if (p.willRetry === true) this.interruptNativeRetry(id, p.turnId, p.error);
       state.version++; return;
     }
     if (frame.method === "turn/started") {
@@ -277,7 +281,7 @@ class CodexSessionControls {
       this.cancelRetry(id); state.lastTurnId = p.turn.id;
       state.activeTurnStartedAt = Number.isFinite(p.turn.startedAt) ? p.turn.startedAt * 1000
         : state.activeTurnId === p.turn.id ? state.activeTurnStartedAt : Date.now();
-      if (state.rateLimitInterrupt?.turnId !== p.turn.id) state.rateLimitInterrupt = null;
+      if (state.nativeRetryInterrupt?.turnId !== p.turn.id) state.nativeRetryInterrupt = null;
       this.acceptNativeTurn(state, p.turn.id);
       state.activeTurnId = p.turn.id; state.turnStatus = "inProgress"; state.error = null; this.flushNativeRetry(state); state.version++;
     }
@@ -285,7 +289,7 @@ class CodexSessionControls {
       state.turnVersion++;
       if (state.activeTurnId === p.turn.id || (!state.activeTurnId && !state.lastTurnId)) {
         state.turnStateKnown = true;
-        state.lastTurnId = p.turn.id; state.activeTurnId = null; state.activeTurnStartedAt = null; state.turnStatus = p.turn.status; state.error = p.turn.error?.message || this.interruptedRateLimit(id, p.turn) || null;
+        state.lastTurnId = p.turn.id; state.activeTurnId = null; state.activeTurnStartedAt = null; state.turnStatus = p.turn.status; state.error = p.turn.error?.message || this.interruptedNativeRetry(id, p.turn) || null;
         if (p.turn.status === "completed") { this.saveRecovery(id, { attempts: 0 }); this.clearModelIssue(id); }
         else if (p.turn.error) this.modelIssue(id, p.turn.id, p.turn.error, false);
         this.scheduleRetry(id, p.turn);

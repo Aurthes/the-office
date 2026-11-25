@@ -78,17 +78,28 @@ If a future App provides a documented external interface in its normal setup,
 Office can use it within that interface's advertised capabilities. Its absence
 must never be solved by taking over the App's backend or injecting launch flags.
 
-## Office intervention in rate-limit retries
+## Office control of native retries
 
-Office observes typed 429 error notifications and structured retry warnings from
-its own Codex child. A warning can expose the first retry hidden by WebSocket
-notifications. Office matches its exact active turn and uses the public
+Office observes error notifications explicitly marked `willRetry: true` and
+structured retry warnings from its own Codex child. The warning adapter covers
+sampling, connection retries and remote compaction. It does not depend on a list
+of error messages or HTTP status codes: capacity errors, HTTP errors, timeouts
+and brief stream failures all use the same policy once a retry is confirmed.
+A warning can expose the first retry hidden by WebSocket notifications.
+Office matches its exact active turn and uses the public
 `turn/interrupt` method to end the native wait. It retains the captured Codex
-error as the cause of the interruption and applies Office's existing retry policy.
+error as the cause of the interruption and applies Office's existing retry policy
+(15-second interval, at most three automatic retries). It waits for native
+interruption confirmation before scheduling another attempt. A user Stop still
+suppresses retries. Old, malformed, ambiguous or unrelated diagnostics cannot
+interrupt current work. Connection warnings omit native retry counts; Office
+leaves those counts unknown instead of inventing a budget.
 
 The warning detector depends on the native log format, validated with Codex
 0.166.0. Validate it when upgrading Codex. Unrecognized log records cause no
 intervention. This uses the official executable and preserves provider identity.
+An internal wait that produces neither a supported warning nor a public retry
+notification is not covered by this observer.
 
 ## Development rule
 

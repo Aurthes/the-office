@@ -18,11 +18,11 @@ it("projects the observed 0.166/0.172 schema, never arbitrary WARN, body or code
  expect(nativeRetryMetadata(raw("turn-a", { sampling_error: '{"private":"PRIVATE"}' }), "child-1")).toMatchObject({ reason: "Native retry reason is unavailable", attempt: 1 });
  expect(modelErrorDetails('{"private":"PRIVATE"}')).toBeNull(); expect(modelErrorDetails('Bearer token-secret https://example.invalid/?secret')).toBe("[redacted] [URL]");
 });
-it("uses the real bounded reader and controls without scheduling any Continue or guessing cause/code/time", () => {
+it("uses the bounded reader to request interruption without sending Continue before native confirmation", () => {
  start(); const errors: string[] = []; const reader = nativeScopeLogReader({ generation: "child-1", onRetry: (d: unknown) => controls.nativeRetry(d), writeError: (e: string) => errors.push(e) });
  const bytes = Buffer.from(JSON.stringify(raw("turn-a", { message: "native retry" })) + "\n"); for (let i = 0; i < bytes.length; i += 7) reader.feed(bytes.subarray(i, i + 7));
- expect(controls.snapshot("a")).toMatchObject({ activeTurnId: "turn-a", retryAt: null, modelRecovery: { attempt: 1, maxAttempts: 5, additionalDetails: expect.stringContaining("capacity"), nextRetryAt: null, code: null, source: "native-diagnostic" } });
- expect(errors).toEqual(["[WARN] native retry\n"]); expect(vi.getTimerCount()).toBe(0); expect(controls.client.call).not.toHaveBeenCalled();
+ expect(controls.snapshot("a")).toMatchObject({ activeTurnId: "turn-a", retryAt: null, modelRecovery: { attempt: 1, maxAttempts: 5, additionalDetails: expect.stringContaining("capacity"), nextRetryAt: null, code: null, source: "native-error" } });
+ expect(errors).toEqual(["[WARN] native retry\n"]); expect(vi.getTimerCount()).toBe(0); expect(controls.client.call).toHaveBeenCalledExactlyOnceWith("turn/interrupt", { threadId: "a", turnId: "turn-a" });
 });
 it("joins exact complete turn and generation, distinguishes concurrent sessions and fails closed on ambiguity", () => {
  start(); start("b", "turn-b"); expect(controls.nativeRetry(retry("turn-a"))).toBe("a"); expect(controls.snapshot("b").modelRecovery).toBeNull();
@@ -40,9 +40,9 @@ it("keeps Stop protection common to diagnostics and public errors, and rejects c
  controls.saveRecovery("a", { stopped: false }); controls.handle({ method: "turn/completed", params: { threadId: "a", turn: { id: "turn-a", status: "completed" } } }); expect(controls.nativeRetry(retry())).toBeNull();
  start("a", "new-turn"); expect(controls.nativeRetry(retry())).toBeNull(); controls.handle({ method: "thread/reverted", params: { threadId: "a" } }); expect(controls.nativeRetry(retry("new-turn"))).toBeNull(); controls.close(); expect(controls.nativeRetry(retry())).toBeNull();
 });
-it("does not let late stderr undo actual model progress, but permits the next real request's fresh retry in the same turn", () => {
+it("deduplicates old warnings after model progress while still observing a later request's retry", () => {
  start(); const old = retry(); controls.nativeRetry(old); vi.advanceTimersByTime(10);
- controls.handle({ method: "item/agentMessage/delta", params: { threadId: "a", turnId: "turn-a", itemId: "one", delta: "recovered" } }); expect(controls.snapshot("a").modelRecovery?.phase).toBe("retry_observed");
+ controls.handle({ method: "item/agentMessage/delta", params: { threadId: "a", turnId: "turn-a", itemId: "one", delta: "recovered" } }); expect(controls.snapshot("a").modelRecovery).toBeNull();
  expect(controls.nativeRetry(old)).toBeNull(); vi.advanceTimersByTime(20); expect(controls.nativeRetry(retry())).toBe("a"); expect(controls.snapshot("a").modelRecovery?.attempt).toBe(1);
 });
 it("merges public additionalDetails with native counts, does not derive quota from HTTP429 and revalidates persisted generations", () => {
@@ -72,10 +72,11 @@ it("retains authoritative public error fields regardless of cross-fd order and n
  vi.advanceTimersByTime(20); controls.nativeRetry(retry()); expect(controls.snapshot("a").modelRecovery).toMatchObject({ source: "native-error", message: "terminal", willRetry: false, code: "badRequest" });
  controls.handle({ method: "item/agentMessage/delta", params: { threadId: "a", turnId: "turn-a", itemId: "cleanup", delta: "partial cleanup" } }); expect(controls.snapshot("a").modelRecovery?.willRetry).toBe(false);
 });
-it("represents both possible fd arrival orders as an observation when progress emission order is unknowable", () => {
+it("interrupts a fresh confirmed retry despite cross-fd arrival order, then accepts natural completion", () => {
  start(); vi.advanceTimersByTime(30); controls.handle({ method: "item/agentMessage/delta", params: { threadId: "a", turnId: "turn-a", itemId: "late-output", delta: "old output read late" } });
  const value = retry(); value.emittedAt = Date.now() - 10; value.timestamp = new Date(value.emittedAt).toISOString();
- expect(controls.nativeRetry(value)).toBe("a"); expect(controls.snapshot("a").modelRecovery).toMatchObject({ phase: "retry_observed", attempt: 1 });
+ expect(controls.nativeRetry(value)).toBe("a"); expect(controls.snapshot("a").modelRecovery).toMatchObject({ phase: "retrying", attempt: 1 });
+ expect(controls.client.call).toHaveBeenCalledExactlyOnceWith("turn/interrupt", { threadId: "a", turnId: "turn-a" });
  controls.handle({ method: "turn/completed", params: { threadId: "a", turn: { id: "turn-a", status: "completed" } } }); expect(controls.snapshot("a").modelRecovery).toBeNull();
 });
 it("preserves exact current-turn faults during an unresolved steer RPC without sending again", async () => {
