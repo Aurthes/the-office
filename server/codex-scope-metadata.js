@@ -3,6 +3,18 @@ const { randomUUID } = require("node:crypto");
 const SCOPE_LOG_FILTER = "warn,codex_code_mode::timing=info,codex_otel.trace_safe=info";
 const field = value => typeof value === "string" && /^[a-zA-Z0-9_.:/-]{1,256}$/.test(value) ? value : null;
 
+// The first WebSocket retry can be hidden from public error notifications.
+// Match the native logger and its structured fields, never echoed error text.
+function rateLimitRetry(log) {
+  const fields = log?.fields;
+  if (log?.level !== "WARN" || log.target !== "codex_core::responses_retry"
+    || !field(fields?.turn_id) || !Number.isInteger(fields.retries) || fields.retries < 1
+    || typeof fields.message !== "string" || !fields.message.startsWith("stream disconnected - retrying sampling request (")
+    || typeof fields.sampling_error !== "string"
+    || !/^exceeded retry limit, last status: 429 Too Many Requests(?:, request id: .+)?$/.test(fields.sampling_error)) return null;
+  return { turnId: fields.turn_id, message: fields.sampling_error.slice(0, 2000) };
+}
+
 // Pinned 0.166.0 identity-only projection. Never read span, arguments or results.
 function scopeMetadata(log, generation) {
   const f = log?.fields;
@@ -42,7 +54,7 @@ function parentScope(records, { nativeThreadId, callId, generation }) {
 
 // Drain stderr without pausing it or retaining overlong lines. INFO raw JSON is
 // never forwarded; original warnings/errors retain their message, not new spans.
-function nativeScopeLogReader({ onMetadata, onGap = () => {}, writeError, generation = randomUUID() }) {
+function nativeScopeLogReader({ onMetadata, onRateLimitRetry = () => {}, onGap = () => {}, writeError, generation = randomUUID() }) {
   let carry = Buffer.alloc(0), discarding = false;
   const gap = reason => { try { onGap(reason); } catch { /* Diagnostics cannot fail native RPC. */ } };
   const error = text => { try { writeError(text.slice(0, 4096) + "\n"); } catch { gap("scopeErrorRelay"); } };
@@ -51,6 +63,8 @@ function nativeScopeLogReader({ onMetadata, onGap = () => {}, writeError, genera
     const text = bytes.toString("utf8"); let log;
     try { log = JSON.parse(text); }
     catch { if (text.trimStart().startsWith("{")) gap("scopeMalformedLog"); else error(text); return; }
+    const retry = rateLimitRetry(log);
+    if (retry) { try { onRateLimitRetry(retry); } catch { gap("rateLimitCallbackFailure"); } }
     const value = scopeMetadata(log, generation);
     if (value) { try { onMetadata(value); } catch { gap("scopeCallbackFailure"); } }
     else if (log?.level === "INFO" && ["codex_code_mode::timing", "codex_otel.trace_safe"].includes(log.target) && ["codex.code_mode.host_timing", "codex.tool_call_received"].includes(log.fields?.["event.name"]) && log.fields?.tool_source !== "direct") gap("scopeMissingIdentity");
@@ -73,4 +87,4 @@ function nativeScopeLogReader({ onMetadata, onGap = () => {}, writeError, genera
     end() { if (!discarding && carry.length) line(carry); carry = Buffer.alloc(0); },
   };
 }
-module.exports = { SCOPE_LOG_FILTER, scopeMetadata, cleanScopeRecord, parentScope, nativeScopeLogReader };
+module.exports = { SCOPE_LOG_FILTER, scopeMetadata, cleanScopeRecord, parentScope, nativeScopeLogReader, rateLimitRetry };

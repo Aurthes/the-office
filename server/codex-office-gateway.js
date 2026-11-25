@@ -43,6 +43,7 @@ const features = { dictation: false, dictationHTTP: true, voice: true, predictio
 const broadcast = (event, payload) => { const frame = JSON.stringify({ type: "event", event, seq: seq++, payload }); for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame); };
 function changed() { if (!rosterTimer) rosterTimer = setTimeout(() => { rosterTimer = null; broadcast("roster.updated", { ts: Date.now() }); }, 150); }
 const native = new CodexOfficeClient({
+  onRateLimitRetry: value => controls?.nativeRateLimitRetry(value),
   onScopeMetadata: value => tokenUsage?.observeScope(value),
   onScopeGap: reason => tokenUsage?.scopeGap(reason),
   additionalInstructions: WORKFLOW + "\n" + TASK_WORKFLOW,

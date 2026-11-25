@@ -31,7 +31,7 @@ function officeEnvironment(home, environment = process.env) {
 
 // One Office-owned child, with public stdio RPC and no App attachment or daemon.
 class CodexOfficeClient {
-  constructor({ home, binary, env = process.env, configOverrides = [], additionalInstructions = "", onFrame = () => {}, onScopeMetadata = () => {}, onScopeGap = () => {} }) {
+  constructor({ home, binary, env = process.env, configOverrides = [], additionalInstructions = "", onFrame = () => {}, onScopeMetadata = () => {}, onScopeGap = () => {}, onRateLimitRetry = () => {} }) {
     const isolated = officeEnvironment(home, env);
     this.scopeGeneration = randomUUID();
     this.home = isolated.home; this.ready = false; this.pending = new Map(); this.serial = 0;
@@ -39,21 +39,20 @@ class CodexOfficeClient {
     const command = binary || env.CLAW3D_CODEX_BIN;
     this.command = command; this.identity = null; this.executionEnvironment = isolated.env;
     const launcher = command ? [] : [require.resolve("@openai/codex/bin/codex.js")];
-    // Opt-in until real native logger/executor acceptance. Never change the parent env.
+    // Tool-scope INFO remains opt-in. Retry WARN is needed for hidden 429s.
     const scopeLogs = env.CLAW3D_CODEX_SCOPE_LOGS === "1";
-    if (scopeLogs) { isolated.env.RUST_LOG = SCOPE_LOG_FILTER; isolated.env.LOG_FORMAT = "json"; }
+    isolated.env.RUST_LOG = scopeLogs ? SCOPE_LOG_FILTER : `${isolated.env.RUST_LOG || "warn"},codex_core::responses_retry=warn`;
+    isolated.env.LOG_FORMAT = "json";
     this.child = spawn(command || process.execPath, [...launcher, ...this.profile.overrides, ...configOverrides.flatMap(value => ["-c", value]), "-c", `sqlite_home=${JSON.stringify(this.home)}`, "-c", 'cli_auth_credentials_store="file"', "app-server", "--listen", "stdio://"], {
-      cwd: this.home, env: isolated.env, stdio: ["pipe", "pipe", scopeLogs ? "pipe" : "inherit"],
+      cwd: this.home, env: isolated.env, stdio: ["pipe", "pipe", "pipe"],
     });
-    if (scopeLogs) {
-      const reader = nativeScopeLogReader({ generation: this.scopeGeneration, onMetadata: onScopeMetadata, onGap: onScopeGap, writeError: text => {
-        if (process.stderr.writableLength + Buffer.byteLength(text) <= 65536) process.stderr.write(text);
-        else onScopeGap("scopeErrorRelayBackpressure");
-      } });
-      this.child.stderr.on("data", chunk => reader.feed(chunk));
-      this.child.stderr.on("end", () => reader.end());
-      this.child.stderr.on("error", () => onScopeGap("scopeStderrFailure"));
-    }
+    const reader = nativeScopeLogReader({ generation: this.scopeGeneration, onMetadata: value => { if (scopeLogs) onScopeMetadata(value); }, onRateLimitRetry, onGap: onScopeGap, writeError: text => {
+      if (process.stderr.writableLength + Buffer.byteLength(text) <= 65536) process.stderr.write(text);
+      else onScopeGap("scopeErrorRelayBackpressure");
+    } });
+    this.child.stderr.on("data", chunk => reader.feed(chunk));
+    this.child.stderr.on("end", () => reader.end());
+    this.child.stderr.on("error", () => onScopeGap("scopeStderrFailure"));
     this.exited = new Promise(resolve => { this.resolveExit = resolve; });
     this.child.on("error", error => { this.fail(error); this.resolveExit(); });
     this.child.on("exit", () => { this.fail(new Error("Office Codex process exited; pending operations were not retried")); this.resolveExit(); if (!this.stopping) onFrame({ method: "connection/closed" }); });
