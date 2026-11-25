@@ -36,11 +36,14 @@ class BackendUpdates {
   try{const runtime=await this.running();if(!STABLE.test(runtime.version||""))throw new Error("Current runtime is not a verified stable version");
    const [npm,latest]=await Promise.all([officialJson('https://registry.npmjs.org/@openai/codex/latest',this.fetcher),officialJson('https://api.github.com/repos/openai/codex/releases/latest',this.fetcher)]);
    const newest=releaseRow(latest);if(npm.name!=="@openai/codex"||!STABLE.test(npm.version||"")||!newest||newest.version!==npm.version)throw new Error("Official stable channels disagree; upgrade is unavailable");
-   const rows=[];let complete=false;
-   if(compare(newest.version,runtime.version)>0){for(let page=1;page<=4;page++){const releases=await officialJson(`https://api.github.com/repos/openai/codex/releases?per_page=100&page=${page}`,this.fetcher);if(!Array.isArray(releases))throw new Error("Invalid official release list");for(const row of releases){const r=releaseRow(row);if(!r)continue;if(compare(r.version,runtime.version)>0&&compare(r.version,newest.version)<=0)rows.push(r);}if(releases.length<100){complete=true;break;}}}
-   const allReleases=[...new Map(rows.map(r=>[r.version,r])).values()].sort((a,b)=>compare(a.version,b.version));
-   const releases=allReleases.slice(-64);if(allReleases.length>64)complete=false;
-   if(compare(newest.version,runtime.version)>0&&!releases.some(r=>r.version===newest.version))throw new Error("Latest release missing from official details");
+   const versions=new Set([newest.version]);let complete=compare(newest.version,runtime.version)<=0;
+   // The releases collection embeds every downloadable asset (many MB/page).
+   // Tags are a bounded lightweight index; retrieve notes only for stable versions in range.
+   if(!complete){for(let page=1;page<=4;page++){const tags=await officialJson(`https://api.github.com/repos/openai/codex/tags?per_page=100&page=${page}`,this.fetcher);if(!Array.isArray(tags))throw new Error("Invalid official tag list");for(const tag of tags){const version=tag.name?.replace(/^rust-v/,"");if(STABLE.test(version||"")&&compare(version,runtime.version)>0&&compare(version,newest.version)<=0)versions.add(version);}if(tags.length<100||tags.some(tag=>tag.name===`rust-v${runtime.version}`)){complete=true;break;}}}
+   const ordered=[...versions].filter(v=>compare(v,runtime.version)>0).sort(compare);if(ordered.length>64)complete=false;
+   const wanted=ordered.slice(-64),rows=[];let next=0;
+   await Promise.all(Array.from({length:Math.min(2,wanted.length)},async()=>{while(next<wanted.length){const version=wanted[next++];const r=version===newest.version?newest:releaseRow(await officialJson(`https://api.github.com/repos/openai/codex/releases/tags/rust-v${version}`,this.fetcher));if(!r||r.version!==version)throw new Error("Official stable release details did not match the tag");rows.push(r);}}));
+   const releases=rows.sort((a,b)=>compare(a.version,b.version));
    this.state={...this.state,target:newest.version,releaseId:crypto.createHash('sha256').update(`${runtime.version}:${newest.version}:${newest.url}`).digest('hex'),baseVersion:runtime.version,releases,detailsComplete:(complete||compare(newest.version,runtime.version)<=0)&&!releases.some(r=>r.notesTruncated),lastSuccessAt:this.now(),error:null};
   }catch(e){this.state.error=e.message;this.state.nextCheckAt=Math.max(this.state.nextCheckAt,this.now()+(e.retryAfter||0));}this.save();
  }
