@@ -875,7 +875,7 @@ it.each(["CEO", "Head", "Manager", "Worker"])("loads balanced model-first guidan
   const f = fixture();
   const id = title === "CEO" ? (f.store.ensureCeo(), CEO_ID) : await session(f);
   f.store.companyContext = () => ({ agentId: id, title, canRecruit: false });
-  const rule = "Before changing code, understand the underlying concepts, relationships, states and invariants. Model the underlying problem correctly rather than encoding individual cases. Then choose a proportionate implementation for current and near-term goals, weighing design benefit against change, complexity, migration, validation, risk and rework, not the smallest diff. A pragmatic local fix may be appropriate; state its limitations and do not mistake it for the underlying model. Avoid speculative generality or automatic promises to refactor later. Decide clear trade-offs yourself; ask the user when a consequential trade-off is unclear. Align changes to goals, business behavior, interfaces, permissions or major design first. Routine model corrections within agreed scope need no separate approval or design report. Reuse valid results and skip unnecessary code, checks, reads and process.";
+  const rule = "Before changing code, understand the underlying concepts, relationships, states and invariants. Model the underlying problem correctly rather than encoding individual cases. Then choose a proportionate implementation for current and near-term goals, weighing design benefit against change, complexity, migration, validation, risk and rework, not the smallest diff. A pragmatic local fix may be appropriate; state its limitations and do not mistake it for the underlying model. Avoid speculative generality or automatic promises to refactor later. Decide clear trade-offs yourself; ask the user when a consequential trade-off is unclear. Align changes to goals, business behavior, interfaces, permissions or major design first. Routine model corrections within agreed scope need no separate approval or design report.";
   const prior = "Take the shortest reliable path: reuse valid results and skip unnecessary code, checks, reads, and process.";
   const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
   await f.store.call("turn/start", { threadId: id, input: [] });
@@ -979,6 +979,31 @@ it.each(["CEO", "Head", "Manager", "Worker"])("delivers two-sided autonomy to %s
   const nativeThreadId = f.store.get(id).codexThreadId;
   const previous = payload.replace(shared, oldShared).replace(head, oldHead);
   f.store.get(id).projectContext = createHash("sha256").update(previous).digest("hex"); f.store.save();
+  const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const update = injections()[1][1] as { threadId: string; items: Array<{ role: string; content: Array<{ text: string }> }> };
+  expect(update.threadId).toBe(nativeThreadId); expect(update.items[0].role).toBe("developer"); expect(update.items[0].content[0].text).toBe(payload);
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const again = new CodexOfficeStore(f.directory, f.client); again.companyContext = f.store.companyContext;
+  await again.call("turn/start", { threadId: id, input: [] });
+  expect(injections()).toHaveLength(2);
+  expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
+});
+
+it.each(["CEO", "Head", "Manager", "Worker"])("loads complete-iteration economics for %s once on an old thread then reuses restored cache", async title => {
+  const f = fixture();
+  const id = title === "CEO" ? (f.store.ensureCeo(), CEO_ID) : await session(f);
+  f.store.companyContext = () => ({ agentId: id, title, canRecruit: false });
+  const rule = "Choose build/test timing for the agreed complete task iteration, not a few edits renamed a candidate or batch. Minimize implementation time plus every expensive cycle's fixed overhead and expected rework. Normally finish implementation, test changes and known integration, get one quick independent colleague source review of coverage, interfaces/dependencies and fixture assumptions, then batch findings before build/test. Reuse valid review of unchanged content; it is not Head approval. After failure, collect usable errors, check common assumptions and batch repairs. Use an earlier cheapest experiment only when its unknown changes remaining implementation decisions and expected avoided rework exceeds its added overhead; local validity or earlier feedback alone is insufficient. Keep source/dependencies fixed during validation and choose necessary checks yourself. Reuse valid results and skip unnecessary code, checks, reads and process.";
+  const priorRule = "Reuse valid results and skip unnecessary code, checks, reads and process.";
+  await f.store.call("turn/start", { threadId: id, input: [] });
+  const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+  const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
+  expect(payload.split(rule)).toHaveLength(2);
+  expect(payload).toContain("Don't use messages as an execution log.");
+  expect(payload).toContain("Let the executor decide how");
+  const nativeThreadId = f.store.get(id).codexThreadId;
+  f.store.get(id).projectContext = createHash("sha256").update(payload.replace(rule, priorRule)).digest("hex"); f.store.save();
   const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
   await restored.call("turn/start", { threadId: id, input: [] });
   const update = injections()[1][1] as { threadId: string; items: Array<{ role: string; content: Array<{ text: string }> }> };
