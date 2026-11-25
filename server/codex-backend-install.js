@@ -1,6 +1,7 @@
 "use strict";
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto');
 const {spawn,execFile}=require('node:child_process');const {promisify}=require('node:util');const readline=require('node:readline');
+const VERSION_TIMEOUT_MS=30000;
 const execute=promisify(execFile);const {STABLE,atomic}=require('./codex-backend-state');
 async function run(file,args,options={}) {return execute(file,args,{timeout:120000,maxBuffer:65536,...options});}
 function installedBinary(prefix){const pkg=path.join(prefix,'node_modules','@openai',`codex-${process.platform}-${process.arch}`);const triples={'darwin-arm64':'aarch64-apple-darwin','darwin-x64':'x86_64-apple-darwin','linux-arm64':'aarch64-unknown-linux-musl','linux-x64':'x86_64-unknown-linux-musl'};const triple=triples[`${process.platform}-${process.arch}`];if(!triple)throw new Error('Backend upgrade is unsupported on this host');return path.join(pkg,'vendor',triple,'bin','codex');}
@@ -23,14 +24,25 @@ async function compatibilityGate(binary){
 async function installRuntime(version,directory,{gate=compatibilityGate,execute=run}={}){
  if(!STABLE.test(version))throw new Error('Only an exact stable backend can be installed');const root=path.join(directory,'runtimes'),target=path.join(root,version);fs.mkdirSync(root,{recursive:true,mode:0o700});
  if(fs.existsSync(target)){const manifest=JSON.parse(fs.readFileSync(path.join(target,'office-runtime.json'),'utf8'));const actual=runtimeManifest(target);delete actual['office-runtime.json'];if(manifest.version!==version||JSON.stringify(actual)!==JSON.stringify(manifest.files))throw new Error('Existing runtime package changed');return {...manifest,prefix:target,binary:installedBinary(target)};}
- const stage=fs.mkdtempSync(path.join(root,'.staging-'));try{
+ const stage=fs.mkdtempSync(path.join(root,'.staging-'));let phase='install',started=Date.now();try{
   const userConfig=path.join(stage,'.npmrc'),globalConfig=path.join(stage,'.npmrc-global'),cache=path.join(stage,'.npm-cache');
   fs.writeFileSync(userConfig,'',{mode:0o600});fs.writeFileSync(globalConfig,'',{mode:0o600});
   const env={PATH:process.env.PATH,HOME:stage,TMPDIR:process.env.TMPDIR||os.tmpdir()};
   for(const key of ['HTTP_PROXY','HTTPS_PROXY','NO_PROXY','http_proxy','https_proxy','no_proxy','NODE_EXTRA_CA_CERTS'])if(process.env[key])env[key]=process.env[key];
   await execute(process.platform==='win32'?'npm.cmd':'npm',['install','--prefix',stage,'--ignore-scripts','--no-audit','--no-fund','--save-exact','--cache',cache,'--userconfig',userConfig,'--globalconfig',globalConfig,'--registry=https://registry.npmjs.org',`@openai/codex@${version}`],{cwd:stage,env});
   fs.rmSync(cache,{recursive:true,force:true});
-  const binary=installedBinary(stage),result=await execute(binary,['--version'],{timeout:4000});if(result.stdout.trim()!==`codex-cli ${version}`)throw new Error('Installed backend version mismatch');
-  const gateResult=await gate(binary),files=runtimeManifest(stage);const manifest={version,files,gate:gateResult,installedAt:Date.now()};atomic(path.join(stage,'office-runtime.json'),manifest);fs.renameSync(stage,target);return {...manifest,prefix:target,binary:installedBinary(target)};
- }catch(e){fs.rmSync(stage,{recursive:true,force:true});atomic(path.join(directory,'last-install-error.json'),{at:Date.now(),version,message:e.message});throw new Error('Backend installation or compatibility check failed. The current backend is unchanged; private diagnostics were retained.');}}
-module.exports={installRuntime,installedBinary,runtimeManifest,compatibilityGate};
+  phase='version';started=Date.now();const binary=installedBinary(stage),result=await execute(binary,['--version'],{timeout:VERSION_TIMEOUT_MS});if(result.stdout.trim()!==`codex-cli ${version}`)throw Object.assign(new Error('Installed backend version mismatch'),{failureReason:'version_mismatch'});
+  phase='protocol';started=Date.now();const gateResult=await gate(binary),files=runtimeManifest(stage);const manifest={version,files,gate:gateResult,installedAt:Date.now()};atomic(path.join(stage,'office-runtime.json'),manifest);fs.renameSync(stage,target);return {...manifest,prefix:target,binary:installedBinary(target)};
+ }catch(e){
+  const reason=e.failureReason||(e.code==='ERR_CHILD_PROCESS_STDIO_MAXBUFFER'?'output_limit':e.killed?'timeout':e.signal?'signal':e.code==='EACCES'||e.code==='EPERM'?'permission':e.code==='ENOENT'?'not_found':phase==='protocol'?'incompatible':typeof e.code==='number'?'exit':'unknown');
+  const failure={stage:phase,reason,...(phase==='version'?{timeoutMs:VERSION_TIMEOUT_MS}:{}),...(typeof e.code==='number'?{exitCode:e.code}:{}),...(['SIGTERM','SIGKILL','SIGABRT','SIGSEGV','SIGILL','SIGBUS'].includes(e.signal)?{signal:e.signal}:{})};
+  try{atomic(path.join(directory,'last-install-error.json'),{at:Date.now(),version,message:e.message,failure,elapsedMs:Date.now()-started,code:e.code??null,signal:e.signal??null,killed:Boolean(e.killed),stderr:String(e.stderr||'').slice(0,8192),stdout:String(e.stdout||'').slice(0,4096)});}finally{fs.rmSync(stage,{recursive:true,force:true});}
+  throw Object.assign(new Error('Backend installation or compatibility check failed. The current backend is unchanged; private diagnostics were retained.'),{failure});}}
+function publicInstallFailure(value){
+ if(!value||!['install','version','protocol'].includes(value.stage)||!['timeout','signal','permission','not_found','incompatible','exit','unknown','version_mismatch','output_limit'].includes(value.reason))return null;
+ const stage={install:'Package installation',version:'Candidate version check',protocol:'Office protocol compatibility check'}[value.stage];
+ const cause={output_limit:'exceeded the diagnostic output limit',timeout:'timed out',signal:'was terminated by the operating system',permission:'was denied permission to run',not_found:'could not find the executable',incompatible:'did not pass',exit:'exited with an error',unknown:'failed',version_mismatch:'returned a different version'}[value.reason];
+ return `${stage} ${cause}${value.reason==='timeout'&&value.timeoutMs===VERSION_TIMEOUT_MS?' after 30 seconds':''}. The current backend is unchanged. ${value.reason==='incompatible'?'This candidate cannot be upgraded until compatibility is resolved.':'Retry Upgrade when ready.'}`;
+}
+
+module.exports={installRuntime,installedBinary,runtimeManifest,compatibilityGate,publicInstallFailure,VERSION_TIMEOUT_MS};
