@@ -52,6 +52,33 @@ describe("native whole-turn edit", () => {
     controls.handle({ method: "item/completed", params: { threadId: "id", turnId: "stopped", item: { id: "old", type: "agentMessage", text: "deleted" } } });
     expect(controls.snapshot("id").items).toEqual([]); controls.close();
   });
+  it("lets the explicit edit complete its own reservation while background delivery remains blocked", async () => {
+    const { client, controls } = nativeFixture();
+    controls.options.idleDispatchAllowed = () => false;
+    const edit = await controls.prepareEdit("id");
+    const hold = deferred(), original = client.call.getMockImplementation()!;
+    client.call.mockImplementation(async (method: string) => method === "turn/start" ? hold.promise : original(method));
+    const commit = controls.commitEdit("id", { token: edit.token, message: "User edit", requestId: "explicit-edit" });
+    await waitFor(() => expect(client.call.mock.calls.filter(([method]) => method === "turn/start")).toHaveLength(1));
+    await expect(controls.send("id", "background report", "background", [], { onlyIfIdle: true })).rejects.toThrow("edit is being committed");
+    hold.resolve({ turn: { id: "edited" } });
+    expect(await commit).toMatchObject({ status: "edited", turnId: "edited" });
+    expect(controls.state("id").recovery.stopped).toBe(false);
+    controls.close();
+  });
+  it("does not steer or start edited input if a real new native turn appeared after rewind", async () => {
+    const { client, controls, turn } = nativeFixture();
+    const edit = await controls.prepareEdit("id"), original = client.call.getMockImplementation()!;
+    client.call.mockImplementation(async (method: string) => {
+      const result = await original(method);
+      if (method === "thread/revert") turn("inProgress", "external-new-turn");
+      return result;
+    });
+    expect(await controls.commitEdit("id", { token: edit.token, message: "Keep draft", requestId: "blocked-edit" })).toMatchObject({ status: "send_failed", message: expect.stringContaining("was not sent") });
+    expect(client.call.mock.calls.some(([method]) => method === "turn/start" || method === "turn/steer")).toBe(false);
+    expect(controls.state("id").recovery.stopped).toBe(true);
+    controls.close();
+  });
   it.each(["inProgress", "completed", "failed"])("requires a real interrupted terminal state, not a stop acknowledgement (%s)", async status => {
     const { controls, turn } = nativeFixture(); turn(status);
     await expect(controls.prepareEdit("id")).rejects.toThrow("stopped"); controls.close();
@@ -146,7 +173,7 @@ describe("interrupted-turn editor", () => {
     expect(onSendState).toHaveBeenCalledWith("edit-cancel", expect.objectContaining({ delivery: "accepted", content: "Edited combined text" }));
     expect(onHistorySync).toHaveBeenCalled();
   });
-  it.each(["revert_unknown", "send_unknown"])("keeps the edited text and disables repeated destructive commits after %s", async status => {
+  it.each(["revert_unknown", "send_unknown", "send_failed"])("keeps the edited text and disables repeated destructive commits after %s", async status => {
     const call = vi.fn(async (method: string) => method === "session.edit.prepare" ? { token: "token", turnId: "turn", text: "Text to keep", inputCount: 1 }
       : method === "session.edit.commit" ? { status, message: "Check conversation; text kept" } : snapshot);
     render(React.createElement(SessionControls, { client: { call }, threadId: `edit-${status}`, onItems: vi.fn() }));

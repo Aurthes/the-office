@@ -277,8 +277,9 @@ class CodexSessionControls {
     }
     finally { state.pendingSends--; }
   }
-  async sendInput(id, text, requestId, attachments = [], { resumeInterrupted = false, onlyIfIdle = false, automaticRetry = null, references = [], replyContext = null, usage = null } = {}) {
+  async sendInput(id, text, requestId, attachments = [], { resumeInterrupted = false, onlyIfIdle = false, automaticRetry = null, references = [], replyContext = null, usage = null, editTransaction = null } = {}) {
     this.requireReady();
+    if (editTransaction && this.state(id).editCommit !== editTransaction) throw new Error("This edit transaction is no longer current");
     const usageEntry = usage ? { ...usage, entryAt: Date.now(), entryId: requestId } : null;
     if (!automaticRetry && !onlyIfIdle) this.cancelRetry(id);
     const prepared = this.options.composer ? await this.options.composer.prepare(id, text, references) : { text, items: [] };
@@ -321,10 +322,14 @@ class CodexSessionControls {
       if (!dispatch.startDispatch && !dispatch.turnStateKnown) await this.refreshTurn(id);
     }
     active = this.state(id).activeTurnId;
-    if (onlyIfIdle && (active || dispatch.pendingSends > 1 || dispatch.editCommit || dispatch.editUncertain ||
-        dispatch.retry || dispatch.recovery.stopped || this.options.idleDispatchAllowed?.(id) === false)) {
+    if (onlyIfIdle && (active || dispatch.pendingSends > 1 || (dispatch.editCommit && dispatch.editCommit !== editTransaction) || dispatch.editUncertain ||
+        (!editTransaction && (dispatch.retry || dispatch.recovery.stopped || this.options.idleDispatchAllowed?.(id) === false)))) {
       this.sends.delete(requestId); return { status: "busy" };
     }
+    // Explicit edited input owns this thread's reservation. The stop flag and
+    // idle-dispatch policy suppress background work, not its own user commit.
+    // Clear recovery only after the final idle check, before native can finish.
+    if (editTransaction) this.saveRecovery(id, { attempts: 0, stopped: false });
     const submittedAt = Date.now();
     this.options.replyContext?.prepare(id, requestId, replyContext || ((automaticRetry || resumeInterrupted) ? this.options.replyContext.current(id) : null), (automaticRetry || resumeInterrupted) ? "continue" : replyContext ? "handoff" : "user");
     const current = this.state(id);
@@ -424,7 +429,8 @@ class CodexSessionControls {
     if (this.sends.has(requestId)) throw new Error("A fresh send identity is required for the edited turn");
     if (!prepared || prepared.token !== token) throw new Error("This edit has expired. Prepare it again.");
     if (state.editCommit || state.editUncertain || state.pendingSends || this.options.editBlocked?.(id)) throw new Error("Pending input or an unresolved edit prevents resending. Check the conversation.");
-    state.editCommit = true;
+    const editTransaction = { requestId };
+    state.editCommit = editTransaction;
     this.saveRecovery(id, { stopped: true }); this.cancelRetry(id);
     try {
       const version = state.turnVersion;
@@ -453,8 +459,8 @@ class CodexSessionControls {
       this.options.history?.reverted?.(id);
       this.resetHistory(id, prepared.turnId);
       try {
-        const result = await this.sendInput(id, message, requestId, [], { onlyIfIdle: true, usage: { purpose: "chat_work", trigger: "edit" } });
-        if (result.status === "busy") throw new Error("A new turn is already running");
+        const result = await this.sendInput(id, message, requestId, [], { onlyIfIdle: true, editTransaction, usage: { purpose: "chat_work", trigger: "edit" } });
+        if (result.status === "busy") return { status: "send_failed", message: "History was rewound; edited text was not sent because another turn or input became active. Keep this text and check the conversation before sending again." };
         return { ...result, status: "edited", historyEpoch: state.historyEpoch };
       } catch (error) {
         this.saveRecovery(id, { stopped: true }); this.cancelRetry(id);
