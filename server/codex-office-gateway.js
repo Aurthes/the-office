@@ -4,6 +4,7 @@ const path = require("node:path");
 const http = require("node:http");
 const crypto = require("node:crypto");
 const { WebSocketServer, WebSocket } = require("ws");
+const { BackendReservation, backendBlockers, reserveBackend, verifyBackend } = require("./codex-backend-state");
 const { OfficeNotifications } = require("./office-notifications");
 const { HEADER: PUSH_IDENTITY_HEADER } = require("./office-push-identity");
 const { isDepartmentManager } = require("../src/lib/office/organization-structure");
@@ -37,6 +38,7 @@ const directory = officeEnvironment(path.resolve(process.env.CLAW3D_OFFICE_DATA_
 const replyContext = new OfficeReplyContext(directory);
 const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer, todos, dictate, delegation, tokenUsage, delivery;
 let restoredSessionStates = Promise.resolve();
+const reservation = new BackendReservation(directory, () => backendBlockers({ native,store,controls,voice,workspace,delivery,delegation,stopping }));
 const features = { dictation: false, dictationHTTP: true, voice: true, prediction: false, terminal: true, schedules: true, todos: true, composer: true, accountVersion: 0 };
 const broadcast = (event, payload) => { const frame = JSON.stringify({ type: "event", event, seq: seq++, payload }); for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame); };
 function changed() { if (!rosterTimer) rosterTimer = setTimeout(() => { rosterTimer = null; broadcast("roster.updated", { ts: Date.now() }); }, 150); }
@@ -71,13 +73,14 @@ const native = new CodexOfficeClient({
   }
   if (mapped.id !== undefined || ["serverRequest/resolved", "turn/completed"].includes(mapped.method)) { changed(); setImmediate(() => void delivery?.flush()); }
 } });
+native.reservation = reservation;
 const accountContext = new CodexOfficeAccount(native);
 store = new CodexOfficeStore(directory, native, changed, id => Boolean(voice?.active?.threadId === id || controls?.state(id).activeTurnId || workspace?.snapshot(id)?.running || workspace?.starts.has(id)));
 store.ensureCeo();
 tokenUsage = new OfficeTokenUsage({ directory, home: native.home, sessions: () => store.data.sessions,
   tasks: () => todos?.rows || new Map(),
   listSources: p => native.call("thread/list", p),
-  nativeVersion: process.env.CLAW3D_CODEX_BIN ? null : require("@openai/codex/package.json").version,
+  nativeVersion: null, runtimePending: true,
   resolveSource: async threadId => (await native.call("thread/read", { threadId, includeTurns: false })).thread?.path,
 });
 store.onTurnDispatch = value => {
@@ -103,7 +106,7 @@ controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { s
     read: id => store.data.sessions.find(row => row.id === id)?.recovery,
     write: (id, recovery) => { const row = store.data.sessions.find(row => row.id === id); if (row) { row.recovery = recovery; store.save(); } },
   },
-  canRetry: async id => !stopping && native.ready && !store.isBusy(id) && !store.starting.has(id)
+  canRetry: async id => !reservation.held && !stopping && native.ready && !store.isBusy(id) && !store.starting.has(id)
     && !store.pendingQuestions(id).length && !controls.approvalCount(id) && !controls.questions(id).some(q => !q.submitted)
     && (await account()).loggedIn,
 });
@@ -140,7 +143,7 @@ function scheduleInput(p) {
 schedules = new OfficeSchedules(directory, {
   getSession: id => store.get(id), changed: () => { broadcast("schedules.updated", {}); changed(); },
   canSend: async id => {
-    if (!native.ready || store.isBusy(id) || store.starting.has(id) || store.pendingQuestions(id).length) return false;
+    if (reservation.held || !native.ready || store.isBusy(id) || store.starting.has(id) || store.pendingQuestions(id).length) return false;
     await controls.attach(id); await controls.refreshTurn(id);
     if (store.isBusy(id) || controls.approvalCount(id) || controls.questions(id).some(q => !q.submitted)) return false;
     return (await account()).loggedIn;
@@ -188,27 +191,27 @@ const notifications = new OfficeNotifications(directory, {
 const browserIdentity = ws => notifications.identity(ws.pushIdentity, notificationSecret);
 
 store.todoContext = id => ({ ...todos.context(id), communication: delivery?.summary(id), departmentId: store.get(id).projectId ?? null });
-delegation = new OfficeDelegation({ store, todos, company, stopping: () => stopping,
+delegation = new OfficeDelegation({ store, todos, company, stopping: () => stopping || reservation.held,
   canRecall: async id => {
     if (store.data.sessions.find(row => row.id === id)?.archived) return true;
     await controls.attach(id); await controls.refreshTurn(id);
     return !store.isBusy(id) && !store.starting.has(id) && !controls.state(id).retry;
   },
   canSend: async id => {
-    if (stopping || !native.ready || store.isBusy(id) || store.starting.has(id)) return false;
+    if (reservation.held || stopping || !native.ready || store.isBusy(id) || store.starting.has(id)) return false;
     await controls.attach(id); await controls.refreshTurn(id);
     return !store.isBusy(id) && !store.starting.has(id) && !controls.state(id).retry && !controls.state(id).recovery.stopped
       && !store.pendingQuestions(id).length && !controls.approvalCount(id) && !controls.questions(id).some(q => !q.submitted) && (await account()).loggedIn;
   },
   send: (id, message, requestId, context, usage) => controls.send(id, message, requestId, [], { onlyIfIdle: true, replyContext: context, usage }),
 });
-controls.options.idleDispatchAllowed = id => !stopping && !store.isBusy(id) && !store.starting.has(id)
+controls.options.idleDispatchAllowed = id => !reservation.held && !stopping && !store.isBusy(id) && !store.starting.has(id)
   && voice.active?.threadId !== id && !workspace.snapshot(id)?.running
   && !store.pendingQuestions(id).length && !controls.approvalCount(id) && !controls.questions(id).some(q => !q.submitted);
 delivery = new OfficeDelivery({ directory,
   sources: () => delegation.deliverySources(),
   update: (member, state, error) => todos.delivery(member.taskId, member.id, state, error),
-  stopping: () => stopping,
+  stopping: () => stopping || reservation.held,
   canSend: id => delegation.canSend(id),
   send: (id, message, requestId, context, urgent) => controls.send(id, message, requestId, [], {
     onlyIfIdle: !urgent, replyContext: context,
@@ -285,6 +288,10 @@ const methods = {
   "schedule.delete": p => store.once(p, () => schedules.remove(scheduleInput(p))),
   "schedule.run": p => store.once(p, () => schedules.runNow(p)),
   "office.login": async p => { if ((await account({ refresh: true })).loggedIn) return { loggedIn: true }; if (login?.loginId) await native.call("account/login/cancel", { loginId: login.loginId }); const browser = process.env.CLAW3D_OFFICE_DESKTOP === "1" && p.flow !== "device"; login = await native.call("account/login/start", { type: browser ? "chatgpt" : "chatgptDeviceCode" }, 30000); return login; },
+  "office.backend.status": async () => { await restoredSessionStates; return { version: native.identity?.version || null, source: native.identity?.source || "unknown", startedAt: native.identity?.startedAt || null, ready: native.ready, reservation: reservation.value ? { jobId: reservation.value.jobId, at: reservation.value.at } : null, blockers: reservation.blockers() }; },
+  "office.backend.reserve": p => reserveBackend({ restored:restoredSessionStates,reservation,controls,store,native },p),
+  "office.backend.verify": p => verifyBackend({ restored:restoredSessionStates,reservation,controls,store,delivery },p),
+  "office.backend.release": p => reservation.release(p.jobId),
   "office.snapshot": async () => { await restoredSessionStates; const listed = agents(); return { defaultId: listed[0]?.id, mainKey: "main", agents: listed, projects: store.projects(), creationAvailable: native.ready }; },
   "agents.list": async () => methods["office.snapshot"](),
   "project.create": p => store.createProject(p),
@@ -406,7 +413,7 @@ dictate = createOfficeDictation({ token, onUsage: value => tokenUsage.recordDict
 const server = http.createServer((req, res) => {
   if (req.method === "POST" && req.url?.split("?")[0] === "/dictation") return void dictate(req, res);
   const { rules, defaults, warnings } = native.profile;
-  res.writeHead(native.ready ? 200 : 503, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: native.ready, runtime: "Office-owned Codex", agents: store.list().length, readOnly: false, features, configuration: { rules, defaults, extraSkillRoots: native.profile.skillRoots.length, warnings } }));
+  res.writeHead(native.ready ? 200 : 503, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: native.ready, backendVersion: native.identity?.version || null, backendReservation: reservation.value?.jobId || null, runtime: "Office-owned Codex", agents: store.list().length, readOnly: false, features, configuration: { rules, defaults, extraSkillRoots: native.profile.skillRoots.length, warnings } }));
 });
 const wss = new WebSocketServer({ server, maxPayload: 256 * 1024 });
 wss.on("connection", (ws, req) => {
@@ -457,9 +464,10 @@ async function restoreSessionStates() {
     }
   }));
   changed();
-  if (!stopping) await delegation.flush();
+  if (!stopping && !reservation.held) await delegation.flush();
 }
 native.initialize().then(() => {
+  tokenUsage.setRuntimeVersion(native.identity.version);
   void account().catch(() => {});
   restoredSessionStates = restoreSessionStates();
   server.listen(Number(process.env.CODEX_ADAPTER_PORT || 18790), "127.0.0.1", () => {

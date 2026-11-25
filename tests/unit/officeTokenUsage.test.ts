@@ -384,3 +384,10 @@ it('invalidates at real steer while preserving an automatic same-turn retry',asy
  f.collector.bindTurn({nativeThreadId:'native-one',turnId:'turn-one',mode:'steer',usage:{entryId:'new-input',trigger:'userMessage'}});expect(invalidate).toHaveBeenCalledWith('native-one');invalidate.mockClear();
  f.collector.bindTurn({nativeThreadId:'native-one',turnId:'turn-one',usage:{trigger:'automaticRetry'}});expect(invalidate).not.toHaveBeenCalled();
 });
+it("uses the initialized executable identity and never treats a newer runtime as the pinned rollout format", async () => {
+  const f=await fixture({nativeVersion:null,runtimePending:true});
+  expect(f.collector.unavailable).toBe(true);expect(f.collector.gaps.unsupportedRuntimeVersion).toBeUndefined();
+  f.collector.setRuntimeVersion("0.166.0");expect(f.collector.unavailable).toBe(false);
+  f.collector.setRuntimeVersion("0.172.0");expect(f.collector.unavailable).toBe(true);
+  const detail=await f.detail();expect(detail.coverage.nativeVersion).toBe("0.172.0");expect(detail.coverage.knownGaps.unsupportedRuntimeVersion).toBe(1);
+});

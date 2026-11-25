@@ -199,7 +199,17 @@ export function prepare(planFile, stateDirectory = defaultState) {
   const services = plan.services.map((row, index) => {
     const original = path.resolve(row.plist), candidate = path.resolve(row.candidate);
     if (fs.lstatSync(original).isSymbolicLink()) throw new Error("Service plist must not be a symlink");
-    const before = fs.readFileSync(original), after = fs.readFileSync(candidate);
+    const before = fs.readFileSync(original); let after = fs.readFileSync(candidate);
+    const originalValue = plist(before), candidateValue = plist(after);
+    // Ordinary application releases retain a previously selected private native
+    // runtime when an older candidate template omits that environment field.
+    const selected = originalValue.EnvironmentVariables?.CLAW3D_CODEX_BIN;
+    if (originalValue.Label.endsWith(".gateway") && selected && !candidateValue.EnvironmentVariables?.CLAW3D_CODEX_BIN) {
+      candidateValue.EnvironmentVariables = { ...candidateValue.EnvironmentVariables, CLAW3D_CODEX_BIN: selected };
+      const converted = command("/usr/bin/plutil", ["-convert", "xml1", "-o", "-", "-"], JSON.stringify(candidateValue));
+      if (converted.status !== 0) throw new Error("Could not preserve the selected backend runtime");
+      after = Buffer.from(converted.stdout);
+    }
     const old = describe(before, original), next = describe(after, candidate, true);
     if (old.label !== next.label) throw new Error("Candidate service label changed");
     return { ...next, old, plist: original, health: healthURL(row.health), index,
@@ -233,6 +243,43 @@ export function prepare(planFile, stateDirectory = defaultState) {
   return job;
 }
 
+// Native upgrades deliberately do not promise cross-version database downgrade.
+// Only after the old process exits can its root SQLite file groups be copied.
+export function verifyNativeRuntime(upgrade) {
+  if (!upgrade) return;
+  const root = fs.realpathSync(upgrade.runtimePrefix);
+  for (const [relative, expected] of Object.entries(upgrade.files)) {
+    const file = path.resolve(root, relative);
+    if (!file.startsWith(root + path.sep) || !fs.realpathSync(file).startsWith(root + path.sep)) throw new Error("Candidate runtime changed");
+    const actual = fs.lstatSync(file).isSymbolicLink() ? "link:" + fs.readlinkSync(file) : digest(fs.readFileSync(file));
+    if (actual !== expected) throw new Error("Candidate runtime changed");
+  }
+  const walk = directory => { for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const file = path.join(directory, entry.name), relative = path.relative(root, file);
+    if (entry.isDirectory()) walk(file);
+    else if (relative !== "office-runtime.json" && !Object.hasOwn(upgrade.files, relative)) throw new Error("Candidate runtime gained an unverified file");
+  } };
+  walk(root);
+}
+export function snapshotNativeState(upgrade) {
+  if (!upgrade) return;
+  if (!Number.isSafeInteger(upgrade.nativePid) || upgrade.nativePid <= 0) { upgrade.stopUncertain = true; throw new Error("Old native process identity is unavailable; refusing snapshot"); }
+  if (alive(upgrade.nativePid)) { upgrade.stopUncertain = true; throw new Error("Old native process has not exited; refusing database copy or duplicate startup"); }
+  const home = fs.realpathSync(upgrade.home), target = upgrade.snapshotDirectory;
+  if (!path.isAbsolute(target) || fs.existsSync(target)) throw new Error("Native snapshot directory is not fresh");
+  fs.mkdirSync(target, { recursive: true, mode: 0o700 });
+  let size = 0; const files = [];
+  for (const name of fs.readdirSync(home)) {
+    if (!/\.(sqlite|db)(-wal|-shm)?$/.test(name)) continue;
+    const file = path.join(home, name), info = fs.lstatSync(file);
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error("Unexpected native database entry");
+    size += info.size; if (size > 2 * 1024 ** 3) throw new Error("Native state snapshot exceeds the supported size");
+    fs.copyFileSync(file, path.join(target, name), fs.constants.COPYFILE_EXCL); fs.chmodSync(path.join(target, name), 0o600);
+    files.push({ name, bytes: info.size });
+  }
+  json(path.join(target, "snapshot.json"), { jobId: upgrade.jobId, takenAt: new Date().toISOString(), files, automaticDowngrade: false });
+}
+
 export async function deploy(job) {
   const result = { phase: "checking", startedAt: new Date().toISOString(), controllerPid: process.pid, services: [] };
   const leases = [], attempted = [];
@@ -251,7 +298,7 @@ export async function deploy(job) {
     // All checks and backups finish while the current Office remains available.
     for (const service of job.services) {
       if (digest(fs.readFileSync(service.plist)) !== service.beforeHash) throw new Error("Concurrent service configuration change");
-      unchangedSource(service.old); unchangedSource(service);
+      unchangedSource(service.old); unchangedSource(service); verifyNativeRuntime(service.nativeUpgrade);
       await ready(service, job.timeout);
       if (service.kind === "studio" && service.production && service.old.production) {
         service.clientAssets = retainClientAssets(service.old.cwd, service.cwd);
@@ -263,8 +310,10 @@ export async function deploy(job) {
       const row = { label: service.label, phase: "stopping", cutoverAt: new Date().toISOString(), ...(service.clientAssets ? { clientAssets: service.clientAssets } : {}) };
       result.services.push(row); attempted.push(service); result.phase = "switching"; save();
       await stop(service, 30_000);
+      snapshotNativeState(service.nativeUpgrade); verifyNativeRuntime(service.nativeUpgrade);
       atomic(service.plist, bytes(service, "after"), service.mode);
       row.phase = "starting"; save();
+      if (service.nativeUpgrade) service.nativeUpgrade.candidateMayHaveWritten = true;
       row.pid = await start(service, job.timeout);
       if (digest(fs.readFileSync(service.plist)) !== service.afterHash) throw new Error("Configuration changed during startup");
       unchangedSource(service);
@@ -291,11 +340,17 @@ export async function deploy(job) {
       try {
         const current = digest(fs.readFileSync(service.plist));
         if (![service.beforeHash, service.afterHash].includes(current)) throw new Error("Configuration changed externally; not overwriting it");
+        if (service.nativeUpgrade?.candidateMayHaveWritten || service.nativeUpgrade?.stopUncertain) {
+          await stop(service, 30_000);
+          atomic(service.plist, bytes(service, "before"), service.mode);
+          throw new Error("Native state may have migrated. Gateway remains stopped; private snapshot and both runtimes retained. Manual data-compatible recovery is required before starting the old version.");
+        }
         unchangedSource(service.old);
         if (current !== service.beforeHash || !state(service.label)?.pid || !await healthy(service)) {
           await stop(service, 30_000);
           atomic(service.plist, bytes(service, "before"), service.mode);
-          row.pid = await start(service, job.timeout);
+          if (service.nativeUpgrade) service.nativeUpgrade.candidateMayHaveWritten = true;
+      row.pid = await start(service, job.timeout);
         } else row.pid = await ready(service, job.timeout);
         row.phase = "restored"; row.recoveredAt = new Date().toISOString();
         row.elapsedMs = Date.now() - Date.parse(row.cutoverAt);

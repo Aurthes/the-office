@@ -361,3 +361,34 @@ test("prepares the existing Auth service without requiring or changing Studio", 
   assert.equal(result.phase, "succeeded", JSON.stringify(result));
   assert.equal(await version(f.services[0].health), "new");
 });
+
+test("native upgrade snapshots are consistent only after process exit and protect full immutable runtime contents", mac, async () => {
+  const {snapshotNativeState,verifyNativeRuntime}=await import('./redeploy-office.mjs');
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'native-upgrade-snapshot-'));
+  try{
+    const home=path.join(root,'home'),runtime=path.join(root,'runtime');fs.mkdirSync(home);fs.mkdirSync(runtime);
+    fs.writeFileSync(path.join(home,'state_5.sqlite'),'fixture-db');fs.writeFileSync(path.join(home,'state_5.sqlite-wal'),'fixture-wal');fs.writeFileSync(path.join(home,'auth.json'),'private-not-copied');
+    fs.writeFileSync(path.join(runtime,'binary'),'immutable');const files={'binary':crypto.createHash('sha256').update('immutable').digest('hex')};
+    verifyNativeRuntime({runtimePrefix:runtime,files});fs.writeFileSync(path.join(runtime,'unexpected'),'extra');assert.throws(()=>verifyNativeRuntime({runtimePrefix:runtime,files}),/unverified/);fs.unlinkSync(path.join(runtime,'unexpected'));fs.writeFileSync(path.join(runtime,'binary'),'changed');assert.throws(()=>verifyNativeRuntime({runtimePrefix:runtime,files}),/changed/);
+    const busy={home,nativePid:process.pid,snapshotDirectory:path.join(root,'busy'),jobId:'fixture'};assert.throws(()=>snapshotNativeState(busy),/has not exited/);assert.equal(busy.stopUncertain,true);assert.equal(fs.existsSync(busy.snapshotDirectory),false);
+    const safe={home,nativePid:999999,snapshotDirectory:path.join(root,'snapshot'),jobId:'fixture'};snapshotNativeState(safe);
+    assert.equal(fs.readFileSync(path.join(safe.snapshotDirectory,'state_5.sqlite-wal'),'utf8'),'fixture-wal');assert.equal(fs.existsSync(path.join(safe.snapshotDirectory,'auth.json')),false);assert.equal(JSON.parse(fs.readFileSync(path.join(safe.snapshotDirectory,'snapshot.json'))).automaticDowngrade,false);
+  }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test("normal Gateway releases preserve an existing externally selected runtime", mac, async t => {
+  const f=await fixture(t);const original=f.services[0].plist;
+  const value=JSON.parse(execFileSync('/usr/bin/plutil',['-convert','json','-o','-',original],{encoding:'utf8'}));value.EnvironmentVariables={CLAW3D_CODEX_BIN:'/private/versioned/codex'};writePlist(original,value);
+  const job=prepare(f.planFile,path.join(f.root,'jobs'));
+  const after=JSON.parse(execFileSync('/usr/bin/plutil',['-convert','json','-o','-',path.join(job.directory,'0.after.plist')],{encoding:'utf8'}));assert.equal(after.EnvironmentVariables.CLAW3D_CODEX_BIN,'/private/versioned/codex');
+});
+
+test("failed native startup never automatically opens possibly migrated data with the old binary", mac, async t => {
+  const f=await fixture(t);const dir=path.join(f.root,'native-home'),runtime=path.join(f.root,'runtime');fs.mkdirSync(dir);fs.mkdirSync(runtime);fs.writeFileSync(path.join(dir,'state_5.sqlite'),'original');fs.writeFileSync(path.join(runtime,'binary'),'fixture');
+  fs.writeFileSync(path.join(f.root,'new/server/codex-office-gateway.js'),`require('node:fs').writeFileSync(${JSON.stringify(path.join(dir,'state_5.sqlite'))},'migrated'); process.exit(1);`);
+  const job=prepare(f.planFile,path.join(f.root,'jobs'));job.services[0].nativeUpgrade={home:dir,nativePid:999999,runtimePrefix:runtime,files:{binary:crypto.createHash('sha256').update('fixture').digest('hex')},snapshotDirectory:path.join(f.root,'snapshot'),jobId:'fixture'};fs.writeFileSync(path.join(job.directory,'job.json'),JSON.stringify(job));
+  launch('bootstrap',domain,path.join(job.directory,'controller.plist'));
+  const result=await waitFor(()=>{const r=JSON.parse(fs.readFileSync(path.join(job.directory,'result.json')));return r.completedAt&&r;},20000);
+  assert.equal(result.phase,'recovery_failed');assert.ok(result.recoveryErrors.some(x=>x.includes('may have migrated')));assert.equal(fs.readFileSync(path.join(dir,'state_5.sqlite'),'utf8'),'migrated');assert.equal(fs.readFileSync(path.join(f.root,'snapshot/state_5.sqlite'),'utf8'),'original');assert.equal(fs.readFileSync(f.services[0].plist,'utf8'),f.oldBytes[0].toString());
+  let registered=true;try{launch('print',`${domain}/${JSON.parse(execFileSync('/usr/bin/plutil',['-convert','json','-o','-',f.services[0].plist])).Label}`);}catch{registered=false;}assert.equal(registered,false);
+});

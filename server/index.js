@@ -2,6 +2,7 @@ const http = require("node:http");
 const https = require("node:https");
 const next = require("next");
 
+const { createBackendUpdates } = require("./codex-backend-updates");
 const { createDepartmentLibrary } = require("./department-library");
 const { createInstallAssets } = require("./install-assets");
 const { createAccessGate } = require("./access-gate");
@@ -112,6 +113,7 @@ async function main() {
   const mmPnl = createMmPnlProxy();
   const installAssets = createInstallAssets();
   const departmentLibrary = createDepartmentLibrary();
+  const backendUpdates = process.env.CLAW3D_CODEX_GATEWAY === "1" ? createBackendUpdates() : () => false;
 
   const proxy = createGatewayProxy({
     hostTokenOnly: process.env.CLAW3D_CODEX_GATEWAY === "1",
@@ -156,6 +158,7 @@ async function main() {
           const rejected = proxyBoundary(req); if (rejected) { res.writeHead(rejected); res.end("Access rejected"); return; }
           if (!sameOrigin(req)) { res.writeHead(403); res.end("Origin rejected"); return; }
           if (accessGate.handleHttp(req, res)) return;
+          if (backendUpdates(req, res)) return;
           if (departmentLibrary(req, res)) return;
           if (installAssets(req, res)) return;
           if (accountMonitor(req, res)) return;
@@ -166,6 +169,7 @@ async function main() {
           const rejected = proxyBoundary(req); if (rejected) { res.writeHead(rejected); res.end("Access rejected"); return; }
           if (!sameOrigin(req)) { res.writeHead(403); res.end("Origin rejected"); return; }
           if (accessGate.handleHttp(req, res)) return;
+          if (backendUpdates(req, res)) return;
           if (departmentLibrary(req, res)) return;
           if (installAssets(req, res)) return;
           if (accountMonitor(req, res)) return;

@@ -1,5 +1,21 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Running backend source": "当前后端来源",
+  "Bundled package": "应用随附版本",
+  "Selected runtime": "已选择的运行版本",
+  "Codex backend updates": "Codex 后端更新",
+  "Checks official stable releases every six hours. Installs only when you click Upgrade; waits for active work, calls and terminals to finish.": "每六小时检查官方稳定版。仅在你点击升级后安装，并等待当前工作、通话和终端结束。",
+  "Last checked": "上次检查",
+  "Not checked yet": "尚未检查",
+  "Upgrade status": "升级状态",
+  "Official release notes": "官方更新说明",
+  "Release details may be incomplete. See the official version links.": "更新详情可能不完整，请查看各版本官方链接。",
+  "Managed backend upgrades are unavailable on this host.": "此主机暂不支持托管后端升级。",
+  "Automatic downgrade was stopped to protect native data. Both runtimes and private recovery evidence are retained.": "为保护原生数据，已停止自动降级。两个运行版本和私有恢复记录均已保留。",
+  "Protocol checks do not call a model. Usage breakdown for a new backend format may be unavailable. If startup fails after native data migration, recovery may need manual intervention.": "兼容检查不会调用模型。新版内部格式可能暂不支持用量明细。如果原生数据迁移后启动失败，可能需要人工恢复。",
+  "Upgrade": "升级",
+  "Details": "详情",
+
   "Model request problem · Retrying…": "模型请求异常 · 正在重试…",
   "Office connection problem": "Office 连接异常",
   "Office · Retrying the session…": "Office · 正在恢复会话…",

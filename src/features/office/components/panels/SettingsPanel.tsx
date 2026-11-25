@@ -1,5 +1,6 @@
 "use client";
 
+import { BackendUpdatesEntry } from "../BackendUpdates";
 import { useId, useState, type ReactNode } from "react";
 import type { StudioGatewayAdapterType } from "@/lib/studio/settings";
 import { useUiLanguage } from "@/lib/i18n/ui-language";
@@ -72,6 +73,7 @@ export function SettingsPanel({
       }}>{(["general", ...(voiceSettings ? ["voice" as const] : []), ...(notificationSettings ? ["notifications" as const] : [])] as const).map(value => <button key={value} type="button" role="tab" id={`${tabId}-${value}`} aria-controls={`${tabId}-panel`} aria-selected={activeTab === value} tabIndex={activeTab === value ? 0 : -1} onClick={() => setTab(value)} className={`min-h-10 rounded-lg border px-4 text-sm ${activeTab === value ? "border-cyan-300/40 bg-cyan-400/10 text-cyan-100" : "border-white/10 text-white/65"}`}>{t(value === "general" ? "General" : value === "voice" ? "Voice" : "Notifications")}</button>)}</div> : null}
       <div role={voiceSettings ? "tabpanel" : undefined} id={`${tabId}-panel`} aria-labelledby={voiceSettings ? `${tabId}-${activeTab}` : undefined}>
       {activeTab === "notifications" ? notificationSettings : activeTab === "voice" ? voiceSettings : <>
+      {voiceSettings ? <BackendUpdatesEntry /> : null}
 
       <div className="mb-3 rounded-lg border border-cyan-500/10 bg-black/20 px-4 py-3">
         <label htmlFor="ui-language" className="text-[11px] font-medium text-white">{t("Language")}</label>

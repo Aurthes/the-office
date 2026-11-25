@@ -1,0 +1,12 @@
+import {createRequire} from 'node:module';import http from 'node:http';import {afterEach,expect,it,vi} from 'vitest';
+const require=createRequire(import.meta.url);const {createBackendUpdates}=require('../../server/codex-backend-updates');
+const {createProxyBoundary}=require('../../server/proxy-boundary');
+const servers:http.Server[]=[];afterEach(async()=>{await Promise.all(servers.splice(0).map(server=>new Promise<void>(resolve=>server.close(()=>resolve()))));});
+function get(port:number,method='GET',headers:Record<string,string>={},body=''){return new Promise<{status:number;body:string}>((resolve,reject)=>{const req=http.request({hostname:'127.0.0.1',port,path:'/api/office/backend-updates',method,headers},res=>{let text='';res.on('data',b=>text+=b);res.on('end',()=>resolve({status:res.statusCode!,body:text}));});req.on('error',reject);req.end(body);});}
+it('uses the existing authenticated proxy boundary, rejects missing/cross origin writes and exposes no runtime path',async()=>{const updates={start:vi.fn(),close:vi.fn(),status:vi.fn(async()=>({current:{version:'0.166.0'},latest:'0.172.0'})),request:vi.fn(async()=>({job:{phase:'preparing'}}))};const handler=createBackendUpdates({updates});const token='fixture-private-proxy-token-'.repeat(3);const boundary=createProxyBoundary({token,publicOrigins:['https://office.example'],required:true});const server=http.createServer((req,res)=>{const denied=boundary(req);if(denied){res.writeHead(denied);res.end();return;}handler(req,res);});servers.push(server);await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const port=(server.address() as import('node:net').AddressInfo).port;
+ expect((await get(port)).status).toBeGreaterThanOrEqual(400);
+ const headers={'x-office-proxy-token':token,host:'office.example'};expect((await get(port,'GET',headers)).status).toBe(200);
+ expect((await get(port,'POST',headers,'{}')).status).toBe(403);
+ expect((await get(port,'POST',{...headers,origin:'https://other.example'},'{}')).status).toBeGreaterThanOrEqual(400);
+ expect(updates.request).not.toHaveBeenCalled();expect((await get(port,'POST',{...headers,origin:'https://office.example'},'{}')).status).toBe(202);expect(updates.request).toHaveBeenCalledTimes(1);expect((await get(port,'POST',{...headers,origin:'https://office.example'},'x'.repeat(3000))).status).toBe(413);expect(updates.request).toHaveBeenCalledTimes(1);handler.close();
+});

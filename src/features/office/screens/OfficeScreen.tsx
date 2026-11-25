@@ -34,6 +34,7 @@ import { RetainedSessionPanels } from "@/features/office/components/RetainedSess
 import { SessionMessageLocation } from "@/features/office/components/SessionMessageLocation";
 import type { MessageSearchTarget } from "@/features/office/components/MessageSearchResults";
 import { useSessionVoice } from "@/features/office/components/useSessionVoice";
+import { BackendUpdates } from "@/features/office/components/BackendUpdates";
 import { ImportantNotificationBrief, NotificationSettings } from "@/features/office/components/ImportantNotifications";
 import { FloatingSessionVoice, SessionVoiceSettings } from "@/features/office/components/SessionVoice";
 import { SessionListDivider } from "@/features/office/components/SessionListDivider";
@@ -3788,6 +3789,7 @@ export function OfficeScreen({
       {sessionView ? <ImportantNotificationBrief client={client} connected={status === "connected"} voice={voice} onOpenHead={handleOpenAgentChat} onOpenTask={openTaskDetails} /> : null}
       {sessionView && teaserBoardOpen ? <TeaserDashboard onClose={() => setTeaserBoardOpen(false)} target={teaserTarget} unavailableReason={status === "connected" ? teaserResolution.reason : "Connection unavailable. Please reconnect before sending."} solutionSender={teaserSolutions} onOpenSession={handleOpenAgentChat} /> : null}
 
+      {sessionView ? <BackendUpdates /> : null}
       {sessionView ? <TaskBoard open={!!taskBoardRequest} taskId={taskBoardRequest?.id} phaseId={taskBoardRequest?.phaseId} onClose={() => setTaskBoardRequest(null)} onOpenSession={handleOpenAgentChat} client={client} connected={status === "connected"} /> : null}
       {sessionView && chatOpen ? <button type="button" aria-label={t("Click the office to close chat")} className="fixed inset-0 z-40 cursor-default bg-transparent" onClick={() => setChatOpen(false)} /> : null}
       <div

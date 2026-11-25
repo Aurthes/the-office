@@ -75,7 +75,7 @@ export type UsageDetail = {
   date: string | null; timeZone: string; rows: ObservedResponse[]; count: number; totals: ResponseUsage | null; nextCursor: string | null;
   snapshot: string; purposeSummary: PurposeSummary; selectedPurpose: UsagePurpose | null; breakdown?: TokenBreakdown;
   outsideRetention: boolean; scope: string;
-  coverage: { currentSources?: {nativeThreadId:string;currentFile:string|null;status:string;resolvedAt:number|null;indexedAt:number|null;offset:number}[]; source: string; supportedVersion: string; apiStability: string; partial: boolean; indexing: boolean; unavailable: boolean; storageLimit: boolean;
+  coverage: { currentSources?: {nativeThreadId:string;currentFile:string|null;status:string;resolvedAt:number|null;indexedAt:number|null;offset:number}[]; source: string; nativeVersion?: string | null; supportedVersion: string; apiStability: string; partial: boolean; indexing: boolean; unavailable: boolean; storageLimit: boolean;
     adaptersEnabledAt?: string; producerDurability?: string; knownSources: number; scannedSources: number; readySources: number; unsupportedSources: number; partialLines: number;
     retainedFrom: string; retainedFromUtc: string; retainedFromPartial: boolean; capacityLimited: boolean; firstObservedAt: string | null; indexedThrough: string | null; knownGaps: Record<string, number> };
   filters: { agents: { id: string; name: string }[]; configuredModels: string[]; taskIds: string[]; tasks: UsageTaskLabel[] };

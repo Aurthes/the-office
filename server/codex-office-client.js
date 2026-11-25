@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
 const { spawn } = require("node:child_process");
+const { runtimeIdentity } = require("./codex-backend-state");
 const { SCOPE_LOG_FILTER, nativeScopeLogReader } = require("./codex-scope-metadata");
 const { prepareOfficeProfile, sourceHome } = require("./codex-office-profile");
 
@@ -36,6 +37,7 @@ class CodexOfficeClient {
     this.home = isolated.home; this.ready = false; this.pending = new Map(); this.serial = 0;
     this.profile = prepareOfficeProfile(this.home, env, additionalInstructions);
     const command = binary || env.CLAW3D_CODEX_BIN;
+    this.command = command; this.identity = null; this.executionEnvironment = isolated.env;
     const launcher = command ? [] : [require.resolve("@openai/codex/bin/codex.js")];
     // Opt-in until real native logger/executor acceptance. Never change the parent env.
     const scopeLogs = env.CLAW3D_CODEX_SCOPE_LOGS === "1";
@@ -69,10 +71,14 @@ class CodexOfficeClient {
     const result = await this.call("initialize", { clientInfo: { name: "the_office", title: "The Office", version: "1" }, capabilities: { experimentalApi: true } });
     this.child.stdin.write(JSON.stringify({ method: "initialized" }) + "\n");
     if (this.profile.skillRoots.length) await this.call("skills/extraRoots/set", { extraRoots: this.profile.skillRoots });
+    try { this.identity = await runtimeIdentity(this.command, {env:this.executionEnvironment,cwd:this.home}); }
+    catch { this.identity = { version:null, source:"unverified-runtime", startedAt:Date.now() }; }
+    if (!this.child.pid || this.child.exitCode !== null || this.child.signalCode !== null || this.child.stdin.destroyed) throw new Error("Office Codex exited while initializing");
     this.ready = true;
     return result;
   }
   call(method, params = {}, timeoutMs = 15000) {
+    try { this.reservation?.assertCall(method); } catch (error) { return Promise.reject(error); }
     if (this.stopping || this.child.stdin.destroyed) return Promise.reject(new Error("Office Codex is disconnected"));
     return new Promise((resolve, reject) => {
       const id = ++this.serial;

@@ -99,6 +99,16 @@ exactly-once delivery. Corrupt reminder state disables reminders while leaving
 chat available. No automatic microphone access, phone call or paid synthesis is
 triggered by a notification.
 
+### Codex backend updates
+
+Managed Office installations check official npm and GitHub stable releases every six hours without model calls. Office shows an update event with **Details** and **Upgrade**; the entry is also available in Settings. Details list intervening official releases and link to their full notes. Responses, pages and note sizes are bounded; incomplete history is identified. Preview versions and disagreeing release channels are not silently selected. Failed scans preserve the last successful notes and respect Retry-After.
+
+Only an authenticated, same-origin **Upgrade** click installs an exact version into a private, versioned runtime directory; project dependencies and the bundled package pin are unchanged. A fresh, credential-free temporary home checks the protocol without a model request. Office then waits for active or unconfirmed turns, sends, retries, approvals, voice calls and Workspace terminals to finish. A durable Gateway reservation blocks new native work during the switch; Stop and read operations remain available. An independent controller changes only the Gateway runtime selection. Native homes, login paths, Office thread mappings and persistent queues are retained. Later application deployments preserve this selection. Managed switching currently requires the existing macOS LaunchAgent deployment.
+
+The running executable's verified version supplies status and usage metadata. Internal usage adapters remain version-specific: a newer backend does not imply its token format has been validated. Protocol checks do not prove every model-dependent behavior.
+
+Native upgrades differ from ordinary application rollback. After the old native process exits, the controller keeps a private snapshot of its root SQLite file groups, including WAL/SHM. This is recovery evidence, not a complete backup of arbitrary native migrations. If a candidate may have opened real data and startup fails, the controller stops it and **does not automatically start an older binary against potentially migrated data**. Both runtimes and recovery evidence remain available for a deliberate data-compatible recovery. A restarted Office follows the same controller receipt; it never blindly repeats an uncertain switch. Private runtime, reservation, job, snapshot and state files must remain outside the repository and public assets. Preserve referenced current and recovery runtimes during maintenance.
+
 ### Session connection recovery
 
 Chat distinguishes a lost browser-to-Office connection from a native model failure. A reported model fault replaces the working label while preserving the active turn and Stop control. Native reconnect attempts and timestamps remain unknown when the installed protocol does not expose them; error text is not parsed to invent counters. A matching new assistant output or a successful turn clears the fault, while tool updates do not. The fault survives reconnect/restart until the same turn is reconciled.

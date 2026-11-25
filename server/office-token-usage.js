@@ -92,7 +92,7 @@ function parameters(p, now) {
 }
 
 class OfficeTokenUsage {
-  constructor({ directory, home, sessions, resolveSource, listSources, tasks = () => new Map(), nativeVersion = VERSION, now = Date.now, maxBytes = 64 * 1024 * 1024, chunkBytes = 1024 * 1024, lineBytes = 64 * 1024 }) {
+  constructor({ directory, home, sessions, resolveSource, listSources, tasks = () => new Map(), nativeVersion = VERSION, runtimePending = false, now = Date.now, maxBytes = 64 * 1024 * 1024, chunkBytes = 1024 * 1024, lineBytes = 64 * 1024 }) {
     this.directory = path.join(directory, "token-usage"); this.home = path.resolve(home);
     this.sessions = sessions; this.resolveSource = resolveSource; this.listSources = listSources; this.tasks = tasks; this.now = now;
     this.maxBytes = maxBytes; this.reserve = Math.min(2 * 1024 * 1024, Math.floor(maxBytes / 4));
@@ -107,8 +107,10 @@ class OfficeTokenUsage {
     this.actions = new ActionIndex(this.directory, now, reason => this.gap(reason));
     this.scopeQueue = [];
     this.nativeVersion = nativeVersion;
-    if (nativeVersion !== VERSION) { this.unavailable = true; this.gap("unsupportedRuntimeVersion"); }
+    this.unavailable = runtimePending;
+    if (!runtimePending && nativeVersion !== VERSION) { this.unavailable = true; this.gap("unsupportedRuntimeVersion"); }
   }
+  setRuntimeVersion(version) { this.nativeVersion = version; this.unavailable = version !== VERSION || Boolean(this.gaps.indexUnavailable); if (version !== VERSION) this.gap("unsupportedRuntimeVersion"); }
   gap(reason, source) { if (source) source.gaps[reason] = (source.gaps[reason] || 0) + 1; else this.gaps[reason] = (this.gaps[reason] || 0) + 1; }
   known() {
     const roots = new Map(this.sessions().filter(s => id(s.codexThreadId) && id(s.id)).map(s => [s.codexThreadId, s]));
