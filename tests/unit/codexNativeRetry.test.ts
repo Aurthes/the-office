@@ -5,7 +5,7 @@ const { nativeRetryMetadata, modelErrorDetails, supportedNativeRetryVersion } = 
 const { nativeScopeLogReader } = createRequire(import.meta.url)("../../server/codex-scope-metadata");
 const { CodexSessionControls } = createRequire(import.meta.url)("../../server/codex-session-controls");
 let controls: InstanceType<typeof CodexSessionControls>;
-beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date("2026-11-25T12:00:00Z")); controls = new CodexSessionControls({ ready: true, call: vi.fn() }, () => [], { nativeGeneration: "child-1" }); });
+beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date("2026-11-25T12:00:00Z")); controls = new CodexSessionControls({ ready: true, call: vi.fn(async () => ({})) }, () => [], { nativeGeneration: "child-1" }); });
 afterEach(() => { controls.close(); vi.useRealTimers(); });
 const raw = (turn = "turn-a", extra = {}) => ({ timestamp: new Date().toISOString(), level: "WARN", target: "codex_core::responses_retry", fields: { turn_id: turn, retries: 1, max_retries: 5, sampling_error: "Selected model is at capacity. Please try a different model", ...extra }, span: { prompt: "PRIVATE" }, arguments: "PRIVATE" });
 const start = (id = "a", turn = "turn-a") => controls.handle({ method: "turn/started", params: { threadId: id, turn: { id: turn } } });

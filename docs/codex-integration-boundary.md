@@ -78,6 +78,18 @@ If a future App provides a documented external interface in its normal setup,
 Office can use it within that interface's advertised capabilities. Its absence
 must never be solved by taking over the App's backend or injecting launch flags.
 
+## Office intervention in rate-limit retries
+
+Office observes typed 429 error notifications and structured retry warnings from
+its own Codex child. A warning can expose the first retry hidden by WebSocket
+notifications. Office matches its exact active turn and uses the public
+`turn/interrupt` method to end the native wait. It retains the captured Codex
+error as the cause of the interruption and applies Office's existing retry policy.
+
+The warning detector depends on the native log format, validated with Codex
+0.166.0. Validate it when upgrading Codex. Unrecognized log records cause no
+intervention. This uses the official executable and preserves provider identity.
+
 ## Development rule
 
 For each proposed feature, first identify the interface it needs and confirm it
