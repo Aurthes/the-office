@@ -1,5 +1,6 @@
 "use strict";
 const { randomUUID } = require("node:crypto");
+const { nativeRetryMetadata } = require("./codex-native-retry");
 const SCOPE_LOG_FILTER = "warn,codex_code_mode::timing=info,codex_otel.trace_safe=info";
 const field = value => typeof value === "string" && /^[a-zA-Z0-9_.:/-]{1,256}$/.test(value) ? value : null;
 
@@ -42,7 +43,7 @@ function parentScope(records, { nativeThreadId, callId, generation }) {
 
 // Drain stderr without pausing it or retaining overlong lines. INFO raw JSON is
 // never forwarded; original warnings/errors retain their message, not new spans.
-function nativeScopeLogReader({ onMetadata, onGap = () => {}, writeError, generation = randomUUID() }) {
+function nativeScopeLogReader({ onMetadata = () => {}, onRetry = () => {}, onGap = () => {}, writeError, generation = randomUUID() }) {
   let carry = Buffer.alloc(0), discarding = false;
   const gap = reason => { try { onGap(reason); } catch { /* Diagnostics cannot fail native RPC. */ } };
   const error = text => { try { writeError(text.slice(0, 4096) + "\n"); } catch { gap("scopeErrorRelay"); } };
@@ -51,6 +52,8 @@ function nativeScopeLogReader({ onMetadata, onGap = () => {}, writeError, genera
     const text = bytes.toString("utf8"); let log;
     try { log = JSON.parse(text); }
     catch { if (text.trimStart().startsWith("{")) gap("scopeMalformedLog"); else error(text); return; }
+    const retry = nativeRetryMetadata(log, generation);
+    if (retry) { try { onRetry(retry); } catch { /* Optional UI diagnostics cannot disrupt stderr. */ } }
     const value = scopeMetadata(log, generation);
     if (value) { try { onMetadata(value); } catch { gap("scopeCallbackFailure"); } }
     else if (log?.level === "INFO" && ["codex_code_mode::timing", "codex_otel.trace_safe"].includes(log.target) && ["codex.code_mode.host_timing", "codex.tool_call_received"].includes(log.fields?.["event.name"]) && log.fields?.tool_source !== "direct") gap("scopeMissingIdentity");

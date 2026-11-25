@@ -1,5 +1,6 @@
 "use strict";
 const crypto = require("node:crypto");
+const { modelErrorDetails } = require("./codex-native-retry");
 const { sessionItem, realtimeSessionItem, clipText } = require("./codex-session-items");
 const { interruptedInput } = require("./codex-session-edit");
 const { answerQuestions } = require("./codex-session-questions");
@@ -10,11 +11,18 @@ const RETRY_DELAY_MS = 15000;
 const MAX_AUTO_RETRIES = 3;
 
 class CodexSessionControls {
-  constructor(client, asyncQuestions = () => [], options = {}) { this.client = client; this.asyncQuestions = asyncQuestions; this.options = options; this.states = new Map(); this.requests = new Map(); this.sends = new Map(); this.attaching = new Map(); }
+  constructor(client, asyncQuestions = () => [], options = {}) { this.client = client; this.asyncQuestions = asyncQuestions; this.options = options; this.states = new Map(); this.requests = new Map(); this.sends = new Map(); this.attaching = new Map(); this.pendingNativeRetries = new Map(); }
   state(id) {
     if (!this.states.has(id)) this.states.set(id, { version: 0, turnVersion: 0, turnStateKnown: false, activeTurnId: null, activeTurnStartedAt: null, items: new Map(), turnStatus: null, error: null, historyEpoch: this.options.history?.read(id) || "0", pendingSends: 0, discardedTurns: new Set(),
       recovery: { attempts: 0, stopped: false, ...this.options.recovery?.read(id) } });
-    return this.states.get(id);
+    const state = this.states.get(id);
+    if (!state.nativeRecoveryLoaded) {
+      state.nativeRecoveryLoaded = true;
+      // Persisted diagnostic state belongs to the old child generation.
+      if (state.recovery.modelIssue?.source === "native-diagnostic") state.recovery.modelIssue = null;
+      else if (state.recovery.modelIssue?.source === "native-error") state.recovery.modelIssue = { ...state.recovery.modelIssue, attempt: null, maxAttempts: null };
+    }
+    return state;
   }
   saveRecovery(id, patch) {
     const state = this.state(id), next = { ...state.recovery, ...patch };
@@ -29,11 +37,73 @@ class CodexSessionControls {
     const phase = code === "unauthorized" || status === 401 || status === 403 ? "action_required"
       : code === "usageLimitExceeded" || status === 429 ? "rate_limited"
       : willRetry ? ["httpConnectionFailed", "responseStreamConnectionFailed"].includes(code) ? "reconnecting" : "retrying" : "failed";
+    const previous = willRetry && this.state(id).recovery.modelIssue?.turnId === turnId ? this.state(id).recovery.modelIssue : null;
+    const additionalDetails = modelErrorDetails(error?.additionalDetails) || previous?.additionalDetails || null;
     this.saveRecovery(id, { modelIssue: { layer: "model", turnId, phase, code: code || null,
       message: typeof error?.message === "string" ? error.message.slice(0, 2000) : "Model request failed",
-      willRetry: willRetry === true, attempt: null, maxAttempts: null, nextRetryAt: null } });
+      additionalDetails, source: "native-error",
+      willRetry: willRetry === true, attempt: previous?.attempt ?? null, maxAttempts: previous?.maxAttempts ?? null, nextRetryAt: null } });
   }
   clearModelIssue(id) { if (this.state(id).recovery.modelIssue) this.saveRecovery(id, { modelIssue: null }); }
+  modelFaultAllowed(state, turnId) {
+    return !this.closed && !!turnId && state.activeTurnId === turnId && state.turnStatus === "inProgress"
+      && !state.recovery.stopped && !state.discardedTurns.has(turnId);
+  }
+  generation() { return typeof this.options.nativeGeneration === "function" ? this.options.nativeGeneration() : this.options.nativeGeneration; }
+  nativeRetry(value) {
+    const now = Date.now(), generation = this.generation();
+    if (this.closed || !generation || value?.generation !== generation || typeof value.turnId !== "string" || !Number.isFinite(value.emittedAt)
+      || !Number.isFinite(value.observedAt) || value.observedAt > now + 5000 || now - value.observedAt > 1000 || value.emittedAt > now + 5000
+      || !Number.isSafeInteger(value.attempt) || !Number.isSafeInteger(value.maxAttempts) || value.attempt < 1 || value.maxAttempts < value.attempt || value.maxAttempts > 10000
+      || typeof value.reason !== "string") return null;
+    for (const [key, pending] of this.pendingNativeRetries) if (now - pending.observedAt > 1000) this.pendingNativeRetries.delete(key);
+    const matches = [...this.states].filter(([, state]) => state.activeTurnId === value.turnId && state.nativeTurnId === value.turnId && state.nativeGeneration === generation);
+    if (matches.length !== 1) {
+      // Across stderr/stdout, a log may be read before its public turn identity.
+      // Buffer only a tiny bounded set; never associate by time or activity.
+      const known = [...this.states.values()].some(state => state.nativeGeneration === generation && (state.lastTurnId === value.turnId || state.discardedTurns.has(value.turnId)));
+      if (!matches.length && !known) {
+        if (this.pendingNativeRetries.size >= 32) this.pendingNativeRetries.delete(this.pendingNativeRetries.keys().next().value);
+        this.pendingNativeRetries.set(value.turnId, value);
+      }
+      return null;
+    }
+    const [id, state] = matches[0]; this.pendingNativeRetries.delete(value.turnId);
+    const key = `${value.timestamp}:${value.attempt}:${value.maxAttempts}`;
+    if (!this.modelFaultAllowed(state, value.turnId)
+
+      || state.lastNativeRetryAt != null && value.emittedAt < state.lastNativeRetryAt || state.lastNativeRetryKey === key) return null;
+    const reason = modelErrorDetails(value.reason); if (!reason) return null;
+    const previous = state.recovery.modelIssue;
+    // Public protocol errors are authoritative. A terminal error cannot be
+    // resurrected by an older stderr line; retry metadata may only enrich it.
+    if (previous?.turnId === value.turnId && previous.source === "native-error" && !previous.willRetry) return null;
+    state.lastNativeRetryKey = key; state.lastNativeRetryAt = value.emittedAt;
+    if (previous?.turnId === value.turnId && previous.source === "native-error") {
+      this.saveRecovery(id, { modelIssue: { ...previous, additionalDetails: previous.additionalDetails || reason,
+        attempt: value.attempt, maxAttempts: value.maxAttempts } });
+    } else {
+      // stdout and stderr have no shared emission sequence or sampling ID.
+      // Output already received cannot date a later-read log. Preserve the
+      // observation, but do not turn it into a claim that the model is waiting.
+      const observedOnly = state.modelOutputObserved === true;
+      this.saveRecovery(id, { modelIssue: { layer: "model", turnId: value.turnId,
+        phase: observedOnly ? "retry_observed" : "retrying", code: null,
+        message: "Native model request is retrying", additionalDetails: reason, source: "native-diagnostic", willRetry: true,
+        attempt: value.attempt, maxAttempts: value.maxAttempts, nextRetryAt: null } });
+    }
+    state.turnVersion++; state.version++;
+    return id;
+  }
+  acceptNativeTurn(state, turnId) {
+    const sameTurn = state.nativeGeneration === this.generation() && state.nativeTurnId === turnId;
+    state.nativeGeneration = this.generation(); state.nativeTurnId = turnId;
+    if (!sameTurn) { state.modelOutputObserved = false; state.lastNativeRetryKey = null; state.lastNativeRetryAt = null; }
+  }
+  flushNativeRetry(state) {
+    const pending = this.pendingNativeRetries.get(state.activeTurnId);
+    if (pending) { this.pendingNativeRetries.delete(state.activeTurnId); this.nativeRetry(pending); }
+  }
   requireReady() { if (!this.client?.ready) throw new Error("Codex is disconnected"); }
   retryChanged(id) { this.state(id).version++; this.options.changed?.(id); }
   cancelRetry(id) {
@@ -68,7 +138,7 @@ class CodexSessionControls {
     }, RETRY_DELAY_MS);
     retry.timer.unref?.(); this.retryChanged(id);
   }
-  close() { this.closed = true; for (const id of this.states.keys()) this.cancelRetry(id); }
+  close() { this.closed = true; this.pendingNativeRetries.clear(); for (const id of this.states.keys()) this.cancelRetry(id); }
   async recover(id) {
     const turn = await this.refreshTurn(id);
     if (turn) this.scheduleRetry(id, turn);
@@ -119,7 +189,7 @@ class CodexSessionControls {
     const version = state.turnVersion;
     const result = await this.client.call("thread/turns/list", { threadId: id, limit: 1, itemsView: "notLoaded", sortDirection: "desc" });
     // Token usage, questions and item updates do not supersede a turn read.
-    // Only a newer turn lifecycle event can make its status obsolete.
+    // Only newer lifecycle, model fault or model output can make its status obsolete.
     if (state.turnVersion !== version) return;
     state.turnStateKnown = true;
     const turn = result.data[0];
@@ -129,10 +199,12 @@ class CodexSessionControls {
       ? Number.isFinite(turn.startedAt) ? turn.startedAt * 1000 : sameTurn ? state.activeTurnStartedAt : null
       : null;
     state.activeTurnId = turn?.status === "inProgress" ? turn.id : null;
+    if (state.activeTurnId) this.acceptNativeTurn(state, turn.id);
     state.turnStatus = turn?.status || null; state.error = turn?.error?.message || null;
     if (turn?.status === "completed" || (turn?.id && state.recovery.modelIssue?.turnId !== turn.id)) this.clearModelIssue(id);
     if (turn?.error && turn.status === "failed") this.modelIssue(id, turn.id, turn.error, false);
     if (turn?.status === "completed") this.saveRecovery(id, { attempts: 0 });
+    if (state.activeTurnId) this.flushNativeRetry(state);
     state.version++;
     return turn;
   }
@@ -154,7 +226,7 @@ class CodexSessionControls {
     if (frame.method === "error") {
       // Only the exact current turn can report a model fault. Unscoped/old
       // notifications cannot replace a newer turn's status.
-      if (!p.turnId || (state.activeTurnId || state.lastTurnId) !== p.turnId || state.turnStatus !== "inProgress") return;
+      if (!this.modelFaultAllowed(state, p.turnId)) return;
       state.turnVersion++; // Supersede a status read begun before this fault.
       this.modelIssue(id, p.turnId, p.error, p.willRetry);
       state.version++; return;
@@ -168,7 +240,8 @@ class CodexSessionControls {
       this.cancelRetry(id); state.lastTurnId = p.turn.id;
       state.activeTurnStartedAt = Number.isFinite(p.turn.startedAt) ? p.turn.startedAt * 1000
         : state.activeTurnId === p.turn.id ? state.activeTurnStartedAt : Date.now();
-      state.activeTurnId = p.turn.id; state.turnStatus = "inProgress"; state.error = null; state.version++;
+      this.acceptNativeTurn(state, p.turn.id);
+      state.activeTurnId = p.turn.id; state.turnStatus = "inProgress"; state.error = null; this.flushNativeRetry(state); state.version++;
     }
     if (frame.method === "turn/completed") {
       state.turnVersion++;
@@ -185,9 +258,16 @@ class CodexSessionControls {
     const item = p.item;
     // A matching newly received assistant output is evidence of model progress;
     // tool updates, token accounting and arbitrary thread events are not.
-    if (state.recovery.modelIssue && p.turnId && p.turnId === state.activeTurnId && (frame.method === "item/agentMessage/delta" && p.delta
+    if (p.turnId && p.turnId === state.activeTurnId && (frame.method === "item/agentMessage/delta" && p.delta
       || frame.method === "item/completed" && item?.type === "agentMessage" && state.items.get(`${p.turnId}:${item.id}`)?.status !== "completed")) {
-      state.turnVersion++; this.clearModelIssue(id);
+      state.modelOutputObserved = true; state.turnVersion++;
+      const issue = state.recovery.modelIssue;
+      if (issue?.source === "native-diagnostic") {
+        // A stdout output and a stderr retry have no shared source sequence.
+        // Without a public error boundary, neither fd arrival order proves
+        // recovery. Clear the *waiting claim*, retain an honest observation.
+        this.saveRecovery(id, { modelIssue: { ...issue, phase: "retry_observed" } });
+      } else if (!(issue?.source === "native-error" && !issue.willRetry)) this.clearModelIssue(id);
     }
     if (frame.method === "item/agentMessage/delta") {
       const key = `${p.turnId}:${p.itemId}`, previous = state.items.get(key);
@@ -360,8 +440,9 @@ class CodexSessionControls {
       state.activeTurnStartedAt = Number.isFinite(result.turn?.startedAt) ? result.turn.startedAt * 1000
         : state.activeTurnId === turnId ? state.activeTurnStartedAt : active ? null : submittedAt;
       if (state.recovery.modelIssue?.turnId !== turnId) this.clearModelIssue(id);
+      this.acceptNativeTurn(state, turnId);
       state.activeTurnId = turnId; state.turnStatus = "inProgress"; state.error = null;
-      state.turnStateKnown = true;
+      state.turnStateKnown = true; this.flushNativeRetry(state);
     }
     this.state(id).version++;
     // Stop can arrive after turn/start was sent but before its result. Interrupt

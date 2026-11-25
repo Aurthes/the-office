@@ -1,5 +1,9 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Native retry observed · Current wait unconfirmed": "已观察到原生重试 · 当前等待未确认",
+  "Native retry {attempt} of {max}": "原生重试 {attempt}/{max}",
+  "Next native retry time is not available.": "下次原生重试时间未知。",
+  "Native model request is retrying": "原生模型请求正在重试",
   "Running backend source": "当前后端来源",
   "Bundled package": "应用随附版本",
   "Selected runtime": "已选择的运行版本",
