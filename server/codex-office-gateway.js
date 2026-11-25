@@ -43,8 +43,8 @@ const features = { dictation: false, dictationHTTP: true, voice: true, predictio
 const broadcast = (event, payload) => { const frame = JSON.stringify({ type: "event", event, seq: seq++, payload }); for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame); };
 function changed() { if (!rosterTimer) rosterTimer = setTimeout(() => { rosterTimer = null; broadcast("roster.updated", { ts: Date.now() }); }, 150); }
 const native = new CodexOfficeClient({
-  onRateLimitRetry: value => controls?.nativeRateLimitRetry(value),
   onScopeMetadata: value => tokenUsage?.observeScope(value),
+  onNativeRetry: value => { const id = controls?.nativeRetry(value); if (id) stream?.changed(id); },
   onScopeGap: reason => tokenUsage?.scopeGap(reason),
   additionalInstructions: WORKFLOW + "\n" + TASK_WORKFLOW,
   env: { ...process.env, OFFICE_TASK_GATEWAY_URL: `ws://127.0.0.1:${process.env.CODEX_ADAPTER_PORT || 18790}`, OFFICE_TASK_GATEWAY_TOKEN: token },
@@ -89,7 +89,7 @@ store.onTurnDispatch = value => {
   const state = controls?.state(value.agentId);
   todos?.recordTurn(value, state?.lastTurnId === value.turnId ? state : store.get(value.agentId));
 };
-controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features, replyContext, usageMetadata: true,
+controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features, replyContext, usageMetadata: true, nativeGeneration: () => native.scopeGeneration,
   changed: id => { stream?.changed(id); changed(); setImmediate(() => delivery?.notify(id)); },
   editBlocked: id => voice?.active?.threadId === id || store.starting.has(id),
   history: {

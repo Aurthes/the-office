@@ -1,8 +1,9 @@
 import { useUiText } from "@/lib/i18n/ui-language";
 
 export type ModelRecovery = {
-  layer: "model"; turnId: string; phase: "reconnecting" | "retrying" | "failed" | "action_required" | "rate_limited";
+  layer: "model"; turnId: string; phase: "reconnecting" | "retrying" | "retry_observed" | "failed" | "action_required" | "rate_limited";
   code: string | null; message: string; willRetry: boolean;
+  additionalDetails?: string | null; source?: "native-error" | "native-diagnostic";
   attempt: number | null; maxAttempts: number | null; nextRetryAt: number | null;
 };
 export type RecoveryState = {
@@ -15,6 +16,7 @@ export function recoveryLabel(state: RecoveryState | null, connectionError = "")
   if (state?.retryExhausted) return "Office · Automatic retry failed";
   if (state?.modelRecovery) {
     if (state.retryStopped) return "Model · Recovery stopped";
+    if (state.modelRecovery.phase === "retry_observed") return "Native retry observed · Current wait unconfirmed";
     if (state.modelRecovery.phase === "action_required") return "Model · Sign-in or access needs attention";
     if (state.modelRecovery.phase === "rate_limited") return "Model · Rate or usage limit";
     if (state.modelRecovery.phase === "retrying") return "Model request problem · Retrying…";
@@ -32,7 +34,7 @@ export function SessionRecoveryDetails({ state, connectionError = "", seconds }:
     {state?.retryAt ? <p>{state.retrying ? t("Retrying the session…") : t("Retrying in {seconds} seconds…", { seconds })}
       {state.retryAttempt !== undefined && state.retryMaxAttempts !== undefined ? <> · {t("Attempt {attempt} of {max}", { attempt: state.retryAttempt, max: state.retryMaxAttempts })}</> : null}</p> : null}
     {state?.retryExhausted ? <p>{t("Automatic retry stopped after 3 attempts.")}</p> : null}
-    {state?.modelRecovery && !state.retryAt && !state.retryStopped && state.modelRecovery.willRetry ? <p>{t("Native retry count and next retry time are not available.")}</p> : null}
-    <p className="break-words [overflow-wrap:anywhere]">{connectionError || state?.modelRecovery?.message || state?.error}</p>
+    {state?.modelRecovery && !state.retryAt && !state.retryStopped && state.modelRecovery.willRetry ? <p>{state.modelRecovery.attempt != null && state.modelRecovery.maxAttempts != null ? <>{t("Native retry {attempt} of {max}", { attempt: state.modelRecovery.attempt, max: state.modelRecovery.maxAttempts })} · {t("Next native retry time is not available.")}</> : t("Native retry count and next retry time are not available.")}</p> : null}
+    <p className="break-words [overflow-wrap:anywhere]">{connectionError || state?.modelRecovery?.additionalDetails || state?.modelRecovery?.message || state?.error}</p>
   </div>;
 }

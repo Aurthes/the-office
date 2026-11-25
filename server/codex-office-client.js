@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
 const { spawn } = require("node:child_process");
+const { supportedNativeRetryVersion } = require("./codex-native-retry");
 const { runtimeIdentity } = require("./codex-backend-state");
 const { SCOPE_LOG_FILTER, nativeScopeLogReader } = require("./codex-scope-metadata");
 const { prepareOfficeProfile, sourceHome } = require("./codex-office-profile");
@@ -31,7 +32,7 @@ function officeEnvironment(home, environment = process.env) {
 
 // One Office-owned child, with public stdio RPC and no App attachment or daemon.
 class CodexOfficeClient {
-  constructor({ home, binary, env = process.env, configOverrides = [], additionalInstructions = "", onFrame = () => {}, onScopeMetadata = () => {}, onScopeGap = () => {}, onRateLimitRetry = () => {} }) {
+  constructor({ home, binary, env = process.env, configOverrides = [], additionalInstructions = "", onFrame = () => {}, onScopeMetadata = () => {}, onNativeRetry, onScopeGap = () => {} }) {
     const isolated = officeEnvironment(home, env);
     this.scopeGeneration = randomUUID();
     this.home = isolated.home; this.ready = false; this.pending = new Map(); this.serial = 0;
@@ -39,20 +40,23 @@ class CodexOfficeClient {
     const command = binary || env.CLAW3D_CODEX_BIN;
     this.command = command; this.identity = null; this.executionEnvironment = isolated.env;
     const launcher = command ? [] : [require.resolve("@openai/codex/bin/codex.js")];
-    // Tool-scope INFO remains opt-in. Retry WARN is needed for hidden 429s.
+    // Tool-scope INFO remains opt-in; an explicit retry observer needs WARN only.
+    // Change only the Office child environment, never the parent or native policy.
     const scopeLogs = env.CLAW3D_CODEX_SCOPE_LOGS === "1";
-    isolated.env.RUST_LOG = scopeLogs ? SCOPE_LOG_FILTER : `${isolated.env.RUST_LOG || "warn"},codex_core::responses_retry=warn`;
-    isolated.env.LOG_FORMAT = "json";
+    const jsonLogs = scopeLogs || typeof onNativeRetry === "function";
+    if (jsonLogs) { isolated.env.RUST_LOG = scopeLogs ? SCOPE_LOG_FILTER : "warn"; isolated.env.LOG_FORMAT = "json"; }
     this.child = spawn(command || process.execPath, [...launcher, ...this.profile.overrides, ...configOverrides.flatMap(value => ["-c", value]), "-c", `sqlite_home=${JSON.stringify(this.home)}`, "-c", 'cli_auth_credentials_store="file"', "app-server", "--listen", "stdio://"], {
-      cwd: this.home, env: isolated.env, stdio: ["pipe", "pipe", "pipe"],
+      cwd: this.home, env: isolated.env, stdio: ["pipe", "pipe", jsonLogs ? "pipe" : "inherit"],
     });
-    const reader = nativeScopeLogReader({ generation: this.scopeGeneration, onMetadata: value => { if (scopeLogs) onScopeMetadata(value); }, onRateLimitRetry, onGap: onScopeGap, writeError: text => {
-      if (process.stderr.writableLength + Buffer.byteLength(text) <= 65536) process.stderr.write(text);
-      else onScopeGap("scopeErrorRelayBackpressure");
-    } });
-    this.child.stderr.on("data", chunk => reader.feed(chunk));
-    this.child.stderr.on("end", () => reader.end());
-    this.child.stderr.on("error", () => onScopeGap("scopeStderrFailure"));
+    if (jsonLogs) {
+      const reader = nativeScopeLogReader({ generation: this.scopeGeneration, onMetadata: onScopeMetadata, onGap: onScopeGap, onRetry: value => { if (this.ready && supportedNativeRetryVersion(this.identity?.version)) onNativeRetry?.(value); }, writeError: text => {
+        if (process.stderr.writableLength + Buffer.byteLength(text) <= 65536) process.stderr.write(text);
+        else onScopeGap("scopeErrorRelayBackpressure");
+      } });
+      this.child.stderr.on("data", chunk => reader.feed(chunk));
+      this.child.stderr.on("end", () => reader.end());
+      this.child.stderr.on("error", () => onScopeGap("scopeStderrFailure"));
+    }
     this.exited = new Promise(resolve => { this.resolveExit = resolve; });
     this.child.on("error", error => { this.fail(error); this.resolveExit(); });
     this.child.on("exit", () => { this.fail(new Error("Office Codex process exited; pending operations were not retried")); this.resolveExit(); if (!this.stopping) onFrame({ method: "connection/closed" }); });

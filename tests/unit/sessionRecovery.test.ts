@@ -66,3 +66,18 @@ it("adds the same recovery label to current work process while retaining canonic
   expect(screen.getByText("Model connection problem · Reconnecting…")).toBeInTheDocument();
   expect(screen.getByText("Work already done")).toBeInTheDocument();
 });
+it("shows the first observed native retry count and actual reason instead of Working without inventing a countdown", async () => {
+  const f = fixture("first-native");
+  await act(async () => f.push({ modelRecovery: { ...modelRecovery, phase: "retrying", source: "native-diagnostic", message: "Native model request is retrying", additionalDetails: "Selected model is at capacity. Please try a different model", attempt: 1, maxAttempts: 5 } }));
+  expect(screen.queryByText("Codex is working…")).toBeNull();
+  expect(screen.getByText(/Native retry 1 of 5/)).toBeInTheDocument();
+  expect(screen.getByText(/Next native retry time is not available/)).toBeInTheDocument();
+  expect(screen.getByText(/Selected model is at capacity/)).toBeInTheDocument();
+  expect(screen.queryByText(/Retrying in \d+ seconds/)).toBeNull();
+  expect(f.call.mock.calls.map(([method]) => method)).toEqual(["session.subscribe"]);
+});
+
+it("shows a cross-fd retry observation honestly without calling it confirmed current waiting or Working", async () => {
+ const f = fixture("observed"); await act(async () => f.push({ modelRecovery: { ...modelRecovery, phase: "retry_observed", source: "native-diagnostic", additionalDetails: "HTTP 429", attempt: 1, maxAttempts: 5 } }));
+ expect(screen.getAllByText("Native retry observed · Current wait unconfirmed").length).toBeGreaterThan(0); expect(screen.queryByText("Codex is working…")).toBeNull(); expect(screen.getByText("HTTP 429")).toBeInTheDocument();
+});
