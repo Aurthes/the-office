@@ -20,7 +20,7 @@ export async function GET(request: Request) {
       return Response.json({ content, assets: describeSessionAssets(content, [], { baseDir: path.dirname(asset.path) }) }, { headers });
     }
     const body = asset.mime === "text/html" && query.get("preview") === "1"
-      ? Buffer.from(prepareHtmlPreview(asset.bytes.toString("utf8"))) : asset.bytes;
+      ? Buffer.from(prepareHtmlPreview(asset.bytes.toString("utf8"), query.get("snapshot") === "1")) : asset.bytes;
     const preference = request.headers.get("accept-encoding")?.split(",").find(value => /^gzip(?:\s*;|$)/i.test(value.trim()));
     const useGzip = asset.mime === "text/html" && body.length >= 1024 && preference !== undefined && !/;\s*q=0(?:\.0*)?(?:\s*;|\s*$)/i.test(preference);
     const bytes = useGzip ? await compress(body) : body;

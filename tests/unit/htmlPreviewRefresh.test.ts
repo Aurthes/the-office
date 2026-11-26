@@ -37,3 +37,12 @@ it("preserves explicit redirects and malformed refresh values rather than turnin
     expect(prepareHtmlPreview(html)).toBe(html);
   }
 });
+it('opt-in snapshot bridge preserves exact original source without allowing it to terminate the bootstrap script',()=>{
+  const raw='<html><body><script>console.log("original")</script><p>v1</p></body></html>';
+  const html=prepareHtmlPreview(raw,true);
+  expect(html.startsWith(raw)).toBe(true);
+  expect(html).toContain('claw3d:preview-snapshot');
+  expect(html.slice(raw.length)).not.toContain('<html>');
+  expect(html.slice(raw.length)).toContain('\\u003c');
+  expect(prepareHtmlPreview(raw)).toBe(raw);
+});

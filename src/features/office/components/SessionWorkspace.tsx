@@ -1,8 +1,9 @@
 "use client";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { ArrowUp, CalendarClock, ExternalLink, File, Files, Folder, Globe, Image, ListChecks, NotebookPen, RefreshCw, Terminal, Wrench, X } from "lucide-react";
+import { ArrowUp, BookOpen, CalendarClock, ExternalLink, File, Files, Folder, Globe, Image, ListChecks, NotebookPen, RefreshCw, Terminal, Wrench, X } from "lucide-react";
 import type { SessionAsset, SessionClient } from "./SessionControls";
+import { SaveToLibrary } from "./SaveToLibrary";
 import { SessionNotes } from "./SessionNotes";
 import { SessionAgentState } from "./SessionAgentState";
 import type { InterfaceAgent } from "@/lib/office/agent-interface";
@@ -13,19 +14,19 @@ import { useUiText } from "@/lib/i18n/ui-language";
 const SessionTerminal = dynamic(() => import("./SessionTerminal").then(module => module.SessionTerminal), { ssr: false });
 type Listing = { root?: string; roots?: string[]; path: string; entries: { name: string; directory: boolean }[]; truncated: boolean };
 type FileRead = { path: string; content?: string; asset?: SessionAsset };
-type Tab = "files" | "preview" | "terminal" | "browser" | "schedules" | "progress" | "toolbox" | "notes" | "agent-state";
+type Tab = "files" | "preview" | "terminal" | "browser" | "schedules" | "progress" | "library" | "toolbox" | "notes" | "agent-state";
 
-export function SessionWorkspace({ client, threadId, active = true, asset, assets, onSelectAsset, onClose, terminalAvailable = true, taskProgress, toolbox, progressRequest = 0, noteAgents, gateway = "", connected = true }: {
+export function SessionWorkspace({ client, threadId, active = true, asset, assets, onSelectAsset, onClose, terminalAvailable = true, taskProgress, toolbox, library, libraryRequest = 0, progressRequest = 0, noteAgents, gateway = "", connected = true }: {
   client: SessionClient; threadId: string; asset: SessionAsset | null; assets: SessionAsset[];
-  active?: boolean; noteAgents?: readonly InterfaceAgent[]; gateway?: string; connected?: boolean; taskProgress?: ReactNode; toolbox?: ReactNode; progressRequest?: number;
+  active?: boolean; noteAgents?: readonly InterfaceAgent[]; gateway?: string; connected?: boolean; taskProgress?: ReactNode; toolbox?: ReactNode; library?: ReactNode; libraryRequest?: number; progressRequest?: number;
   onSelectAsset: (asset: SessionAsset | null) => void; onClose: () => void; terminalAvailable?: boolean;
 }) {
   const t = useUiText();
   const workspaceId = useId();
   const hasTaskProgress = !!taskProgress;
-  const [selection, setSelection] = useState({ tab: (asset ? "preview" : hasTaskProgress && progressRequest ? "progress" : "files") as Tab, progressRequest, hasTaskProgress });
-  if (selection.progressRequest !== progressRequest || selection.hasTaskProgress !== hasTaskProgress) {
-    setSelection(previous => ({ progressRequest, hasTaskProgress, tab: !hasTaskProgress && previous.tab === "progress" ? "files" : hasTaskProgress && progressRequest !== previous.progressRequest ? "progress" : previous.tab }));
+  const [selection, setSelection] = useState({ tab: (libraryRequest ? "library" : asset ? "preview" : hasTaskProgress && progressRequest ? "progress" : "files") as Tab, progressRequest, hasTaskProgress, libraryRequest, selectedAsset: asset });
+  if (selection.progressRequest !== progressRequest || selection.hasTaskProgress !== hasTaskProgress || selection.libraryRequest !== libraryRequest || selection.selectedAsset !== asset) {
+    setSelection(previous => ({ progressRequest, hasTaskProgress, libraryRequest, selectedAsset: asset, tab: libraryRequest !== previous.libraryRequest ? "library" : asset && asset !== previous.selectedAsset ? "preview" : !hasTaskProgress && previous.tab === "progress" ? "files" : hasTaskProgress && progressRequest !== previous.progressRequest ? "progress" : previous.tab }));
   }
   const tab = selection.tab;
   const [stateOpened, setStateOpened] = useState(false);
@@ -39,7 +40,6 @@ export function SessionWorkspace({ client, threadId, active = true, asset, asset
   const [error, setError] = useState("");
   const request = useRef(0);
   useEffect(() => () => { request.current++; }, []);
-  useEffect(() => { if (asset) setTab("preview"); }, [asset]);
   const [root, setRoot] = useState<string | undefined>();
   const list = useCallback(async (path = "", selectedRoot: string | null | undefined = root) => {
     const id = ++request.current; setBusy(true); setError("");
@@ -60,7 +60,7 @@ export function SessionWorkspace({ client, threadId, active = true, asset, asset
     } catch (cause) { if (id === request.current) setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { if (id === request.current) setBusy(false); }
   };
-  const tabs = ([["files", Files, "Files"], ["notes", NotebookPen, "Notes"], ["agent-state", ListChecks, "Agent State"], ["preview", Image, "Preview"], ["terminal", Terminal, "Terminal"], ["browser", Globe, "Browser"], ["schedules", CalendarClock, "Schedule Task"], ["toolbox", Wrench, "Toolbox"], ["progress", ListChecks, "Task progress"]] as const).filter(([key]) => (terminalAvailable || key !== "terminal") && (hasTaskProgress || key !== "progress"));
+  const tabs = ([["files", Files, "Files"], ["notes", NotebookPen, "Notes"], ["agent-state", ListChecks, "Agent State"], ["preview", Image, "Preview"], ["terminal", Terminal, "Terminal"], ["browser", Globe, "Browser"], ["schedules", CalendarClock, "Schedule Task"], ["toolbox", Wrench, "Toolbox"], ["library", BookOpen, "Library"], ["progress", ListChecks, "Task progress"]] as const).filter(([key]) => (terminalAvailable || key !== "terminal") && (hasTaskProgress || key !== "progress"));
   return <aside className="session-workspace flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" aria-label={t("Session workspace")}>
     <div className="session-workspace-tabs" role="tablist" aria-label={t("Workspace views")} onKeyDown={event => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -76,7 +76,7 @@ export function SessionWorkspace({ client, threadId, active = true, asset, asset
     <div role="tabpanel" id={`${workspaceId}-panel-${tab}`} aria-labelledby={`${workspaceId}-tab-${tab}`} className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {stateOpened ? <div className={tab === "agent-state" ? "flex min-h-0 flex-1 flex-col" : "hidden"}><SessionAgentState key={threadId} client={client} agentId={threadId} gateway={gateway} connected={connected} /></div> : null}
       {notesOpened ? <div className={tab === "notes" ? "flex min-h-0 flex-1 flex-col" : "hidden"}><SessionNotes client={client} threadId={threadId} gateway={gateway} agents={noteAgents} connected={connected} /></div> : null}
-      {tab === "notes" || tab === "agent-state" ? null : tab === "toolbox" ? toolbox || <p className="p-4 text-sm">{t("Department tools are unavailable.")}</p> : tab === "progress" ? taskProgress : tab === "files" ? <>
+      {tab === "notes" || tab === "agent-state" ? null : tab === "library" ? library || <p className="p-4 text-sm">{t("No department could be identified for this chat.")}</p> : tab === "toolbox" ? toolbox || <p className="p-4 text-sm">{t("Department tools are unavailable.")}</p> : tab === "progress" ? taskProgress : tab === "files" ? <>
         {listing?.roots && listing.roots.length > 1 ? <label className="px-3 pt-2 text-xs text-white/60">{t("Project folder")}<select aria-label={t("Project folder")} className="mt-1 min-h-10 w-full min-w-0 rounded bg-[#152b35] px-2 text-xs" value={root || ""} disabled={busy} onChange={e => { setFile(null); onSelectAsset(null); void list("", e.target.value); }}>
           {listing.roots.map(folder => <option key={folder} value={folder}>{folder}</option>)}
         </select></label> : null}
@@ -100,7 +100,7 @@ export function SessionWorkspace({ client, threadId, active = true, asset, asset
         <a className="session-workspace-link" href={`codex://threads/${encodeURIComponent(threadId)}`}><ExternalLink size={15} />{t("Open in Codex")}</a>
       </div> : asset ? <SessionAssetPreview key={asset.url} asset={asset} embedded onClose={() => { onSelectAsset(null); setFile(null); setTab("files"); }} /> : file?.content !== undefined ? <>
         <div className="session-workspace-toolbar"><span className="min-w-0 flex-1 truncate text-xs text-white/55" title={file.path}>{file.path}</span><button type="button" disabled={busy} aria-label={t("Reload file")} onClick={() => void read(file.path)}><RefreshCw size={14} /></button></div>
-        <pre className="m-0 min-h-0 flex-1 overflow-auto p-4 text-xs leading-6 text-white/80"><code>{file.content}</code></pre>
+        <SaveToLibrary name={file.path.split("/").pop() || "document.txt"} content={file.content} /><pre className="m-0 min-h-0 flex-1 overflow-auto p-4 text-xs leading-6 text-white/80"><code>{file.content}</code></pre>
       </> : <div className="min-h-0 flex-1 overflow-auto p-3">
         <p className="mb-3 text-xs text-white/50">{t("Select a chat attachment or a project file to preview.")}</p>
         <div className="session-workspace-files">{assets.map(item => <button key={item.url} type="button" onClick={() => onSelectAsset(item)}><File size={15} /><span className="truncate">{item.name}</span></button>)}</div>

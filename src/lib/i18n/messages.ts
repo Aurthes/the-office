@@ -1,5 +1,8 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Save to Library": "保存到资料库",
+  "Open Library": "打开资料库",
+  "Preview snapshot is not available to save yet.": "当前预览内容尚无法保存。",
   "Delivery unconfirmed": "投递未确认",
   "Review": "查看",
   "Close review": "关闭查看",

@@ -3,7 +3,9 @@ import { htmlPreviewRuntime } from "./htmlPreviewRuntime";
 
 // Only embedded previews delegate data reads to the authenticated parent.
 // Keep the frame mounted, its CSP and its opaque sandbox intact.
-export function prepareHtmlPreview(html: string): string {
+export function prepareHtmlPreview(html: string, snapshot = false): string {
+  const raw = !snapshot ? "null" : JSON.stringify(html).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+  const snapshotScript = snapshot ? `<script data-claw3d-preview-refresh>addEventListener('message',e=>{if(e.source===parent&&e.data==='claw3d:snapshot-request')parent.postMessage({type:'claw3d:preview-snapshot',content:${raw}},'*')});</script>` : "";
   const removals: { start: number; end: number }[] = [];
   let delay = Infinity;
   const visit = (node: DefaultTreeAdapterMap["node"]) => {
@@ -20,11 +22,11 @@ export function prepareHtmlPreview(html: string): string {
   };
   const document = parse(html, { sourceCodeLocationInfo: true });
   visit(document);
-  if (!removals.length) return html;
+  if (!removals.length) return html + snapshotScript;
   for (const { start, end } of removals.sort((a, b) => b.start - a.start)) html = html.slice(0, start) + html.slice(end);
   // The source snapshot distinguishes server changes from interactive DOM that
   // the page created itself. Omit script payloads and escape HTML delimiters so
   // file content cannot terminate the generated bootstrap script.
   const initial = JSON.stringify(serialize(document)).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
-  return html + `<script data-claw3d-preview-refresh>(${htmlPreviewRuntime.toString()})(${initial},${delay})</script>`;
+  return html + snapshotScript + `<script data-claw3d-preview-refresh>(${htmlPreviewRuntime.toString()})(${initial},${delay})</script>`;
 }

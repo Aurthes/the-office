@@ -9,6 +9,8 @@ import type { CompanyProject } from "@/features/retro-office/core/companyLayout"
 import type { SessionVoiceController } from "./useSessionVoice";
 import { SessionControls, type LiveSessionItem, type SessionClient, type ReplySource } from "./SessionControls";
 import { SessionPreviewContext } from "./SessionPreviewContext";
+import { LibraryContext } from "./SaveToLibrary";
+import { SessionLibrary, sessionDepartment } from "./SessionLibrary";
 import { SessionToolbox } from "./SessionToolbox";
 import { SessionWorkspace } from "./SessionWorkspace";
 import { SessionListDivider } from "./SessionListDivider";
@@ -80,6 +82,9 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   const shownMessageTarget = messageTarget || (questionTarget?.ownerId === threadId ? questionTarget.target : null);
 
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [libraryInFlight] = useState(() => new Map<string, Promise<string | null>>());
+  const [librarySaved] = useState(() => new Set<string>());
+  const [libraryRequest, setLibraryRequest] = useState(0);
   const [progressRequest, setProgressRequest] = useState(0);
   const openTaskProgress = taskProgress ? () => { setPreviewAsset(null); setProgressRequest(value => value + 1); setWorkspaceOpen(true); onOpenWorkspace?.(); } : undefined;
   const [previewAsset, setPreviewAsset] = useState<SessionAsset | null>(null);
@@ -310,7 +315,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     event.currentTarget.closest("details")?.removeAttribute("open");
     setCharacterMode(mode);
   };
-  return <SessionPreviewContext.Provider value={openPreview}><section className="session-panel relative flex min-h-0 min-w-0 flex-1 flex-col text-white" aria-label={t("Codex session")}>
+  return <LibraryContext.Provider value={{ departmentId: sessionDepartment(threadId, organization, gateway), scope: `${gateway}:${threadId}`, saved: librarySaved, inFlight: libraryInFlight, open: () => { setLibraryRequest(n=>n+1); setWorkspaceOpen(true); onOpenWorkspace?.(); } }}><SessionPreviewContext.Provider value={openPreview}><section className="session-panel relative flex min-h-0 min-w-0 flex-1 flex-col text-white" aria-label={t("Codex session")}>
     {shownMessageTarget ? <SessionMessageLocation client={client} target={shownMessageTarget} onClose={messageTarget && onCloseMessage ? onCloseMessage : () => setQuestionTarget(null)} headerStart={headerStart} /> : null}
     <div inert={Boolean(shownMessageTarget)} aria-hidden={Boolean(shownMessageTarget)} className="flex min-h-0 flex-1 flex-col">
     <header className="session-panel-header flex shrink-0 items-center gap-2 border-b border-white/10 px-3 py-2">
@@ -394,10 +399,10 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onHistoryReset={onHistoryReset} onActiveTurnChange={setActiveTurnId} onRecoveryChange={setRecoveryStatus} onSendState={onSendState} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
     </div>
     {workspaceOpen ? <SessionListDivider pane="workspace" /> : null}
-    {workspaceOpen ? <SessionWorkspace key={threadId} noteAgents={noteAgents} gateway={gateway} connected={connected} toolbox={<SessionToolbox threadId={threadId} organization={organization} />} taskProgress={taskProgress} progressRequest={progressRequest} active={active && !shownMessageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
+    {workspaceOpen ? <SessionWorkspace libraryRequest={libraryRequest} key={`${gateway}:${threadId}`} noteAgents={noteAgents} gateway={gateway} connected={connected} library={<SessionLibrary threadId={threadId} organization={organization} gateway={gateway} />} toolbox={<SessionToolbox threadId={threadId} organization={organization} />} taskProgress={taskProgress} progressRequest={progressRequest} active={active && !shownMessageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
       assets={[...new Map(messages.flatMap(message => message.assets || []).map(asset => [asset.url, asset])).values()].slice(-40)}
       onSelectAsset={setPreviewAsset} onClose={() => setWorkspaceOpen(false)} /> : null}
     </div>
     </div>
-  </section></SessionPreviewContext.Provider>;
+  </section></SessionPreviewContext.Provider></LibraryContext.Provider>;
 }

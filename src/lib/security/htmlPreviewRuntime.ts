@@ -47,6 +47,7 @@ export function htmlPreviewRuntime(initialHtml: string, delay: number) {
         const x = window.scrollX, y = window.scrollY;
         patch(document.documentElement, previous.documentElement, next.documentElement);
         previous = next;
+        window.parent.postMessage({ type: "claw3d:preview-snapshot", content: event.data.html }, "*");
         window.scrollTo(x, y);
       }
     } finally { schedule(); }

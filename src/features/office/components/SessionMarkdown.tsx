@@ -10,6 +10,7 @@ import { useUiText } from "@/lib/i18n/ui-language";
 import { SessionPreviewContext } from "./SessionPreviewContext";
 import { SessionTaskContext } from "./SessionTaskContext";
 import { markdownCodeComponents } from "@/components/markdown-code-block";
+import { SaveToLibrary, LibraryContext } from "./SaveToLibrary";
 export { visibleUserText };
 
 function AssetImage({ src, name, onOpen, fullSize = false, thumbnail = false }: { src: string; name: string; onOpen: () => void; fullSize?: boolean; thumbnail?: boolean }) {
@@ -27,10 +28,12 @@ function AssetImage({ src, name, onOpen, fullSize = false, thumbnail = false }: 
 
 export function SessionAssetPreview({ asset, onClose, embedded = false }: { asset: SessionAsset; onClose: () => void; embedded?: boolean }) {
   const t = useUiText();
+  const library = useContext(LibraryContext);
   const dialog = useRef<HTMLDialogElement>(null);
   const htmlFrame = useRef<HTMLIFrameElement>(null);
   const [markdown, setMarkdown] = useState<{ content: string; assets: SessionAsset[] } | null>(null);
   const [error, setError] = useState("");
+  const [htmlSnapshot, setHtmlSnapshot] = useState<string | null>(null);
   const [fullSize, setFullSize] = useState(false);
   const [htmlLoading, setHtmlLoading] = useState(true);
   const [htmlSlow, setHtmlSlow] = useState(false);
@@ -68,10 +71,12 @@ export function SessionAssetPreview({ asset, onClose, embedded = false }: { asse
         if (!controller.signal.aborted && frame === htmlFrame.current?.contentWindow) frame.postMessage({ type: "claw3d:session-asset-update", html }, "*");
       }
     };
+    const snapshot = (event: MessageEvent) => { if (event.source === htmlFrame.current?.contentWindow && event.data?.type === 'claw3d:preview-snapshot' && typeof event.data.content === 'string' && event.data.content.length <= 20*1024*1024) setHtmlSnapshot(event.data.content); };
+    window.addEventListener("message", snapshot);
     window.addEventListener("message", refresh);
-    return () => { controller.abort(); window.removeEventListener("message", refresh); };
+    return () => { controller.abort(); window.removeEventListener("message", snapshot); window.removeEventListener("message", refresh); };
   }, [asset.kind, asset.url]);
-  const retryHtml = () => { setHtmlLoading(true); setHtmlSlow(false); setHtmlRetry(value => value + 1); };
+  const retryHtml = () => { setHtmlSnapshot(null); setHtmlLoading(true); setHtmlSlow(false); setHtmlRetry(value => value + 1); };
   useEffect(() => {
     if (asset.kind !== "markdown") return;
     const controller = new AbortController();
@@ -83,14 +88,15 @@ export function SessionAssetPreview({ asset, onClose, embedded = false }: { asse
     return () => controller.abort();
   }, [asset]);
   const content = <>
-    <header className="flex shrink-0 items-center gap-3 border-b border-white/15 px-4 py-2">
+    <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-white/15 px-4 py-2">
       <button type="button" onClick={onClose} className="min-h-11 shrink-0 rounded-lg px-3 text-sm text-cyan-100 hover:bg-white/10">{t(embedded ? "Back to files" : "← Back to chat")}</button>
       <span className="min-w-0 flex-1 truncate text-sm">{asset.name}</span>
       {asset.kind === "html" ? <a href={asset.url} target="_blank" rel="noopener noreferrer" onClick={onClose} className="shrink-0 rounded-lg px-2 py-3 text-xs text-cyan-100">{t("Open separately ↗")}</a> : null}
+      <SaveToLibrary name={asset.name} content={asset.kind === 'markdown' ? markdown?.content ?? null : asset.kind === 'html' ? htmlSnapshot : null} />
       <a href={asset.url} download={asset.name} className="shrink-0 rounded-lg px-3 py-3 text-xs text-white/60">{t("Download")}</a>
     </header>
     {asset.kind === "html" ? <div className="relative min-h-0 flex-1">
-      <iframe ref={htmlFrame} key={htmlRetry} src={asset.url + (asset.url.includes("?") ? "&" : "?") + "preview=1"} title={asset.name} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={() => setHtmlLoading(false)} className="h-full w-full border-0 bg-[#111923]" />
+      <iframe ref={htmlFrame} key={htmlRetry} src={asset.url + (asset.url.includes("?") ? "&" : "?") + ("preview=1" + (library?.departmentId ? "&snapshot=1" : ""))} title={asset.name} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={() => { setHtmlLoading(false); htmlFrame.current?.contentWindow?.postMessage("claw3d:snapshot-request", "*"); }} className="h-full w-full border-0 bg-[#111923]" />
       {error ? <p role="alert" className="absolute bottom-2 left-2 right-2 rounded bg-[#111923] px-3 py-2 text-xs text-amber-100">{t(error)}</p> : null}
       {htmlLoading ? <div className="absolute inset-0 flex items-center justify-center bg-[#111923] px-6 text-center">
         <div className="max-w-sm space-y-3">
