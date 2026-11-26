@@ -79,6 +79,7 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
   const setEdit = (value: TurnEdit | null) => { if (value) turnEditDrafts.set(threadId, value); else turnEditDrafts.delete(threadId); setEditState(value); };
   const historyEpoch = useRef<string | undefined>(undefined);
   const [acknowledgePending, setAcknowledgePending] = useState(false);
+  useEffect(() => { if (!(state?.userSends?.reviewCount ?? state?.userSends?.count)) setAcknowledgePending(false); }, [state?.userSends?.reviewCount, state?.userSends?.count]);
   const draftOwner = useRef(threadId);
   useLayoutEffect(() => { draftOwner.current = threadId; setAcknowledgePending(false); }, [threadId]);
   const [busy, setBusy] = useState(false);
@@ -427,7 +428,7 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
       {state.tokenUsage ? <SessionContextUsage usage={state.tokenUsage} /> : null}
     </SessionSettings> : null}
     {state?.userSends ? <SavedUserInputs key={threadId} client={client} threadId={threadId} summary={state.userSends} activeTurn={Boolean(state.activeTurnId)} disabled={busy || !state.connected} onRestore={restoreSavedInput} /> : null}
-    {state?.userSends?.count ? <label className="mb-2 flex items-start gap-2 text-amber-100"><input type="checkbox" checked={acknowledgePending} onChange={e=>setAcknowledgePending(e.target.checked)} /><span>{t('I understand earlier input is not confirmed; send this new message separately.')}</span></label> : null}
+    {(state?.userSends?.reviewCount ?? state?.userSends?.count) ? <label className="mb-2 flex items-start gap-2 text-amber-100"><input type="checkbox" checked={acknowledgePending} onChange={e=>setAcknowledgePending(e.target.checked)} /><span>{t('I understand earlier input is not confirmed; send this new message separately.')}</span></label> : null}
     {edit ? <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-300/20 p-2 text-amber-100" role="status">
       <span className="min-w-0 flex-1">{t("Editing the whole interrupted turn ({count} inputs). Resend rewinds its conversation history. File and code changes remain.", { count: edit.inputCount })}</span>
       <button type="button" disabled={busy} className="shrink-0 underline disabled:opacity-40" onClick={cancelEdit}>{t(edit.outcome ? "Discard edit" : "Cancel edit")}</button>

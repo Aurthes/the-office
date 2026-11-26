@@ -1,5 +1,10 @@
 // App-owned interface text only. Never pass names, messages, or question content here.
 export const ZH_CN: Record<string, string> = {
+  "Delivery unconfirmed": "投递未确认",
+  "Review": "查看",
+  "Close review": "关闭查看",
+  "Recorded in message history": "已记录在消息历史中",
+  "Saved input status changed; check history": "原输入状态已变化，请核对历史",
   "Input saved.": "输入已保存。",
   "Native receipt received.": "已收到原生接收回执。",
   "Not resent · Original confirmed in history": "未重发 · 原输入已在历史中确认",

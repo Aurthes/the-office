@@ -241,6 +241,7 @@ class CodexSessionControls {
       : null;
     state.activeTurnId = turn?.status === "inProgress" ? turn.id : null;
     if (state.activeTurnId) this.acceptNativeTurn(state, turn.id);
+    if (turn?.id && ['completed','failed','interrupted'].includes(turn.status)) this.options.userJournal?.terminal(id, turn.id);
     state.turnStatus = turn?.status || null; state.error = turn?.error?.message || this.interruptedNativeRetry(id, turn) || null;
     if (turn?.status === "completed" || (turn?.id && state.recovery.modelIssue?.turnId !== turn.id)) this.clearModelIssue(id);
     if (turn?.error && turn.status === "failed") this.modelIssue(id, turn.id, turn.error, false);
@@ -430,6 +431,7 @@ class CodexSessionControls {
   }
   async sendInput(id, text, requestId, attachments = [], { resumeInterrupted = false, onlyIfIdle = false, automaticRetry = null, references = [], replyContext = null, usage = null, editTransaction = null, userSend = null, journalPayload = null } = {}) {
     this.requireReady();
+    const userBoundary = userSend ? { epoch: this.state(id).historyEpoch, generation: this.generation(), stop: this.state(id).inputStopVersion || 0 } : null;
     if (editTransaction && this.state(id).editCommit !== editTransaction) throw new Error("This edit transaction is no longer current");
     const usageEntry = usage ? { ...usage, entryAt: Date.now(), entryId: requestId } : null;
     if (!automaticRetry && !onlyIfIdle) this.cancelRetry(id);
@@ -488,6 +490,7 @@ class CodexSessionControls {
     if (editTransaction) this.saveRecovery(id, { attempts: 0, stopped: false });
     if (userSend?.recoveryOf && this.options.userJournal.get(id, userSend.recoveryOf)?.state === 'confirmed') return this.options.userJournal.skipRecovery(id, requestId, userSend.recoveryOf);
     if (userSend?.recoveryOf && (active || !dispatch.turnStateKnown || dispatch.pendingSends > 1 || dispatch.editCommit || dispatch.editUncertain)) throw new Error('Execution changed before recovery dispatch. Input remains saved; inspect it before resending.');
+    if (userBoundary && (this.closed || userBoundary.epoch !== dispatch.historyEpoch || userBoundary.generation !== this.generation() || userBoundary.stop !== (dispatch.inputStopVersion || 0) || this.options.userJournal.unavailable || this.options.userJournal.get(id, requestId)?.state === 'unknown' || (!userSend.recoveryOf && !userSend.acknowledgeUnconfirmed && this.options.userJournal.reviewPending(id, requestId).length))) throw new Error('Delivery state changed before dispatch. Input remains saved; review it before sending.');
     const submittedAt = Date.now();
     this.options.replyContext?.prepare(id, requestId, replyContext || ((automaticRetry || resumeInterrupted) ? this.options.replyContext.current(id) : null), (automaticRetry || resumeInterrupted) ? "continue" : replyContext ? "handoff" : "user");
     const current = this.state(id);
@@ -624,7 +627,8 @@ class CodexSessionControls {
         if (result.status === "busy") return { status: "send_failed", message: "History was rewound; edited text was not sent because another turn or input became active. Keep this text and check the conversation before sending again." };
         return { ...result, status: "edited", historyEpoch: state.historyEpoch };
       } catch (error) {
-        this.saveRecovery(id, { stopped: true }); this.cancelRetry(id);
+        this.state(id).inputStopVersion = (this.state(id).inputStopVersion || 0) + 1;
+      this.saveRecovery(id, { stopped: true }); this.cancelRetry(id);
         return { status: typeof error.code === "number" ? "send_failed" : "send_unknown", message: `History was rewound; ${typeof error.code === "number" ? "edited text was rejected" : "edited text delivery was not confirmed"}. Keep this text and check the conversation before sending again. ${error.message}` };
       }
     } finally {
@@ -642,6 +646,7 @@ class CodexSessionControls {
       if (this.state(id).activeTurnId !== expectedTurnId) throw new Error("This execution changed. Refresh before stopping.");
       const retry = this.state(id).retry || this.state(id).autoStarting;
       if (retry) { retry.stopRequested = true; retry.interruptRequested = true; }
+      this.state(id).inputStopVersion = (this.state(id).inputStopVersion || 0) + 1;
       this.saveRecovery(id, { stopped: true }); this.cancelRetry(id);
       this.state(id).turnStateKnown = false;
       await this.client.call("turn/interrupt", { threadId: id, turnId: expectedTurnId });
@@ -649,6 +654,7 @@ class CodexSessionControls {
     }
     const retry = this.state(id).retry || this.state(id).autoStarting;
     if (retry) retry.stopRequested = true;
+    this.state(id).inputStopVersion = (this.state(id).inputStopVersion || 0) + 1;
     this.saveRecovery(id, { stopped: true });
     this.cancelRetry(id); if (!await this.attach(id)) await this.refreshTurn(id);
     const turnId = this.state(id).activeTurnId;
