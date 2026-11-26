@@ -32,7 +32,7 @@ export function useTeaserSolutions(client: SessionClient, gateway: string, getTa
           publish({ ...current, status: current.confirmedInHistory ? "accepted" : item.delivery!, item: current.confirmedInHistory ? { ...item, delivery: "accepted" } : item });
         },
       });
-      publish({ ...records.current.get(attempt.requestId)!, status: "accepted", outcome: receipt.status });
+      if (receipt.status !== "saved") publish({ ...records.current.get(attempt.requestId)!, status: "accepted", outcome: receipt.status });
     } catch { /* The shared primitive already classified the receipt, never retry. */ }
     return records.current.get(attempt.requestId)!;
   }, [client, gateway, getAttempt, getTarget, publish]);

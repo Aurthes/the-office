@@ -92,7 +92,7 @@ export function SessionNotes({ client, threadId, gateway, agents = [], connected
     busy.current = true; setDelivery({ status: "sending", name: recipient.name });
     try {
       const receipt = await sendSessionMessage(client, recipient.id, { requestId: crypto.randomUUID(), message, references: [], attachments: [] });
-      setDelivery({ status: "accepted", name: recipient.name, outcome: receipt.status });
+      setDelivery(receipt.status === "saved" ? { status: "unknown", name: recipient.name } : { status: "accepted", name: recipient.name, outcome: receipt.status });
     } catch (cause) {
       setDelivery({ status: cause instanceof SessionSendError ? cause.delivery : "unknown", name: recipient.name });
     } finally { busy.current = false; }

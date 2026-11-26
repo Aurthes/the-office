@@ -16,6 +16,7 @@ import { useSessionComposer } from "./useSessionComposer";
 import { Mention, MentionsInput } from "react-mentions-ts";
 import { ComposerTextarea } from "./ComposerTextarea";
 import { sendSessionMessage } from "./sessionSend";
+import { SavedUserInputs, savedInputDraft, savedAttachment, type SavedInputPayload, type UserSendSummary } from "./SavedUserInputs";
 import { prepareComposerMessage, referenceSerializer } from "./inlineReferences";
 
 export type SessionAsset = { source: string; name: string; kind: "image" | "markdown" | "html" | "file"; url: string; inline?: boolean; attached?: boolean };
@@ -31,7 +32,7 @@ export type SessionClient = {
   onGap?: (handler: (gap: { expected: number; received: number }) => void) => () => void;
 };
 type Approval = { requestId: string; method: string; params: Record<string, unknown>; details?: string; decisions: string[]; supported: boolean; submitted?: boolean };
-type Snapshot = RecoveryState & { historyEpoch?: string; connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; activeTurnStartedAt?: number | null; turnStatus?: string; error?: string | null; retryAt?: number | null; retrying?: boolean; retryExhausted?: boolean; settings?: ChatSettings; features?: { dictation: boolean; dictationHTTP?: boolean; dictationReason?: string | null; dictationRetryAt?: number | null; voice: boolean; prediction: boolean; accountVersion?: number; composer?: boolean; chatReferences?: boolean }; tokenUsage?: { last: { inputTokens: number; outputTokens: number }; modelContextWindow?: number | null }; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number; questions?: SessionQuestionRequest[] };
+type Snapshot = RecoveryState & { userSends?: UserSendSummary; historyEpoch?: string; connected: boolean; version: number; hasMore?: boolean; activeTurnId: string | null; activeTurnStartedAt?: number | null; turnStatus?: string; error?: string | null; retryAt?: number | null; retrying?: boolean; retryExhausted?: boolean; settings?: ChatSettings; features?: { dictation: boolean; dictationHTTP?: boolean; dictationReason?: string | null; dictationRetryAt?: number | null; voice: boolean; prediction: boolean; accountVersion?: number; composer?: boolean; chatReferences?: boolean }; tokenUsage?: { last: { inputTokens: number; outputTokens: number }; modelContextWindow?: number | null }; items: LiveSessionItem[]; approvals: Approval[]; approvalCount?: number; questions?: SessionQuestionRequest[] };
 type StreamSnapshot = Omit<Snapshot, "items"> & { threadId: string; subscriptionId: string;
   items: (LiveSessionItem | (Omit<LiveSessionItem, "content"> & { append: string; baseVersion: number }))[] };
 type Upload = { id: string; name: string; size: number; ref?: string; error?: string };
@@ -77,6 +78,9 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
   const [edit, setEditState] = useState<TurnEdit | null>(() => turnEditDrafts.get(threadId) || null);
   const setEdit = (value: TurnEdit | null) => { if (value) turnEditDrafts.set(threadId, value); else turnEditDrafts.delete(threadId); setEditState(value); };
   const historyEpoch = useRef<string | undefined>(undefined);
+  const [acknowledgePending, setAcknowledgePending] = useState(false);
+  const draftOwner = useRef(threadId);
+  useLayoutEffect(() => { draftOwner.current = threadId; setAcknowledgePending(false); }, [threadId]);
   const [busy, setBusy] = useState(false);
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [error, setError] = useState("");
@@ -319,6 +323,7 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
     if (actionBusy.current || settingsBusy || !state?.connected) return;
     actionBusy.current = true;
     setBusy(true); setError(""); setNotice(method === "session.edit.commit" ? "Rewinding the turn and waiting for receipt…" : "");
+    if (method === "session.send") params = { ...params, acknowledgeUnconfirmed: acknowledgePending };
     const send = method === "session.send" ? params as { requestId: string; message: string } : null;
     try {
       const result = send ? await sendSessionMessage(client, threadId, send, { historyEpoch: historyEpoch.current,
@@ -337,7 +342,7 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
         }
         onHistorySync?.();
       }
-      if (method === "session.send") { focusPending.current = true; setText(""); composer.clear(); if (!dictation.error) dictation.clear(); updateUploads([]); setNotice("Submitted to the session"); }
+      if (method === "session.send") { setAcknowledgePending(false); focusPending.current = true; setText(""); composer.clear(); if (!dictation.error) dictation.clear(); updateUploads([]); setNotice((result as { status?: string })?.status === "saved" ? "Input saved." : "Native receipt received."); }
       if (method === "session.compact") { setText(""); focusPending.current = true; setNotice("Context compaction requested"); }
       if (method === "session.rename") { setText(""); onRenamed?.((result as { name: string }).name); setNotice("Chat renamed"); }
       if (method === "session.new" || method === "session.fork") { setText(""); await onOpenThread?.((result as { threadId: string }).threadId); }
@@ -407,11 +412,22 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
     };
     return () => { dictatedSend.current = null; };
   });
+  const restoreSavedInput = (payload: SavedInputPayload) => {
+    if (draftOwner.current !== threadId) return;
+    if (actionBusy.current || edit || busy || settingsBusy || dictation.busy) throw new Error('Finish the current composer action before restoring saved input.');
+    if (uploadsRef.current.length + payload.attachments.filter(ref=>!uploadsRef.current.some(f=>f.ref===ref)).length > 8) throw new Error('Current draft and saved input have more than eight attachments. Copy the text or remove attachments before restoring.');
+    const recovered = savedInputDraft(payload), current = sessionDrafts.get(threadId) || '';
+    setText(current + (current && recovered ? '\n\n' : '') + recovered);
+    updateUploads([...uploadsRef.current,...payload.attachments.filter(ref=>!uploadsRef.current.some(f=>f.ref===ref)).map(savedAttachment)]);
+    focusPending.current = true;
+  };
   return <div onDragOver={event => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={event => { if (event.dataTransfer.files.length) { event.preventDefault(); void addFiles(Array.from(event.dataTransfer.files)); } }} className="max-h-[60dvh] shrink-0 overflow-y-auto border-t border-white/10 bg-[#111b27] p-3 text-xs [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))] md:px-4">
     <div className="mx-auto max-w-3xl">
     {state?.settings ? <SessionSettings key={`${threadId}:${state.features?.accountVersion || 0}:${settingsPanel?.nonce || ""}`} client={client} threadId={threadId} current={state.settings} disabled={busy || !state.connected || voice.status !== "off"} active={Boolean(state.activeTurnId)} onBusyChange={setSettingsBusy} initialPanel={settingsPanel?.kind}>
       {state.tokenUsage ? <SessionContextUsage usage={state.tokenUsage} /> : null}
     </SessionSettings> : null}
+    {state?.userSends ? <SavedUserInputs key={threadId} client={client} threadId={threadId} summary={state.userSends} activeTurn={Boolean(state.activeTurnId)} disabled={busy || !state.connected} onRestore={restoreSavedInput} /> : null}
+    {state?.userSends?.count ? <label className="mb-2 flex items-start gap-2 text-amber-100"><input type="checkbox" checked={acknowledgePending} onChange={e=>setAcknowledgePending(e.target.checked)} /><span>{t('I understand earlier input is not confirmed; send this new message separately.')}</span></label> : null}
     {edit ? <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-300/20 p-2 text-amber-100" role="status">
       <span className="min-w-0 flex-1">{t("Editing the whole interrupted turn ({count} inputs). Resend rewinds its conversation history. File and code changes remain.", { count: edit.inputCount })}</span>
       <button type="button" disabled={busy} className="shrink-0 underline disabled:opacity-40" onClick={cancelEdit}>{t(edit.outcome ? "Discard edit" : "Cancel edit")}</button>

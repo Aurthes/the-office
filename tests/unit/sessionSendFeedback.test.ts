@@ -56,7 +56,7 @@ it.each(["before", "after"])("shows immediately and reconciles canonical arrivin
   if (order === "before") await f.push([canonical]);
   await act(async () => f.sends[0].gate.resolve({ status: "steered", turnId: "turn" }));
   if (order === "after") {
-    expect(screen.getByText("Accepted · Waiting for message history")).toBeInTheDocument();
+    expect(screen.getByText("Native accepted · History not confirmed")).toBeInTheDocument();
     await f.push([canonical]);
   }
   expect(screen.getAllByText("Visible immediately", { selector: "p" })).toHaveLength(1);
@@ -157,7 +157,7 @@ it("keeps pending input across a concurrent first history read and cached hidden
   expect(screen.getByText("Same message", { selector: "p" })).toBeInTheDocument();
   f.view.rerender(React.createElement(ExistingSessionPanel, { ...f.props, active: false }));
   await act(async () => f.sends[0].gate.resolve({ status: "steered", turnId: "turn" }));
-  expect(screen.getByText(/Accepted · Waiting for message history/)).toBeInTheDocument();
+  expect(screen.getByText(/Native accepted · History not confirmed/)).toBeInTheDocument();
   f.history.push(f.canonical(0));
   f.view.rerender(React.createElement(ExistingSessionPanel, f.props));
   await f.push();

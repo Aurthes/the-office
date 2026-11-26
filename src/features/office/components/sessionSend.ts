@@ -1,12 +1,12 @@
 import type { LiveSessionItem, SessionClient } from "./SessionControls";
-export type SendReceipt = { status: "started" | "steered"; turnId: string };
+export type SendReceipt = { status: "started" | "steered" | "saved"; turnId?: string; journalId?: string; error?: string };
 export class SessionSendError extends Error {
   constructor(message: string, public delivery: "failed" | "unknown") { super(message); }
 }
 export function rejectedSessionSend(cause: unknown) {
   const message = cause instanceof Error ? cause.message : "";
   const code = cause && typeof cause === "object" && "code" in cause ? String(cause.code) : "";
-  return ["INVALID_REQUEST", "INVALID_PARAMS", "UNAUTHORIZED", "FORBIDDEN"].includes(code) ||
+  return ["INVALID_REQUEST", "INVALID_PARAMS", "UNAUTHORIZED", "FORBIDDEN", "USER_SEND_NOT_SAVED", "USER_SEND_CONFLICT", "USER_INPUT_UNCONFIRMED"].includes(code) ||
     /^(A previous rewind is still unconfirmed|An edit is being committed|Sign in to Codex for Office before sending|请发送不超过|每次最多 8 个附件|请先输入消息或添加附件|附件引用无效|附件不属于此会话|Message text must be a string|Invalid composer reference)/.test(message);
 }
 // Owns only normal-send RPC and exact pending-echo identity, never composer state.
@@ -18,6 +18,7 @@ export async function sendSessionMessage(client: SessionClient, threadId: string
   options.onSendState?.(threadId, local);
   try {
     const result = await client.call("session.send", { threadId, ...params }) as SendReceipt | null;
+    if (result?.status === "saved" && result.journalId === params.requestId) { options.onSendState?.(threadId, { ...local, delivery: "unknown", deliveryError: result.error || "Input is saved; review its delivery status below." }); options.onHistorySync?.(); return result; }
     if (!result || !["started", "steered"].includes(result.status) || typeof result.turnId !== "string" || !result.turnId) throw new SessionSendError("Could not confirm delivery. Check the conversation before sending again.", "unknown");
     options.onSendState?.(threadId, { ...local, delivery: "accepted", turnId: result.turnId }); options.onHistorySync?.();
     return result;
