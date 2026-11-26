@@ -6,7 +6,7 @@ export class SessionSendError extends Error {
 export function rejectedSessionSend(cause: unknown) {
   const message = cause instanceof Error ? cause.message : "";
   const code = cause && typeof cause === "object" && "code" in cause ? String(cause.code) : "";
-  return ["INVALID_REQUEST", "INVALID_PARAMS", "UNAUTHORIZED", "FORBIDDEN", "USER_SEND_NOT_SAVED", "USER_SEND_CONFLICT", "USER_INPUT_UNCONFIRMED"].includes(code) ||
+  return ["INVALID_REQUEST", "INVALID_PARAMS", "UNAUTHORIZED", "FORBIDDEN", "USER_SEND_NOT_SAVED", "USER_SEND_CONFLICT", "USER_INPUT_UNCONFIRMED", "SESSION_REFRESHING", "SESSION_REFRESH_INVALID", "SESSION_REFRESH_CANCELLED", "SESSION_VERSION_CHANGED"].includes(code) ||
     /^(A previous rewind is still unconfirmed|An edit is being committed|Sign in to Codex for Office before sending|请发送不超过|每次最多 8 个附件|请先输入消息或添加附件|附件引用无效|附件不属于此会话|Message text must be a string|Invalid composer reference)/.test(message);
 }
 // Owns only normal-send RPC and exact pending-echo identity, never composer state.

@@ -4,13 +4,14 @@ import type { SessionClient } from "./SessionControls";
 import { useUiText } from "@/lib/i18n/ui-language";
 
 export type MessageOccurrence = { messageId: string; itemId: string; turnId: string; turnCursor: string; snippet: string; snippetMatchRange: { start: number; end: number } };
-export type MessageSearchGroup = { threadId: string; name: string; project: string; archived: boolean; matches: MessageOccurrence[]; nextCursor: string | null };
+export type MessageSearchGroup = { conversationVersion?: number; readOnly?: boolean; threadId: string; name: string; project: string; archived: boolean; matches: MessageOccurrence[]; nextCursor: string | null };
 export type MessageSearchTarget = Omit<MessageSearchGroup, "matches" | "nextCursor"> & Omit<MessageOccurrence, "turnCursor"> & { turnCursor?: string; requestId: string };
 type Results = { groups: MessageSearchGroup[]; nextCursor: string | null };
 
 export function SearchSnippet({ text, range }: { text: string; range: { start: number; end: number } }) {
   return <>{text.slice(0, range.start)}<mark>{text.slice(range.start, range.end)}</mark>{text.slice(range.end)}</>;
 }
+const groupKey = (group: MessageSearchGroup) => `${group.threadId}:${group.conversationVersion ?? 1}`;
 const appendMatches = (before: MessageOccurrence[], after: MessageOccurrence[]) => [...new Map([...before, ...after].map(hit => [hit.messageId, hit])).values()];
 
 export function MessageSearchResults({ client, query, onOpenMessage }: { client: SessionClient; query: string; onOpenMessage: (target: MessageSearchTarget) => void }) {
@@ -37,13 +38,13 @@ export function MessageSearchResults({ client, query, onOpenMessage }: { client:
     const version = generation.current;
     setState(previous => ({ ...previous, busy: true, error: "" }));
     try {
-      const value = await client.call("session.search", { query: search, includeArchived, cursor: group?.nextCursor ?? state.nextCursor, ...(group ? { threadId: group.threadId } : {}) });
+      const value = await client.call("session.search", { query: search, includeArchived, cursor: group?.nextCursor ?? state.nextCursor, ...(group ? { threadId: group.threadId, conversationVersion: group.conversationVersion } : {}) });
       if (version !== generation.current) return;
       setState(previous => {
         if (previous.query !== search || previous.archived !== includeArchived) return previous;
-        if (group) { const result = value as MessageSearchGroup; return { ...previous, busy: false, groups: previous.groups.map(item => item.threadId === group.threadId ? { ...result, matches: appendMatches(item.matches, result.matches) } : item) }; }
-        const result = value as Results, groups = new Map(previous.groups.map(item => [item.threadId, item]));
-        for (const item of result.groups) { const old = groups.get(item.threadId); groups.set(item.threadId, old ? { ...item, matches: appendMatches(old.matches, item.matches) } : item); }
+        if (group) { const result = value as MessageSearchGroup; return { ...previous, busy: false, groups: previous.groups.map(item => groupKey(item) === groupKey(group) ? { ...result, matches: appendMatches(item.matches, result.matches) } : item) }; }
+        const result = value as Results, groups = new Map(previous.groups.map(item => [groupKey(item), item]));
+        for (const item of result.groups) { const old = groups.get(groupKey(item)); groups.set(groupKey(item), old ? { ...item, matches: appendMatches(old.matches, item.matches) } : item); }
         return { ...previous, busy: false, groups: [...groups.values()], nextCursor: result.nextCursor };
       });
     } catch (cause) { if (version !== generation.current) return; setState(previous => previous.query === search && previous.archived === includeArchived ? { ...previous, busy: false, error: cause instanceof Error ? cause.message : "Could not search messages. Please retry." } : previous); }
@@ -54,9 +55,9 @@ export function MessageSearchResults({ client, query, onOpenMessage }: { client:
     {current && search ? <>
       {state.error ? <p role="alert" className="directory-notice">{t(state.error)} <button type="button" className="underline" onClick={() => setRetry(value => value + 1)}>{t("Retry")}</button></p> : null}
       {!state.busy && !state.error && !state.groups.length ? <p className="directory-empty">{t("No matching messages.")}</p> : null}
-      {state.groups.map(group => <section className="directory-message-group" key={group.threadId}>
-        <h3><strong>{group.name}</strong>{group.archived ? <span>{t("Archived")}</span> : null}<small>{group.project}</small></h3>
-        {group.matches.map(hit => <button type="button" className="directory-message-hit" key={hit.messageId} onClick={() => onOpenMessage({ threadId: group.threadId, name: group.name, project: group.project, archived: group.archived, ...hit, requestId: crypto.randomUUID() })}>
+      {state.groups.map(group => <section className="directory-message-group" key={groupKey(group)}>
+        <h3><strong>{group.name}</strong>{group.archived ? <span>{t("Archived")}</span> : null}<small>{group.project}{group.readOnly ? ` · v${group.conversationVersion} · ${t("Read only")}` : ""}</small></h3>
+        {group.matches.map(hit => <button type="button" className="directory-message-hit" key={hit.messageId} onClick={() => onOpenMessage({ threadId: group.threadId, name: group.name, project: group.project, archived: group.archived, conversationVersion: group.conversationVersion, readOnly: group.readOnly, ...hit, requestId: crypto.randomUUID() })}>
           <SearchSnippet text={hit.snippet} range={hit.snippetMatchRange} />
         </button>)}
         {group.nextCursor ? <button type="button" className="directory-search-more" disabled={state.busy} onClick={() => void more(group)}>{t("More matches in {name}", { name: group.name })}</button> : null}

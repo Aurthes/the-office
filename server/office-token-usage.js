@@ -113,7 +113,7 @@ class OfficeTokenUsage {
   setRuntimeVersion(version) { this.nativeVersion = version; this.unavailable = version !== VERSION || Boolean(this.gaps.indexUnavailable); if (version !== VERSION) this.gap("unsupportedRuntimeVersion"); }
   gap(reason, source) { if (source) source.gaps[reason] = (source.gaps[reason] || 0) + 1; else this.gaps[reason] = (this.gaps[reason] || 0) + 1; }
   known() {
-    const roots = new Map(this.sessions().filter(s => id(s.codexThreadId) && id(s.id)).map(s => [s.codexThreadId, s]));
+    const roots = new Map(this.sessions().filter(s => id(s.id)).flatMap(s => [s.codexThreadId, ...(s.previousConversations || []).map(v => v.nativeThreadId)].filter(id).map(nativeId => [nativeId, s])));
     const visit = (nativeId, seen = new Set()) => {
       if (roots.has(nativeId)) return roots.get(nativeId);
       const source = this.sources[nativeId];

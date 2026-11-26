@@ -60,6 +60,7 @@ class CodexSessionWorkspace {
   }
   disconnected(ws) { this.listeners.delete(ws); }
   async start(row) {
+    this.options.assertAvailable?.(row.id);
     this.ready();
     if (this.starts.has(row.id)) return this.starts.get(row.id);
     if (this.terminals.get(row.id)?.running) return this.snapshot(row.id);
@@ -70,6 +71,7 @@ class CodexSessionWorkspace {
   async spawn(row) {
     const policy = this.options.commandExec ? this.options.policy(row.id) : undefined;
     const { root } = await this.target(row);
+    this.options.assertAvailable?.(row.id);
     const terminal = { threadId: row.id, handle: crypto.randomUUID(), output: Buffer.alloc(0), pending: Buffer.alloc(0), offset: 0, running: true, exitCode: null, timer: null, reset: false };
     this.terminals.set(row.id, terminal);
     // Match the browser xterm so shell line editors emit cursor movement and

@@ -104,3 +104,17 @@ it("reads an exact ordinary assistant output without exposing reasoning or tool 
  const result=await search.context({threadId:"current",turnId:"turn",itemId:"ordinary"});expect(result.messages).toMatchObject([{id:"turn:ordinary",role:"assistant",content:"plain assistant output"}]);
  for(const type of ["reasoning","commandExecution","plan"]){call.mockResolvedValue({data:[{turnId:"turn",item:{id:"ordinary",type,text:"PRIVATE",summary:["PRIVATE"],command:"PRIVATE"}}]});await expect(search.context({threadId:"current",turnId:"turn",itemId:"ordinary"})).rejects.toThrow("no longer available")}
 });
+
+it("retains original Q, per-version search and global search under the same employee after refresh", async () => {
+  const { search, call, store } = fixture();
+  Object.assign(store.data.sessions[0], { conversationVersion: 2, codexThreadId: "native-new", previousConversations: [{ version: 1, nativeThreadId: "native-current", turnIds: ["old-turn"] }] });
+  call.mockResolvedValueOnce({ data: [{ turnId: "old-turn", item: { id: "source", type: "userMessage", content: [{ type: "text", text: "original question" }] } }] });
+  expect(await search.context({ threadId: "current", turnId: "old-turn", itemId: "source" })).toMatchObject({ threadId: "current", conversationVersion: 1, readOnly: true, messages: [{ content: "original question" }] });
+  expect(call).toHaveBeenLastCalledWith("thread/items/read", { threadId: "native-current", turnId: "old-turn", itemIds: ["source"] });
+  call.mockResolvedValue({ data: [hit()], nextCursor: null });
+  const first = await search.search({ threadId: "current", query: "hello" });
+  expect(first.conversationVersion).toBe(2);
+  expect((await search.search({ threadId: "current", query: "hello", cursor: first.nextCursor })).conversationVersion).toBe(1);
+  await expect(search.context({ threadId: "current", turnId: "old-turn", itemId: "source", conversationVersion: 2 })).rejects.toThrow("mismatch");
+  await expect(search.search({ threadId: "archived", query: "hello", conversationVersion: 2 })).rejects.toThrow("unavailable");
+});

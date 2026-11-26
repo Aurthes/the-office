@@ -11,12 +11,17 @@ const { isDepartmentManager } = require("../src/lib/office/organization-structur
 const { CodexOfficeClient, officeEnvironment } = require("./codex-office-client");
 const { CodexOfficeAccount } = require("./codex-office-account");
 const { CodexOfficeStore } = require("./codex-office-store");
+const { CodexSessionRefresh } = require("./codex-session-refresh");
+const { refreshFacts } = require("./codex-session-refresh-facts");
+const { refreshIntent } = require("./codex-refresh-intent");
+const { version: conversationVersion } = require("./codex-conversations");
+const { OFFICE_CHAT_TOOLS } = require("./codex-session-composer");
 const { AgentStates } = require("./agent-state");
 const { CodexSessionControls } = require("./codex-session-controls");
 const { CodexSessionStream } = require("./codex-session-stream");
 const { CodexSessionWorkspace } = require("./codex-session-workspace");
 const { CodexOfficeVoice } = require("./codex-office-voice");
-const { loadSessionHistoryPage } = require("./codex-session-history");
+const { loadConversationHistoryPage } = require("./codex-session-history");
 const { createOfficeDictation } = require("./office-model-services");
 const { createOfficeVoicePreviews } = require("./office-voice-previews");
 const { CodexSessionPredictions } = require("./codex-session-predictions");
@@ -39,7 +44,7 @@ const { OfficeUserSends } = require("./office-user-sends");
 const { resendUserInput } = require("./office-user-send-recovery");
 const directory = officeEnvironment(path.resolve(process.env.CLAW3D_OFFICE_DATA_DIR || path.join(process.env.CLAW3D_DATA_DIR || path.join(os.homedir(), ".local/share/claw3d"), "office-runtime"))).home;
 const replyContext = new OfficeReplyContext(directory);
-const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer, todos, dictate, delegation, tokenUsage, delivery;
+const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer, todos, dictate, delegation, tokenUsage, delivery, refresh;
 let restoredSessionStates = Promise.resolve();
 const userSends = new OfficeUserSends(directory, { generation: () => native.scopeGeneration, changed: id => {
   if (!controls || !id) return;
@@ -99,7 +104,7 @@ store.onTurnDispatch = value => {
   const state = controls?.state(value.agentId);
   todos?.recordTurn(value, state?.lastTurnId === value.turnId ? state : store.get(value.agentId));
 };
-controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features, replyContext, usageMetadata: true, nativeGeneration: () => native.scopeGeneration, userJournal: userSends, nativeThread: id => store.get(id).codexThreadId, reconcileUserSends: id => reconcileUserSends(id),
+controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features, replyContext, usageMetadata: true, nativeGeneration: () => native.scopeGeneration, conversationVersion: id => store.conversationVersion(id), userJournal: userSends, nativeThread: id => store.get(id).codexThreadId, reconcileUserSends: id => reconcileUserSends(id),
   changed: id => { stream?.changed(id); changed(); setImmediate(() => delivery?.notify(id)); },
   editBlocked: id => voice?.active?.threadId === id || store.starting.has(id),
   history: {
@@ -134,14 +139,8 @@ const agents = () => {
   return store.list().map(row => ({ ...row, hasPendingSchedule: pending.has(row.id), status: controls.state(row.id).retry ? "running" : row.status, role: row.project, identity: { name: row.name, emoji: "💬" }, needsInput: Boolean(store.pendingQuestions(row.id).length || controls.questions(row.id).some(q => !q.submitted) || controls.approvalCount(row.id)) }));
 };
 const key = id => `agent:${id}:main`;
-const history = async (id, cursor, epoch) => {
-  const current = controls.state(id).historyEpoch;
-  if (cursor && epoch !== undefined && epoch !== current) throw new Error("History changed. Reload the latest messages.");
-  const result = await loadSessionHistoryPage(store.call.bind(store), store.get(id), cursor, replyContext);
-  if (controls.state(id).historyEpoch !== current) throw new Error("History changed during the read. Reload the latest messages.");
-  try { userSends.observe(id, result.messages, current, store.get(id).codexThreadId); } catch { userSends.unavailable = true; controls.state(id).version++; stream.changed(id); }
-  return { ...result, historyEpoch: current };
-};
+const history = (id, cursor, epoch, selectedVersion) => loadConversationHistoryPage({ store, controls, replyContext, userSends,
+  journalUnavailable: () => { controls.state(id).version++; stream.changed(id); } }, id, cursor, epoch, selectedVersion);
 async function reconcileUserSends(id) {
   let cursor; const epoch = controls.state(id).historyEpoch;
   for (let page = 0; page < 4 && userSends.blocked(id); page++) {
@@ -162,16 +161,16 @@ function scheduleInput(p) {
   return p;
 }
 schedules = new OfficeSchedules(directory, {
-  getSession: id => store.get(id), changed: () => { broadcast("schedules.updated", {}); changed(); },
+  getSession: id => store.get(id), dispatchAllowed: id => !refresh?.held(id) && !store.get(id).refreshNextRequest, changed: () => { broadcast("schedules.updated", {}); changed(); },
   canSend: async id => {
-    if (userSends.blocked(id) || reservation.held || !native.ready || store.isBusy(id) || store.starting.has(id) || store.pendingQuestions(id).length) return false;
+    if (refresh?.held(id) || userSends.blocked(id) || reservation.held || !native.ready || store.isBusy(id) || store.starting.has(id) || store.pendingQuestions(id).length) return false;
     await controls.attach(id); await controls.refreshTurn(id);
     if (store.isBusy(id) || controls.approvalCount(id) || controls.questions(id).some(q => !q.submitted)) return false;
     return (await account()).loggedIn;
   },
   send: (id, message, requestId, usage) => controls.send(id, message, requestId, [], { onlyIfIdle: true, usage }),
 });
-todos = new OfficeTodos(directory, { projects: () => store.projects(), agents, activeTurn: id => { const state = controls.states.get(id); return state?.turnStateKnown && !state.recovery.stopped ? state.activeTurnId : null; }, replyContext: id => controls.state(id).activeTurnId ? replyContext.forTask(id, controls.state(id).activeTurnId) : null, changed: id => broadcast("todos.updated", { id }) });
+todos = new OfficeTodos(directory, { projects: () => store.projects(), agents, activeTurn: id => { const state = controls.states.get(id); return state?.turnStateKnown && !state.recovery.stopped ? state.activeTurnId : null; }, replyContext: id => controls.state(id).activeTurnId ? replyContext.forTask(id, controls.state(id).activeTurnId) : null, changed: id => { broadcast("todos.updated", { id }); refresh?.workChanged(id, todos?.rows.get(id)); } });
 composer.todos = todos;
 replyContext.options.task = id => todos.raw(id);
 replyContext.options.recent = async id => (await history(id)).messages;
@@ -179,7 +178,11 @@ replyContext.options.source = async source => {
   const page = await messageSearch.context(source);
   return sourceOf(source.threadId, page.messages.find(item => item.id === page.messageId));
 };
-store.questionContext = (id, requestId) => replyContext.forModel(id, requestId);
+store.questionContext = (id, requestId) => {
+  const result = replyContext.forModel(id, requestId), row = store.get(id);
+  if (conversationVersion(row) > 1 && row.questionConversationVersion !== conversationVersion(row) && !replyContext.read(id).pending[requestId]?.context) return { ...result, answering: [], context: null };
+  return result;
+};
 const company = new OfficeCompany(store);
 store.companyContext = id => company.forTurn(id);
 const agentStates = new AgentStates(path.join(directory, "agent-states"), id => store.get(id));
@@ -221,7 +224,7 @@ delegation = new OfficeDelegation({ store, todos, company, stopping: () => stopp
     return !store.isBusy(id) && !store.starting.has(id) && !controls.state(id).retry;
   },
   canSend: async id => {
-    if (userSends.blocked(id) || reservation.held || stopping || !native.ready || store.isBusy(id) || store.starting.has(id)) return false;
+    if (refresh?.held(id) || userSends.blocked(id) || reservation.held || stopping || !native.ready || store.isBusy(id) || store.starting.has(id)) return false;
     await controls.attach(id); await controls.refreshTurn(id);
     return !store.isBusy(id) && !store.starting.has(id) && !controls.state(id).retry && !controls.state(id).recovery.stopped
       && !store.pendingQuestions(id).length && !controls.approvalCount(id) && !controls.questions(id).some(q => !q.submitted) && (await account()).loggedIn;
@@ -249,10 +252,53 @@ delivery = new OfficeDelivery({ directory,
   changed: id => broadcast("office.delivery", { recipientId: id }),
 });
 delegation.deliveryCoordinator = delivery;
+refresh = new CodexSessionRefresh({ store, native, controls, states: agentStates,
+  facts: (id, trigger) => refreshFacts({ store, controls, userSends, delivery, delegation, schedules, voice, workspace, todos, reservation, stopping: () => stopping }, id, trigger),
+  context: { tools: OFFICE_CHAT_TOOLS,
+    taskRelated: (row, id) => Boolean(row && (row.ownerId === id || row.assigneeId === id || row.phases.some(p => p.assigneeId === id || p.acceptanceManagerId === id) || (row.delegations || []).some(h => h.managerId === id || h.workerId === id))),
+    taskIds: id => [...todos.rows.values()].filter(row => row.ownerId === id || row.assigneeId === id || row.phases.some(p => p.assigneeId === id || p.acceptanceManagerId === id) || (row.delegations || []).some(h => h.managerId === id || h.workerId === id)).map(row => row.id),
+    packet: (row, saved, company, tasks) => store.contextPacket(row, {
+    tasks, company, agentState: { status: "available", ...saved }, questionContext: { answering: [], context: null, knownQuestions: [] },
+  }) },
+  committed: (id, epoch) => { controls.refreshed(id, epoch); predictions.cache.delete(id); broadcast("session.historyReset", { threadId: id, historyEpoch: epoch }); stream.changed(id); },
+  changed: (id, operation) => { broadcast("session.refresh", { threadId: id, operation }); changed(); setImmediate(() => delivery.notify(id)); },
+});
+store.refreshFence = id => refresh.held(id);
+controls.options.refreshBlocked = (id, requestId) => refresh.sendAllowed(id, requestId) ? false : refresh.held(id)
+  ? "Session refresh is preparing. Nothing was sent; keep your draft." : "The exact next-topic message is reserved. Check refresh status or use Stop before sending another message.";
+controls.options.assertRefreshAvailable = id => refresh.assertAvailable(id);
+controls.options.cancelRefresh = id => refresh.cancel(id);
+controls.options.refreshSettled = (id, requestId) => refresh.settleTrigger(id, requestId);
+workspace.options.assertAvailable = id => refresh.assertAvailable(id);
+const automaticRefresh = async (id, intent, requestId, sourceHash, queued = false) => {
+  intent = refreshIntent(intent); if (!intent) return null;
+  const row = store.get(id), cp = row.refreshCheckpoint;
+  if (!cp || cp.id !== intent.checkpointId) { if (!queued) throw Object.assign(new Error("This new-topic checkpoint is no longer current. Nothing was sent; review State and keep your draft."), { code: "SESSION_REFRESH_INVALID" }); return { status: "skipped", reason: "No matching explicit checkpoint; current conversation kept." }; }
+  const operationId = "auto-" + crypto.createHash("sha256").update(id + ":" + requestId).digest("hex").slice(0, 48);
+  const previous = row.refreshOperations?.[operationId];
+  if (previous?.triggerCancelled) return { status: "skipped", reason: "This checkpoint intent was cancelled by Stop; current conversation kept." };
+  const result = await refresh.refresh({ threadId: id, requestId: operationId, mode: "automatic", expectedVersion: cp.version, stateRevision: cp.stateRevision,
+    checkpointId: cp.id, independentNewTopic: true, triggerRequestId: requestId, triggerHash: sourceHash, ...(intent.nextScope ? { nextScope: intent.nextScope } : {}) });
+  if (result.triggerCancelled) throw Object.assign(new Error("Stop cancelled this pending new-topic request. Nothing was sent; keep your draft."), { code: "SESSION_REFRESH_CANCELLED" });
+  return result;
+};
+delivery.dispatchAllowed = (id, originalId) => !refresh.held(id) && (originalId === undefined || !store.get(id).refreshNextRequest || store.get(id).refreshNextRequest.id === originalId && !store.get(id).refreshNextRequest.dispatchRequestId);
+delivery.beforeRefreshDispatch = (id, source) => automaticRefresh(id, source.refreshIntent, source.id, source.hash, true);
+delivery.claimRefreshTrigger = (id, originalId, dispatchId) => refresh.claimTrigger(id, originalId, dispatchId);
+delivery.settleRefreshTrigger = (id, requestId) => refresh.settleTrigger(id, requestId);
+
 const methods = {
+  "session.refresh.status": p => refresh.status(p.threadId || p.actorId, p.requestId),
+  "session.refresh.checkpoint": p => refresh.checkpoint({ ...p, threadId: p.threadId || p.actorId }),
+  "session.refresh": p => { if (p.mode && p.mode !== "manual") throw new Error("Automatic refresh is bound internally to one actual send request"); return refresh.refresh({ ...p, mode: "manual", threadId: p.threadId || p.actorId }); },
   "agent.state.get": p => { store.get(p.actorId); return agentStates.read(p.agentId ?? p.actorId); },
   "agent.state.save": p => agentStates.save(p.actorId, { sections: p.sections, revision: p.revision }),
-  "question.context": p => { store.get(p.actorId); return replyContext.context(p.actorId, p); },
+  "question.context": async p => {
+    const row = store.get(p.actorId), selected = Boolean(p.answering || p.questions?.length);
+    const result = await replyContext.context(p.actorId, p);
+    if (selected) { row.questionConversationVersion = conversationVersion(row); store.save(); }
+    return !selected && conversationVersion(row) > 1 && row.questionConversationVersion !== conversationVersion(row) ? { ...result, answering: [], context: null } : result;
+  },
   "todo.organization": p => company.context(p.actorId, p),
   "todo.department_assets": p => company.departmentAssets(p),
   "todo.recruit": p => company.recruit(p),
@@ -351,7 +397,7 @@ const methods = {
   "sessions.list": async p => ({ sessions: store.list().filter(r => !p.agentId || p.agentId === r.id).map(r => ({ key: key(r.id), displayName: r.name, updatedAt: r.updatedAt, model: r.model, thinkingLevel: r.effort })) }),
   "sessions.preview": async p => ({ ts: Date.now(), previews: (p.keys || []).map(key => ({ key, status: "empty", items: [] })) }),
   "chat.history": async p => ({ sessionKey: p.sessionKey, ...await history(String(p.sessionKey).split(":")[1], p.cursor) }),
-  "session.history": p => history(p.threadId, p.cursor, p.historyEpoch),
+  "session.history": p => history(p.threadId, p.cursor, p.historyEpoch, p.conversationVersion),
   "session.search": p => messageSearch.search(p),
   "session.messageContext": p => messageSearch.context(p),
   "session.inspect": async p => { store.get(p.threadId); return { ...store.list().find(row => row.id === p.threadId), historyEpoch: controls.state(p.threadId).historyEpoch, statusSource: "Office Codex runtime", runtime: "office", terminalAvailable: true, readOnly: false, controlsAvailable: native.ready, ...(p.includeHistory === false ? {} : await history(p.threadId)) }; },
@@ -379,7 +425,10 @@ const methods = {
       return delivery.enqueue({ ...p, recipient: p.threadId, message,
         originalMessage: p.message, sender: { source: "agent", id: sender.id, name: sender.name }, context });
     }
-    const message = directMessage(store, p); const usage = { ...userUsage(p.sourcePurpose), ...(p.actorId ? { senderId: p.actorId, trigger: "agentMessage" } : {}) }; store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, message, p.requestId, p.attachments, { references: p.references || [], usage, userSend: { sourcePurpose: p.sourcePurpose ?? null, acknowledgeUnconfirmed: p.acknowledgeUnconfirmed === true } }); store.clearQuestions(p.threadId, pending); return result; },
+    const message = directMessage(store, p), admission = refresh.inputBoundary(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending");
+    refresh.assertInputBoundary(p.threadId, admission);
+    const refreshResult = p.refreshIntent ? await automaticRefresh(p.threadId, p.refreshIntent, p.requestId, crypto.createHash("sha256").update(JSON.stringify({ message: p.message, attachments: p.attachments || [], references: p.references || [], sourcePurpose: p.sourcePurpose ?? null })).digest("hex")) : null;
+    const usage = { ...userUsage(p.sourcePurpose), ...(p.actorId ? { senderId: p.actorId, trigger: "agentMessage" } : {}) }; store.get(p.threadId); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, message, p.requestId, p.attachments, { references: p.references || [], usage, userSend: { sourcePurpose: p.sourcePurpose ?? null, acknowledgeUnconfirmed: p.acknowledgeUnconfirmed === true } }); store.clearQuestions(p.threadId, pending); return { ...result, ...(refreshResult ? { refresh: refreshResult } : {}) }; },
   "session.edit.prepare": p => { store.get(p.threadId); return controls.prepareEdit(p.threadId); },
   "session.edit.commit": async p => {
     store.get(p.threadId);
@@ -460,15 +509,17 @@ wss.on("connection", (ws, req) => {
         if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) throw new Error("Invalid gateway token");
         if (!native.ready) throw new Error("Office Codex is starting");
         connected = true; clients.add(ws);
-        result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "office-codex-1", connId: crypto.randomUUID() }, features: { methods: Object.keys(methods), events: ["tick", "session.stream", "session.historyReset", "session.terminal", "session.voice", "roster.updated", "project.updated", "office.account", "session.prediction", "schedules.updated", "todos.updated"] }, snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: store.list()[0]?.id }, sessionDefaults: { mainKey: "main" } }, auth: { role: "operator", scopes: ["operator.read", "operator.write", "operator.approvals"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
+        result = { type: "hello-ok", protocol: 3, adapterType: "openclaw", server: { version: "office-codex-1", connId: crypto.randomUUID() }, features: { methods: Object.keys(methods), events: ["tick", "session.stream", "session.historyReset", "session.refresh", "session.terminal", "session.voice", "roster.updated", "project.updated", "office.account", "session.prediction", "schedules.updated", "todos.updated"] }, snapshot: { health: { agents: agents().map(r => ({ agentId: r.id, name: r.name })), defaultAgentId: store.list()[0]?.id }, sessionDefaults: { mainKey: "main" } }, auth: { role: "operator", scopes: ["operator.read", "operator.write", "operator.approvals"] }, policy: { maxPayload: 262144, maxBufferedBytes: 1048576, tickIntervalMs: 30000, requestTimeoutMs: 20000 } };
       } else {
         if (!connected) throw new Error("Connect first");
         if (!Object.hasOwn(methods, frame.method)) throw new Error("This feature is not available in Office");
+        const params = frame.params || {};
+        if (params.threadId && !(frame.method === "session.send" && params.actorId) && ["session.send", "session.sends.resend", "session.edit.prepare", "session.edit.commit", "session.compact", "session.continue", "session.settings.update", "session.voice.start", "session.terminal.start", "session.rename", "session.reassign", "session.archive", "session.fork", "session.new"].includes(frame.method)) refresh.assertAvailable(params.threadId);
         result = await methods[frame.method](frame.params || {}, ws);
         if (frame.params?.threadId) stream.changed(frame.params.threadId);
       }
       send({ type: "res", id: frame.id, ok: true, payload: result });
-    } catch (error) { send({ type: "res", id: frame.id, ok: false, error: { code: "UNAVAILABLE", message: error.message } }); }
+    } catch (error) { send({ type: "res", id: frame.id, ok: false, error: { code: ["SESSION_REFRESHING", "SESSION_REFRESH_CANCELLED", "SESSION_REFRESH_INVALID", "SESSION_VERSION_CHANGED"].includes(error.code) ? error.code : "UNAVAILABLE", message: error.message } }); }
   });
   ws.on("close", () => { clients.delete(ws); voice.disconnected(ws); stream.disconnected(ws); workspace.disconnected(ws); }); ws.on("error", () => { clients.delete(ws); voice.disconnected(ws); stream.disconnected(ws); workspace.disconnected(ws); });
 });

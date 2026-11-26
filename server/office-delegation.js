@@ -93,9 +93,9 @@ class OfficeDelegation {
         returnedForChanges: entry.state === "working" && entry.review?.accepted === false };
       const source = { id: entry.delivery.requestId, recipient: entry.delivery.recipientId,
         sender: entry.delivery.sender, message: taskNotification(row, entry, entry.phaseId),
-        context, taskId: row.id, phaseId: entry.phaseId, handoffId: entry.id,
+        context, ...(entry.delivery.refreshIntent ? { refreshIntent: entry.delivery.refreshIntent } : {}), taskId: row.id, phaseId: entry.phaseId, handoffId: entry.id,
         createdAt: entry.createdAt, state: entry.delivery.state, error: entry.delivery.error, ...urgency(entry.delivery) };
-      return { ...source, hash: hash({ message: source.message, context, handoffId: entry.id, sender: source.sender, urgency: source.urgency, urgentReason: source.urgentReason }) };
+      return { ...source, hash: hash({ message: source.message, context, handoffId: entry.id, sender: source.sender, urgency: source.urgency, urgentReason: source.urgentReason, ...(source.refreshIntent ? { refreshIntent: source.refreshIntent } : {}) }) };
     }));
   }
   async deliver(id, phaseId) {

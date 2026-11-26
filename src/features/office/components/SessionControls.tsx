@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Headphones, Mic, Paperclip, PencilLine, Play, Square, X } from "lucide-react";
+import type { RefreshIntent } from "./SessionRefresh";
 import { SessionSettings, type ChatSettings } from "./SessionSettings";
 import { SessionContextUsage } from "./SessionContextUsage";
 import { useSessionVoice, type SessionVoiceController } from "./useSessionVoice";
@@ -42,9 +43,11 @@ const attachmentDrafts = new Map<string, Upload[]>();
 type TurnEdit = { token: string; turnId: string; inputCount: number; originalText: string; originalUploads: Upload[]; outcome?: string };
 const turnEditDrafts = new Map<string, TurnEdit>();
 
-export function SessionControls({ client, threadId, active = true, onItems, onHistorySync, onHistoryReset, onActiveTurnChange, onRecoveryChange, onSendState, voice: sharedVoice, onOpenThread, onRenamed, onFork }: {
+export function SessionControls({ client, threadId, active = true, onItems, onHistorySync, onHistoryReset, onActiveTurnChange, onRecoveryChange, onSendState, voice: sharedVoice, onOpenThread, onRenamed, onFork, refreshIntent, onRefreshIntentConsumed }: {
   client: SessionClient;
   active?: boolean;
+  refreshIntent?: RefreshIntent;
+  onRefreshIntentConsumed?: () => void;
   threadId: string; onItems: (items: LiveSessionItem[]) => void;
   onHistorySync?: () => void;
   onHistoryReset?: (epoch: string) => void;
@@ -324,7 +327,11 @@ export function SessionControls({ client, threadId, active = true, onItems, onHi
     if (actionBusy.current || settingsBusy || !state?.connected) return;
     actionBusy.current = true;
     setBusy(true); setError(""); setNotice(method === "session.edit.commit" ? "Rewinding the turn and waiting for receipt…" : "");
-    if (method === "session.send") params = { ...params, acknowledgeUnconfirmed: acknowledgePending };
+    if (method === "session.send") {
+      params = { ...params, acknowledgeUnconfirmed: acknowledgePending, ...(refreshIntent ? { refreshIntent } : {}) };
+      // Consume before the RPC: transport uncertainty must not mark another send.
+      if (refreshIntent) onRefreshIntentConsumed?.();
+    }
     const send = method === "session.send" ? params as { requestId: string; message: string } : null;
     try {
       const result = send ? await sendSessionMessage(client, threadId, send, { historyEpoch: historyEpoch.current,

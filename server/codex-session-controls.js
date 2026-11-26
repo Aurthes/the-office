@@ -186,13 +186,15 @@ class CodexSessionControls {
   }
   async attach(id) {
     this.requireReady();
+    const conversation = this.options.conversationVersion?.(id);
     if (!this.attaching.has(id)) {
       // Native resume rejoins a loaded thread or restores the same stored
       // thread. Omit overrides so Codex restores its tools and configuration.
       const entry = { ready: false };
       entry.pending = this.client.call("thread/resume", { threadId: id, excludeTurns: true }).then(async result => {
+        if (conversation !== this.options.conversationVersion?.(id)) return;
         if (!this.state(id).settings) this.saveSettings(id, result);
-        await this.refreshTurn(id); entry.ready = true;
+        await this.refreshTurn(id); if (conversation === this.options.conversationVersion?.(id)) entry.ready = true;
       }).catch(error => { if (this.attaching.get(id) === entry) this.attaching.delete(id); throw error; });
       this.attaching.set(id, entry);
     }
@@ -215,6 +217,7 @@ class CodexSessionControls {
     return sessionChoices(this.client, this.state(id).cwd);
   }
   async updateSettings(id, input) {
+    this.options.assertRefreshAvailable?.(id);
     if (this.options.settings) { const result = await this.options.settings.update(id, input); this.saveSettings(id, {}); return result; }
     const choices = await this.choices(id);
     if (!this.state(id).settings) throw new Error("原会话设置尚未就绪");
@@ -227,11 +230,11 @@ class CodexSessionControls {
   async refreshTurn(id) {
     const state = this.state(id);
     if (state.startDispatch) return;
-    const version = state.turnVersion;
+    const version = state.turnVersion, conversation = this.options.conversationVersion?.(id);
     const result = await this.client.call("thread/turns/list", { threadId: id, limit: 1, itemsView: "notLoaded", sortDirection: "desc" });
     // Token usage, questions and item updates do not supersede a turn read.
     // Only newer lifecycle, model fault or model output can make its status obsolete.
-    if (state.turnVersion !== version) return;
+    if (state.turnVersion !== version || this.states.get(id) !== state || conversation !== this.options.conversationVersion?.(id)) return;
     state.turnStateKnown = true;
     const turn = result.data[0];
     state.lastTurnId = turn?.id;
@@ -391,25 +394,30 @@ class CodexSessionControls {
       }) };
   }
   async send(id, text, requestId, attachments = [], options = {}) {
+    const refreshBlock = this.options.refreshBlocked?.(id, requestId);
+    if (refreshBlock) {
+      if (options.userSend) throw Object.assign(new Error(typeof refreshBlock === "string" ? refreshBlock : "Session refresh is preparing. Nothing was sent; keep your draft."), { code: "SESSION_REFRESHING" });
+      return { status: options.automaticRetry ? "cancelled" : "busy" };
+    }
     const journal = this.options.userJournal;
     if (!options.userSend || !journal) {
       if (journal?.blocked(id)) { if (options.resumeInterrupted) throw Object.assign(new Error('Earlier user input is not confirmed. Review saved messages before continuing.'), { code: 'USER_INPUT_UNCONFIRMED' }); return { status: options.automaticRetry ? 'cancelled' : 'busy' }; }
-      return this.sendCore(id, text, requestId, attachments, options);
+      return this.sendCore(id, text, requestId, attachments, options).then(result => { if (result?.turnId) this.options.refreshSettled?.(id, requestId); return result; });
     }
     const payload = { message: text, attachments, references: options.references || [], sourcePurpose: options.userSend.sourcePurpose ?? null };
     const previous = journal.check(id, requestId, payload);
     const inFlight = this.userSending.get(requestId);
     if (inFlight) { if (inFlight.threadId !== id || (inFlight.recoveryOf || null) !== (options.userSend.recoveryOf || null) || inFlight.hash !== crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex')) throw new Error('Send request ID has different content'); return inFlight.promise; }
-    if (previous) { if ((previous.recoveryOf || null) !== (options.userSend.recoveryOf || null)) throw Object.assign(new Error('Send request ID has a different recovery intent'), { code: 'USER_SEND_CONFLICT' }); return journal.receipt(previous); }
+    if (previous) { this.options.refreshSettled?.(id, requestId); if ((previous.recoveryOf || null) !== (options.userSend.recoveryOf || null)) throw Object.assign(new Error('Send request ID has a different recovery intent'), { code: 'USER_SEND_CONFLICT' }); return journal.receipt(previous); }
     const promise = this.sendCore(id, text, requestId, attachments, { ...options, journalPayload: payload }).then(result => {
       if (!['started','steered'].includes(result.status)) return result;
-      journal.accepted(id, requestId, result, this.options.nativeThread?.(id)); const state = this.state(id);
+      journal.accepted(id, requestId, result, this.options.nativeThread?.(id)); this.options.refreshSettled?.(id, requestId); const state = this.state(id);
       if (state.turnStateKnown && state.lastTurnId === result.turnId && !state.activeTurnId && ['completed','failed','interrupted'].includes(state.turnStatus)) journal.terminal(id,result.turnId);
       return result;
     }).catch(error => {
       const saved = journal.get(id, requestId); if (!saved) throw error;
       if (saved.state === 'confirmed') return journal.receipt(saved);
-      try { journal.unknown(id, requestId); } catch { journal.unavailable = true; }
+      try { journal.unknown(id, requestId); this.options.refreshSettled?.(id, requestId); } catch { journal.unavailable = true; }
       this.options.changed?.(id);
       return { status: 'saved', journalId: requestId, error: 'Input is saved, but native delivery is unconfirmed. Review saved messages.' };
     }).finally(() => this.userSending.delete(requestId));
@@ -536,6 +544,15 @@ class CodexSessionControls {
     }
     return entry.result = { status: active ? "steered" : "started", turnId };
   }
+  refreshed(id, historyEpoch) {
+    const before = this.state(id);
+    this.cancelRetry(id); this.attaching.delete(id); this.states.delete(id);
+    for (const [key, request] of this.requests) if (request.params?.threadId === id) this.requests.delete(key);
+    const state = this.state(id);
+    Object.assign(state, { historyEpoch, version: before.version + 1, turnVersion: before.turnVersion + 1,
+      turnStateKnown: true, settings: before.settings, cwd: before.cwd, predictionContext: before.predictionContext });
+    this.options.changed?.(id);
+  }
   resetHistory(id, targetTurnId) {
     const state = this.state(id);
     this.cancelRetry(id);
@@ -570,6 +587,7 @@ class CodexSessionControls {
     return false;
   }
   async prepareEdit(id) {
+    this.options.assertRefreshAvailable?.(id);
     this.requireReady();
     const state = this.state(id);
     if (state.editUncertain && !await this.reconcileEdit(id)) throw new Error("The previous rewind is not confirmed. Check the conversation before editing again.");
@@ -585,6 +603,7 @@ class CodexSessionControls {
     return { token: prepared.token, turnId: input.turnId, text: input.text, inputCount: input.inputCount };
   }
   async commitEdit(id, { token, message, requestId }) {
+    this.options.assertRefreshAvailable?.(id);
     this.requireReady();
     // Validate everything recoverable before the destructive RPC.
     await messageInput(message, [], id);
@@ -637,6 +656,7 @@ class CodexSessionControls {
     }
   }
   async stop(id, expectedTurnId) {
+    this.options.cancelRefresh?.(id);
     this.requireReady();
     if (this.state(id).editCommit) throw new Error("Wait for the edit to finish before stopping.");
     // Task controls carry the observed turn: a late click cannot stop newer work.
@@ -665,6 +685,7 @@ class CodexSessionControls {
     return { status: "interruptRequested", turnId };
   }
   async compact(id) {
+    this.options.assertRefreshAvailable?.(id);
     this.requireReady();
     if (this.state(id).editCommit || this.state(id).editUncertain) throw new Error("Finish or reconcile the edit before compacting."); if (!await this.attach(id)) await this.refreshTurn(id);
     if (this.state(id).activeTurnId) throw new Error("Wait for the current task to finish before compacting");

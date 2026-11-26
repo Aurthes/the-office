@@ -11,9 +11,9 @@ const nextInvocation = task => task.invocations.find(time => task.lastInvocation
 // One scheduler belongs to the Office gateway, independent of browser clients.
 // Persist the claim before sending. An ambiguous send is never retried blindly.
 class OfficeSchedules {
-  constructor(directory, { getSession, canSend, send, changed = () => {}, now = Date.now }) {
+  constructor(directory, { getSession, canSend, dispatchAllowed = () => true, send, changed = () => {}, now = Date.now }) {
     this.file = path.join(directory, "scheduled-tasks.json");
-    this.getSession = getSession; this.canSend = canSend; this.send = send; this.changed = changed; this.now = now;
+    this.dispatchAllowed = dispatchAllowed; this.getSession = getSession; this.canSend = canSend; this.send = send; this.changed = changed; this.now = now;
     this.data = fs.existsSync(this.file) ? JSON.parse(fs.readFileSync(this.file, "utf8")) : { version: 1, tasks: [] };
     if (this.data.version !== 1 || !Array.isArray(this.data.tasks)) throw new Error("Invalid scheduled task state; refusing to overwrite it");
     this.completions = new Map(); this.ticking = false; this.closed = false;
@@ -167,7 +167,7 @@ class OfficeSchedules {
         // Read-only checks may yield. Recheck ownership after edits/deletion.
         let ready;
         try { ready = await this.canSend(run.threadId); } catch { continue; }
-        if (this.closed || !this.data.tasks.includes(task) || latest(task) !== run || !ready) continue;
+        if (this.closed || !this.data.tasks.includes(task) || latest(task) !== run || !ready || !this.dispatchAllowed(run.threadId)) continue;
         run.status = "dispatching"; run.startedAt = this.now();
         if (!run.manual && specified(task)) {
           task.lastInvocationAt = Math.max(task.lastInvocationAt ?? -1, run.scheduledAt);

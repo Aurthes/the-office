@@ -9,6 +9,7 @@ import type { CompanyProject } from "@/features/retro-office/core/companyLayout"
 import type { SessionVoiceController } from "./useSessionVoice";
 import { SessionControls, type LiveSessionItem, type SessionClient, type ReplySource } from "./SessionControls";
 import { SessionPreviewContext } from "./SessionPreviewContext";
+import { SessionRefresh, type RefreshIntent } from "./SessionRefresh";
 import { SessionToolbox } from "./SessionToolbox";
 import { SessionWorkspace } from "./SessionWorkspace";
 import { SessionListDivider } from "./SessionListDivider";
@@ -79,6 +80,9 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   const [questionTarget, setQuestionTarget] = useState<{ ownerId: string; target: MessageSearchTarget } | null>(null);
   const shownMessageTarget = messageTarget || (questionTarget?.ownerId === threadId ? questionTarget.target : null);
 
+  const [refreshOpen, setRefreshOpen] = useState(false);
+  const [nextTopic, setNextTopic] = useState<{ ownerId: string; intent: RefreshIntent } | null>(null);
+  const nextIntent = nextTopic?.ownerId === threadId ? nextTopic.intent : undefined;
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [progressRequest, setProgressRequest] = useState(0);
   const openTaskProgress = taskProgress ? () => { setPreviewAsset(null); setProgressRequest(value => value + 1); setWorkspaceOpen(true); onOpenWorkspace?.(); } : undefined;
@@ -312,7 +316,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   };
   return <SessionPreviewContext.Provider value={openPreview}><section className="session-panel relative flex min-h-0 min-w-0 flex-1 flex-col text-white" aria-label={t("Codex session")}>
     {shownMessageTarget ? <SessionMessageLocation client={client} target={shownMessageTarget} onClose={messageTarget && onCloseMessage ? onCloseMessage : () => setQuestionTarget(null)} headerStart={headerStart} /> : null}
-    <div inert={Boolean(shownMessageTarget)} aria-hidden={Boolean(shownMessageTarget)} className="flex min-h-0 flex-1 flex-col">
+    <div inert={Boolean(shownMessageTarget) || refreshOpen} aria-hidden={Boolean(shownMessageTarget) || refreshOpen} className="flex min-h-0 flex-1 flex-col">
     <header className="session-panel-header flex shrink-0 items-center gap-2 border-b border-white/10 px-3 py-2">
       {headerStart}
       <div className="min-w-0 flex-1">
@@ -331,6 +335,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
           <summary aria-label={t("Session information")} className="session-actions-trigger"><MoreHorizontal size={18} aria-hidden="true" /></summary>
           <div className="session-actions-popover">
             <div className="session-actions-list">
+            <button type="button" className="session-action" onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); setRefreshOpen(true); }}>{t("Refresh session / Previous conversations")}</button>
             <AgentInterfaceActions preset={interfacePreset} onOpenBoard={onOpenTeaserBoard} onOpenTaskProgress={openTaskProgress} placement="menu" />
             {onSaveInterfacePreset ? <AgentInterfacePresetEditor key={`${threadId}:${interfacePreset}`} preset={interfacePreset} onSave={onSaveInterfacePreset} /> : null}
             {onSaveCharacter ? <>
@@ -391,7 +396,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     }} className="absolute bottom-3 left-1/2 z-10 min-h-10 -translate-x-1/2 rounded-full border border-white/20 bg-[#243346] px-4 text-xs text-white shadow-xl hover:bg-[#30445c]">{t("↓ Latest messages")}</button> : null}
     </div>
     {data?.runtime === "office" ? <OfficeCodexAccount client={client} quiet /> : null}
-    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onHistoryReset={onHistoryReset} onActiveTurnChange={setActiveTurnId} onRecoveryChange={setRecoveryStatus} onSendState={onSendState} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
+    {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onHistoryReset={onHistoryReset} onActiveTurnChange={setActiveTurnId} onRecoveryChange={setRecoveryStatus} onSendState={onSendState} refreshIntent={nextIntent} onRefreshIntentConsumed={() => setNextTopic(null)} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
     </div>
     {workspaceOpen ? <SessionListDivider pane="workspace" /> : null}
     {workspaceOpen ? <SessionWorkspace key={threadId} noteAgents={noteAgents} gateway={gateway} connected={connected} toolbox={<SessionToolbox threadId={threadId} organization={organization} />} taskProgress={taskProgress} progressRequest={progressRequest} active={active && !shownMessageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
@@ -399,5 +404,6 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
       onSelectAsset={setPreviewAsset} onClose={() => setWorkspaceOpen(false)} /> : null}
     </div>
     </div>
+    {refreshOpen ? <SessionRefresh key={threadId} client={client} threadId={threadId} intent={nextIntent} onIntent={intent => setNextTopic(intent ? { ownerId: threadId, intent } : null)} onClose={() => setRefreshOpen(false)} /> : null}
   </section></SessionPreviewContext.Provider>;
 }
