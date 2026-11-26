@@ -16,10 +16,11 @@ type Listing = { root?: string; roots?: string[]; path: string; entries: { name:
 type FileRead = { path: string; content?: string; asset?: SessionAsset };
 type Tab = "files" | "preview" | "terminal" | "browser" | "schedules" | "progress" | "library" | "toolbox" | "notes" | "agent-state";
 
-export function SessionWorkspace({ client, threadId, active = true, asset, assets, onSelectAsset, onClose, terminalAvailable = true, taskProgress, toolbox, library, libraryRequest = 0, progressRequest = 0, noteAgents, gateway = "", connected = true }: {
+export function SessionWorkspace({ client, threadId, active = true, asset, assets, onSelectAsset, onClose, onRefreshSession, terminalAvailable = true, taskProgress, toolbox, library, libraryRequest = 0, progressRequest = 0, noteAgents, gateway = "", connected = true }: {
   client: SessionClient; threadId: string; asset: SessionAsset | null; assets: SessionAsset[];
   active?: boolean; noteAgents?: readonly InterfaceAgent[]; gateway?: string; connected?: boolean; taskProgress?: ReactNode; toolbox?: ReactNode; library?: ReactNode; libraryRequest?: number; progressRequest?: number;
-  onSelectAsset: (asset: SessionAsset | null) => void; onClose: () => void; terminalAvailable?: boolean;
+  onSelectAsset: (asset: SessionAsset | null) => void; onClose: () => void; onRefreshSession?: () => void; terminalAvailable?: boolean;
+
 }) {
   const t = useUiText();
   const workspaceId = useId();
@@ -70,6 +71,7 @@ export function SessionWorkspace({ client, threadId, active = true, asset, asset
       setError(""); setTab(tabs[next][0]); event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
     }}>
       {tabs.map(([key, Icon, label]) => <button key={key} type="button" role="tab" title={t(label)} tabIndex={tab === key ? 0 : -1} id={`${workspaceId}-tab-${key}`} aria-controls={`${workspaceId}-panel-${key}`} aria-selected={tab === key} onClick={() => { setError(""); setTab(key); }}><Icon size={15} aria-hidden="true" /><span>{t(label)}</span></button>)}
+      {onRefreshSession ? <button type="button" aria-label={t("Refresh session")} title={t("Refresh session")} onClick={onRefreshSession}><RefreshCw size={16} /></button> : null}
       <button className="ml-auto" type="button" aria-label={t("Close workspace")} title={t("Back to chat")} onClick={onClose}><X size={16} /></button>
     </div>
     {error ? <p role="alert" className="px-4 py-3 text-xs text-amber-200">{t(error)}</p> : null}

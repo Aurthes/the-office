@@ -6,7 +6,7 @@ import { SessionTranscript } from "./SessionTranscript";
 import { SearchSnippet, type MessageSearchTarget } from "./MessageSearchResults";
 import { useUiText } from "@/lib/i18n/ui-language";
 
-type ContextPage = { threadId: string; name: string; project: string; archived: boolean; messageId: string; messages: LiveSessionItem[]; olderOffset: number | null; newerOffset: number | null };
+type ContextPage = { readOnly?: boolean; conversationVersion?: number; threadId: string; name: string; project: string; archived: boolean; messageId: string; messages: LiveSessionItem[]; olderOffset: number | null; newerOffset: number | null };
 type State = Partial<ContextPage> & { requestId: string; busy: boolean; error: string };
 
 // A temporary read-only view keeps the live transcript, scroll, workspace and
@@ -51,7 +51,7 @@ export function SessionMessageLocation({ client, target, onClose, headerStart }:
   };
   return <section className="session-message-location absolute inset-0 z-30 flex min-h-0 min-w-0 flex-col bg-[#111b27] text-white" aria-label={t("Message location")}>
     <header className="flex shrink-0 items-center gap-2 border-b border-white/10 p-3">
-      {headerStart}<div className="min-w-0 flex-1"><strong className="block truncate text-sm">{current && state.name || target.name}</strong><small className="text-white/50">{current && state.project || target.project}{(current ? state.archived : target.archived) ? ` · ${t("Archived · Read only")}` : ` · ${t(target.turnCursor ? "Message search" : "Original message")}`}</small></div>
+      {headerStart}<div className="min-w-0 flex-1"><strong className="block truncate text-sm">{current && state.name || target.name}</strong><small className="text-white/50">{current && state.project || target.project}{(current && state.readOnly) ? ` · v${state.conversationVersion} · ${t("Previous conversation · Read only")}` : (current ? state.archived : target.archived) ? ` · ${t("Archived · Read only")}` : ` · ${t(target.turnCursor ? "Message search" : "Original message")}`}</small></div>
       <button type="button" className="session-action-back" onClick={onClose}><ArrowLeft size={14} />{t("Back to conversation")}</button>
     </header>
     <p className="message-location-snippet shrink-0 border-b border-white/10 px-4 py-2 text-xs"><SearchSnippet text={target.snippet} range={target.snippetMatchRange} /></p>

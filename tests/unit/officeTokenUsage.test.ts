@@ -391,3 +391,14 @@ it("uses the initialized executable identity and never treats a newer runtime as
   f.collector.setRuntimeVersion("0.172.0");expect(f.collector.unavailable).toBe(true);
   const detail=await f.detail();expect(detail.coverage.nativeVersion).toBe("0.172.0");expect(detail.coverage.knownGaps.unsupportedRuntimeVersion).toBe(1);
 });
+
+it("keeps original usage attributed to the stable employee when its native conversation is refreshed", async () => {
+  const f = await fixture();
+  Object.assign(f.sessions[0], { codexThreadId: "native-new", conversationVersion: 2, previousConversations: [{ version: 1, nativeThreadId: "native-one", turnIds: ["turn-one"] }] });
+  await writeFile(f.file, meta() + context() + record("retained-response"));
+  await f.collect();
+  const result = await f.detail({ agentId: "agent-one" });
+  expect(result.rows.find(row => row.responseId === "retained-response")).toMatchObject({ officeAgentId: "agent-one", nativeThreadId: "native-one", usage: { total: 120 } });
+  const restarted = f.create(); await f.collect("native-one", restarted);
+  expect((await f.detail({ agentId: "agent-one" }, restarted)).rows.find(row => row.responseId === "retained-response")?.officeAgentId).toBe("agent-one");
+});

@@ -278,3 +278,10 @@ describe("specified Office invocation times", () => {
     f.scheduler.update({...config,id:task.id});f.deps.canSend.mockImplementationOnce(async()=>{f.scheduler.remove({id:task.id});return true;});await f.scheduler.tick();expect(f.deps.send).not.toHaveBeenCalled();
   });
 });
+
+it("keeps a due occurrence waiting when refresh fencing begins during the async readiness check", async () => {
+  const f = fixture(), task = f.scheduler.create(f.config).task;
+  f.deps.canSend.mockImplementation(async () => { f.scheduler.dispatchAllowed = () => false; return true; });
+  await f.scheduler.tick();
+  expect(f.deps.send).not.toHaveBeenCalled(); expect(f.scheduler.data.tasks[0].runs.at(-1).status).toBe("waiting"); expect(f.scheduler.data.tasks[0].nextRunAt).toBe(task.nextRunAt);
+});

@@ -59,3 +59,14 @@ it("rejects an old pagination response even after typing away and returning to t
   await act(async () => finish({ groups: [{ ...group, threadId: "ghost", name: "Ghost old page" }], nextCursor: null }));
   expect(screen.getByText("Fresh result")).toBeVisible(); expect(screen.queryByText("Ghost old page")).toBeNull();
 });
+
+it("keeps current and retained conversation groups separate and pages the selected version", async () => {
+  const current = { ...group, archived: false, conversationVersion: 2, matches: [{ ...group.matches[0], messageId: "new:a", snippet: "Current hit", snippetMatchRange: { start: 0, end: 0 } }] };
+  const previous = { ...group, archived: false, conversationVersion: 1, readOnly: true, nextCursor: "old-page", matches: [{ ...group.matches[0], snippet: "Previous hit", snippetMatchRange: { start: 0, end: 0 } }] };
+  const call = vi.fn(async (_method: string, params: unknown) => (params as { threadId?: string }).threadId ? { ...previous, nextCursor: null } : { groups: [current, previous], nextCursor: null });
+  render(createElement(MessageSearchResults, { client: { call }, query: "hit", onOpenMessage: vi.fn() })); await advance();
+  expect(screen.getByRole("button", { name: "Current hit" })).toBeVisible(); expect(screen.getByRole("button", { name: "Previous hit" })).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "More matches in Old agent" })); await act(async () => {});
+  expect(call).toHaveBeenLastCalledWith("session.search", expect.objectContaining({ threadId: "old", conversationVersion: 1, cursor: "old-page" }));
+  expect(screen.getByRole("button", { name: "Current hit" })).toBeVisible();
+});

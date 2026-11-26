@@ -11,7 +11,8 @@ class CodexSessionPredictions {
   }
 
   async suggest(id) {
-    const row = this.store.get(id);
+    const row = this.store.get(id), version = this.store.conversationVersion?.(id);
+    if (this.store.refreshFence?.(id)) return null;
     if (!row.codexThreadId || this.store.isBusy(id)) return null;
     await this.controls.attach(id);
     await this.controls.refreshTurn(id);
@@ -38,7 +39,7 @@ class CodexSessionPredictions {
     // same completed turn. A real send always takes precedence over a suggestion.
     const result = await entry.result;
     const latest = this.controls.state(id);
-    return this.store.get(id).codexThreadId && !this.store.isBusy(id)
+    return version === this.store.conversationVersion?.(id) && !this.store.refreshFence?.(id) && this.store.get(id).codexThreadId && !this.store.isBusy(id)
       && latest.lastTurnId === turnId && !latest.activeTurnId && latest.turnStatus === "completed" ? result : null;
   }
 }

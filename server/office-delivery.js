@@ -2,6 +2,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { refreshIntent } = require("./codex-refresh-intent");
 const { DeliveryReceipts, compactReceipt } = require("./office-delivery-receipts");
 
 const hash = value => crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -21,7 +22,7 @@ class OfficeDelivery {
     if (this.data.version !== 1) throw new Error("Unsupported Office delivery inbox");
     this.inflight = new Map();
     this.urgentInflight = new Map();
-    this.wake = new Set();
+    this.wake = new Set(); this.refreshPreparing = new Map();
     this.closed = false;
     // Sending never becomes pending merely because the process restarted.
     for (const batch of Object.values(this.data.batches)) if (batch.state === "sending") batch.state = "uncertain";
@@ -71,8 +72,9 @@ class OfficeDelivery {
   enqueue(input) {
     if (typeof input.requestId !== "string" || !input.requestId || input.requestId.length > 100 || ["__proto__", "prototype", "constructor"].includes(input.requestId)) throw new Error("Choose a stable delivery requestId");
     if (typeof input.message !== "string" || !input.message.trim() || Buffer.byteLength(input.message) > 16000) throw new Error("Agent messages must contain 1–16000 bytes");
-    const payload = { recipient: input.recipient, sender: input.sender, message: input.message, context: input.context || null, ...urgency(input) };
-    const fingerprint = hash({ recipient: input.recipient, senderId: input.sender.id, message: input.originalMessage || input.message, ...urgency(input) });
+    const intent = refreshIntent(input.refreshIntent);
+    const payload = { ...(intent ? { refreshIntent: intent } : {}), recipient: input.recipient, sender: input.sender, message: input.message, context: input.context || null, ...urgency(input) };
+    const fingerprint = hash({ recipient: input.recipient, senderId: input.sender.id, message: input.originalMessage || input.message, ...urgency(input), ...(intent ? { refreshIntent: intent } : {}) });
     const previous = this.data.messages[input.requestId] || this.archive.get("message", input.requestId);
     if (previous) {
       if (previous.hash !== fingerprint) throw new Error("Delivery requestId conflict; reuse the original payload");
@@ -137,10 +139,11 @@ class OfficeDelivery {
     for (const batch of Object.values(this.data.batches).filter(row => row.recipient === recipient)) {
       if (batch.state === "uncertain") {
         const result = await this.receipt(recipient, batch.id);
-        if (result?.turnId) { batch.state = "sent"; batch.result = result; delete batch.error; this.save(); }
+        if (result?.turnId) { this.settleRefreshTrigger?.(recipient, batch.id); batch.state = "sent"; batch.result = result; delete batch.error; this.save(); }
       }
       this.apply(batch);
     }
+    if (this.dispatchAllowed && !this.dispatchAllowed(recipient)) return;
     const pending = this.pending(recipient);
     if (!pending.length || this.closed || this.stopping()) return;
     const urgent = pending.find(row => row.urgency === "urgent");
@@ -156,8 +159,16 @@ class OfficeDelivery {
     if (!members.length) throw new Error("Queued message metadata exceeds the batch limit; original message remains pending");
     // Revalidate after the asynchronous idle check, before claiming any member.
     if (members.some(member => this.current(member)?.hash !== member.hash || this.current(member)?.state !== "pending")) { this.wake.add(recipient); return; }
+    if (members.length === 1 && members[0].refreshIntent && this.beforeRefreshDispatch) {
+      this.refreshPreparing.set(recipient, members[0].id);
+      try { await this.beforeRefreshDispatch(recipient, members[0]); }
+      finally { this.refreshPreparing.delete(recipient); }
+      if (members.some(member => this.current(member)?.hash !== member.hash || this.current(member)?.state !== "pending")) return;
+    }
+    if (this.dispatchAllowed && !this.dispatchAllowed(recipient, members.length === 1 ? members[0].id : null)) return;
     if (Object.keys(this.data.batches).length >= 4096) throw new Error("Office delivery receipt capacity reached; pending messages remain queued");
     const id = "delivery-" + crypto.randomUUID();
+    this.claimRefreshTrigger?.(recipient, members.length === 1 ? members[0].id : null, id);
     const batch = { id, recipient, members, state: "sending", createdAt: Date.now() };
     this.data.batches[id] = batch;
     try { this.save(); } catch (error) { delete this.data.batches[id]; throw error; }

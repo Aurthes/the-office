@@ -235,3 +235,16 @@ it("archive failure leaves the positive native receipt recoverable and never cau
   expect(Object.keys(next.data.messages)).toHaveLength(0);
   expect(f.send).toHaveBeenCalledTimes(1);
 });
+
+it("does not let urgent delivery bypass refresh fencing or claim an unsent batch", async () => {
+  const f = fixture(); f.queue.dispatchAllowed = () => false;
+  f.queue.enqueue(f.input("urgent-refresh", { urgency: "urgent", urgentReason: "current action must change" }));
+  await f.queue.flush(); expect(f.send).not.toHaveBeenCalled(); expect(f.queue.data.messages["urgent-refresh"].state).toBe("pending"); expect(Object.keys(f.queue.data.batches)).toHaveLength(0); f.queue.close();
+});
+it("checks the source again after checkpoint preparation and never sends a changed message", async () => {
+  const f = fixture(); f.idle(); f.queue.dispatchAllowed = () => true;
+  const intent = { checkpointId: "checkpoint", independentNewTopic: true };
+  f.queue.beforeRefreshDispatch = async () => { f.queue.data.messages["new-topic"].hash = "changed"; };
+  f.queue.enqueue(f.input("new-topic", { refreshIntent: intent })); await f.queue.flush();
+  expect(f.send).not.toHaveBeenCalled(); expect(f.queue.data.messages["new-topic"].state).toBe("pending"); f.queue.close();
+});

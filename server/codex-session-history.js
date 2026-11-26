@@ -16,11 +16,11 @@ function fitCaps(sizes, budget) {
 
 // The native timeline contains ordinary chat and committed voice dialogue in
 // one order. Its opaque cursor walks backwards; each page is already ascending.
-async function loadSessionHistoryPage(call, row, cursor, replyContext) {
+async function loadSessionHistoryPage(call, row, cursor, replyContext, conversationVersion) {
   if (cursor !== undefined && (typeof cursor !== "string" || !cursor || cursor.length > 4096))
     throw new Error("Invalid history cursor");
   const result = await call("thread/timeline/list", {
-    threadId: row.id, limit: PAGE_ENTRIES,
+    threadId: row.id, limit: PAGE_ENTRIES, ...(conversationVersion === undefined ? {} : { conversationVersion }),
     ...(cursor === undefined ? {} : { cursor }),
   });
   const visible = result.data.flatMap(entry => {
@@ -42,4 +42,22 @@ function boundHistoryMessages(visible) {
   return visible.map((item, i) => ({ ...item, ...clipText(item.content, mainCaps[i] + workCaps[i]) }));
 }
 
-module.exports = { loadSessionHistoryPage, boundHistoryMessages, PAGE_ENTRIES, PAGE_TEXT_BYTES };
+async function loadConversationHistoryPage({ store, controls, replyContext, userSends, journalUnavailable }, id, cursor, epoch, selectedVersion) {
+  const { conversation } = require("./codex-conversations");
+  const row = store.get(id), selected = conversation(row, selectedVersion), current = selected.current ? controls.state(id).historyEpoch : selected.historyEpoch;
+  let nativeCursor = cursor;
+  if ((row.previousConversations || []).length && cursor) {
+    try { const saved = JSON.parse(Buffer.from(cursor, "base64url").toString());
+      if (saved.type !== "office-history-v1" || saved.version !== selected.version || saved.epoch !== current || typeof saved.cursor !== "string") throw new Error();
+      nativeCursor = saved.cursor;
+    } catch { throw new Error("History cursor belongs to another conversation version. Reload this view."); }
+  }
+  if (cursor && epoch !== undefined && epoch !== current) throw new Error("History changed. Reload the latest messages.");
+  const result = await loadSessionHistoryPage(store.call.bind(store), row, nativeCursor, replyContext, selected.version);
+  if (selected.current && (controls.state(id).historyEpoch !== current || store.get(id).codexThreadId !== selected.nativeThreadId)) throw new Error("History changed during the read. Reload the latest messages.");
+  if (selected.current) try { userSends.observe(id, result.messages, current, selected.nativeThreadId); } catch { userSends.unavailable = true; journalUnavailable?.(); }
+  const nextCursor = result.nextCursor && (row.previousConversations || []).length ? Buffer.from(JSON.stringify({ type: "office-history-v1", version: selected.version, epoch: current, cursor: result.nextCursor })).toString("base64url") : result.nextCursor;
+  return { ...result, nextCursor, historyEpoch: current, conversationVersion: selected.version, readOnly: !selected.current };
+}
+
+module.exports = { loadConversationHistoryPage, loadSessionHistoryPage, boundHistoryMessages, PAGE_ENTRIES, PAGE_TEXT_BYTES };

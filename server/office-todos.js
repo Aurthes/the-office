@@ -1,4 +1,5 @@
 "use strict";
+const { refreshIntent } = require("./codex-refresh-intent");
 const { urgency } = require("./office-delivery");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -420,7 +421,7 @@ class OfficeTodos {
       if (!row.replyContext && candidate && (!candidate.taskId || candidate.taskId === row.id)) row.replyContext = candidate;
       if (!entry) phase.acceptanceManagerId = manager;
       row.delegations ||= [];
-      row.delegations.push({ id: uuid(), phaseId: phase.id, ...(input.usageTrigger === "todoRun" ? { trigger: "todoRun" } : {}), managerId: manager, workerId: input.assigneeId, instructions, acceptanceCriteria, state: "working", createdAt: this.now(), replyContext: taskReplyContext(row, candidate, phase.id), delivery: { recipientId: input.assigneeId, requestId: `delegation-${uuid()}`, state: "pending", sender: actor, ...urgency(input) } });
+      row.delegations.push({ id: uuid(), phaseId: phase.id, ...(input.usageTrigger === "todoRun" ? { trigger: "todoRun" } : {}), managerId: manager, workerId: input.assigneeId, instructions, acceptanceCriteria, state: "working", createdAt: this.now(), replyContext: taskReplyContext(row, candidate, phase.id), delivery: { recipientId: input.assigneeId, requestId: `delegation-${uuid()}`, state: "pending", sender: actor, ...urgency(input), ...(input.refreshIntent ? { refreshIntent: { ...refreshIntent(input.refreshIntent), nextScope: { taskId: row.id, ...(isPhaseTask(row) ? { phaseId: phase.id } : {}) } } } : {}) } });
       phase.assigneeId = input.assigneeId; phase.assigneeName = this.agents().find(a => a.id === input.assigneeId)?.name || input.assigneeId; phase.status = "queued";
       message = `Delegated phase: ${phase.title}`;
     } else if (action === "submit") {
@@ -655,7 +656,7 @@ class OfficeTodos {
       row.delegations ||= [];
       row.delegations.push({ id: uuid(), managerId: actor.id, workerId: input.assigneeId, instructions, acceptanceCriteria, state: "working", createdAt: this.now(),
         replyContext: taskReplyContext(row, candidate),
-        delivery: { recipientId: input.assigneeId, requestId: `delegation-${uuid()}`, state: "pending", sender: actor, ...urgency(input) } });
+        delivery: { recipientId: input.assigneeId, requestId: `delegation-${uuid()}`, state: "pending", sender: actor, ...urgency(input), ...(input.refreshIntent ? { refreshIntent: { ...refreshIntent(input.refreshIntent), nextScope: { taskId: row.id } } } : {}) } });
       Object.assign(row, this.references({ assigneeId: input.assigneeId }, row)); row.status = "queued";
       message = `Delegated to ${row.assigneeName}; manager retains acceptance responsibility`;
     } else if (action === "recall") {
@@ -790,4 +791,4 @@ class OfficeTodos {
   close() { for (const row of [...this.rows.values()]) this.settleTimer(row, "Office stopped; activity timers stopped"); }
 
 }
-module.exports = { OfficeTodos, phaseDuration: duration, activeDelegation, openDelegations, handlingAgentId, isPhaseTask, isTaskMetadataEdit, canTransferOwnHandoff };
+module.exports = { OfficeTodos, taskOwnerId, phaseDuration: duration, activeDelegation, openDelegations, handlingAgentId, isPhaseTask, isTaskMetadataEdit, canTransferOwnHandoff };
