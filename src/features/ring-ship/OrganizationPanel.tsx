@@ -1,8 +1,9 @@
 "use client";
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { CEO_ID, OPEN_DEPARTMENT_ID, delegationMode, type DelegationMode, type OrganizationView } from "@/lib/office/organization";
 import { departmentButtonLabel } from "@/lib/office/departments";
 import { useUiText } from "@/lib/i18n/ui-language";
+import { POSITION_TITLES } from "@/lib/office/position-specialties";
 import "./organization.css";
 
 export function OrganizationPanel({ organization, personId, browse = false }: { organization: OrganizationView; personId: string; browse?: boolean }) {
@@ -36,6 +37,7 @@ function PersonPosition({ organization, person }: { organization: OrganizationVi
   const t = useUiText(), [editing, setEditing] = useState(false), [title, setTitle] = useState(person.title), [reportsTo, setReportsTo] = useState(person.reportsTo);
   const [saving, setSaving] = useState(false), [error, setError] = useState("");
   const [mode, setMode] = useState<DelegationMode | "default">(person.delegationMode || "default");
+  const titleOptionsId = useId();
   const modeLabels = { self: "Work directly", auto: "Delegate when useful", prefer: "Prefer delegation" };
   const displayTitle = (value: string) => value === "Head" || value === "Worker" ? t(value) : value;
   const department = (value: typeof person) => value.id === CEO_ID ? t("Company") : value.departmentId ? value.department : t("Open Workspace");
@@ -50,7 +52,8 @@ function PersonPosition({ organization, person }: { organization: OrganizationVi
       event.preventDefault(); if (saving) return; setSaving(true); setError("");
       void organization.savePosition(person.id, { title, reportsTo, ...(mode !== "default" ? { delegationMode: mode } : person.delegationMode ? { delegationMode: null } : {}) }).then(() => setEditing(false)).catch(cause => setError(cause instanceof Error ? t(cause.message) : t("Could not save organization."))).finally(() => setSaving(false));
     }}>
-      <label>{t("Title")}<input aria-label={t("Title")} required maxLength={80} value={title} disabled={saving} onChange={event => setTitle(event.target.value)} /></label>
+      <label>{t("Title")}<input list={titleOptionsId} aria-label={t("Title")} required maxLength={80} value={title} disabled={saving} onChange={event => setTitle(event.target.value)} /></label>
+      <datalist id={titleOptionsId}>{POSITION_TITLES.map(value => <option key={value} value={value} />)}</datalist>
       <label>{t("Work strategy")}<select aria-label={t("Work strategy")} value={mode} disabled={saving} onChange={event => setMode(event.target.value as DelegationMode | "default")}><option value="default">{t("Role default")}</option>{(["self", "auto", "prefer"] as const).map(value => <option key={value} value={value}>{t(modeLabels[value])}</option>)}</select></label>
       {person.id !== CEO_ID ? <p className="text-[10px] text-white/55">{t("Setting Head or Manager brings department peers under this manager, keeping their other reporting lines.")}</p> : null}
       {person.id !== CEO_ID ? <fieldset disabled={saving}><legend>{t("Reports to")}</legend>{organization.people.filter(value => value.id !== person.id).map(value => <label key={value.id} className="organization-manager"><input type="checkbox" checked={reportsTo.includes(value.id)} onChange={event => setReportsTo(previous => event.target.checked ? [...previous, value.id] : previous.filter(id => id !== value.id))} />{value.name} · {displayTitle(value.title)}</label>)}</fieldset> : null}

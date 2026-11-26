@@ -113,7 +113,7 @@ describe("department responsibilities in the actual company context", () => {
     expect(tool.inputSchema.required).toEqual(["actorId"]);
     expect(tool.inputSchema.properties.allDepartments.type).toBe("boolean");
     expect(tool.inputSchema.properties.departmentId.type).toEqual(["string", "null"]);
-    expect(tool.annotations.readOnlyHint).toBe(true); expect(tools).toHaveLength(18);
+    expect(tool.annotations.readOnlyHint).toBe(true); expect(catalog.tools.filter((entry: { name: string }) => entry.name === "todo_organization")).toHaveLength(1);
     expect(WORKFLOW).toContain("Open Workspace Head"); expect(WORKFLOW).toContain("explicit instruction");
     expect(WORKFLOW).toContain("Direct user instructions authorize the addressed agent");
   });
@@ -186,13 +186,13 @@ describe("Head recruitment using persistent Office sessions", () => {
 describe("specialized worker titles using the existing organization and turn context", () => {
   async function specialized() {
     const f = await fixture();
-    const ids = await Promise.all(["Ops", "Dev", "Quant"].map(title => f.store.createSession({ name: "Same display name", projectId: f.product.id, requestId: crypto.randomUUID() }).then((r: { threadId: string }) => ({ id: r.threadId, title }))));
+    const ids = await Promise.all(["Ops", "Dev", "Quant", "Auditor"].map(title => f.store.createSession({ name: "Same display name", projectId: f.product.id, requestId: crypto.randomUUID() }).then((r: { threadId: string }) => ({ id: r.threadId, title }))));
     const saveTitles = () => f.patch({ office: { [f.gateway]: { organization: Object.fromEntries(ids.map(row => [row.id, { title: row.title, reportsTo: [f.head] }])) } } });
     return { ...f, ids, saveTitles };
   }
   it("gives each title its own short meaning and a manager one deduplicated dictionary without new permissions", async () => {
     const f = await specialized(), sessions = structuredClone(f.store.list()); f.saveTitles();
-    const descriptions = { Ops: "Daily running, monitoring and maintenance.", Dev: "Coding, implementation and software development.", Quant: "Mathematical/statistical research and analysis." };
+    const descriptions = { Ops: "Daily running, monitoring and maintenance.", Dev: "Coding, implementation and software development.", Quant: "Mathematical/statistical research and analysis.", Auditor: "Independently review goal understanding, whether question breakdown advances the core goal, scope, the shortest proportionate path and over-engineering. Implementation correctness and technical validation remain with the executor; this role adds no mandatory QA approval." };
     for (const row of f.ids) {
       const full = f.company.context(row.id), model = f.company.forTurn(row.id);
       expect(full).toMatchObject({ title: row.title, canRecruit: false, specialties: { [row.title]: descriptions[row.title as keyof typeof descriptions] } });
@@ -235,8 +235,8 @@ describe("specialized worker titles using the existing organization and turn con
       const payload = JSON.stringify(entry);
       expect(payload).toContain("Infra owns shared repositories and hardware");
       expect(payload).toContain("Office owns the work platform and UI");
-      expect(payload).toContain("Define the goal. Take the shortest reliable path");
-      expect(payload).toContain("skip unnecessary code, checks, reads, and process");
+      expect(payload).toContain("Define the goal. Before changing code");
+      expect(payload).toContain("skip unnecessary code, checks, reads and process");
       expect(payload).toContain("easy to use without prior context, with safe defaults and clear errors for common mistakes");
       expect(payload).toContain("Challenge even user requests");
       expect(payload).toContain("the CEO owns company-level departments and organization");
@@ -301,8 +301,8 @@ it("refreshes the shared responsibility rule once in existing CEO, Head and Work
     const payload = JSON.stringify(injections()[0]);
     expect(payload).toContain("Infra owns shared repositories and hardware");
     expect(payload).toContain("Office owns the work platform and UI");
-    expect(payload).toContain("Define the goal. Take the shortest reliable path");
-    expect(payload).toContain("skip unnecessary code, checks, reads, and process");
+    expect(payload).toContain("Define the goal. Before changing code");
+    expect(payload).toContain("skip unnecessary code, checks, reads and process");
     expect(payload).toContain("easy to use without prior context, with safe defaults and clear errors for common mistakes");
     expect(payload).toContain("Challenge even user requests");
     expect(payload).toContain("the CEO owns company-level departments and organization");

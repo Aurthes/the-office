@@ -7,11 +7,7 @@ const { normalizeDepartmentDescriptions, organizationDepartments, OPEN_DEPARTMEN
 const { ceo: CEO_ID } = require("../src/lib/office/identities.json");
 const { normalizeDepartmentAssets, departmentAssetIndex, readDepartmentAssets } = require("../src/lib/office/department-assets-structure");
 
-const WORKER_SPECIALTIES = {
-  Ops: "Daily running, monitoring and maintenance.",
-  Dev: "Coding, implementation and software development.",
-  Quant: "Mathematical/statistical research and analysis.",
-};
+const { WORKER_SPECIALTIES } = require("../src/lib/office/position-specialties");
 
 const QUESTION_REPLY_RULE = "Office question workflow: select the concrete semantic Q or step and preserve its original-message link through question_context and reply metadata. Do not copy their UUIDs or URLs into prose unless needed to disambiguate.";
 

@@ -48,14 +48,15 @@ it("saves, previews, defaults, edits and deletes independent templates without c
   fireEvent.click(screen.getByRole("button", { name: "New template" }));
   fireEvent.change(screen.getByLabelText("Template name"), { target: { value: "Focused" } });
   expect(screen.getByLabelText("Default position")).toHaveValue("Worker");
-  fireEvent.change(screen.getByLabelText("Default position"), { target: { value: "Dev" } });
+  expect(document.querySelector('datalist option[value="Auditor"]')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Default position"), { target: { value: "Auditor" } });
   fireEvent.change(screen.getByLabelText("Template model"), { target: { value: "model-b" } });
   expect(screen.getByLabelText("Template effort")).toHaveValue("medium");
   fireEvent.change(screen.getByLabelText("Template access"), { target: { value: ":danger-full-access" } });
   expect(screen.getByRole("button", { name: "Save template" })).toBeDisabled();
   fireEvent.click(screen.getByRole("checkbox", { name: "Confirm full access" }));
   fireEvent.click(screen.getByRole("button", { name: "Save template" }));
-  await waitFor(() => expect(f.call).toHaveBeenCalledWith("recruitment.save", expect.objectContaining({ name: "Focused", title: "Dev", model: "model-b", effort: "medium", accessMode: ":danger-full-access", confirmFullAccess: true, projectId: "a" })));
+  await waitFor(() => expect(f.call).toHaveBeenCalledWith("recruitment.save", expect.objectContaining({ name: "Focused", title: "Auditor", model: "model-b", effort: "medium", accessMode: ":danger-full-access", confirmFullAccess: true, projectId: "a" })));
   await waitFor(() => expect(screen.getByLabelText("Recruitment template")).toHaveValue("new-template"));
   await waitFor(() => expect(screen.getByRole("button", { name: "Set department default" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Set department default" }));
@@ -63,7 +64,7 @@ it("saves, previews, defaults, edits and deletes independent templates without c
   await waitFor(() => expect(screen.getByRole("button", { name: "Edit template" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Edit template" }));
   expect(screen.getByLabelText("Template name")).toHaveValue("Focused");
-  expect(screen.getByLabelText("Default position")).toHaveValue("Dev");
+  expect(screen.getByLabelText("Default position")).toHaveValue("Auditor");
   fireEvent.change(screen.getByLabelText("Template name"), { target: { value: "Safer" } });
   fireEvent.change(screen.getByLabelText("Template access"), { target: { value: ":read-only" } });
   fireEvent.click(screen.getByRole("button", { name: "Save template" }));

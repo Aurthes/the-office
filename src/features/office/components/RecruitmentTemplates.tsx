@@ -1,7 +1,9 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import type { SessionClient } from "./SessionControls";
 import { useUiText } from "@/lib/i18n/ui-language";
+
+import { POSITION_TITLES } from "@/lib/office/position-specialties";
 
 type Template = { id: string; name: string; title?: string; model: string; effort: string | null; accessMode: string };
 type Catalog = { templates: Template[]; defaults: Record<string, string> };
@@ -12,6 +14,7 @@ export function RecruitmentTemplates({ client, projectId, workspace, selected, o
   client: SessionClient; projectId: string | null; workspace?: string; selected: string | null | undefined;
   onSelect: (id: string | null | undefined) => void; disabled: boolean; onBusy: (busy: boolean) => void;
 }) {
+  const titleOptionsId = useId();
   const t = useUiText(), [catalog, setCatalog] = useState<Catalog>({ templates: [], defaults: {} });
   const [choices, setChoices] = useState<Choices | null>(null), [loading, setLoading] = useState(true), [error, setError] = useState("");
   const [busy, setBusy] = useState(false), [draft, setDraft] = useState<Omit<Template, "id"> & { id?: string } | null>(null);
@@ -73,7 +76,8 @@ export function RecruitmentTemplates({ client, projectId, workspace, selected, o
         if (event.key === "Enter" && event.target instanceof HTMLInputElement) event.preventDefault();
       }}>
         <label className="block text-xs">{t("Template name")}<input aria-label={t("Template name")} maxLength={120} value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} className={field} /></label>
-        <label className="block text-xs">{t("Default position")}<input aria-label={t("Default position")} maxLength={80} value={draft.title ?? "Worker"} onChange={event => setDraft({ ...draft, title: event.target.value })} className={field} /></label>
+        <label className="block text-xs">{t("Default position")}<input list={titleOptionsId} aria-label={t("Default position")} maxLength={80} value={draft.title ?? "Worker"} onChange={event => setDraft({ ...draft, title: event.target.value })} className={field} /></label>
+        <datalist id={titleOptionsId}>{POSITION_TITLES.map(value => <option key={value} value={value} />)}</datalist>
         <label className="block text-xs">{t("Model")}<select aria-label={t("Template model")} value={draft.model} onChange={event => { const next = choices?.models.find(row => row.id === event.target.value); setDraft({ ...draft, model: event.target.value, effort: next?.defaultEffort || null }); }} className={field}>
           {!model ? <option value={draft.model}>{draft.model} ({t("Unavailable")})</option> : null}{choices?.models.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
         </select></label>

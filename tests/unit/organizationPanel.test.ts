@@ -117,3 +117,16 @@ it("groups by department identity while keeping same-named departments separate 
   expect(within(tree).getAllByRole("button", { name: "Focus on Cross Report" })).toHaveLength(2);
   expect(within(tree).getByRole("button", { name: "Focus on Firefighter" }).closest("ul")?.closest("li")?.textContent).toContain("Ranger");
 });
+
+it("selects the built-in Auditor title without changing the person or reporting line", async () => {
+  const organization = fixture(); organization.people[2].title = "Auditor";
+  render(createElement(OrganizationPanel, { organization, personId: "worker" }));
+  expect(screen.getByText("Auditor", { selector: "dd" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Edit organization" }));
+  const input = screen.getByLabelText("Title") as HTMLInputElement;
+  const options = document.getElementById(input.getAttribute("list")!);
+  expect(options?.querySelector('option[value="Auditor"]')).toBeTruthy();
+  fireEvent.change(input, { target: { value: "Auditor" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save organization" }));
+  await waitFor(() => expect(organization.savePosition).toHaveBeenCalledWith("worker", { title: "Auditor", reportsTo: ["head"] }));
+});
