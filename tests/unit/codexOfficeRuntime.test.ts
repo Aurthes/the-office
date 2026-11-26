@@ -1024,7 +1024,7 @@ it("loads the same saved Agent State into a clean replacement native conversatio
   states.save(id, { revision: 0, sections }); f.store.agentStateContext = (agent: string) => states.context(agent);
   await f.store.call("turn/start", { threadId: id, input: [] });
   const first = f.store.get(id).codexThreadId;
-  f.store.get(id).codexThreadId = "replacement-native"; f.store.get(id).projectContext = null; f.store.save();
+  f.store.get(id).codexThreadId = "replacement-native"; f.store.save();
   const restored = new CodexOfficeStore(f.directory, f.client);
   const restarted = new AgentStates(stateRoot, (agent: string) => restored.get(agent));
   restored.agentStateContext = (agent: string) => restarted.context(agent);

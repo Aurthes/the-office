@@ -38,7 +38,9 @@ Locks are per employee; a leftover lock after a crash rejects writes rather than
 silently discarding another writer's lease. State remains readable for recovery.
 
 At each new native turn, the existing Office context injection reads a bounded
-snapshot for the stable employee UUID. It includes the revision and explicitly
+snapshot for the stable employee UUID. The injection receipt is scoped to the
+actual native conversation ID, so rebinding cannot reuse the previous conversation's
+context cache. It includes the revision and explicitly
 labels state as data. Failed reads report unavailable and do not fabricate memory
 or prevent the conversation from starting. Mid-turn edits can be read with MCP;
 there is no automatic summary or model call. Renaming an employee or replacing a
