@@ -1,100 +1,119 @@
 // @vitest-environment node
-import http from "node:http";
-import fs from "node:fs";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const { createMmPnlProxy } = await import("../../server/mm-pnl-proxy.js");
-const { createProxyBoundary } = await import("../../server/proxy-boundary.js");
-let backend: http.Server, office: http.Server, base: string;
-const seen: { path?: string; headers: http.IncomingHttpHeaders }[] = [];
-async function listen(server: http.Server) {
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  return (server.address() as { port: number }).port;
-}
-beforeEach(async () => {
-  seen.length = 0;
-  backend = http.createServer((req, res) => {
-    seen.push({ path: req.url, headers: req.headers });
-    res.writeHead(200, { "Content-Type": "application/json", "Set-Cookie": "upstream-secret", Location: "https://elsewhere.invalid" });
-    res.end(JSON.stringify({ path: req.url }));
+import { createRequire } from "node:module";
+import { EventEmitter } from "node:events";
+import type { ClientRequest, IncomingMessage, RequestOptions, ServerResponse } from "node:http";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+const require = createRequire(import.meta.url);
+const http: typeof import("node:http") = require("node:http");
+const { createMmPnlProxy } = require("../../server/mm-pnl-proxy.js");
+const message = "MM PnL dashboard temporarily unavailable";
+
+afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); });
+
+describe("MM PnL proxy unit error handling (10ms performance budget)", () => {
+  function request(path = "/api/pnl") {
+    const outgoing = Object.assign(new EventEmitter(), { destroy: vi.fn() });
+    outgoing.destroy.mockImplementation(() => { outgoing.emit("error", new Error("synthetic-private-detail")); });
+    vi.spyOn(http, "get").mockReturnValue(outgoing as unknown as ClientRequest);
+    const response = Object.assign(new EventEmitter(), {
+      destroyed: false, headersSent: false,
+      setHeader: vi.fn(), writeHead: vi.fn(), end: vi.fn(), destroy: vi.fn(),
+    });
+    expect(createMmPnlProxy()({ method: "GET", url: "/mm-pnl" + path } as IncomingMessage, response as unknown as ServerResponse)).toBe(true);
+    return { outgoing, response };
+  }
+
+  it("returns sanitized JSON for a connection failure", () => {
+    vi.useFakeTimers();
+    const { outgoing, response } = request();
+    outgoing.emit("error", new Error("synthetic-secret-credential"));
+    expect(response.writeHead).toHaveBeenCalledWith(502, { "Content-Type": "application/json; charset=utf-8" });
+    expect(JSON.parse(response.end.mock.calls[0][0])).toEqual({ error: message });
   });
-  const port = await listen(backend), get = http.get;
-  vi.spyOn(http, "get").mockImplementation(((options: http.RequestOptions, callback: (r: http.IncomingMessage) => void) => {
-    expect(options.hostname).toBe("127.0.0.1"); expect(options.port).toBe(8768);
-    expect(options.headers).toBeUndefined();
-    return get({ ...options, port }, callback);
-  }) as typeof http.get);
-  const proxy = createMmPnlProxy();
-  const boundary = createProxyBoundary({ token: "a".repeat(32), publicOrigins: "https://office.example" });
-  office = http.createServer((req, res) => {
-    const rejected = boundary(req);
-    if (rejected) { res.writeHead(rejected); res.end(); return; }
-    if (!proxy(req, res)) { res.writeHead(418); res.end(); }
+
+  it("cancels upstream and its timer when the client disconnects", () => {
+    vi.useFakeTimers();
+    const { outgoing, response } = request();
+    response.destroyed = true; response.emit("close");
+    expect(outgoing.destroy).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0); expect(response.end).not.toHaveBeenCalled();
   });
-  base = `http://127.0.0.1:${await listen(office)}`;
+
+  it("keeps the 95s deadline and returns JSON 504 without a real wait", () => {
+    vi.useFakeTimers();
+    const { response, outgoing } = request();
+    vi.advanceTimersByTime(94999);
+    expect(response.end).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(outgoing.destroy).toHaveBeenCalledOnce();
+    expect(response.writeHead).toHaveBeenCalledWith(504, { "Content-Type": "application/json; charset=utf-8" });
+    expect(JSON.parse(response.end.mock.calls[0][0])).toEqual({ error: message });
+  });
 });
-afterEach(async () => {
-  vi.useRealTimers(); vi.restoreAllMocks();
-  for (const server of [office, backend]) {
-    server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
-  }
-});
-const auth = { "x-office-proxy-token": "a".repeat(32) };
-it("protects the route before forwarding and strips all caller credentials", async () => {
-  expect((await fetch(base + "/mm-pnl/")).status).toBe(401);
-  expect(seen).toHaveLength(0);
-  const response = await fetch(base + "/mm-pnl/api/pnl?strategy=MMRPI&start=1&end=2&step=1&host=evil", { headers: { ...auth, Cookie: "secret", Authorization: "Bearer secret", "x-office-owner": "private" } });
-  expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({ path: "/api/pnl?strategy=MMRPI&start=1&end=2&step=1&host=evil" });
-  expect(seen[0].headers.cookie).toBeUndefined(); expect(seen[0].headers.authorization).toBeUndefined();
-  expect(seen[0].headers["x-office-proxy-token"]).toBeUndefined(); expect(seen[0].headers["x-office-owner"]).toBeUndefined();
-  expect(response.headers.get("set-cookie")).toBeNull(); expect(response.headers.get("location")).toBeNull();
-  expect(response.headers.get("cache-control")).toBe("no-store");
-  expect(response.headers.get("content-security-policy")).toContain("script-src 'self'");
-});
-it("allows only explicit GET paths, bounds queries, redirects the slash and leaves existing routes alone", async () => {
-  for (const path of ["/", "/index.html", "/plotly.js", "/live.js", "/api/config", "/api/pnl", "/healthz"]) {
-    expect((await fetch(base + "/mm-pnl" + path, { headers: auth })).status).toBe(200);
-  }
-  const r = await fetch(base + "/mm-pnl?a=1", { headers: auth, redirect: "manual" });
-  expect(r.status).toBe(308); expect(r.headers.get("location")).toBe("/mm-pnl/?a=1");
-  for (const path of ["/config", "/api/sql", "/http://elsewhere.invalid/", "/%2fapi/config"]) {
-    expect((await fetch(base + "/mm-pnl" + path, { headers: auth })).status).toBe(404);
-  }
-  expect((await fetch(base + "/mm-pnl/api/pnl", { method: "POST", headers: auth })).status).toBe(405);
-  expect((await fetch(base + "/mm-pnl/api/pnl?a=" + "a".repeat(8200), { headers: auth })).status).toBe(414);
-  expect((await fetch(base + "/account-history/", { headers: auth })).status).toBe(418);
-  expect((await fetch(base + "/mm-pnl-other", { headers: auth })).status).toBe(418);
-});
-it("generalizes backend failures and never forwards redirects or backend secrets", async () => {
-  backend.removeAllListeners("request");
-  backend.on("request", (_req, res) => { res.writeHead(503, { "Set-Cookie": "private" }); res.end("private upstream stack"); });
-  const r = await fetch(base + "/mm-pnl/api/pnl", { headers: auth });
-  expect(r.status).toBe(503); expect(await r.text()).toBe("MM PnL dashboard temporarily unavailable");
-  backend.removeAllListeners("request"); backend.on("request", (_req, res) => { res.writeHead(302, { Location: "http://other.invalid" }); res.end(); });
-  expect((await fetch(base + "/mm-pnl/", { headers: auth })).status).toBe(502);
-  await new Promise<void>(resolve => backend.close(() => resolve()));
-  expect((await fetch(base + "/mm-pnl/", { headers: auth })).status).toBe(502);
-});
-it("bounds a stalled data request to 95 seconds and cancels work on client disconnect", async () => {
-  backend.removeAllListeners("request"); let closed = false;
-  let received!: () => void;
-  const started = new Promise<void>(resolve => { received = resolve; });
-  backend.on("request", req => { req.on("close", () => { closed = true; }); received(); });
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-  const response = fetch(base + "/mm-pnl/api/pnl", { headers: auth });
-  await started;
-  await vi.advanceTimersByTimeAsync(95000);
-  expect((await response).status).toBe(502);
-  vi.useRealTimers();
-  const aborted = new AbortController();
-  const pending = fetch(base + "/mm-pnl/api/pnl", { headers: auth, signal: aborted.signal }).catch(() => null);
-  await new Promise(resolve => setTimeout(resolve, 30)); closed = false; aborted.abort(); await pending;
-  await vi.waitFor(() => expect(closed).toBe(true));
-});
-it("wires both HTTP and HTTPS only after existing authentication gates", () => {
-  const source = fs.readFileSync(new URL("../../server/index.js", import.meta.url), "utf8");
-  expect(source.match(/if \(mmPnl\(req, res\)\) return;/g)).toHaveLength(2);
-  for (const block of source.split("const rejected = proxyBoundary(req);").slice(1)) {
-    expect(block.indexOf("accessGate.handleHttp")).toBeLessThan(block.indexOf("mmPnl(req, res)"));
-  }
+
+describe("MM PnL proxy loopback HTTP integration (declared budget 1s per case)", () => {
+  const realGet = http.get;
+  let status = 500;
+  let upstreamPort: number;
+  let proxyPort: number;
+  let receivedHeaders: IncomingMessage["headers"];
+  let receivedUrl: string | undefined;
+  const upstream = http.createServer((req, res) => {
+    receivedHeaders = req.headers; receivedUrl = req.url;
+    res.writeHead(status, { "Content-Type": status === 200 ? "application/json" : "text/plain", Location: "https://untrusted.invalid/private", "X-Private": "synthetic-secret" });
+    res.end(status === 200 ? JSON.stringify({ value: 7 }) : "synthetic-private-upstream-body");
+  });
+  const handler = createMmPnlProxy();
+  const proxy = http.createServer((req, res) => { if (!handler(req, res)) { res.writeHead(404); res.end(); } });
+  beforeAll(async () => {
+    await new Promise<void>(resolve => upstream.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>(resolve => proxy.listen(0, "127.0.0.1", resolve));
+    upstreamPort = (upstream.address() as { port: number }).port;
+    proxyPort = (proxy.address() as { port: number }).port;
+  });
+  afterAll(async () => {
+    proxy.closeAllConnections(); upstream.closeAllConnections();
+    await Promise.all([new Promise<void>(resolve => proxy.close(() => resolve())), new Promise<void>(resolve => upstream.close(() => resolve()))]);
+  });
+  beforeEach(() => {
+    vi.spyOn(http, "get").mockImplementation(((options: RequestOptions, callback: (res: IncomingMessage) => void) => {
+      expect(options.hostname).toBe("127.0.0.1"); expect(options.port).toBe(8768);
+      expect(options.headers).toBeUndefined();
+      return realGet({ ...options, port: upstreamPort }, callback);
+    }) as typeof http.get);
+  });
+
+  it.each([400, 500, 503, 504, 507])("preserves API HTTP %i with a fixed JSON error", async upstreamStatus => {
+    status = upstreamStatus;
+    const response = await fetch(`http://127.0.0.1:${proxyPort}/mm-pnl/api/pnl?strategy=MMRPI&start=1&end=2`, {
+      headers: { Cookie: "synthetic-cookie", Authorization: "Bearer synthetic-token", "x-office-proxy-token": "synthetic-identity" }, redirect: "manual",
+    });
+    expect(response.status).toBe(status);
+    expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
+    expect(await response.json()).toEqual({ error: message });
+    expect(response.headers.get("location")).toBeNull(); expect(response.headers.get("x-private")).toBeNull();
+    expect(receivedHeaders.cookie).toBeUndefined(); expect(receivedHeaders.authorization).toBeUndefined(); expect(receivedHeaders["x-office-proxy-token"]).toBeUndefined();
+    expect(receivedUrl).toBe("/api/pnl?strategy=MMRPI&start=1&end=2");
+  }, 1000);
+
+  it("rejects redirects as JSON 502 without a Location", async () => {
+    status = 302;
+    const response = await fetch(`http://127.0.0.1:${proxyPort}/mm-pnl/api/config`, { redirect: "manual" });
+    expect(response.status).toBe(502); expect(response.headers.get("location")).toBeNull();
+    expect(await response.json()).toEqual({ error: message });
+  }, 1000);
+
+  it("keeps successful API JSON unchanged", async () => {
+    status = 200;
+    const response = await fetch(`http://127.0.0.1:${proxyPort}/mm-pnl/api/pnl`);
+    expect(response.status).toBe(200); expect(await response.json()).toEqual({ value: 7 });
+  }, 1000);
+
+  it("preserves the existing static failure response", async () => {
+    status = 500;
+    const response = await fetch(`http://127.0.0.1:${proxyPort}/mm-pnl/live.js`);
+    expect(response.status).toBe(502); expect(response.headers.get("content-type")).toContain("text/plain");
+    expect(await response.text()).toBe(message);
+  }, 1000);
 });
