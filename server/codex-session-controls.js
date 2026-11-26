@@ -11,7 +11,7 @@ const RETRY_DELAY_MS = 15000;
 const MAX_AUTO_RETRIES = 3;
 
 class CodexSessionControls {
-  constructor(client, asyncQuestions = () => [], options = {}) { this.client = client; this.asyncQuestions = asyncQuestions; this.options = options; this.states = new Map(); this.requests = new Map(); this.sends = new Map(); this.attaching = new Map(); this.pendingNativeRetries = new Map(); }
+  constructor(client, asyncQuestions = () => [], options = {}) { this.client = client; this.asyncQuestions = asyncQuestions; this.options = options; this.states = new Map(); this.requests = new Map(); this.sends = new Map(); this.attaching = new Map(); this.pendingNativeRetries = new Map(); this.userSending = new Map(); }
   state(id) {
     if (!this.states.has(id)) this.states.set(id, { version: 0, turnVersion: 0, turnStateKnown: false, activeTurnId: null, activeTurnStartedAt: null, items: new Map(), turnStatus: null, error: null, historyEpoch: this.options.history?.read(id) || "0", pendingSends: 0, discardedTurns: new Set(),
       recovery: { attempts: 0, stopped: false, ...this.options.recovery?.read(id) } });
@@ -153,7 +153,7 @@ class CodexSessionControls {
   }
   scheduleRetry(id, turn) {
     const state = this.state(id);
-    if (this.closed || !turn?.id || !["failed", "interrupted"].includes(turn.status) || state.recovery.stopped
+    if (this.options.userJournal?.blocked(id) || this.closed || !turn?.id || !["failed", "interrupted"].includes(turn.status) || state.recovery.stopped
       || state.editCommit || state.editUncertain || state.recovery.attempts >= MAX_AUTO_RETRIES || state.retryHandledTurnId === turn.id) return;
     this.cancelRetry(id);
     const retry = { turnId: turn.id, attempt: state.recovery.attempts + 1, at: Date.now() + RETRY_DELAY_MS, dispatching: false };
@@ -181,6 +181,7 @@ class CodexSessionControls {
   close() { this.closed = true; this.pendingNativeRetries.clear(); for (const id of this.states.keys()) this.cancelRetry(id); }
   async recover(id) {
     const turn = await this.refreshTurn(id);
+    if (this.options.userJournal?.blocked(id)) await this.options.reconcileUserSends?.(id);
     if (turn) this.scheduleRetry(id, turn);
   }
   async attach(id) {
@@ -240,6 +241,7 @@ class CodexSessionControls {
       : null;
     state.activeTurnId = turn?.status === "inProgress" ? turn.id : null;
     if (state.activeTurnId) this.acceptNativeTurn(state, turn.id);
+    if (turn?.id && ['completed','failed','interrupted'].includes(turn.status)) this.options.userJournal?.terminal(id, turn.id);
     state.turnStatus = turn?.status || null; state.error = turn?.error?.message || this.interruptedNativeRetry(id, turn) || null;
     if (turn?.status === "completed" || (turn?.id && state.recovery.modelIssue?.turnId !== turn.id)) this.clearModelIssue(id);
     if (turn?.error && turn.status === "failed") this.modelIssue(id, turn.id, turn.error, false);
@@ -286,6 +288,7 @@ class CodexSessionControls {
       state.activeTurnId = p.turn.id; state.turnStatus = "inProgress"; state.error = null; this.flushNativeRetry(state); state.version++;
     }
     if (frame.method === "turn/completed") {
+      this.options.userJournal?.terminal(id, p.turn.id);
       state.turnVersion++;
       if (state.activeTurnId === p.turn.id || (!state.activeTurnId && !state.lastTurnId)) {
         state.turnStateKnown = true;
@@ -327,6 +330,7 @@ class CodexSessionControls {
       if (!normalized) return;
       const key = normalized.id;
       this.options.replyContext?.record(id, normalized, item.clientId);
+      try { this.options.userJournal?.observe(id, [normalized], state.historyEpoch, this.options.nativeThread?.(id)); } catch { this.options.userJournal.unavailable = true; this.options.changed?.(id); }
       const details = item.type === "fileChange" ? JSON.stringify(item.changes || []) : null;
       state.items.set(key, { ...normalized, ...clipText(normalized.content, normalized.role === "tool" ? 2000 : 64 * 1024), status: item.status || (frame.method === "item/started" ? "inProgress" : "completed"), details: details?.slice(0, 4000), incompleteDetails: details ? Buffer.byteLength(details) > 16000 || details.length > 4000 : false, version: ++state.version });
     }
@@ -370,7 +374,7 @@ class CodexSessionControls {
       items.push(visible); bytes += size;
     }
     const hasMore = items.length < changed.length;
-    return { connected: true, historyEpoch: state.historyEpoch, version: hasMore ? items.at(-1).version : state.version, hasMore, activeTurnId: state.activeTurnId, activeTurnStartedAt: state.activeTurnStartedAt, turnStatus: state.turnStatus, error: state.error, retryAt: state.retry?.at ?? null, retrying: Boolean(state.retry?.dispatching),
+    return { connected: true, userSends: this.options.userJournal?.summary(id), historyEpoch: state.historyEpoch, version: hasMore ? items.at(-1).version : state.version, hasMore, activeTurnId: state.activeTurnId, activeTurnStartedAt: state.activeTurnStartedAt, turnStatus: state.turnStatus, error: state.error, retryAt: state.retry?.at ?? null, retrying: Boolean(state.retry?.dispatching),
       retryAttempt: state.retry?.attempt ?? state.recovery.attempts,
       retryMaxAttempts: MAX_AUTO_RETRIES, retryStopped: state.recovery.stopped,
       modelRecovery: state.recovery.modelIssue || null,
@@ -387,6 +391,32 @@ class CodexSessionControls {
       }) };
   }
   async send(id, text, requestId, attachments = [], options = {}) {
+    const journal = this.options.userJournal;
+    if (!options.userSend || !journal) {
+      if (journal?.blocked(id)) { if (options.resumeInterrupted) throw Object.assign(new Error('Earlier user input is not confirmed. Review saved messages before continuing.'), { code: 'USER_INPUT_UNCONFIRMED' }); return { status: options.automaticRetry ? 'cancelled' : 'busy' }; }
+      return this.sendCore(id, text, requestId, attachments, options);
+    }
+    const payload = { message: text, attachments, references: options.references || [], sourcePurpose: options.userSend.sourcePurpose ?? null };
+    const previous = journal.check(id, requestId, payload);
+    const inFlight = this.userSending.get(requestId);
+    if (inFlight) { if (inFlight.threadId !== id || (inFlight.recoveryOf || null) !== (options.userSend.recoveryOf || null) || inFlight.hash !== crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex')) throw new Error('Send request ID has different content'); return inFlight.promise; }
+    if (previous) { if ((previous.recoveryOf || null) !== (options.userSend.recoveryOf || null)) throw Object.assign(new Error('Send request ID has a different recovery intent'), { code: 'USER_SEND_CONFLICT' }); return journal.receipt(previous); }
+    const promise = this.sendCore(id, text, requestId, attachments, { ...options, journalPayload: payload }).then(result => {
+      if (!['started','steered'].includes(result.status)) return result;
+      journal.accepted(id, requestId, result, this.options.nativeThread?.(id)); const state = this.state(id);
+      if (state.turnStateKnown && state.lastTurnId === result.turnId && !state.activeTurnId && ['completed','failed','interrupted'].includes(state.turnStatus)) journal.terminal(id,result.turnId);
+      return result;
+    }).catch(error => {
+      const saved = journal.get(id, requestId); if (!saved) throw error;
+      if (saved.state === 'confirmed') return journal.receipt(saved);
+      try { journal.unknown(id, requestId); } catch { journal.unavailable = true; }
+      this.options.changed?.(id);
+      return { status: 'saved', journalId: requestId, error: 'Input is saved, but native delivery is unconfirmed. Review saved messages.' };
+    }).finally(() => this.userSending.delete(requestId));
+    this.userSending.set(requestId, { threadId: id, recoveryOf: options.userSend.recoveryOf || null, hash: crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex'), promise });
+    return promise;
+  }
+  async sendCore(id, text, requestId, attachments = [], options = {}) {
     const state = this.state(id);
     if (state.editCommit) throw new Error("An edit is being committed. Wait before sending.");
     if (state.editUncertain && options.automaticRetry) return { status: "cancelled" };
@@ -399,8 +429,9 @@ class CodexSessionControls {
     }
     finally { state.pendingSends--; }
   }
-  async sendInput(id, text, requestId, attachments = [], { resumeInterrupted = false, onlyIfIdle = false, automaticRetry = null, references = [], replyContext = null, usage = null, editTransaction = null } = {}) {
+  async sendInput(id, text, requestId, attachments = [], { resumeInterrupted = false, onlyIfIdle = false, automaticRetry = null, references = [], replyContext = null, usage = null, editTransaction = null, userSend = null, journalPayload = null } = {}) {
     this.requireReady();
+    const userBoundary = userSend ? { epoch: this.state(id).historyEpoch, generation: this.generation(), stop: this.state(id).inputStopVersion || 0 } : null;
     if (editTransaction && this.state(id).editCommit !== editTransaction) throw new Error("This edit transaction is no longer current");
     const usageEntry = usage ? { ...usage, entryAt: Date.now(), entryId: requestId } : null;
     if (!automaticRetry && !onlyIfIdle) this.cancelRetry(id);
@@ -409,9 +440,14 @@ class CodexSessionControls {
     if (typeof requestId !== "string" || requestId.length > 100 || !requestId) throw new Error("缺少发送请求 ID");
     const prior = this.sends.get(requestId);
     if (prior) {
+      if (userSend) throw Object.assign(new Error('Send request ID already belongs to another dispatch'), { code: 'USER_SEND_CONFLICT' });
       if (prior.id !== id || prior.resumeInterrupted !== resumeInterrupted || prior.hash !== crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex")) throw new Error("发送请求 ID 冲突");
       if (!prior.result) throw new Error("这次发送已提交，结果需核对，未重复发送");
       return prior.result;
+    }
+    if (userSend && this.options.userJournal) {
+      const saved = this.options.userJournal.admit(id, requestId, journalPayload, { epoch: this.state(id).historyEpoch, nativeThreadId: this.options.nativeThread?.(id), acknowledgeUnconfirmed: userSend.acknowledgeUnconfirmed === true, recoveryOf: userSend.recoveryOf });
+      if (!saved.created) return this.options.userJournal.receipt(saved.row);
     }
     const entry = { id, clientId: requestId, resumeInterrupted, hash: crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex") };
     this.sends.set(requestId, entry);
@@ -452,6 +488,9 @@ class CodexSessionControls {
     // idle-dispatch policy suppress background work, not its own user commit.
     // Clear recovery only after the final idle check, before native can finish.
     if (editTransaction) this.saveRecovery(id, { attempts: 0, stopped: false });
+    if (userSend?.recoveryOf && this.options.userJournal.get(id, userSend.recoveryOf)?.state === 'confirmed') return this.options.userJournal.skipRecovery(id, requestId, userSend.recoveryOf);
+    if (userSend?.recoveryOf && (active || !dispatch.turnStateKnown || dispatch.pendingSends > 1 || dispatch.editCommit || dispatch.editUncertain)) throw new Error('Execution changed before recovery dispatch. Input remains saved; inspect it before resending.');
+    if (userBoundary && (this.closed || userBoundary.epoch !== dispatch.historyEpoch || userBoundary.generation !== this.generation() || userBoundary.stop !== (dispatch.inputStopVersion || 0) || this.options.userJournal.unavailable || this.options.userJournal.get(id, requestId)?.state === 'unknown' || (!userSend.recoveryOf && !userSend.acknowledgeUnconfirmed && this.options.userJournal.reviewPending(id, requestId).length))) throw new Error('Delivery state changed before dispatch. Input remains saved; review it before sending.');
     const submittedAt = Date.now();
     this.options.replyContext?.prepare(id, requestId, replyContext || ((automaticRetry || resumeInterrupted) ? this.options.replyContext.current(id) : null), (automaticRetry || resumeInterrupted) ? "continue" : replyContext ? "handoff" : "user");
     const current = this.state(id);
@@ -462,6 +501,7 @@ class CodexSessionControls {
     if (!active) dispatch.startDispatch = new Promise(resolve => { releaseStart = resolve; });
     current.turnVersion++; current.turnStateKnown = false;
     try {
+      if (userSend) this.options.userJournal?.dispatch(id, requestId, active, this.options.nativeThread?.(id));
       entry.dispatched = true;
       const metadata = automaticRetry || resumeInterrupted ? { trigger: automaticRetry ? "automaticRetry" : "continue", inheritTurnId: automaticRetry?.turnId || previousTurnId, entryId: requestId, entryAt: submittedAt } : usageEntry;
       const params = { threadId: id, input, clientUserMessageId: requestId, ...(active ? { expectedTurnId: active } : this.options.settings?.overrides(id) || {}) };
@@ -502,6 +542,7 @@ class CodexSessionControls {
     const removedTurnId = targetTurnId || state.lastTurnId || state.edit?.turnId;
     if (removedTurnId) state.discardedTurns.add(removedTurnId);
     while (state.discardedTurns.size > 128) state.discardedTurns.delete(state.discardedTurns.values().next().value);
+    this.options.userJournal?.rewind(id);
     state.historyEpoch = crypto.randomUUID(); state.items.clear(); state.turnVersion++;
     state.turnStateKnown = false; state.lastTurnId = null; state.activeTurnId = null; state.activeTurnStartedAt = null;
     state.turnStatus = null; state.error = null; state.tokenUsage = null; this.clearModelIssue(id);
@@ -586,7 +627,8 @@ class CodexSessionControls {
         if (result.status === "busy") return { status: "send_failed", message: "History was rewound; edited text was not sent because another turn or input became active. Keep this text and check the conversation before sending again." };
         return { ...result, status: "edited", historyEpoch: state.historyEpoch };
       } catch (error) {
-        this.saveRecovery(id, { stopped: true }); this.cancelRetry(id);
+        this.state(id).inputStopVersion = (this.state(id).inputStopVersion || 0) + 1;
+      this.saveRecovery(id, { stopped: true }); this.cancelRetry(id);
         return { status: typeof error.code === "number" ? "send_failed" : "send_unknown", message: `History was rewound; ${typeof error.code === "number" ? "edited text was rejected" : "edited text delivery was not confirmed"}. Keep this text and check the conversation before sending again. ${error.message}` };
       }
     } finally {
@@ -604,6 +646,7 @@ class CodexSessionControls {
       if (this.state(id).activeTurnId !== expectedTurnId) throw new Error("This execution changed. Refresh before stopping.");
       const retry = this.state(id).retry || this.state(id).autoStarting;
       if (retry) { retry.stopRequested = true; retry.interruptRequested = true; }
+      this.state(id).inputStopVersion = (this.state(id).inputStopVersion || 0) + 1;
       this.saveRecovery(id, { stopped: true }); this.cancelRetry(id);
       this.state(id).turnStateKnown = false;
       await this.client.call("turn/interrupt", { threadId: id, turnId: expectedTurnId });
@@ -611,6 +654,7 @@ class CodexSessionControls {
     }
     const retry = this.state(id).retry || this.state(id).autoStarting;
     if (retry) retry.stopRequested = true;
+    this.state(id).inputStopVersion = (this.state(id).inputStopVersion || 0) + 1;
     this.saveRecovery(id, { stopped: true });
     this.cancelRetry(id); if (!await this.attach(id)) await this.refreshTurn(id);
     const turnId = this.state(id).activeTurnId;

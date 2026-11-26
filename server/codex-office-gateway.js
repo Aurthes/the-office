@@ -11,6 +11,7 @@ const { isDepartmentManager } = require("../src/lib/office/organization-structur
 const { CodexOfficeClient, officeEnvironment } = require("./codex-office-client");
 const { CodexOfficeAccount } = require("./codex-office-account");
 const { CodexOfficeStore } = require("./codex-office-store");
+const { AgentStates } = require("./agent-state");
 const { CodexSessionControls } = require("./codex-session-controls");
 const { CodexSessionStream } = require("./codex-session-stream");
 const { CodexSessionWorkspace } = require("./codex-session-workspace");
@@ -34,10 +35,19 @@ const { OfficeReplyContext, taskReplyContext, sourceOf } = require("./office-rep
 const token = process.env.CLAW3D_GATEWAY_TOKEN;
 if (!token) throw new Error("CLAW3D_GATEWAY_TOKEN is required");
 const { OfficeDelivery } = require("./office-delivery");
+const { OfficeUserSends } = require("./office-user-sends");
+const { resendUserInput } = require("./office-user-send-recovery");
 const directory = officeEnvironment(path.resolve(process.env.CLAW3D_OFFICE_DATA_DIR || path.join(process.env.CLAW3D_DATA_DIR || path.join(os.homedir(), ".local/share/claw3d"), "office-runtime"))).home;
 const replyContext = new OfficeReplyContext(directory);
 const clients = new Set(); let seq = 0, rosterTimer, stopping = false, controls, stream, store, workspace, voice, login, schedules, composer, todos, dictate, delegation, tokenUsage, delivery;
 let restoredSessionStates = Promise.resolve();
+const userSends = new OfficeUserSends(directory, { generation: () => native.scopeGeneration, changed: id => {
+  if (!controls || !id) return;
+  const state = controls.state(id); state.version++;
+  if (userSends.blocked(id)) controls.cancelRetry(id);
+  else { if (state.turnStateKnown && !state.activeTurnId) controls.scheduleRetry(id, { id: state.lastTurnId, status: state.turnStatus }); setImmediate(() => delivery?.notify(id)); }
+  stream?.changed(id); changed();
+} });
 const reservation = new BackendReservation(directory, () => backendBlockers({ native,store,controls,voice,workspace,delivery,delegation,stopping }));
 const features = { dictation: false, dictationHTTP: true, voice: true, prediction: false, terminal: true, schedules: true, todos: true, composer: true, accountVersion: 0 };
 const broadcast = (event, payload) => { const frame = JSON.stringify({ type: "event", event, seq: seq++, payload }); for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.send(frame); };
@@ -89,7 +99,7 @@ store.onTurnDispatch = value => {
   const state = controls?.state(value.agentId);
   todos?.recordTurn(value, state?.lastTurnId === value.turnId ? state : store.get(value.agentId));
 };
-controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features, replyContext, usageMetadata: true, nativeGeneration: () => native.scopeGeneration,
+controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { settings: store, features, replyContext, usageMetadata: true, nativeGeneration: () => native.scopeGeneration, userJournal: userSends, nativeThread: id => store.get(id).codexThreadId, reconcileUserSends: id => reconcileUserSends(id),
   changed: id => { stream?.changed(id); changed(); setImmediate(() => delivery?.notify(id)); },
   editBlocked: id => voice?.active?.threadId === id || store.starting.has(id),
   history: {
@@ -107,7 +117,7 @@ controls = new CodexSessionControls(store, id => store.pendingQuestions(id), { s
     read: id => store.data.sessions.find(row => row.id === id)?.recovery,
     write: (id, recovery) => { const row = store.data.sessions.find(row => row.id === id); if (row) { row.recovery = recovery; store.save(); } },
   },
-  canRetry: async id => !reservation.held && !stopping && native.ready && !store.isBusy(id) && !store.starting.has(id)
+  canRetry: async id => !userSends.blocked(id) && !reservation.held && !stopping && native.ready && !store.isBusy(id) && !store.starting.has(id)
     && !store.pendingQuestions(id).length && !controls.approvalCount(id) && !controls.questions(id).some(q => !q.submitted)
     && (await account()).loggedIn,
 });
@@ -129,8 +139,18 @@ const history = async (id, cursor, epoch) => {
   if (cursor && epoch !== undefined && epoch !== current) throw new Error("History changed. Reload the latest messages.");
   const result = await loadSessionHistoryPage(store.call.bind(store), store.get(id), cursor, replyContext);
   if (controls.state(id).historyEpoch !== current) throw new Error("History changed during the read. Reload the latest messages.");
+  try { userSends.observe(id, result.messages, current, store.get(id).codexThreadId); } catch { userSends.unavailable = true; controls.state(id).version++; stream.changed(id); }
   return { ...result, historyEpoch: current };
 };
+async function reconcileUserSends(id) {
+  let cursor; const epoch = controls.state(id).historyEpoch;
+  for (let page = 0; page < 4 && userSends.blocked(id); page++) {
+    const result = await history(id, cursor, epoch);
+    if (!result.nextCursor) return { complete: true };
+    cursor = result.nextCursor;
+  }
+  return { complete: false };
+}
 async function account(options) { const status = await accountContext.read(options); return { loggedIn: Boolean(status.account) || status.requiresOpenaiAuth === false, email: status.account?.email || null, requiresAuth: status.requiresOpenaiAuth !== false, loginFlow: process.env.CLAW3D_OFFICE_DESKTOP === "1" ? "browser" : "device", login }; }
 // Preserve existing UI/service callers without actors. Office MCP uses the
 // existing explicit actor convention, with no new target or department ACL.
@@ -144,7 +164,7 @@ function scheduleInput(p) {
 schedules = new OfficeSchedules(directory, {
   getSession: id => store.get(id), changed: () => { broadcast("schedules.updated", {}); changed(); },
   canSend: async id => {
-    if (reservation.held || !native.ready || store.isBusy(id) || store.starting.has(id) || store.pendingQuestions(id).length) return false;
+    if (userSends.blocked(id) || reservation.held || !native.ready || store.isBusy(id) || store.starting.has(id) || store.pendingQuestions(id).length) return false;
     await controls.attach(id); await controls.refreshTurn(id);
     if (store.isBusy(id) || controls.approvalCount(id) || controls.questions(id).some(q => !q.submitted)) return false;
     return (await account()).loggedIn;
@@ -162,6 +182,8 @@ replyContext.options.source = async source => {
 store.questionContext = (id, requestId) => replyContext.forModel(id, requestId);
 const company = new OfficeCompany(store);
 store.companyContext = id => company.forTurn(id);
+const agentStates = new AgentStates(path.join(directory, "agent-states"), id => store.get(id));
+store.agentStateContext = id => agentStates.context(id);
 store.initializePosition = (session, title) => company.initializePosition(session, title, async (key, id, position) => {
   // Use the existing settings owner/API, rather than adding a second file writer.
   const response = await fetch(`http://127.0.0.1:${process.env.CLAW3D_STUDIO_PORT || 3033}/api/studio`, {
@@ -199,14 +221,14 @@ delegation = new OfficeDelegation({ store, todos, company, stopping: () => stopp
     return !store.isBusy(id) && !store.starting.has(id) && !controls.state(id).retry;
   },
   canSend: async id => {
-    if (reservation.held || stopping || !native.ready || store.isBusy(id) || store.starting.has(id)) return false;
+    if (userSends.blocked(id) || reservation.held || stopping || !native.ready || store.isBusy(id) || store.starting.has(id)) return false;
     await controls.attach(id); await controls.refreshTurn(id);
     return !store.isBusy(id) && !store.starting.has(id) && !controls.state(id).retry && !controls.state(id).recovery.stopped
       && !store.pendingQuestions(id).length && !controls.approvalCount(id) && !controls.questions(id).some(q => !q.submitted) && (await account()).loggedIn;
   },
   send: (id, message, requestId, context, usage) => controls.send(id, message, requestId, [], { onlyIfIdle: true, replyContext: context, usage }),
 });
-controls.options.idleDispatchAllowed = id => !reservation.held && !stopping && !store.isBusy(id) && !store.starting.has(id)
+controls.options.idleDispatchAllowed = id => !userSends.blocked(id) && !reservation.held && !stopping && !store.isBusy(id) && !store.starting.has(id)
   && voice.active?.threadId !== id && !workspace.snapshot(id)?.running
   && !store.pendingQuestions(id).length && !controls.approvalCount(id) && !controls.questions(id).some(q => !q.submitted);
 delivery = new OfficeDelivery({ directory,
@@ -228,6 +250,8 @@ delivery = new OfficeDelivery({ directory,
 });
 delegation.deliveryCoordinator = delivery;
 const methods = {
+  "agent.state.get": p => { store.get(p.actorId); return agentStates.read(p.agentId ?? p.actorId); },
+  "agent.state.save": p => agentStates.save(p.actorId, { sections: p.sections, revision: p.revision }),
   "question.context": p => { store.get(p.actorId); return replyContext.context(p.actorId, p); },
   "todo.organization": p => company.context(p.actorId, p),
   "todo.department_assets": p => company.departmentAssets(p),
@@ -335,6 +359,10 @@ const methods = {
   "session.subscribe": (p, ws) => { store.get(p.threadId); return stream.subscribe(ws, p.threadId, p.subscriptionId); },
   "session.unsubscribe": (p, ws) => stream.unsubscribe(ws, p.subscriptionId),
   "session.delivery": p => { store.get(p.actorId); return { deliveries: delivery.status(p.actorId, p.threadId), inbox: delivery.summary(p.actorId), batches: delivery.receipts(p.actorId) }; },
+  "session.sends.list": p => { store.get(p.threadId); return { threadId: p.threadId, ...userSends.list(p.threadId, p.cursor) }; },
+  "session.sends.read": p => { store.get(p.threadId); return userSends.read(p.threadId, p.requestId); },
+  "session.sends.reconcile": async p => { store.get(p.threadId); await controls.refreshTurn(p.threadId); return reconcileUserSends(p.threadId); },
+  "session.sends.resend": p => resendUserInput({ store, userSends, controls, native, account, reconcileUserSends }, p),
   "session.send": async p => {
     if (Object.hasOwn(p, "actorId")) {
       store.get(p.threadId);
@@ -351,7 +379,7 @@ const methods = {
       return delivery.enqueue({ ...p, recipient: p.threadId, message,
         originalMessage: p.message, sender: { source: "agent", id: sender.id, name: sender.name }, context });
     }
-    const message = directMessage(store, p); const usage = { ...userUsage(p.sourcePurpose), ...(p.actorId ? { senderId: p.actorId, trigger: "agentMessage" } : {}) }; store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, message, p.requestId, p.attachments, { references: p.references || [], usage }); store.clearQuestions(p.threadId, pending); return result; },
+    const message = directMessage(store, p); const usage = { ...userUsage(p.sourcePurpose), ...(p.actorId ? { senderId: p.actorId, trigger: "agentMessage" } : {}) }; store.get(p.threadId); if (!(await account()).loggedIn) throw new Error("Sign in to Codex for Office before sending"); const pending = store.pendingQuestions(p.threadId).map(q => q.requestId); const result = await controls.send(p.threadId, message, p.requestId, p.attachments, { references: p.references || [], usage, userSend: { sourcePurpose: p.sourcePurpose ?? null, acknowledgeUnconfirmed: p.acknowledgeUnconfirmed === true } }); store.clearQuestions(p.threadId, pending); return result; },
   "session.edit.prepare": p => { store.get(p.threadId); return controls.prepareEdit(p.threadId); },
   "session.edit.commit": async p => {
     store.get(p.threadId);
