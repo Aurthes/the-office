@@ -401,7 +401,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     {workspaceOpen ? <SessionListDivider pane="workspace" /> : null}
     {workspaceOpen ? <SessionWorkspace key={threadId} noteAgents={noteAgents} gateway={gateway} connected={connected} toolbox={<SessionToolbox threadId={threadId} organization={organization} />} taskProgress={taskProgress} progressRequest={progressRequest} active={active && !shownMessageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
       assets={[...new Map(messages.flatMap(message => message.assets || []).map(asset => [asset.url, asset])).values()].slice(-40)}
-      onSelectAsset={setPreviewAsset} onClose={() => setWorkspaceOpen(false)} /> : null}
+      onSelectAsset={setPreviewAsset} onRefreshSession={() => setRefreshOpen(true)} onClose={() => setWorkspaceOpen(false)} /> : null}
     </div>
     </div>
     {refreshOpen ? <SessionRefresh key={threadId} client={client} threadId={threadId} intent={nextIntent} onIntent={intent => setNextTopic(intent ? { ownerId: threadId, intent } : null)} onClose={() => setRefreshOpen(false)} /> : null}
