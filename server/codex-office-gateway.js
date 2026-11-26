@@ -11,6 +11,7 @@ const { isDepartmentManager } = require("../src/lib/office/organization-structur
 const { CodexOfficeClient, officeEnvironment } = require("./codex-office-client");
 const { CodexOfficeAccount } = require("./codex-office-account");
 const { CodexOfficeStore } = require("./codex-office-store");
+const { AgentStates } = require("./agent-state");
 const { CodexSessionControls } = require("./codex-session-controls");
 const { CodexSessionStream } = require("./codex-session-stream");
 const { CodexSessionWorkspace } = require("./codex-session-workspace");
@@ -162,6 +163,8 @@ replyContext.options.source = async source => {
 store.questionContext = (id, requestId) => replyContext.forModel(id, requestId);
 const company = new OfficeCompany(store);
 store.companyContext = id => company.forTurn(id);
+const agentStates = new AgentStates(path.join(directory, "agent-states"), id => store.get(id));
+store.agentStateContext = id => agentStates.context(id);
 store.initializePosition = (session, title) => company.initializePosition(session, title, async (key, id, position) => {
   // Use the existing settings owner/API, rather than adding a second file writer.
   const response = await fetch(`http://127.0.0.1:${process.env.CLAW3D_STUDIO_PORT || 3033}/api/studio`, {
@@ -228,6 +231,8 @@ delivery = new OfficeDelivery({ directory,
 });
 delegation.deliveryCoordinator = delivery;
 const methods = {
+  "agent.state.get": p => { store.get(p.actorId); return agentStates.read(p.agentId ?? p.actorId); },
+  "agent.state.save": p => agentStates.save(p.actorId, { sections: p.sections, revision: p.revision }),
   "question.context": p => { store.get(p.actorId); return replyContext.context(p.actorId, p); },
   "todo.organization": p => company.context(p.actorId, p),
   "todo.department_assets": p => company.departmentAssets(p),

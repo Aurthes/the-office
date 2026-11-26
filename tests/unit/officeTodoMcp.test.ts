@@ -431,3 +431,26 @@ it("describes the direct assignment route and exposes the existing recorded revi
     expect(schema.properties.phases.items.properties.acceptanceManagerId.type).toEqual(["string", "null"]);
   }
 });
+
+it("reads and maintains real per-employee Agent State through the existing authenticated MCP bridge", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "agent-state-mcp-"));
+  cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+  const { AgentStates } = createRequire(import.meta.url)("../../server/agent-state");
+  const actorId="10000000-0000-4000-8000-000000000001",other="20000000-0000-4000-8000-000000000002";
+  const agent=(id:string)=>{if(![actorId,other].includes(id))throw Error("Missing employee");};
+  const states=new AgentStates(directory,agent);
+  const f=await fixture((ws,frame)=>{
+    try {
+      const p=frame.params as unknown as {actorId:string;agentId?:string;revision:number;sections:object}; agent(p.actorId);
+      if(!["agent.state.get","agent.state.save"].includes(frame.method))throw Error("Unexpected method");
+      reply(ws,frame,frame.method==="agent.state.get"?states.read(p.agentId??p.actorId):states.save(p.actorId,{revision:p.revision,sections:p.sections}));
+    }catch(e){ws.send(JSON.stringify({type:"res",id:frame.id,ok:false,error:{message:(e as Error).message}}));}
+  });
+  const call=await mcp(f.url),sections={focus:"Persistent goal",decisions:"Short reason",followUp:"Pending acceptance",links:"T247"};
+  expect(await call("agent_state_get",{actorId})).toMatchObject({id:actorId,revision:0});
+  expect(await call("agent_state_save",{actorId,revision:0,sections})).toMatchObject({id:actorId,revision:1,sections});
+  expect(await call("agent_state_get",{actorId:other,agentId:actorId})).toMatchObject({id:actorId,revision:1,sections});
+  expect(await call("agent_state_get",{actorId:other})).toMatchObject({id:other,revision:0});
+  await expect(call("agent_state_save",{actorId,revision:0,sections})).rejects.toThrow(/changed/);
+  expect(states.read(actorId).revision).toBe(1);
+});
