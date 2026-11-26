@@ -715,7 +715,7 @@ it.each(["Worker", "Head"])("refreshes unchanged-progress %s guidance through th
   const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
   const current = "Use the existing work and review chain. Don't use messages as an execution log. Send results, decisions, or things that need action. Put routine progress in the task. Escalate substantive disagreements or blockers directly when needed. Answer requested updates.";
   const previous = "Keep complete execution and verification records in the task or linked evidence; send the outcome, decisive facts, material limits and any needed decision.";
-  const head = "Judge progress against the original goal and choose the next question.", oldHead = "Keep your own replies focused on what affects the decision.";
+  const head = "Keep the big picture when reports get absorbed in details.", oldHead = "Keep your own replies focused on what affects the decision.";
   expect(payload.split(current)).toHaveLength(2);
   expect(payload.includes(head)).toBe(title === "Head");
   expect(payload).toContain("If D <= 5 minutes");
@@ -1004,6 +1004,38 @@ it.each(["CEO", "Head", "Manager", "Worker"])("loads complete-iteration economic
   expect(payload).toContain("Let the executor decide how");
   const nativeThreadId = f.store.get(id).codexThreadId;
   f.store.get(id).projectContext = createHash("sha256").update(payload.replace(rule, priorRule)).digest("hex"); f.store.save();
+  const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const update = injections()[1][1] as { threadId: string; items: Array<{ role: string; content: Array<{ text: string }> }> };
+  expect(update.threadId).toBe(nativeThreadId); expect(update.items[0].role).toBe("developer"); expect(update.items[0].content[0].text).toBe(payload);
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const again = new CodexOfficeStore(f.directory, f.client); again.companyContext = f.store.companyContext;
+  await again.call("turn/start", { threadId: id, input: [] });
+  expect(injections()).toHaveLength(2);
+  expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
+});
+
+it.each(["CEO", "Head", "Manager", "Worker"])("refreshes decomposition and test-duration discipline for %s on the existing thread once with restored cache", async title => {
+  const f = fixture();
+  const id = title === "CEO" ? (f.store.ensureCeo(), CEO_ID) : await session(f);
+  f.store.companyContext = () => ({ agentId: id, title, canRecruit: false });
+  const shared = "Decompose only as far as needed to choose an action and evaluate its outcome. Use each result to update the parent conclusion and next action; drop branches that no longer advance the goal.";
+  const head = "Keep the big picture when reports get absorbed in details. Help them cut through noise and focus on the most consequential unresolved question. Break complex problems into tractable subquestions, use their results to advance the parent goal, and leave implementation to the executor.";
+  const timing = 'Ordinary non-stress unit tests must finish within 100ms per case; this is a performance requirement, not a suite, build, integration or stress timeout. Declare integration and stress budgets before running. For a slow or timed-out test, keep its name, wall time, threshold and available output; first use the cheapest check to distinguish implementation, fixture or dependency waits from shared runner or resource contention. Fix what you own; hand a substantive cross-owner issue once to Infra for shared infrastructure or the relevant team for business tests, and follow it through. Do not blindly wait, retry, raise timeouts or relabel tests afterward. Rerun only the affected tests after a fix or evidence of a transient cause, and never report slow or timed-out tests as a clean pass. A 100ms overrun or controller wait timeout does not justify killing a healthy job.';
+  const priorHead = "Ask the right questions: break the problem into subquestions that advance their parent, prioritizing the most important.";
+  await f.store.call("turn/start", { threadId: id, input: [] });
+  const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+  const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
+  expect(payload.split(shared)).toHaveLength(2);
+  expect(payload.split(timing)).toHaveLength(2);
+  expect(payload.includes(head)).toBe(["Head", "Manager"].includes(title));
+  expect(payload).not.toContain(priorHead);
+  expect(payload).not.toContain("Judge progress against the original goal and choose the next question.");
+  expect(payload).toContain("agreed complete task iteration");
+  expect(payload).toContain("Don't use messages as an execution log.");
+  const nativeThreadId = f.store.get(id).codexThreadId;
+  const previous = payload.replace(" " + timing, "").replace(" " + shared, "").replace(head, priorHead).replace(" Return gaps to workers;", " Judge progress against the original goal and choose the next question. Return gaps to workers;");
+  f.store.get(id).projectContext = createHash("sha256").update(previous).digest("hex"); f.store.save();
   const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
   await restored.call("turn/start", { threadId: id, input: [] });
   const update = injections()[1][1] as { threadId: string; items: Array<{ role: string; content: Array<{ text: string }> }> };
