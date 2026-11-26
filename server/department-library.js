@@ -4,6 +4,8 @@ const path = require("node:path");
 const os = require("node:os");
 const { randomUUID } = require("node:crypto");
 const { pipeline } = require("node:stream/promises");
+const { documentInfo } = require("../src/lib/office/library-document");
+const { HTML_POLICY } = require("./codex-session-assets");
 const WebSocket = require("ws");
 const { loadUpstreamGatewaySettings } = require("./studio-settings");
 
@@ -112,6 +114,14 @@ function createDepartmentLibrary({
       if (item.isDirectory() && departmentId(item.name)) yield path.join(root, item.name);
     }
   }
+  function describeFile(folder, entry) {
+    if(entry.kind !== 'file')return entry;
+    let file;
+    try { file=regular(path.join(folder,entry.id,'content'));if(file.size!==entry.size||file.size>maxFile)return entry;
+      const bytes=Buffer.alloc(Math.min(file.size,65536));fs.readSync(file.fd,bytes,0,bytes.length,0);
+      return {...entry,...documentInfo(entry.name,bytes.toString('utf8'))};
+    }catch{return entry;}finally{if(file)fs.closeSync(file.fd);}
+  }
   function initialize() {
     directory(root, true);
     if (initialized) return;
@@ -174,7 +184,7 @@ function createDepartmentLibrary({
       }
       fs.writeFileSync(path.join(staging, "entry.json"), JSON.stringify(entry), { flag: "wx", mode: 0o600, flush: true });
       fs.renameSync(staging, path.join(folder, id));
-      return entry;
+      return describeFile(folder, entry);
     } finally {
       try {
         if (handle) await handle.close();
@@ -194,7 +204,7 @@ function createDepartmentLibrary({
     initialize();
     const folder = path.join(root, department);
     if (req.method === "POST") return json(res, 201, { entry: await save(req, folder, url) });
-    if (!id) return json(res, 200, { entries: [...entries(folder)].sort((a, b) => b.createdAt.localeCompare(a.createdAt)) });
+    if (!id) return json(res, 200, { entries: [...entries(folder)].map(entry=>describeFile(folder,entry)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)) });
     let file, entry;
     try {
       entry = rowAt(directory(folder), id);
@@ -202,6 +212,18 @@ function createDepartmentLibrary({
       file = regular(path.join(folder, id, "content"));
     } catch (error) { if (error.code === "ENOENT" || error.code === "ELOOP") missing(); throw error; }
     if (file.size !== entry.size) { fs.closeSync(file.fd); missing(); }
+    const info=describeFile(folder,entry);
+    if(url.searchParams.get('format')==='json') {
+      try {if(!info.previewKind)fail(415,'Preview unavailable for this file. Download it instead.');
+        const bytes=await new Promise((resolve,reject)=>fs.readFile(file.fd,(error,bytes)=>error?reject(error):resolve(bytes)));if(bytes.length!==entry.size)missing();
+        return json(res,200,{content:bytes.toString('utf8'),assets:[],kind:info.previewKind,title:info.title||entry.name});
+      }finally{fs.closeSync(file.fd);}
+    }
+    if(url.searchParams.get('preview')==='1') {
+      if(info.previewKind!=='html'){fs.closeSync(file.fd);fail(415,'Preview unavailable for this file.');}
+      res.writeHead(200,{...noStore,'Content-Type':'text/html; charset=utf-8','Content-Length':file.size,'Content-Security-Policy':HTML_POLICY});
+      await pipeline(fs.createReadStream(null,{fd:file.fd}),res);return;
+    }
     const name = encodeURIComponent(entry.name).replace(/['()*]/g, char => "%" + char.charCodeAt(0).toString(16));
     res.writeHead(200, { ...noStore, "Content-Type": "application/octet-stream", "Content-Length": file.size,
       "Content-Disposition": "attachment; filename*=UTF-8''" + name, "Content-Security-Policy": "sandbox" });

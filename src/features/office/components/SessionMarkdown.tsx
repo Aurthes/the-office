@@ -45,7 +45,7 @@ export function SessionAssetPreview({ asset, onClose, embedded = false }: { asse
     return () => clearTimeout(timer);
   }, [asset.kind, htmlLoading, htmlRetry]);
   useEffect(() => {
-    if (asset.kind !== "html") return;
+    if (asset.kind !== "html" || asset.archived) return;
     const controller = new AbortController();
     let pending = false;
     let lastHtml: string | undefined;
@@ -75,15 +75,15 @@ export function SessionAssetPreview({ asset, onClose, embedded = false }: { asse
     window.addEventListener("message", snapshot);
     window.addEventListener("message", refresh);
     return () => { controller.abort(); window.removeEventListener("message", snapshot); window.removeEventListener("message", refresh); };
-  }, [asset.kind, asset.url]);
+  }, [asset.kind, asset.url, asset.archived]);
   const retryHtml = () => { setHtmlSnapshot(null); setHtmlLoading(true); setHtmlSlow(false); setHtmlRetry(value => value + 1); };
   useEffect(() => {
     if (asset.kind !== "markdown") return;
     const controller = new AbortController();
-    fetch(asset.url + "&format=json", { signal: controller.signal }).then(async response => {
+    fetch(asset.url + (asset.url.includes("?") ? "&" : "?") + "format=json", { signal: controller.signal }).then(async response => {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not read file");
-      setMarkdown(result);
+      if (!controller.signal.aborted) setMarkdown(result);
     }).catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Could not read file"); });
     return () => controller.abort();
   }, [asset]);
@@ -92,7 +92,7 @@ export function SessionAssetPreview({ asset, onClose, embedded = false }: { asse
       <button type="button" onClick={onClose} className="min-h-11 shrink-0 rounded-lg px-3 text-sm text-cyan-100 hover:bg-white/10">{t(embedded ? "Back to files" : "← Back to chat")}</button>
       <span className="min-w-0 flex-1 truncate text-sm">{asset.name}</span>
       {asset.kind === "html" ? <a href={asset.url} target="_blank" rel="noopener noreferrer" onClick={onClose} className="shrink-0 rounded-lg px-2 py-3 text-xs text-cyan-100">{t("Open separately ↗")}</a> : null}
-      <SaveToLibrary name={asset.name} content={asset.kind === 'markdown' ? markdown?.content ?? null : asset.kind === 'html' ? htmlSnapshot : null} />
+      {!asset.archived && <SaveToLibrary name={asset.name} content={asset.kind === 'markdown' ? markdown?.content ?? null : asset.kind === 'html' ? htmlSnapshot : null} />}
       <a href={asset.url} download={asset.name} className="shrink-0 rounded-lg px-3 py-3 text-xs text-white/60">{t("Download")}</a>
     </header>
     {asset.kind === "html" ? <div className="relative min-h-0 flex-1">
@@ -109,7 +109,7 @@ export function SessionAssetPreview({ asset, onClose, embedded = false }: { asse
     </div> : <div className="min-h-0 flex-1 overflow-auto p-4 md:p-8">
       {asset.kind === "image" ? <div className={fullSize ? "min-w-max" : "flex min-h-full items-center justify-center"}><AssetImage src={asset.url} name={asset.name} fullSize={fullSize} onOpen={() => setFullSize(value => !value)} /></div>
         : asset.kind === "file" ? <p className="text-sm text-white/60">{t("Download this file to open it.")}</p>
-        : error ? <p role="alert" className="text-amber-100">{t(error)}</p> : markdown ? <div className="mx-auto max-w-4xl"><SessionMarkdown content={markdown.content} assets={markdown.assets} /></div> : <p role="status">{t("Reading file…")}</p>}
+        : error ? <p role="alert" className="text-amber-100">{t(error)}</p> : markdown ? <div className="mx-auto max-w-4xl">{asset.plainText ? <pre className="whitespace-pre-wrap break-words">{markdown.content}</pre> : <SessionMarkdown content={markdown.content} assets={markdown.assets} />}</div> : <p role="status">{t("Reading file…")}</p>}
     </div>}
   </>;
   return embedded ? <section aria-label={t("Preview {0}", { "0": asset.name })} className="flex min-h-0 flex-1 flex-col overflow-hidden">{content}</section> : createPortal(<dialog ref={dialog} aria-label={t("Preview {0}", { "0": asset.name })} onCancel={event => { event.preventDefault(); onClose(); }} className="fixed inset-0 m-0 flex h-dvh max-h-none w-full max-w-none flex-col overflow-hidden border-0 bg-[#111923] p-0 text-white backdrop:bg-black/70 md:inset-4 md:h-[calc(100dvh-2rem)] md:w-[calc(100vw-2rem)] md:rounded-xl md:border md:border-white/15">{content}</dialog>, document.body);

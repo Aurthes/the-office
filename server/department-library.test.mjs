@@ -102,3 +102,20 @@ test("bounds size, total capacity and concurrent uploads; aborted and crash-stag
   assert.equal((await post(A, "application/json", '{"url":"http://example.test"}')).status, 201);
   assert.equal((await post(A, "application/json", '{"url":"http://example.test"}')).status, 507);
 });
+
+// Loopback HTTP integration: predeclared 5s case budget; no upstream connection.
+test("legacy index archives derive distinct real titles, preview exact permanent copies and keep downloads isolated", {timeout:5000}, async t => {
+  const {request,post,restart}=await fixture(t);
+  const saved=[];
+  for(const [name,body,title] of [['index.html','<title>Research &amp; results</title><script>window.test=1</script>','Research & results'],['index.html','<h1>Second report</h1>','Second report'],['notes.md','# Markdown report\n\nBody','Markdown report'],['notes.txt','Plain text title\n<data>','Plain text title']]) {
+    const response=await post(A+'?name='+encodeURIComponent(name),'application/octet-stream',body);
+    const {entry}=await response.json();saved.push(entry);assert.equal(entry.title,title);
+    assert.equal(await (await request(A+'/'+entry.id)).text(),body);
+    const json=await (await request(A+'/'+entry.id+'?format=json')).json();assert.equal(json.content,body);
+    if(name.endsWith('html')) {const frame=await request(A+'/'+entry.id+'?preview=1');assert.match(frame.headers.get('content-type'),/^text\/html/);assert.match(frame.headers.get('content-security-policy'),/sandbox allow-scripts/);assert.match(frame.headers.get('content-security-policy'),/connect-src 'none'/);assert.equal(await frame.text(),body);}
+    assert.equal((await request(B+'/'+entry.id+'?preview=1')).status,404);
+    assert.equal((await request(A+'/'+entry.id+'?format=json',{},false)).status,401);
+  }
+  restart();const rows=(await (await request(A)).json()).entries;assert.equal(rows.length,4);assert.deepEqual(new Set(rows.map(x=>x.title)),new Set(saved.map(x=>x.title)));
+  const other=await (await post(A+'?name=binary.pdf','application/octet-stream','binary')).json();assert.equal((await request(A+'/'+other.entry.id+'?preview=1')).status,415);
+});
