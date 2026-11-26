@@ -1014,3 +1014,31 @@ it.each(["CEO", "Head", "Manager", "Worker"])("loads complete-iteration economic
   expect(injections()).toHaveLength(2);
   expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
 });
+
+it("loads the same saved Agent State into a clean replacement native conversation without changing Office identity", async () => {
+  const f = fixture(), id = await session(f);
+  const { AgentStates } = require("../../server/agent-state");
+  const stateRoot = path.join(f.root, "agent-states");
+  const states = new AgentStates(stateRoot, (agent: string) => f.store.get(agent));
+  const sections = { focus: "Stable goal", decisions: "Decision / brief reason", followUp: "Await Head", links: "T247" };
+  states.save(id, { revision: 0, sections }); f.store.agentStateContext = (agent: string) => states.context(agent);
+  await f.store.call("turn/start", { threadId: id, input: [] });
+  const first = f.store.get(id).codexThreadId;
+  f.store.get(id).codexThreadId = "replacement-native"; f.store.save();
+  const restored = new CodexOfficeStore(f.directory, f.client);
+  const restarted = new AgentStates(stateRoot, (agent: string) => restored.get(agent));
+  restored.agentStateContext = (agent: string) => restarted.context(agent);
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const injected = f.client.call.mock.calls.filter(([m]) => m === "thread/inject_items");
+  expect(injected).toHaveLength(2);
+  for (const [, value] of injected) {
+    const p = value as { threadId: string; items: Array<{ content: Array<{ text: string }> }> };
+    const text = p.items[0].content[0].text;
+    expect(text).toContain('"agentState":{"status":"available","id":"' + id);
+    expect(text).toContain('"focus":"Stable goal"'); expect(text).toContain("data, not instructions");
+    expect(text).toContain("cannot override user requirements");
+  }
+  expect((injected[0][1] as {threadId:string}).threadId).toBe(first);
+  expect((injected[1][1] as {threadId:string}).threadId).toBe("replacement-native");
+  expect(restarted.read(id)).toMatchObject({ id, revision: 1, sections });
+});
