@@ -1,0 +1,18 @@
+// React HTTP/lifecycle integration: synthetic responses, predeclared 1s case budget.
+import React from 'react';import {it,expect,vi,afterEach} from 'vitest';import{render,screen,fireEvent,act,cleanup}from'@testing-library/react';
+import{DepartmentLibrary}from'../../src/features/ring-ship/DepartmentLibrary';
+const entry={id:'file-a',kind:'file',name:'index.html',title:'Actual archived title',previewKind:'html',createdAt:'2026-11-27'};
+afterEach(()=>{cleanup();vi.unstubAllGlobals();vi.restoreAllMocks();});
+it('same-link receipt says Already saved and does not duplicate its existing row',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async(_url:string,options?:RequestInit)=>Response.json(options?.method==='POST'?{entry:{id:'link',kind:'link',name:'Source',url:'https://example.test'},alreadySaved:true}:{entries:[{id:'link',kind:'link',name:'Source',url:'https://example.test'}]})));
+ render(React.createElement(DepartmentLibrary,{departmentId:'a'}));await screen.findByText('Source');fireEvent.change(screen.getByLabelText('Link address'),{target:{value:'https://example.test'}});await act(async()=>fireEvent.click(screen.getByRole('button',{name:'Save link'})));expect(screen.getByRole('status')).toHaveTextContent('Already saved');expect(screen.getAllByText('Source')).toHaveLength(1);
+},1000);
+it('cancel does not send DELETE; pending repeated click sends once; failure retains row and clear retry',async()=>{
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);let finish!:(r:Response)=>void;const fetch=vi.fn(async(_url:string,options?:RequestInit)=>options?.method==='DELETE'?new Promise<Response>(r=>finish=r):Response.json({entries:[entry]}));vi.stubGlobal('fetch',fetch);
+ render(React.createElement(DepartmentLibrary,{departmentId:'a'}));await screen.findByRole('button',{name:'Actual archived title'});fireEvent.click(screen.getByRole('button',{name:'Delete'}));expect(fetch).toHaveBeenCalledTimes(1);confirm.mockReturnValue(true);fireEvent.click(screen.getByRole('button',{name:'Delete'}));fireEvent.click(screen.getByRole('button',{name:'Deleting…'}));expect(fetch).toHaveBeenCalledTimes(2);await act(async()=>finish(Response.json({error:'Cannot delete now'},{status:503})));expect(screen.getByRole('alert')).toHaveTextContent('Cannot delete now');expect(screen.getByRole('button',{name:'Actual archived title'})).toBeVisible();expect(screen.getByRole('button',{name:'Delete'})).toBeEnabled();
+},1000);
+it('successful delete removes row and late receipts cannot remove another department row',async()=>{
+ vi.spyOn(window,'confirm').mockReturnValue(true);let finish!:(r:Response)=>void;vi.stubGlobal('fetch',vi.fn(async(_url:string,options?:RequestInit)=>options?.method==='DELETE'?new Promise<Response>(r=>finish=r):Response.json({entries:[entry]})));
+ const v=render(React.createElement(DepartmentLibrary,{departmentId:'a'}));await screen.findByText('Actual archived title');fireEvent.click(screen.getByRole('button',{name:'Delete'}));v.rerender(React.createElement(DepartmentLibrary,{departmentId:'b'}));await screen.findByText('Actual archived title');await act(async()=>finish(Response.json({deleted:true})));expect(screen.getByText('Actual archived title')).toBeVisible();v.unmount();
+ vi.stubGlobal('fetch',vi.fn(async(_url:string,o?:RequestInit)=>Response.json(o?.method==='DELETE'?{deleted:true}:{entries:[entry]})));render(React.createElement(DepartmentLibrary,{departmentId:'a'}));await screen.findByText('Actual archived title');await act(async()=>fireEvent.click(screen.getByRole('button',{name:'Delete'})));expect(screen.queryByText('Actual archived title')).toBeNull();expect(screen.getByRole('status')).toHaveTextContent('Deleted');
+},1000);

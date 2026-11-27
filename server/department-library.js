@@ -2,7 +2,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
-const { randomUUID } = require("node:crypto");
+const { randomUUID, createHash } = require("node:crypto");
 const { pipeline } = require("node:stream/promises");
 const { documentInfo } = require("../src/lib/office/library-document");
 const { HTML_POLICY } = require("./codex-session-assets");
@@ -89,7 +89,7 @@ function rowAt(folder, id) {
     if (entry.id !== id || typeof entry.createdAt !== "string") throw new Error("Invalid library record");
     const fields = { id, name: displayName(entry.name), createdAt: entry.createdAt };
     if (entry.kind === "link") return { ...fields, kind: "link", url: externalLink(entry.url) };
-    if (entry.kind === "file" && Number.isSafeInteger(entry.size) && entry.size >= 0 && entry.size <= 20 * MiB) return { ...fields, kind: "file", size: entry.size };
+    if (entry.kind === "file" && Number.isSafeInteger(entry.size) && entry.size >= 0 && entry.size <= 20 * MiB) return { ...fields, kind: "file", size: entry.size, ...(typeof entry.sha256 === "string" && /^[a-f0-9]{64}$/.test(entry.sha256) ? {sha256:entry.sha256} : {}) };
     throw new Error("Invalid library record");
   } finally { fs.closeSync(fd); }
 }
@@ -100,7 +100,51 @@ function createDepartmentLibrary({
 } = {}) {
   let initialized = false;
   let lookup;
-  let writes = 0, reserved = 0;
+  let writes = 0;
+  // One owner process, with uploads outside this short per-department commit lane.
+  // Dedup check + publish and delete must share one order; no global upload lock.
+  const mutations = new Map(), legacyHashes = new Map();
+  function mutate(folder, operation) {
+    const lane=mutations.get(folder)||{tail:Promise.resolve(),pending:0};
+    if(lane.pending>=8)fail(429,"Library changes are busy. Try again shortly.");
+    lane.pending++;
+    const result=lane.tail.catch(()=>{}).then(operation);
+    lane.tail=result;mutations.set(folder,lane);
+    void result.finally(()=>{if(--lane.pending===0)mutations.delete(folder);}).catch(()=>{});
+    return result;
+  }
+  async function fileHash(folder,entry) {
+    if(entry.sha256)return entry.sha256;
+    const key=folder+'/'+entry.id;
+    if(!legacyHashes.has(key)) {
+      const pending=(async()=>{
+        const file=regular(path.join(directory(path.join(folder,entry.id)),"content"));
+        if(file.size!==entry.size){fs.closeSync(file.fd);missing();}
+        const hash=createHash('sha256');
+        for await(const chunk of fs.createReadStream(null,{fd:file.fd}))hash.update(chunk);
+        return hash.digest('hex');
+      })();
+      legacyHashes.set(key,pending);
+      void pending.catch(()=>legacyHashes.delete(key));
+    }
+    return legacyHashes.get(key);
+  }
+  function capacity(entry) {
+    let count=0,occupied=0;
+    for(const department of folders())for(const row of entries(department)){count++;if(row.kind==='file')occupied+=row.size;}
+    if(count>=maxEntries||occupied+(entry.kind==='file'?entry.size:0)>maxTotal)fail(507,"Library storage is full.");
+  }
+  async function remove(folder,id) {
+    return mutate(folder,async()=>{
+      const target=path.join(folder,id),discard=path.join(folder,'.deleted-'+id);
+      try { rowAt(directory(folder),id); }
+      catch(error){if(error.code!=='ENOENT')throw error;}
+      if(fs.existsSync(target))fs.renameSync(target,discard);
+      legacyHashes.delete(folder+'/'+id);
+      try {await fs.promises.rm(discard,{recursive:true,force:true});return {deleted:true,id};}
+      catch {return {deleted:true,id,cleanupPending:true};}
+    });
+  }
   function authorize(id) {
     lookup ||= Promise.resolve().then(lookupDepartments).finally(() => { lookup = undefined; });
     return lookup.then(ids => { if (!ids.has(id)) fail(404, "Department unavailable."); });
@@ -127,8 +171,8 @@ function createDepartmentLibrary({
     if (initialized) return;
     for (const folder of folders()) {
       for (const item of fs.readdirSync(folder, { withFileTypes: true })) {
-        if (item.isDirectory() && item.name.startsWith(".pending-") && UUID.test(item.name.slice(9))) {
-          fs.rmSync(path.join(folder, item.name), { recursive: true, force: true });
+        if (item.isDirectory() && ((item.name.startsWith(".pending-") || item.name.startsWith(".deleted-")) && UUID.test(item.name.slice(9)))) {
+          try { fs.rmSync(path.join(folder, item.name), { recursive: true, force: true }); } catch { /* A deleted entry remains inaccessible; next restart/retry can finish cleanup. */ }
         }
       }
     }
@@ -151,13 +195,7 @@ function createDepartmentLibrary({
     const name = isFile ? displayName(url.searchParams.get("name")) : null;
     const reservation = isFile ? Number(length ?? limit) : 0;
     if (writes >= 3) fail(429, "Library uploads are busy. Try again shortly.");
-    let count = 0, occupied = 0;
-    for (const department of folders()) for (const entry of entries(department)) {
-      count++;
-      if (entry.kind === "file") occupied += entry.size;
-    }
-    if (count + writes >= maxEntries || occupied + reserved + reservation > maxTotal) fail(507, "Library storage is full.");
-    writes++; reserved += reservation;
+    writes++;
     const id = randomUUID(), staging = path.join(folder, ".pending-" + id);
     let handle, created = false;
     try {
@@ -165,45 +203,56 @@ function createDepartmentLibrary({
       fs.mkdirSync(staging, { mode: 0o700 }); created = true;
       if (isFile) handle = await fs.promises.open(path.join(staging, "content"), "wx", 0o600);
       let size = 0;
+      const hash = isFile ? createHash("sha256") : null;
       const chunks = [];
       for await (const chunk of req.iterator({ destroyOnReturn: false })) {
         size += chunk.length;
         if (size > limit || (isFile && size > reservation)) fail(413, "File or link is too large.");
-        if (handle) await handle.writeFile(chunk); else chunks.push(chunk);
+        if (handle) { hash.update(chunk); await handle.writeFile(chunk); } else chunks.push(chunk);
       }
       if (!req.complete) invalid();
       if (handle) { await handle.sync(); await handle.close(); handle = null; }
       const createdAt = new Date().toISOString();
       let entry;
-      if (isFile) entry = { id, name, kind: "file", size, createdAt };
+      if (isFile) entry = { id, name, kind: "file", size, sha256:hash.digest("hex"), createdAt };
       else {
         let input;
         try { input = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))); } catch { invalid(); }
         const link = externalLink(input?.url);
         entry = { id, name: displayName(input?.name || new URL(link).hostname), kind: "link", url: link, createdAt };
       }
-      fs.writeFileSync(path.join(staging, "entry.json"), JSON.stringify(entry), { flag: "wx", mode: 0o600, flush: true });
-      fs.renameSync(staging, path.join(folder, id));
-      return describeFile(folder, entry);
+      return await mutate(folder,async()=>{
+        for(const existing of entries(folder)) {
+          if(existing.kind!==entry.kind)continue;
+          const equal=entry.kind==='link'?existing.url===entry.url:existing.size===entry.size&&await fileHash(folder,existing)===entry.sha256;
+          if(equal)return {entry:describeFile(folder,existing),alreadySaved:true};
+        }
+        // Capacity is checked after dedup, so a full Library can still return an existing copy.
+        capacity(entry);
+        fs.writeFileSync(path.join(staging, "entry.json"), JSON.stringify(entry), { flag: "wx", mode: 0o600, flush: true });
+        fs.renameSync(staging, path.join(folder, id));
+        return {entry:describeFile(folder,entry),alreadySaved:false};
+      });
     } finally {
       try {
         if (handle) await handle.close();
       } finally {
-        writes--; reserved -= reservation;
+        writes--;
         if (created) fs.rmSync(staging, { recursive: true, force: true });
       }
     }
   }
   async function serve(req, res, url, department, id) {
     if (!departmentId(department) || (id && !UUID.test(id))) missing();
-    if (req.method !== "GET" && (req.method !== "POST" || id)) fail(405, "Method not allowed.");
+    if (req.method !== "GET" && (req.method !== "POST" || id) && (req.method !== "DELETE" || !id)) fail(405, "Method not allowed.");
     // Studio's proxy and access gates authenticate the request before this handler.
     // Their Origin policy rejects mismatches. The write additionally requires Origin.
-    if (req.method === "POST" && !req.headers.origin) fail(403, "Library writes must come from this Office.");
+    if (["POST","DELETE"].includes(req.method) && !req.headers.origin) fail(403, "Library writes must come from this Office.");
     await authorize(department);
     initialize();
     const folder = path.join(root, department);
-    if (req.method === "POST") return json(res, 201, { entry: await save(req, folder, url) });
+    if (req.method === "POST") { const result=await save(req,folder,url);return json(res,result.alreadySaved?200:201,result); }
+    if (req.method === "DELETE") return json(res,200,await remove(folder,id));
     if (!id) return json(res, 200, { entries: [...entries(folder)].map(entry=>describeFile(folder,entry)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)) });
     let file, entry;
     try {
