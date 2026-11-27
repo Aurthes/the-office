@@ -8,7 +8,7 @@ import { useUiText } from "@/lib/i18n/ui-language";
 
 export type RefreshIntent = { checkpointId: string; independentNewTopic: true };
 type Operation = { id: string; status: string; reason?: string; reasons?: string[]; conversationVersion?: number };
-type Status = { threadId: string; conversationVersion: number; stateRevision: number | null; lastTurnId: string | null; preparing: boolean; blockers: string[]; checkpoint: { id: string; version: number; invalidated?: boolean; consumedBy?: string } | null; operation: Operation | null; nextRequest?: { id: string } | null; conversations: { version: number; current: boolean; retiredAt?: number; turnCount?: number }[] };
+type Status = { threadId: string; conversationVersion: number; stateRevision: number | null; lastTurnId: string | null; preparing: boolean; blockers: string[]; automaticBlockers?: string[]; checkpoint: { id: string; version: number; invalidated?: boolean; consumedBy?: string } | null; operation: Operation | null; nextRequest?: { id: string } | null; conversations: { version: number; current: boolean; retiredAt?: number; turnCount?: number }[] };
 const stateLabels: Record<string, string> = { focus: "Current focus", decisions: "Key conclusions and reasons", followUp: "Responsibilities and next decisions", links: "Tasks and original sources" };
 type State = { id: string; revision: number; sections: Record<string, string> };
 // An overlay keeps the composer, file preview and Workspace mounted. A lost
@@ -35,14 +35,13 @@ export function SessionRefresh({ client, threadId, onClose, intent, onIntent, on
     return () => previous?.focus();
   }, []);
   const act = async (checkpoint: boolean) => {
-    if (busy || receiptNeeded || !status || !saved || !verified || status.blockers.length || stateChanged) return;
+    if (busy || receiptNeeded || !status || !saved || status.blockers.length || stateChanged || checkpoint && (!verified || automaticBlockers.length > 0)) return;
     setBusy(true); setError("");
     const requestId = crypto.randomUUID(); operationId.current = checkpoint ? undefined : requestId;
     try {
       const result = await client.call(checkpoint ? "session.refresh.checkpoint" : "session.refresh", {
         threadId, requestId, expectedVersion: status.conversationVersion, stateRevision: saved.revision,
-        noUntrackedWork: true, noPendingReports: true,
-        ...(checkpoint ? { turnId: status.lastTurnId, closedScope: { kind: "conversation" } } : {}),
+        ...(checkpoint ? { noUntrackedWork: true, noPendingReports: true, turnId: status.lastTurnId, closedScope: { kind: "conversation" } } : {}),
       }) as Operation;
       if (!alive.current || owner.current !== threadId) return;
       if (checkpoint) onIntent({ checkpointId: result.id, independentNewTopic: true });
@@ -63,13 +62,14 @@ export function SessionRefresh({ client, threadId, onClose, intent, onIntent, on
   const hasSavedState = !!saved && saved.revision > 0 && Object.values(saved.sections).some(value => value.trim());
   const stateChanged = !!saved && saved.revision !== status?.stateRevision;
   const blocked = !!status && (status.blockers.length > 0 || stateChanged);
+  const automaticBlockers = status?.automaticBlockers ?? status?.blockers ?? [];
   // These are links to authoritative task codes, never a rule for permitting refresh.
-  const taskCodes = [...new Set(status?.blockers.flatMap(reason => reason.match(/\bT[1-9]\d*\b/g) || []) || [])];
+  const taskCodes = [...new Set(automaticBlockers.flatMap(reason => reason.match(/\bT[1-9]\d*\b/g) || []))];
   const actionStyle = blocked ? { opacity: 0.4, cursor: "not-allowed", background: "transparent", borderStyle: "dashed" } : undefined;
   return <section ref={root} role="dialog" aria-modal="true" aria-label={t("Refresh session")} tabIndex={-1} className="absolute inset-0 z-40 flex min-h-0 min-w-0 flex-col bg-[var(--background)] text-[var(--foreground)]" onKeyDown={event => {
     if (event.key === "Escape") { event.stopPropagation(); onClose(); }
     if (event.key === "Tab") {
-      const items = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),[tabindex="0"]')];
+      const items = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),summary,[tabindex="0"]')].filter(item => item.getClientRects().length > 0);
       const first = items[0], last = items.at(-1);
       if (event.shiftKey && (document.activeElement === first || document.activeElement === root.current)) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
@@ -77,16 +77,16 @@ export function SessionRefresh({ client, threadId, onClose, intent, onIntent, on
   }}>
     <header className="flex shrink-0 items-center justify-between gap-2 border-b border-current/15 p-3"><strong>{t("Refresh session")}</strong><button type="button" aria-label={t("Close")} onClick={onClose}><X size={20} /></button></header>
     <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4 text-sm">
-      <p>{t("Keep this employee, saved State, Notes and tasks. Start a clean conversation; previous conversations remain read only. Ordinary messages keep using the current conversation.")}</p>
+      <p>{t("Start a clean conversation with this employee’s identity and saved State. Notes, tasks and previous conversations are kept; previous conversations are read only. Old chat context is not copied. Unfinished tasks do not block manual refresh.")}</p>
       {error ? <p role="alert" className="text-amber-500">{t(error)}</p> : null}
       {!status ? <p role="status">{t("Loading…")}</p> : <>
         <p>{t("Conversation")} v{status.conversationVersion} · {t("Agent State")} r{saved?.revision ?? "?"}</p>
         {!hasSavedState ? <p role="status">{t("No saved notes will be carried in. A fresh conversation starts with this employee’s identity and rules. Agent State is optional.")}</p> : null}
         <details><summary>{t("Review saved Agent State")}</summary>{saved ? Object.entries(saved.sections).map(([key, value]) => <div key={key} className="mt-2"><strong>{t(stateLabels[key] || key)}</strong><p className="whitespace-pre-wrap break-words">{value || t("Empty")}</p></div>) : t("Unavailable")}</details>
         <div id={requirementsId} role="status" aria-live="polite" className="rounded-lg border border-current/25 p-3">
-          <strong>{t(blocked ? status.operation ? "Refresh unavailable" : "Not refreshed — requirements are not met" : pending ? "Checking refresh status…" : verified ? "Ready to refresh" : "Confirm the current work is concluded")}</strong>
+          <strong>{t(blocked ? status.operation ? "Refresh unavailable" : "Not refreshed — requirements are not met" : pending ? "Checking refresh status…" : "Ready to refresh manually")}</strong>
           {blocked ? <>
-            <p className="mt-1">{t("No refresh will run until these requirements are resolved. Checking the confirmation box does not override them.")}</p>
+            <p className="mt-1">{t("Manual refresh is unavailable until these runtime requirements are resolved.")}</p>
             <ul className="mt-2 list-disc pl-5">{status.blockers.map(reason => <li key={reason}>{t(reason)}</li>)}
               {stateChanged ? <li>{t("Saved State changed. Check status again and review the latest revision.")}</li> : null}
             </ul>
@@ -96,8 +96,14 @@ export function SessionRefresh({ client, threadId, onClose, intent, onIntent, on
             {taskCodes.map(code => openTask ? <button type="button" key={code} className="session-action-back" disabled={busy} onClick={() => { onClose(); openTask(code); }}>{t("View task")} {code}</button> : <span key={code}>{t("View task")} {code} · {t("Task board")}</span>)}
           </div>
         </div>
-        <label className="flex items-start gap-2"><input type="checkbox" checked={verified} disabled={pending || stateChanged} onChange={event => setVerified(event.target.checked)} /><span>{t("The current scope is concluded, with no unrecorded work or pending reports.")}</span></label>
-        <div className="flex flex-wrap gap-2"><button type="button" aria-describedby={requirementsId} title={blocked ? t("Resolve the requirements above before refreshing") : undefined} style={actionStyle} className="session-action-back" disabled={pending || !verified || blocked} onClick={() => void act(false)}>{blocked ? <LockKeyhole size={14} aria-hidden="true" /> : null}{t("Refresh now")}</button><button type="button" aria-describedby={requirementsId} style={actionStyle} className="session-action-back" disabled={pending || !verified || blocked || !status.lastTurnId} onClick={() => void act(true)}>{t("Checkpoint · next message is a new topic")}</button><button type="button" className="session-action-back" disabled={busy} onClick={() => { setBusy(true); setVerified(false); void reload().finally(() => { if (alive.current) setBusy(false); }); }}>{t("Check status")}</button></div>
+        <div className="flex flex-wrap gap-2"><button type="button" aria-describedby={requirementsId} title={blocked ? t("Resolve the requirements above before refreshing") : undefined} style={actionStyle} className="session-action-back" disabled={pending || blocked} onClick={() => void act(false)}>{blocked ? <LockKeyhole size={14} aria-hidden="true" /> : null}{t("Refresh now")}</button><button type="button" className="session-action-back" disabled={busy} onClick={() => { setBusy(true); setVerified(false); void reload().finally(() => { if (alive.current) setBusy(false); }); }}>{t("Check status")}</button></div>
+        <details>
+          <summary>{t("Automatic refresh · requires concluded work")}</summary>
+          <p className="mt-2">{t("These requirements apply only to automatic refresh, not Refresh now.")}</p>
+          {automaticBlockers.length ? <ul className="mt-2 list-disc pl-5">{automaticBlockers.map(reason => <li key={reason}>{t(reason)}</li>)}</ul> : null}
+          <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={verified} disabled={pending || stateChanged} onChange={event => setVerified(event.target.checked)} /><span>{t("For automatic refresh: the current scope is concluded, with no unrecorded work or pending reports.")}</span></label>
+          <button type="button" className="session-action-back mt-2" disabled={pending || !verified || blocked || automaticBlockers.length > 0 || !status.lastTurnId} onClick={() => void act(true)}>{t("Checkpoint · next message is a new topic")}</button>
+        </details>
         {intent ? <p role="status">{t("Only your next submitted message carries the independent new-topic intent. Safety gates may keep the current conversation.")} <button type="button" className="underline" onClick={() => onIntent(undefined)}>{t("Cancel intent")}</button></p> : null}
         {status.nextRequest ? <p role="status">{t("An exact next-topic input is reserved. Inspect its send receipt; use Stop to cancel the reservation. Do not send a replacement blindly.")}</p> : null}
         {status.operation ? <p role="status">{t("Refresh operation")}: {status.operation.status}{status.operation.reason ? ` · ${status.operation.reason}` : ""}{status.operation.reasons?.map(reason => ` · ${reason}`).join("")}</p> : null}

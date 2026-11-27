@@ -253,7 +253,7 @@ delivery = new OfficeDelivery({ directory,
 });
 delegation.deliveryCoordinator = delivery;
 refresh = new CodexSessionRefresh({ store, native, controls, states: agentStates,
-  facts: (id, trigger) => refreshFacts({ store, controls, userSends, delivery, delegation, schedules, voice, workspace, todos, reservation, stopping: () => stopping }, id, trigger),
+  facts: (id, trigger, mode) => refreshFacts({ store, controls, userSends, delivery, delegation, schedules, voice, workspace, todos, reservation, stopping: () => stopping }, id, trigger, mode),
   context: { tools: OFFICE_CHAT_TOOLS,
     taskRelated: (row, id) => Boolean(row && (row.ownerId === id || row.assigneeId === id || row.phases.some(p => p.assigneeId === id || p.acceptanceManagerId === id) || (row.delegations || []).some(h => h.managerId === id || h.workerId === id))),
     taskIds: id => [...todos.rows.values()].filter(row => row.ownerId === id || row.assigneeId === id || row.phases.some(p => p.assigneeId === id || p.acceptanceManagerId === id) || (row.delegations || []).some(h => h.managerId === id || h.workerId === id)).map(row => row.id),

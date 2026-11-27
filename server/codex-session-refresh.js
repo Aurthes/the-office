@@ -25,7 +25,7 @@ class CodexSessionRefresh {
     if (current.stop !== boundary.stop) throw error("Stop cancelled this pending input. Nothing was sent; keep your draft.", "SESSION_REFRESH_CANCELLED");
     if (current.version !== boundary.version || current.generation !== boundary.generation) throw error("Conversation changed before input admission. Nothing was sent; keep your draft.", "SESSION_VERSION_CHANGED");
   }
-  workChanged(taskId, row) { for (const fence of this.fences.values()) if (fence.taskIds.has(taskId) || this.context.taskRelated?.(row, fence.employeeId)) fence.cancelled = true; }
+  workChanged(taskId, row) { for (const fence of this.fences.values()) if (fence.mode !== "manual" && (fence.taskIds.has(taskId) || this.context.taskRelated?.(row, fence.employeeId))) fence.cancelled = true; }
   assertAvailable(id) { if (this.held(id)) throw error("Session refresh is preparing. Nothing was sent; keep your draft.", "SESSION_REFRESHING"); }
   cancel(id) {
     const fence = this.fences.get(id); if (fence) { fence.cancelled = true; fence.stopped = true; const op = this.store.get(id).refreshOperations?.[fence.id]; if (op) { op.triggerCancelled = true; this.store.save({ durable: true }); } }
@@ -81,7 +81,7 @@ class CodexSessionRefresh {
     try { this.store.save({ durable: true }); } catch (failure) { row.refreshCheckpoint = previous; throw failure; }
     return value;
   }
-  async blockers(id, trigger, fresh = false) {
+  async blockers(id, trigger, fresh = false, mode = "automatic") {
     const row = this.store.get(id), reasons = [];
     if (!this.native.ready) reasons.push("Native backend is not ready");
     if (fresh && row.codexThreadId) {
@@ -96,15 +96,17 @@ class CodexSessionRefresh {
     try {
       this.states.read(id); // Empty is valid; unreadable or invalid State is not.
     } catch { reasons.push("Agent State is unavailable or invalid"); }
-    try { reasons.push(...this.facts(id, trigger)); } catch { reasons.push("Refresh safety facts are unavailable"); }
+    try { reasons.push(...this.facts(id, trigger, mode)); } catch { reasons.push("Refresh safety facts are unavailable"); }
     return [...new Set(reasons)];
   }
   async status(id, requestId) {
     const row = this.store.get(id);
+    const blockers = await this.blockers(id, null, !this.held(id), "manual");
+    const automaticBlockers = await this.blockers(id, null, false, "automatic");
     return { threadId: id, conversationVersion: version(row), nativeThreadId: row.codexThreadId || null,
       stateRevision: this.states.context(id).revision ?? null, lastTurnId: this.controls.state(id).lastTurnId || row.lastTurnId || null,
       checkpoint: row.refreshCheckpoint || null, operation: requestId ? row.refreshOperations?.[requestId] || null : Object.values(row.refreshOperations || {}).at(-1) || null,
-      preparing: this.held(id), nextRequest: row.refreshNextRequest || null, blockers: await this.blockers(id, null, !this.held(id)),
+      preparing: this.held(id), nextRequest: row.refreshNextRequest || null, blockers, automaticBlockers,
       conversations: conversations(row).map(({ turnIds, ...entry }) => ({ ...entry, turnCount: turnIds?.length ?? null })) };
   }
   put(row, op) {
@@ -132,7 +134,7 @@ class CodexSessionRefresh {
     }
     if (row.refreshNextRequest) return Promise.resolve({ id, status: "blocked", reasons: ["The exact new-topic input is still reserved. Inspect its receipt or use Stop to cancel the reservation."] });
     if (this.held(row.id)) return Promise.resolve({ id, status: "blocked", reasons: ["Another refresh is preparing; inspect that operation before retrying."] });
-    const fence = { id, hash, employeeId: row.id, taskIds: new Set(this.context.taskIds?.(row.id) || []), cancelled: false }; this.fences.set(row.id, fence);
+    const fence = { id, hash, mode: p.mode, employeeId: row.id, taskIds: new Set(this.context.taskIds?.(row.id) || []), cancelled: false }; this.fences.set(row.id, fence);
     const promise = this.run(row, p, hash, fence).finally(() => {
       if (this.fences.get(row.id) === fence) this.fences.delete(row.id);
       this.inflight.delete(`${row.id}:${id}`);
@@ -146,7 +148,7 @@ class CodexSessionRefresh {
     try {
       if (!row.codexThreadId) return this.put(row, { ...op, status: "completed", noChange: true, finishedAt: this.now(), conversationVersion: version(row) });
       const trigger = p.mode === "automatic" ? { requestId: p.triggerRequestId, sourceHash: p.triggerHash, nextScope: p.nextScope } : null;
-      const reasons = await this.blockers(row.id, trigger, true);
+      const reasons = await this.blockers(row.id, trigger, true, p.mode);
       const snap = this.snapshot(row.id);
       if (snap.version !== p.expectedVersion || snap.stateRevision !== p.stateRevision) reasons.push("Reviewed State or conversation version changed");
       const cp = row.refreshCheckpoint;
@@ -155,7 +157,7 @@ class CodexSessionRefresh {
           || cp.version !== snap.version || cp.nativeThreadId !== snap.nativeThreadId || cp.stateRevision !== snap.stateRevision || cp.invalidated || cp.stateFingerprint !== snap.stateFingerprint || cp.configuration !== snap.configuration
           || cp.turnId !== this.controls.state(row.id).lastTurnId || this.controls.state(row.id).turnStatus !== "completed") reasons.push("Automatic refresh needs a current explicit checkpoint and one exact independent-new-topic request");
         if (cp?.consumedBy && cp.consumedBy !== p.triggerRequestId) reasons.push("This checkpoint was already consumed by another request");
-      } else if (p.noUntrackedWork !== true || p.noPendingReports !== true) reasons.push("Explicitly declare no unrecorded work or pending reports");
+      }
       if (fence.cancelled) throw error("Refresh was cancelled before preparation; the original conversation remains current.", "SESSION_REFRESH_CANCELLED");
       if (reasons.length) return this.put(row, { ...op, status: "blocked", reasons: [...new Set(reasons)], finishedAt: this.now(), oldConversationUsable: true });
       const packet = this.context.packet(row, snap.saved, snap.company, snap.taskContext);
@@ -190,7 +192,7 @@ class CodexSessionRefresh {
       await this.native.call("thread/inject_items", { threadId: created.thread.id, items: packet.items }); guard();
       const empty = await this.native.call("thread/turns/list", { threadId: created.thread.id, limit: 1, itemsView: "notLoaded" }); guard();
       if (!Array.isArray(empty.data) || empty.data.length || empty.nextCursor) throw error("Candidate is not a clean conversation");
-      const final = await this.blockers(row.id, trigger); guard();
+      const final = await this.blockers(row.id, trigger, false, p.mode); guard();
       if (final.length) throw error(final.join("; "), "SESSION_REFRESH_CANCELLED");
       const before = { ...row };
       const epoch = crypto.randomUUID(), nextVersion = snap.version + 1;

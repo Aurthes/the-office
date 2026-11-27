@@ -5,6 +5,7 @@ const require = createRequire(import.meta.url);
 const { CodexSessionRefresh } = require("../../server/codex-session-refresh.js");
 const { conversations, forTurn } = require("../../server/codex-conversations.js");
 const { refreshIntent } = require("../../server/codex-refresh-intent.js");
+const { tools: officeTools } = require("../../server/office-todo-mcp.js");
 function fixture() {
   const row = { id: "employee", name: "Worker", codexThreadId: "old", settings: { model: null, effort: null, accessMode: ":workspace" }, workspace: "/work", projectId: "project", recovery: { stopped: true }, refreshOperations: {}, conversationVersion: 1 };
   const saved = { id: row.id, revision: 4, sections: { focus: "Current decision", decisions: "Reason", followUp: "", links: "task source" } };
@@ -19,13 +20,37 @@ function fixture() {
     if (method === "thread/inject_items") return {};
     throw new Error("Unexpected model execution: " + method);
   }) };
-  const facts = vi.fn((): string[] => []), committed = vi.fn(), context = { tools: [], packet: () => ({ items: [{ type: "developerMessage", content: [{ type: "text", text: "Identity + State only" }] }] }), taskIds: () => ["task"], taskRelated: () => false };
+  const facts = vi.fn<(id: string, trigger: unknown, mode: string) => string[]>((): string[] => []), committed = vi.fn(), context = { tools: [], packet: () => ({ items: [{ type: "developerMessage", content: [{ type: "text", text: "Identity + State only" }] }] }), taskIds: () => ["task"], taskRelated: () => false };
   const options = { store, controls, native, facts, committed, context, states: { read: () => saved, context: () => saved } };
   const refresh = new CodexSessionRefresh(options);
   const input = { threadId: row.id, requestId: "refresh-request", mode: "manual", expectedVersion: 1, stateRevision: 4, stateVerified: true, noUntrackedWork: true, noPendingReports: true };
   return { row, saved, state, store, controls, native, facts, committed, context, options, refresh, input };
 }
 describe("identity-preserving session refresh", () => {
+  it("separates manual runtime blockers from automatic work eligibility and needs no concluded-work declarations", async () => {
+    const f = fixture(); f.facts.mockImplementation((_id, _trigger, mode) => mode === "automatic" ? ["Unfinished assigned phase in T251", "A worker report or independent acceptance is outstanding in T251"] : []);
+    const status = await f.refresh.status(f.row.id);
+    expect(status.blockers).toEqual([]); expect(status.automaticBlockers).toHaveLength(2);
+    const cp = f.refresh.checkpoint({ ...f.input, requestId: "checkpoint", turnId: "turn", closedScope: { kind: "conversation" } });
+    expect(await f.refresh.refresh({ ...f.input, requestId: "automatic", mode: "automatic", checkpointId: cp.id, independentNewTopic: true, triggerRequestId: "message" })).toMatchObject({ status: "blocked" });
+    f.native.call.mockClear();
+    expect(await f.refresh.refresh({ ...f.input, noUntrackedWork: undefined, noPendingReports: undefined, stateVerified: undefined })).toMatchObject({ status: "completed" });
+    expect(f.row.codexThreadId).toBe("new"); expect(forTurn(f.row, "turn").nativeThreadId).toBe("old");
+  });
+  it.each(["manual", "automatic"])("task update during %s preparation only cancels automatic eligibility", async mode => {
+    const f = fixture(), call = f.native.call.getMockImplementation()!;
+    const cp = f.refresh.checkpoint({ ...f.input, requestId: "checkpoint", turnId: "turn", closedScope: { kind: "conversation" } });
+    f.native.call.mockImplementation(async (m, p) => { const result = await call(m, p); if (m === "thread/inject_items") f.refresh.workChanged("task", {}); return result; });
+    expect(await f.refresh.refresh({ ...f.input, mode, ...(mode === "automatic" ? { checkpointId: cp.id, independentNewTopic: true, triggerRequestId: "message" } : {}) })).toMatchObject({ status: mode === "manual" ? "completed" : "failed" });
+    expect(f.row.codexThreadId).toBe(mode === "manual" ? "new" : "old");
+  });
+  it("an actual report arriving during manual preparation still blocks commit without discarding pending delivery", async () => {
+    const f = fixture(), call = f.native.call.getMockImplementation()!; let reportPending = false;
+    f.facts.mockImplementation(() => reportPending ? ["An inbox message or task report is pending or unconfirmed"] : []);
+    f.native.call.mockImplementation(async (m, p) => { const result = await call(m, p); if (m === "thread/inject_items") reportPending = true; return result; });
+    expect(await f.refresh.refresh({ ...f.input, noUntrackedWork: undefined, noPendingReports: undefined })).toMatchObject({ status: "failed", oldConversationUsable: true });
+    expect(reportPending).toBe(true); expect(f.row.codexThreadId).toBe("old"); expect(f.committed).not.toHaveBeenCalled();
+  });
   it.each([0, 5])("allows empty State revision %s for manual and explicit automatic refresh without State review", async revision => {
     for (const mode of ["manual", "automatic"]) {
       const f = fixture(); f.saved.revision = revision;
@@ -37,25 +62,25 @@ describe("identity-preserving session refresh", () => {
       expect(f.row.codexThreadId).toBe("new");
     }
   });
-  it.each(["task", "message", "voice", "terminal", "unknown execution", "missing declaration", "invalid State"])("empty State still blocks %s", async reason => {
+  it.each(["message", "voice", "terminal", "unknown execution", "invalid State"])("empty State still blocks %s", async reason => {
     const f = fixture(); f.saved.revision = 0; f.saved.sections = { focus: "", decisions: "", followUp: "", links: "" };
     const input = { ...f.input, stateRevision: 0, stateVerified: undefined };
-    if (["task", "message", "voice", "terminal"].includes(reason)) f.facts.mockReturnValue([reason]);
+    if (["message", "voice", "terminal"].includes(reason)) f.facts.mockReturnValue([reason]);
     if (reason === "unknown execution") f.state.turnStateKnown = false;
     if (reason === "invalid State") {
       f.options.states.read = () => { throw Error("invalid"); };
       expect((await f.refresh.status(f.row.id)).blockers).toContain("Agent State is unavailable or invalid");
     }
-    expect(await f.refresh.refresh({ ...input, ...(reason === "missing declaration" ? { noPendingReports: false } : {}) })).toMatchObject({ status: reason === "invalid State" ? "failed" : "blocked" });
+    expect(await f.refresh.refresh(input)).toMatchObject({ status: reason === "invalid State" ? "failed" : "blocked" });
     expect(f.native.call).not.toHaveBeenCalled();
   });
   it("MCP accepts zero State revision and does not require legacy State-review attestation", () => {
-    const { tools } = require("../../server/office-todo-mcp.js");
     for (const name of ["session_refresh", "session_refresh_checkpoint"]) {
-      const tool = tools.find((t: {name: string}) => t.name === name);
+      const tool = officeTools.find((t: {name: string}) => t.name === name);
       expect(tool.inputSchema.properties.stateRevision.minimum).toBe(0);
       expect(tool.inputSchema.required).not.toContain("stateVerified");
-      expect(tool.inputSchema.required).toContain("noPendingReports");
+      if (name === "session_refresh_checkpoint") expect(tool.inputSchema.required).toContain("noPendingReports");
+      else { expect(tool.inputSchema.required).not.toContain("noPendingReports"); expect(tool.inputSchema.required).not.toContain("noUntrackedWork"); }
     }
   });
   it("atomically retains old history and identity, pins effective settings and injects only the clean context", async () => {
@@ -80,7 +105,7 @@ describe("identity-preserving session refresh", () => {
     expect(await f.refresh.refresh({ ...f.input, requestId: "other" })).toMatchObject({ status: "blocked" });
     expect(await one).toEqual(await two); expect(f.native.call.mock.calls.filter(([m]) => m === "thread/start")).toHaveLength(1);
   });
-  it.each(["Stop", "State", "model", "generation", "task", "turn"])("rejects preparation when %s changes, retaining the old usable conversation", async change => {
+  it.each(["Stop", "State", "model", "generation", "turn"])("rejects preparation when %s changes, retaining the old usable conversation", async change => {
     const f = fixture(), call = f.native.call.getMockImplementation()!;
     f.native.call.mockImplementation(async (m, p) => { const result = await call(m, p); if (m === "thread/inject_items") {
       if (change === "Stop") f.refresh.cancel(f.row.id);

@@ -9,7 +9,7 @@ function fixture() {
     delegation: { inflight: new Map() }, schedules: { data: { tasks: [] as Record<string, unknown>[] } }, voice: { active: null as unknown }, workspace: { starts: new Map(), snapshot: (): Record<string, unknown> | null => null },
     todos: { rows: new Map() }, reservation: { held: false }, stopping: () => false,
   };
-  return { deps, reasons: (trigger?: unknown) => refreshFacts(deps, "worker", trigger) };
+  return { deps, reasons: (trigger?: unknown, mode = "automatic") => refreshFacts(deps, "worker", trigger, mode) };
 }
 it("keeps unrelated employees' tasks, deliveries, voice and terminals running", () => {
   const f = fixture(); f.deps.delivery.inflight.set("other", true); f.deps.voice.active = { threadId: "other" }; f.deps.workspace.starts.set("other", true);
@@ -30,6 +30,7 @@ it.each(["journal", "unavailable", "inbox", "urgent", "delivery", "batch", "voic
   if (kind === "future schedule") f.deps.schedules.data.tasks.push({ threadId: "worker", enabled: true, nextRunAt: 100 });
   if (kind === "reservation") f.deps.reservation.held = true;
   expect(f.reasons().length).toBeGreaterThan(0);
+  expect(f.reasons(undefined, "manual").length).toBeGreaterThan(0);
 });
 it("checks all unfinished assignments and manager follow-ups rather than a truncated context page", () => {
   const f = fixture();
@@ -59,4 +60,15 @@ it.each(["queued", "running", "review"])("blocks an independent acceptance manag
   f.deps.todos.rows.set("task", { id: "task", ownerId: "owner", executionMode: "phases", phases: [phase], delegations: [] });
   expect(f.reasons()).toContain("Independent acceptance responsibility remains open in task");
   phase.status = "done"; phase.completedAt = 1; expect(f.reasons()).toEqual([]);
+});
+
+it.each(["queued", "paused", "running", "review"])("manual preserves unfinished %s task/owner/review/report responsibility while automatic blocks", status => {
+  const f = fixture();
+  const task = { id: "task", code: "T251", executionMode: "phases", ownerId: "worker", phases: [{ id: "phase", status, assigneeId: "worker", acceptanceManagerId: "worker" }], delegations: [{ phaseId: "phase", managerId: "worker", workerId: "subordinate", state: "review" }] };
+  f.deps.todos.rows.set("task", task); const before = structuredClone(task);
+  expect(f.reasons(undefined, "manual")).toEqual([]);
+  expect(f.reasons()).toEqual(expect.arrayContaining([expect.stringContaining("Unfinished assigned"), expect.stringContaining("Independent acceptance"), expect.stringContaining("Follow-up"), expect.stringContaining("worker report")]));
+  expect(task).toEqual(before);
+  f.deps.delivery.data.messages.report = { recipient: "worker", state: "pending" };
+  expect(f.reasons(undefined, "manual")).toContain("An inbox message or task report is pending or unconfirmed");
 });

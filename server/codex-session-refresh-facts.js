@@ -2,7 +2,7 @@
 const { isPhaseTask, taskOwnerId } = require("./office-todos");
 // Pure factual gates. Author declarations and explicit new-topic intent are
 // separate; no prose, timer, task-name or question-name classification.
-function refreshFacts({ store, userSends, delivery, delegation, schedules, voice, workspace, todos, reservation, stopping }, id, trigger) {
+function refreshFacts({ store, userSends, delivery, delegation, schedules, voice, workspace, todos, reservation, stopping }, id, trigger, mode = "automatic") {
   const reasons = [], add = value => reasons.push(value);
   if (stopping() || reservation.held) add("Office is stopping or the backend is reserved");
   if (userSends.unavailable || userSends.blocked(id)) add("Earlier user input is pending or unconfirmed; review saved messages");
@@ -14,7 +14,8 @@ function refreshFacts({ store, userSends, delivery, delegation, schedules, voice
   if (pending.some(m => m !== source)) add("An inbox message or task report is pending or unconfirmed");
   if (Object.values(delivery.data.batches).some(b => b.recipient === id && ["sending", "uncertain"].includes(b.state))) add("A native delivery receipt is unconfirmed");
   const next = source?.taskId && trigger?.nextScope?.taskId === source.taskId && (trigger.nextScope.phaseId || null) === (source.phaseId || null) ? trigger.nextScope : null;
-  for (const task of todos.rows.values()) {
+  // Task responsibility limits automatic eligibility, never a manual fresh start.
+  if (mode !== "manual") for (const task of todos.rows.values()) {
     if (task.archived || task.status === "done") continue;
     const exempt = phase => next && next.taskId === task.id && (next.phaseId || null) === (phase?.id || null)
       && (phase || task).assigneeId === id && !(phase || task).elapsedMs && !(phase || task).lastStartedAt && !(phase || task).startedAt
@@ -31,7 +32,7 @@ function refreshFacts({ store, userSends, delivery, delegation, schedules, voice
     } else if (!exempt(null) && (task.assigneeId === id || taskOwnerId(task) === id || task.acceptanceManagerId === id || (task.delegations || []).some(h => ["working", "review"].includes(h.state) && [h.workerId,h.managerId].includes(id)))) add(`Unfinished responsibility in ${task.code || task.id}`);
   }
   const checkpoint = store.get(id).refreshCheckpoint;
-  if (trigger && checkpoint?.closedScope?.kind === "task") {
+  if (mode !== "manual" && trigger && checkpoint?.closedScope?.kind === "task") {
     const scope = checkpoint.closedScope, task = todos.rows.get(scope.taskId), phase = task?.phases?.find(p => p.id === scope.phaseId);
     if (!task || (scope.phaseId ? !phase || phase.status !== "done" : task.status !== "done" && !task.archived)) add("Checkpoint's declared old scope is not actually completed");
     if (next?.taskId === scope.taskId) add("The next phase of the same task is not a separate independent topic");
