@@ -465,6 +465,8 @@ export const ZH_CN: Record<string, string> = {
   "No department could be identified for this chat.": "暂时无法确定此聊天所属部门。",
   "Reference only. Tools cannot be run or edited here.": "仅供查阅，不在此运行或编辑工具。",
   "Library": "图书馆",
+  "Department library": "部门图书馆",
+  "Company library": "公司图书馆",
   "Department resources": "部门资源",
   "Back to department resources": "返回部门资源",
   "Loading library…": "正在载入图书馆…",

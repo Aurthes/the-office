@@ -158,3 +158,31 @@ test('concurrent same-content save/delete follows a single department order with
  const [saved,deleted]=await Promise.all([post(A+'?name=second.txt','application/octet-stream','x'),request(A+'/'+entry.id,{method:'DELETE',headers:{origin}})]);assert.equal(deleted.status,200);const result=await saved.json();restart();const rows=(await (await request(A)).json()).entries;
  if(result.entry.id===entry.id)assert.equal(rows.length,0);else {assert.equal(rows.length,1);assert.equal(rows[0].id,result.entry.id);}
 });
+
+test("company library uses the same write boundary and a separate persistent collection", async t => {
+  const { origin, request, post, restart } = await fixture(t, { companyEnabled: true });
+  const route = origin + "/api/office/company-library";
+  const headers = { "x-office-proxy-token": token, "content-type": "application/json" };
+  const body = JSON.stringify({ name: "Shared slides", url: "https://example.test/slides?v=2" });
+  const save = (from = origin, auth = true) => fetch(route, {
+    method: "POST",
+    headers: { ...(auth ? headers : { "content-type": "application/json" }), origin: from },
+    body,
+  });
+  assert.equal((await save(origin, false)).status, 401);
+  assert.equal((await save("https://foreign.example")).status, 403);
+  const created = await save();
+  assert.equal(created.status, 201);
+  const { entry } = await created.json();
+  assert.equal((await post(A, "application/json", body)).status, 201);
+  assert.equal((await request("company")).status, 404);
+  assert.equal((await request(A + "/" + entry.id, { method: "DELETE", headers: { origin } })).status, 200);
+  restart();
+  const rows = await (await fetch(route, { headers })).json();
+  assert.deepEqual(rows.entries.map(item => item.id), [entry.id]);
+  const duplicate = await save();
+  assert.equal(duplicate.status, 200);
+  assert.equal((await duplicate.json()).entry.id, entry.id);
+  assert.equal((await fetch(route + "/" + entry.id, { method: "DELETE", headers: { ...headers, origin } })).status, 200);
+  assert.equal((await (await request(A)).json()).entries.length, 1);
+});

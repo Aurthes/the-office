@@ -1,5 +1,6 @@
 "use client";
-import { DepartmentLibrary } from "@/features/ring-ship/DepartmentLibrary";
+import { useState } from "react";
+import { CompanyLibrary, DepartmentLibrary } from "@/features/ring-ship/DepartmentLibrary";
 import "@/features/ring-ship/department-panel.css";
 import { CEO_ID, type OrganizationView } from "@/lib/office/organization";
 import { useUiText } from "@/lib/i18n/ui-language";
@@ -14,8 +15,18 @@ export function SessionLibrary({ threadId, organization, gateway }: { threadId: 
   const t = useUiText();
   const departmentId = sessionDepartment(threadId, organization, gateway);
   const state = organization?.departmentAssetsState;
+  const [selected, setSelected] = useState<"department" | "company">("department");
+  const loading = !organization || (state && (!state.ready || (gateway && state.scope !== gateway.trim())) && !state.error);
+  const error = state?.error && !state.ready ? state.error : null;
+  const company = selected === "company" || (!departmentId && !loading && !error);
   return <div className="session-toolbox min-h-0 flex-1 overflow-auto">
-    {!organization || (state && (!state.ready || (gateway && state.scope !== gateway.trim())) && !state.error) ? <p role="status">{t("Loading library…")}</p> : state?.error && !state.ready ? <p role="alert">{t(state.error)}</p> : !departmentId ? <p>{t("No department could be identified for this chat.")}</p> :
-      <DepartmentLibrary key={`${gateway}:${threadId}:${departmentId}`} departmentId={departmentId} />}
+    <div role="group" aria-label={t("Library")} className="mb-3 flex flex-wrap gap-2">
+      <button type="button" aria-pressed={!company} className="min-h-11 rounded border border-white/20 px-3 aria-pressed:bg-white/15" onClick={() => setSelected("department")} disabled={!departmentId && !error && !loading}>{t("Department library")}</button>
+      <button type="button" aria-pressed={company} className="min-h-11 rounded border border-white/20 px-3 aria-pressed:bg-white/15" onClick={() => setSelected("company")}>{t("Company library")}</button>
+    </div>
+    {company ? <CompanyLibrary key={gateway} />
+      : loading ? <p role="status">{t("Loading library…")}</p>
+      : error ? <p role="alert">{t(error)}</p>
+      : departmentId ? <DepartmentLibrary key={`${gateway}:${threadId}:${departmentId}`} departmentId={departmentId} /> : null}
   </div>;
 }
