@@ -50,7 +50,7 @@ export function useOfficeOrganization({ roster, names, coordinator, gatewayUrl, 
         if (!stopped && request === generation.current) { setPositions(organization); setCeoAvatar(avatar); setDescriptions(preference.departmentDescriptions || {}); }
       } catch (error) {
         if (!stopped && assetsRequest === assetsGeneration.current && currentAssetsScope.current?.scope === gatewayUrl.trim()) {
-          setAssets(previous => ({ scope: gatewayUrl.trim(), ready: previous.scope === gatewayUrl.trim() && previous.ready, entries: previous.scope === gatewayUrl.trim() ? previous.entries : {}, companyTools: previous.scope===gatewayUrl.trim()?previous.companyTools:{}, error: "Could not load department tools. Reconnect or refocus to retry." }));
+          setAssets(previous => ({ scope: gatewayUrl.trim(), ready: previous.scope === gatewayUrl.trim() && previous.ready, entries: previous.scope === gatewayUrl.trim() ? previous.entries : {}, companyTools: previous.scope===gatewayUrl.trim()?previous.companyTools:{}, error: "Could not load Office tools. Reconnect or refocus to retry." }));
         }
         console.error("Could not load the Office organization.", error);
       }
