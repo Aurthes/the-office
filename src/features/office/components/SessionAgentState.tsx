@@ -17,12 +17,12 @@ function saved(value: unknown, id: string): Saved {
 }
 // Keying the full editor (not just its inputs) isolates drafts, in-flight saves
 // and late responses when employee identity changes.
-export function SessionAgentState(props: { client: SessionClient; agentId: string; gateway?: string; connected?: boolean }) {
+export function SessionAgentState(props: { client: SessionClient; agentId: string; gateway?: string; connected?: boolean; onSaved?: () => void }) {
   const [scope, setScope] = useState({ client: props.client, generation: 0 });
   if (scope.client !== props.client) { setScope({ client: props.client, generation: scope.generation + 1 }); return null; }
   return <StateEditor key={`${props.gateway || ""}:${props.agentId}:${scope.generation}`} {...props} />;
 }
-function StateEditor({ client, agentId, gateway = "", connected = true }: { client: SessionClient; agentId: string; gateway?: string; connected?: boolean }) {
+function StateEditor({ client, agentId, gateway = "", connected = true, onSaved }: { client: SessionClient; agentId: string; gateway?: string; connected?: boolean; onSaved?: () => void }) {
   const t = useUiText();
   const draftKey = `claw3d:agent-state-draft:${gateway}:${agentId}`;
   const [backupError, setBackupError] = useState(false);
@@ -80,6 +80,7 @@ function StateEditor({ client, agentId, gateway = "", connected = true }: { clie
       if (!token.active) return;
       setRecord(next); setEditing(false);
       clearBackup(snapshot, revision);
+      onSaved?.();
     } catch {
       if (token.active) { setMustReload(true); setError("Save not confirmed or revision changed. Your draft is kept. Copy it, then reload the saved state before retrying."); }
     } finally { if (token.active) { busy.current = false; setSaving(false); } }
