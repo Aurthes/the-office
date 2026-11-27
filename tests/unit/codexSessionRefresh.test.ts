@@ -26,6 +26,38 @@ function fixture() {
   return { row, saved, state, store, controls, native, facts, committed, context, options, refresh, input };
 }
 describe("identity-preserving session refresh", () => {
+  it.each([0, 5])("allows empty State revision %s for manual and explicit automatic refresh without State review", async revision => {
+    for (const mode of ["manual", "automatic"]) {
+      const f = fixture(); f.saved.revision = revision;
+      f.saved.sections = { focus: "", decisions: "", followUp: "", links: "" };
+      const input = { ...f.input, stateRevision: revision, stateVerified: undefined };
+      expect((await f.refresh.status(f.row.id)).blockers).toEqual([]);
+      const cp = mode === "automatic" ? f.refresh.checkpoint({ ...input, requestId: "checkpoint", turnId: "turn", closedScope: { kind: "conversation" } }) : null;
+      expect(await f.refresh.refresh({ ...input, mode, ...(cp ? { checkpointId: cp.id, independentNewTopic: true, triggerRequestId: "one-message" } : {}) })).toMatchObject({ status: "completed" });
+      expect(f.row.codexThreadId).toBe("new");
+    }
+  });
+  it.each(["task", "message", "voice", "terminal", "unknown execution", "missing declaration", "invalid State"])("empty State still blocks %s", async reason => {
+    const f = fixture(); f.saved.revision = 0; f.saved.sections = { focus: "", decisions: "", followUp: "", links: "" };
+    const input = { ...f.input, stateRevision: 0, stateVerified: undefined };
+    if (["task", "message", "voice", "terminal"].includes(reason)) f.facts.mockReturnValue([reason]);
+    if (reason === "unknown execution") f.state.turnStateKnown = false;
+    if (reason === "invalid State") {
+      f.options.states.read = () => { throw Error("invalid"); };
+      expect((await f.refresh.status(f.row.id)).blockers).toContain("Agent State is unavailable or invalid");
+    }
+    expect(await f.refresh.refresh({ ...input, ...(reason === "missing declaration" ? { noPendingReports: false } : {}) })).toMatchObject({ status: reason === "invalid State" ? "failed" : "blocked" });
+    expect(f.native.call).not.toHaveBeenCalled();
+  });
+  it("MCP accepts zero State revision and does not require legacy State-review attestation", () => {
+    const { tools } = require("../../server/office-todo-mcp.js");
+    for (const name of ["session_refresh", "session_refresh_checkpoint"]) {
+      const tool = tools.find((t: {name: string}) => t.name === name);
+      expect(tool.inputSchema.properties.stateRevision.minimum).toBe(0);
+      expect(tool.inputSchema.required).not.toContain("stateVerified");
+      expect(tool.inputSchema.required).toContain("noPendingReports");
+    }
+  });
   it("atomically retains old history and identity, pins effective settings and injects only the clean context", async () => {
     const f = fixture(), before = structuredClone(f.row);
     const result = await f.refresh.refresh(f.input);
