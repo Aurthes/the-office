@@ -44,6 +44,7 @@ export function DepartmentPanel({ organization, state, onSelect, onResource, onC
       <div className="department-content">
         <section role="tabpanel" hidden={state.selectedId !== null} aria-label={t("Company overview")}>
           <h1>{t("Company overview")}</h1>
+          {organization.departmentAssetsState?.ready ? <DepartmentAssetsPanel key={organization.departmentAssetsState.scope} label="Company tools" departmentId="" entries={organization.companyTools||{}} kind="tool" save={organization.saveCompanyTool?(_department,id,entry)=>organization.saveCompanyTool!(id,entry):undefined} /> : <p role={organization.departmentAssetsState?.error?"alert":"status"}>{t(organization.departmentAssetsState?.error||"Loading company tools…")}</p>}
           <div className="department-overview">{departments.map(department => <article key={department.id}>
             <h2><button type="button" data-department-id={department.id} title={departmentName(department.id)} onClick={() => onSelect(department.id)}>{departmentButtonLabel(department.id, departmentName(department.id))}</button></h2>
             <p>{department.description || t("No responsibilities recorded.")}</p>

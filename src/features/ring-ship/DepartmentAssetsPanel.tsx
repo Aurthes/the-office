@@ -17,7 +17,7 @@ function AssetCard({ id, entry, edit, deprecate, busy }: { id: string; entry: De
     </div> : null}
   </details>;
 }
-export function DepartmentAssetsPanel({ departmentId, entries, save, kind: onlyKind, hideTools }: { kind?: DepartmentAsset["kind"]; hideTools?: boolean; departmentId: string; entries: Record<string, DepartmentAsset>; save?: Save }) {
+export function DepartmentAssetsPanel({ departmentId, entries, save, kind: onlyKind, hideTools, label="Department assets" }: { label?: string; kind?: DepartmentAsset["kind"]; hideTools?: boolean; departmentId: string; entries: Record<string, DepartmentAsset>; save?: Save }) {
   const t = useUiText(), formId = useId();
   const [draft, setDraft] = useState<DepartmentAsset | null>(null), [assetId, setAssetId] = useState("");
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
@@ -28,8 +28,8 @@ export function DepartmentAssetsPanel({ departmentId, entries, save, kind: onlyK
     catch (cause) { setError(cause instanceof Error ? cause.message : t("Could not save department asset.")); }
     finally { setBusy(false); }
   };
-  return <section className="department-assets" aria-label={t("Department assets")}>
-    <header><h2>{t("Department assets")}</h2>{save ? <button type="button" disabled={busy} onClick={() => { setAssetId(crypto.randomUUID()); setDraft({ ...empty(), kind: onlyKind ?? (hideTools ? "guideline" : "tool") }); setError(""); }}>{t("Add asset")}</button> : null}</header>
+  return <section className="department-assets" aria-label={t(label)}>
+    <header><h2>{t(label)}</h2>{save ? <button type="button" disabled={busy} onClick={() => { setAssetId(crypto.randomUUID()); setDraft({ ...empty(), kind: onlyKind ?? (hideTools ? "guideline" : "tool") }); setError(""); }}>{t("Add asset")}</button> : null}</header>
     {error ? <p role="alert">{error}</p> : null}
     {draft ? <form className="department-asset-form" onSubmit={event => { event.preventDefault(); void persist(assetId, draft); }}>
       <label htmlFor={formId+"kind"}>{t("Asset type")}</label><select id={formId+"kind"} value={draft.kind} disabled={busy} onChange={event => setDraft({ ...draft, kind: event.target.value as DepartmentAsset["kind"] })}>{ASSET_KINDS.filter(kind => (!onlyKind || kind === onlyKind) && (!hideTools || kind !== "tool")).map(kind => <option key={kind} value={kind}>{t(kindLabels[kind as keyof typeof kindLabels])}</option>)}</select>

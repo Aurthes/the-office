@@ -1,5 +1,5 @@
 import { mergeExperience, normalizeExperience, type ExperiencePreference } from "./experience";
-import { normalizeDepartmentAssets, mergeDepartmentAssets, type DepartmentAssets, type DepartmentAssetPatch } from "@/lib/office/department-assets";
+import { normalizeCompanyTools, mergeCompanyTools, type CompanyTools, type CompanyToolPatch, normalizeDepartmentAssets, mergeDepartmentAssets, type DepartmentAssets, type DepartmentAssetPatch } from "@/lib/office/department-assets";
 import { normalizeAgentInterfaces, mergeAgentInterfaces, type AgentInterfaces, type AgentInterfacePatch } from "@/lib/office/agent-interface";
 import { CEO_ID, LEGACY_CEO_ID, normalizeOrganization, mergeOrganization, type OfficeOrganization, type OfficePosition } from "@/lib/office/organization";
 import { normalizeDepartmentDescriptions, mergeDepartmentDescriptions, type DepartmentDescriptions } from "@/lib/office/departments";
@@ -110,6 +110,7 @@ export type StudioOfficePreference = {
   agentInterfaces?: AgentInterfaces;
   departmentDescriptions?: DepartmentDescriptions;
   departmentAssets?: DepartmentAssets;
+  companyTools?: CompanyTools;
   organization?: OfficeOrganization;
   title: string;
 
@@ -126,6 +127,7 @@ export type StudioOfficePreferencePublic = {
   agentInterfaces?: AgentInterfaces;
   departmentDescriptions?: DepartmentDescriptions;
   departmentAssets?: DepartmentAssets;
+  companyTools?: CompanyTools;
   organization?: OfficeOrganization;
   title: string;
 
@@ -142,6 +144,7 @@ export type StudioOfficePreferencePatch = {
   agentInterfaces?: AgentInterfacePatch;
   departmentDescriptions?: Record<string, string | null> | null;
   departmentAssets?: DepartmentAssetPatch;
+  companyTools?: CompanyToolPatch;
   organization?: Record<string, OfficePosition | null> | null;
   title?: string | null;
 
@@ -386,6 +389,7 @@ const normalizeCompanyRoleTitles = (value: unknown, fallback: string[] = []) => 
 };
 
 export const defaultStudioOfficePreference = (): StudioOfficePreference => ({
+  companyTools: {},
   title: DEFAULT_OFFICE_TITLE,
 
   companyName: "",
@@ -399,7 +403,8 @@ export const defaultStudioOfficePreference = (): StudioOfficePreference => ({
 
 export const defaultStudioOfficePreferencePublic =
   (): StudioOfficePreferencePublic => ({
-    title: DEFAULT_OFFICE_TITLE,
+    companyTools: {},
+  title: DEFAULT_OFFICE_TITLE,
 
     companyName: "",
     companyPrompt: "",
@@ -418,6 +423,7 @@ export const sanitizeStudioOfficePreference = (
   ...(value.organization ? { organization: value.organization } : {}),
   ...(value.departmentDescriptions ? { departmentDescriptions: normalizeDepartmentDescriptions(value.departmentDescriptions) } : {}),
   ...(value.departmentAssets ? { departmentAssets: normalizeDepartmentAssets(value.departmentAssets) } : {}),
+  companyTools: normalizeCompanyTools(value.companyTools),
 
   companyName: value.companyName,
   companyPrompt: value.companyPrompt,
@@ -767,6 +773,7 @@ const normalizeOfficePreference = (
   if (!isRecord(value)) return fallback;
   return {
     title: normalizeOfficeTitle(value.title, fallback.title),
+    companyTools: normalizeCompanyTools(value.companyTools ?? fallback.companyTools),
     ...(value.agentInterfaces !== undefined ? { agentInterfaces: normalizeAgentInterfaces(value.agentInterfaces) } : fallback.agentInterfaces ? { agentInterfaces: fallback.agentInterfaces } : {}),
     ...(value.organization !== undefined ? { organization: normalizeOrganization(value.organization) } : fallback.organization ? { organization: fallback.organization } : {}),
     ...(value.departmentDescriptions !== undefined ? { departmentDescriptions: normalizeDepartmentDescriptions(value.departmentDescriptions) } : fallback.departmentDescriptions ? { departmentDescriptions: fallback.departmentDescriptions } : {}),
@@ -1069,6 +1076,7 @@ export const mergeStudioSettings = (
           ...(officePatch.organization !== undefined ? { organization: mergeOrganization(fallback.organization, officePatch.organization) } : {}),
           ...(officePatch.departmentDescriptions !== undefined ? { departmentDescriptions: mergeDepartmentDescriptions(fallback.departmentDescriptions, officePatch.departmentDescriptions) } : {}),
           ...(officePatch.departmentAssets !== undefined ? { departmentAssets: mergeDepartmentAssets(fallback.departmentAssets, officePatch.departmentAssets) } : {}),
+          ...(officePatch.companyTools !== undefined ? { companyTools: mergeCompanyTools(fallback.companyTools, officePatch.companyTools) } : {}),
         },
         fallback
       );

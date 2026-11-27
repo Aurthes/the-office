@@ -5,7 +5,7 @@ const os = require("node:os");
 const { normalizeOrganization, reconcileOrganization, delegationMode, isDepartmentManager } = require("../src/lib/office/organization-structure");
 const { normalizeDepartmentDescriptions, organizationDepartments, OPEN_DEPARTMENT_ID } = require("../src/lib/office/department-structure");
 const { ceo: CEO_ID } = require("../src/lib/office/identities.json");
-const { normalizeDepartmentAssets, departmentAssetIndex, readDepartmentAssets } = require("../src/lib/office/department-assets-structure");
+const { normalizeCompanyTools, readCompanyTools, companyToolIndex, normalizeDepartmentAssets, departmentAssetIndex, readDepartmentAssets } = require("../src/lib/office/department-assets-structure");
 
 const { WORKER_SPECIALTIES } = require("../src/lib/office/position-specialties");
 
@@ -37,6 +37,7 @@ class OfficeCompany {
       this.saved = normalizeOrganization(entries[0]?.[1]?.organization);
       this.descriptions = normalizeDepartmentDescriptions(entries[0]?.[1]?.departmentDescriptions);
       this.assetRegistry = normalizeDepartmentAssets(entries[0]?.[1]?.departmentAssets);
+      this.companyToolsRegistry = normalizeCompanyTools(entries[0]?.[1]?.companyTools);
       this.fingerprint = fingerprint;
     }
     const sessions = this.store.list();
@@ -57,7 +58,7 @@ class OfficeCompany {
     const departments = (companyScope ? directory : directory.filter(department => department.id === departmentId)).map(department => ({ ...department, assets: departmentAssetIndex(this.assetRegistry, department.id) }));
     const directReports = people.filter(row => row.reportsTo.includes(id));
     const specialties = Object.fromEntries(Object.entries(WORKER_SPECIALTIES).filter(([title]) => person.title === title || directReports.some(report => report.title === title)));
-    return { agentId: id, title: person.title, ...(Object.keys(specialties).length ? { specialties } : {}), canRecruit, delegationMode: delegationMode(id, person, !!directReports.length),
+    return { agentId: id, companyTools:companyToolIndex(this.companyToolsRegistry), title: person.title, ...(Object.keys(specialties).length ? { specialties } : {}), canRecruit, delegationMode: delegationMode(id, person, !!directReports.length),
       managers: people.filter(row => person.reportsTo.includes(row.id)), directReports,
       departmentScope: companyScope ? "company" : selected ? "selected" : "own", departments };
   }
@@ -68,6 +69,10 @@ class OfficeCompany {
     const managerId = session.recruitment?.managerId || people.find(person => person.departmentId === session.projectId && isDepartmentManager(person))?.id || CEO_ID;
     const position = { title, reportsTo: [managerId] };
     await persist(this.key, session.id, position);
+  }
+  companyTools(input) {
+    this.store.get(input.actorId);this.organization();
+    return readCompanyTools(this.companyToolsRegistry,input);
   }
   departmentAssets(input) {
     const context = this.context(input.actorId, { allDepartments: true });

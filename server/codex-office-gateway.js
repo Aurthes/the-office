@@ -301,6 +301,7 @@ const methods = {
   },
   "todo.organization": p => company.context(p.actorId, p),
   "todo.department_assets": p => company.departmentAssets(p),
+  "todo.company_tools": p => company.companyTools(p),
   "todo.recruit": p => company.recruit(p),
   "todo.delegate": p => delegation.delegate(p),
   "todo.submit": p => delegation.submit(p),

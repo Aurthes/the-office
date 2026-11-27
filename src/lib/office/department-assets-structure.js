@@ -58,16 +58,43 @@ function departmentAssetIndex(registry, departmentId) {
     counts: Object.fromEntries(ASSET_KINDS.map(kind => [kind, rows.filter(([, entry]) => entry.kind === kind).length])),
     entries: rows.slice(0, 5).map(([id, { kind, name, status, version }]) => ({ id, kind, name, status, version })), more: Math.max(0, rows.length - 5) };
 }
-function readDepartmentAssets(registry, { departmentId, assetId, kind, query = "", offset = 0, limit = 25 }) {
-  if (!safeKey(departmentId) || assetId !== undefined && !safeKey(assetId)) throw new Error("Choose a valid department and asset ID.");
-  const entries = registry[departmentId] || {};
+function readAssets(entries, { assetId, kind, query = "", offset = 0, limit = 25 }) {
+  if(assetId!==undefined&&!safeKey(assetId))throw new Error("Choose a valid asset ID.");
   if (assetId !== undefined) {
-    if (!Object.hasOwn(entries, assetId)) throw new Error("Department asset not found.");
-    return { departmentId, assetId, entry: entries[assetId] };
+    if (!Object.hasOwn(entries, assetId)) throw new Error("Asset not found.");
+    return { assetId, entry: entries[assetId] };
   }
   if (kind !== undefined && !ASSET_KINDS.includes(kind) || typeof query !== "string" || query.length > 240 || !Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 25) throw new Error("Choose a valid asset filter and page (1–25 entries).");
   const needle = query.trim().toLowerCase();
   const rows = Object.entries(entries).sort(([a], [b]) => a.localeCompare(b)).filter(([id, a]) => (!kind || a.kind === kind) && (!needle || [id, a.name, a.summary].some(text => text.toLowerCase().includes(needle))));
-  return { departmentId, entries: rows.slice(offset, offset + limit).map(assetSummary), total: rows.length, offset, limit };
+  return { entries: rows.slice(offset, offset + limit).map(assetSummary), total: rows.length, offset, limit };
 }
-module.exports = { ASSET_KINDS, ASSET_STATUSES, ASSET_LIMITS, normalizeDepartmentAssets, mergeDepartmentAssets, mergeDepartmentAssetPatches, departmentAssetIndex, readDepartmentAssets };
+function readDepartmentAssets(registry,input) {
+  if(!safeKey(input.departmentId))throw new Error("Choose a valid department and asset ID.");
+  return {departmentId:input.departmentId,...readAssets(registry[input.departmentId]||{},input)};
+}
+function normalizeCompanyTools(value) {
+  if(!record(value))return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([id,value])=>{if(!safeKey(id))return [];try{const tool=asset(value);return tool.kind==='tool'?[[id,tool]]:[];}catch{return [];}}));
+}
+function mergeCompanyTools(current,patch) {
+  const next=normalizeCompanyTools(current);
+  if(patch===undefined)return next;
+  if(!record(patch))throw new Error("Company tools must be an object of entry patches.");
+  for(const [id,value] of Object.entries(patch)) {
+    if(!safeKey(id))throw new Error("Choose a valid asset ID.");
+    if(value===null)delete next[id];else {const tool=asset(value);if(tool.kind!=='tool')throw new Error("Company entries must be tools.");next[id]=tool;}
+  }
+  return next;
+}
+function mergeCompanyToolPatches(current,patch) {
+  if(!record(patch)||Object.keys(patch).some(id=>!safeKey(id)))throw new Error("Choose valid company tool entry patches.");
+  return {...current,...patch};
+}
+function readCompanyTools(registry,input) {return readAssets(registry,{...input,kind:'tool'});}
+function companyToolIndex(registry) {
+  const rows=Object.entries(registry).sort(([a],[b])=>a.localeCompare(b));
+  return {tool:"office_tasks.todo_company_tools",total:rows.length,entries:rows.slice(0,5).map(([id,{name,status,version}])=>({id,name,status,version})),more:Math.max(0,rows.length-5)};
+}
+
+module.exports = { normalizeCompanyTools, mergeCompanyTools, mergeCompanyToolPatches, readCompanyTools, companyToolIndex, ASSET_KINDS, ASSET_STATUSES, ASSET_LIMITS, normalizeDepartmentAssets, mergeDepartmentAssets, mergeDepartmentAssetPatches, departmentAssetIndex, readDepartmentAssets };

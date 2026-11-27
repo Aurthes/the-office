@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import{test}from'node:test';
+import {normalizeCompanyTools,mergeCompanyTools,mergeCompanyToolPatches,readCompanyTools,readDepartmentAssets} from '../src/lib/office/department-assets-structure.js';
+import{OfficeCompany}from'./office-company.js';
+const tool={kind:'tool',name:'Ranking core',summary:'Build a frozen report',instructions:'ranking-report --input standard.json --output result',source:'https://example.test/source/abc',version:'abc',status:'active'};
+test('company tools preserve stable entry patches/tombstones, reject non-tools and unsafe IDs atomically',()=>{
+ const old={one:tool,other:tool};assert.deepEqual(mergeCompanyTools(old,{one:{...tool,status:'deprecated'},new:tool}).other,tool);assert.deepEqual(mergeCompanyTools(old,{one:null}),{other:tool});assert.equal(old.one.status,'active');
+ for(const patch of [null,[],{bad:{...tool,kind:'workflow'}},{bad:{...tool,instructions:''}},JSON.parse('{"__proto__":null}')])assert.throws(()=>mergeCompanyTools(old,patch));
+ assert.deepEqual(mergeCompanyToolPatches({one:tool},{one:null,two:tool}),{one:null,two:tool});assert.deepEqual(normalizeCompanyTools(undefined),{});assert.deepEqual(normalizeCompanyTools({good:tool,bad:{...tool,kind:'guideline'}}),{good:tool});
+});
+test('company bounded list/detail is independent of department catalog and keeps references as plain instructions',()=>{
+ const company={core:tool};const departments={mm:{wrapper:{...tool,name:'MM wrapper',instructions:'Uses company ranking-report; mm-ranking --input accepted.json'}}};assert.equal(readCompanyTools(company,{}).entries.length,1);assert.equal(readCompanyTools(company,{assetId:'core'}).entry.instructions,tool.instructions);assert.equal(readDepartmentAssets(departments,{departmentId:'mm'}).entries[0].id,'wrapper');assert.throws(()=>readCompanyTools(company,{assetId:'missing'}));assert.throws(()=>readCompanyTools(company,{limit:26}));assert.throws(()=>readCompanyTools(company,{assetId:'__proto__'}));assert.equal(readCompanyTools(company,{query:'absent'}).total,0);
+});
+test('existing OfficeCompany refresh exposes one company index to two departments and CEO; settings stay per Office',t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'company-tools-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const file=path.join(dir,'settings.json');const ceo='00000000-0000-4000-8000-000000000001';const rows=[{id:ceo,name:'CEO',projectId:null,project:null},{id:'a',name:'A',projectId:'one',project:'One'},{id:'b',name:'B',projectId:'two',project:'Two'}];const store={list:()=>rows,projects:()=>[{id:'one',name:'One'},{id:'two',name:'Two'}],get:id=>{const r=rows.find(x=>x.id===id);if(!r)throw Error('Unknown agent');return r;}};
+ const settings={office:{'ws://localhost:18790':{companyTools:{core:tool},departmentAssets:{one:{local:{...tool,name:'Local'}}}},'ws://localhost:20000':{companyTools:{secret:{...tool,name:'Other Office'}}}}};fs.writeFileSync(file,JSON.stringify(settings));const company=new OfficeCompany(store,{settingsFile:file,gatewayUrl:'ws://127.0.0.1:18790'});
+ for(const id of[ceo,'a','b']){assert.equal(company.context(id).companyTools.entries[0].id,'core');assert.equal(company.companyTools({actorId:id,assetId:'core'}).entry.name,'Ranking core');assert.equal(JSON.stringify(company.forTurn(id).companyTools).includes('instructions'),false);assert.equal(company.companyTools({actorId:id}).entries.length,1);}
+ assert.throws(()=>company.companyTools({actorId:'absent'}));assert.equal(company.departmentAssets({actorId:'b',departmentId:'one'}).entries[0].id,'local');
+ settings.office['ws://localhost:18790'].companyTools.core.status='deprecated';const temp=file+'.tmp';fs.writeFileSync(temp,JSON.stringify(settings));fs.renameSync(temp,file);assert.equal(company.companyTools({actorId:'a',assetId:'core'}).entry.status,'deprecated');
+ const other=new OfficeCompany(store,{settingsFile:file,gatewayUrl:'ws://localhost:20000'});assert.equal(other.companyTools({actorId:'a'}).entries[0].id,'secret');
+});

@@ -1,5 +1,5 @@
 "use client";
-import { normalizeDepartmentAssets, mergeDepartmentAssets, type DepartmentAssets, type DepartmentAsset } from "@/lib/office/department-assets";
+import { normalizeCompanyTools, mergeCompanyTools, type CompanyTools, normalizeDepartmentAssets, mergeDepartmentAssets, type DepartmentAssets, type DepartmentAsset } from "@/lib/office/department-assets";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CompanyRoster } from "@/features/retro-office/core/companyLayout";
 import { CEO_ID, OPEN_DEPARTMENT_ID, organizationPatch, organizationPeople, reconcileOrganization, updateOrganizationPosition, type OfficeOrganization, type OfficePosition, type OrganizationView } from "@/lib/office/organization";
@@ -12,7 +12,7 @@ export function useOfficeOrganization({ roster, names, coordinator, gatewayUrl, 
   roster: CompanyRoster | null; names: ReadonlyMap<string, string>; coordinator: StudioSettingsCoordinator; gatewayUrl: string; enabled: boolean;
 }): OrganizationView {
   const [positions, setPositions] = useState<OfficeOrganization>({});
-  const [assets, setAssets] = useState<{ scope: string; ready: boolean; error: string; entries: DepartmentAssets }>({ scope: "", ready: false, error: "", entries: {} });
+  const [assets, setAssets] = useState<{ scope: string; ready: boolean; error: string; entries: DepartmentAssets; companyTools: CompanyTools }>({ scope: "", ready: false, error: "", entries: {}, companyTools:{} });
   const assetsScope = enabled && roster ? gatewayUrl.trim() : "";
   const currentAssetsScope = useRef<{ scope: string } | null>({ scope: assetsScope });
   const assetsGeneration = useRef(0);
@@ -36,7 +36,7 @@ export function useOfficeOrganization({ roster, names, coordinator, gatewayUrl, 
         if (!settings) throw new Error("Settings unavailable.");
         const preference = resolveOfficePreferencePublic(settings, gatewayUrl);
         if (assetsRequest === assetsGeneration.current && currentAssetsScope.current?.scope === gatewayUrl.trim()) {
-          setAssets({ scope: gatewayUrl.trim(), ready: true, error: "", entries: normalizeDepartmentAssets(preference.departmentAssets) });
+          setAssets({ scope: gatewayUrl.trim(), ready: true, error: "", entries: normalizeDepartmentAssets(preference.departmentAssets), companyTools:normalizeCompanyTools(preference.companyTools) });
         }
         const saved = preference.organization || {};
         const organization = reconcileOrganization(saved, roster);
@@ -50,7 +50,7 @@ export function useOfficeOrganization({ roster, names, coordinator, gatewayUrl, 
         if (!stopped && request === generation.current) { setPositions(organization); setCeoAvatar(avatar); setDescriptions(preference.departmentDescriptions || {}); }
       } catch (error) {
         if (!stopped && assetsRequest === assetsGeneration.current && currentAssetsScope.current?.scope === gatewayUrl.trim()) {
-          setAssets(previous => ({ scope: gatewayUrl.trim(), ready: previous.scope === gatewayUrl.trim() && previous.ready, entries: previous.scope === gatewayUrl.trim() ? previous.entries : {}, error: "Could not load department tools. Reconnect or refocus to retry." }));
+          setAssets(previous => ({ scope: gatewayUrl.trim(), ready: previous.scope === gatewayUrl.trim() && previous.ready, entries: previous.scope === gatewayUrl.trim() ? previous.entries : {}, companyTools: previous.scope===gatewayUrl.trim()?previous.companyTools:{}, error: "Could not load department tools. Reconnect or refocus to retry." }));
         }
         console.error("Could not load the Office organization.", error);
       }
@@ -89,11 +89,21 @@ export function useOfficeOrganization({ roster, names, coordinator, gatewayUrl, 
     generation.current++;
     if (scope && scope === currentAssetsScope.current && scope.scope === gatewayUrl.trim()) {
       assetsGeneration.current++;
-      setAssets(previous => ({ scope: gatewayUrl.trim(), ready: true, error: "", entries: mergeDepartmentAssets(previous.scope === gatewayUrl.trim() ? previous.entries : {}, { [departmentId]: { [assetId]: entry } }) }));
+      setAssets(previous => ({ scope: gatewayUrl.trim(), ready: true, error: "", companyTools:previous.scope===gatewayUrl.trim()?previous.companyTools:{}, entries: mergeDepartmentAssets(previous.scope === gatewayUrl.trim() ? previous.entries : {}, { [departmentId]: { [assetId]: entry } }) }));
     }
   }, [roster, coordinator, gatewayUrl, enabled]);
+  const saveCompanyTool = useCallback(async(assetId:string,entry:DepartmentAsset)=>{
+    if(!roster||!enabled||!gatewayUrl.trim())throw new Error("Connection unavailable. Please reconnect before saving.");
+    mergeCompanyTools({}, {[assetId]:entry});
+    const scope=currentAssetsScope.current;assetsGeneration.current++;
+    await coordinator.applyPatchNow({office:{[gatewayUrl]:{companyTools:{[assetId]:entry}}}});
+    if(scope&&scope===currentAssetsScope.current&&scope.scope===gatewayUrl.trim()) {
+      assetsGeneration.current++;
+      setAssets(previous=>({scope:gatewayUrl.trim(),ready:true,error:"",entries:previous.scope===gatewayUrl.trim()?previous.entries:{},companyTools:mergeCompanyTools(previous.scope===gatewayUrl.trim()?previous.companyTools:{},{[assetId]:entry})}));
+    }
+  },[roster,coordinator,gatewayUrl,enabled]);
   const people = useMemo(() => roster ? organizationPeople(positions, roster, names) : [], [positions, roster, names]);
   const departments = useMemo(() => organizationDepartments(roster?.projects || [], people, descriptions), [roster, people, descriptions]);
-  const scopedAssets = assetsScope && assets.scope === assetsScope ? assets : { scope: assetsScope, ready: false, error: "", entries: {} };
-  return { people, ceoAvatar, savePosition, departments, saveDepartmentDescription, departmentAssets: scopedAssets.entries, departmentAssetsState: { scope: scopedAssets.scope, ready: scopedAssets.ready, error: scopedAssets.error }, saveDepartmentAsset };
+  const scopedAssets = assetsScope && assets.scope === assetsScope ? assets : { scope: assetsScope, ready: false, error: "", entries: {}, companyTools:{} };
+  return { companyTools:scopedAssets.companyTools, saveCompanyTool, people, ceoAvatar, savePosition, departments, saveDepartmentDescription, departmentAssets: scopedAssets.entries, departmentAssetsState: { scope: scopedAssets.scope, ready: scopedAssets.ready, error: scopedAssets.error }, saveDepartmentAsset };
 }
