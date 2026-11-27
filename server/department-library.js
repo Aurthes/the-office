@@ -12,6 +12,8 @@ const { loadUpstreamGatewaySettings } = require("./studio-settings");
 const MiB = 1024 * 1024;
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const departmentId = id => id === "open-workspace" || UUID.test(id);
+const companyFolder = "company";
+const companyRoute = /^\/api\/office\/company-library(?:\/([^/]+))?$/;
 const route = /^\/api\/office\/department-library\/([^/]+)(?:\/([^/]+))?$/;
 const noStore = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
@@ -96,7 +98,7 @@ function rowAt(folder, id) {
 
 function createDepartmentLibrary({
   root = path.resolve(process.env.CLAW3D_DATA_DIR || path.join(os.homedir(), ".local/share/claw3d"), "department-library"),
-  lookupDepartments = managedDepartments, maxFile = 20 * MiB, maxTotal = 512 * MiB, maxEntries = 1024,
+  lookupDepartments = managedDepartments, companyEnabled = process.env.CLAW3D_CODEX_GATEWAY === "1", maxFile = 20 * MiB, maxTotal = 512 * MiB, maxEntries = 1024,
 } = {}) {
   let initialized = false;
   let lookup;
@@ -155,7 +157,7 @@ function createDepartmentLibrary({
   }
   function *folders() {
     for (const item of fs.readdirSync(root, { withFileTypes: true })) {
-      if (item.isDirectory() && departmentId(item.name)) yield path.join(root, item.name);
+      if (item.isDirectory() && (departmentId(item.name) || (companyEnabled && item.name === companyFolder))) yield path.join(root, item.name);
     }
   }
   function describeFile(folder, entry) {
@@ -243,14 +245,14 @@ function createDepartmentLibrary({
     }
   }
   async function serve(req, res, url, department, id) {
-    if (!departmentId(department) || (id && !UUID.test(id))) missing();
+    if ((department === null ? !companyEnabled : !departmentId(department)) || (id && !UUID.test(id))) missing();
     if (req.method !== "GET" && (req.method !== "POST" || id) && (req.method !== "DELETE" || !id)) fail(405, "Method not allowed.");
     // Studio's proxy and access gates authenticate the request before this handler.
     // Their Origin policy rejects mismatches. The write additionally requires Origin.
     if (["POST","DELETE"].includes(req.method) && !req.headers.origin) fail(403, "Library writes must come from this Office.");
-    await authorize(department);
+    if (department !== null) await authorize(department);
     initialize();
-    const folder = path.join(root, department);
+    const folder = path.join(root, department ?? companyFolder);
     if (req.method === "POST") { const result=await save(req,folder,url);return json(res,result.alreadySaved?200:201,result); }
     if (req.method === "DELETE") return json(res,200,await remove(folder,id));
     if (!id) return json(res, 200, { entries: [...entries(folder)].map(entry=>describeFile(folder,entry)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)) });
@@ -281,8 +283,9 @@ function createDepartmentLibrary({
   return (req, res) => {
     const url = new URL(req.url, "http://localhost");
     const match = route.exec(url.pathname);
-    if (!match) return false;
-    void serve(req, res, url, match[1], match[2]).catch(error => {
+    const company = match ? null : companyRoute.exec(url.pathname);
+    if (!match && !company) return false;
+    void serve(req, res, url, match ? match[1] : null, match ? match[2] : company[1]).catch(error => {
       if (res.headersSent || res.destroyed) return;
       req.resume();
       json(res, error.status || 503, { error: error.status ? error.message : "Department library unavailable. Try again." });

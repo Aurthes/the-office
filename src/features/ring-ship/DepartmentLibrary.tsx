@@ -18,22 +18,26 @@ async function readJson<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export function DepartmentLibrary({ departmentId }: { departmentId: string }) {
-  return <Library key={departmentId} departmentId={departmentId} />;
+  const url = "/api/office/department-library/" + encodeURIComponent(departmentId);
+  return <Library key={url} url={url} departmentId={departmentId} />;
 }
-function Library({ departmentId }: { departmentId: string }) {
+export function CompanyLibrary() {
+  return <Library url="/api/office/company-library" />;
+}
+
+function Library({ url, departmentId }: { url: string; departmentId?: string }) {
   const t = useUiText();
   const sidePreview = useContext(SessionPreviewContext);
   const library = useContext(LibraryContext);
   const [preview,setPreview] = useState<SessionAsset | null>(null);
-  const scope=useRef<string | null>(departmentId);
-  useLayoutEffect(()=>{scope.current=departmentId;return()=>{scope.current=null;};},[departmentId]);
+  const scope=useRef<string | null>(url);
+  useLayoutEffect(()=>{scope.current=url;return()=>{scope.current=null;};},[url]);
   const [loadedScope,setLoadedScope]=useState("");
   function open(entry: Entry) {
     if(entry.kind!=="file"||!entry.previewKind)return;
     const asset:SessionAsset={source:"library:"+entry.id,name:entry.title||entry.name,kind:entry.previewKind==="html"?"html":"markdown",plainText:entry.previewKind==="text",archived:true,url:url+"/"+entry.id};
     if(sidePreview)sidePreview(asset);else setPreview(asset);
   }
-  const url = "/api/office/department-library/" + encodeURIComponent(departmentId);
   const [entries, setEntries] = useState<Entry[] | null>(null);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
@@ -48,15 +52,15 @@ function Library({ departmentId }: { departmentId: string }) {
   useEffect(() => {
     const controller = new AbortController();
     void readJson<{ entries: Entry[] }>(url, { signal: controller.signal })
-      .then(result => { if (!controller.signal.aborted) { setEntries(result.entries); setLoadedScope(departmentId); setError(""); } })
+      .then(result => { if (!controller.signal.aborted) { setEntries(result.entries); setLoadedScope(url); setError(""); } })
       .catch(cause => { if (!controller.signal.aborted) setError(cause.message); });
     return () => controller.abort();
-  }, [url, refresh, departmentId]);
+  }, [url, refresh]);
 
   async function save(event: FormEvent, kind: "file" | "link") {
     event.preventDefault();
     if (busy || deleting || !entries || (kind === "file" && !file)) return;
-    const target=departmentId;
+    const target=url;
     setBusy(true);
     setError("");setNotice("");
     try {
@@ -78,15 +82,17 @@ function Library({ departmentId }: { departmentId: string }) {
 
   async function remove(entry:Entry) {
     if(busy||deleting||!window.confirm(t("Delete this Library entry? Only its archived copy will be removed.")))return;
-    const target=departmentId;
+    const target=url;
     setDeleting(entry.id);setError("");setNotice("");
     try {
       const result=await readJson<{deleted:boolean;cleanupPending?:boolean}>(url+"/"+entry.id,{method:"DELETE"});
       if(!result.deleted)throw new Error("Could not delete entry. Try again.");
       if(scope.current!==target)return;
       setEntries(previous=>(previous||[]).filter(row=>row.id!==entry.id));
-      if(library?.departmentId===target)library.saved.clear();
-      invalidateLibrary(target);
+      if (departmentId) {
+        if (library?.departmentId === departmentId) library.saved.clear();
+        invalidateLibrary(departmentId);
+      }
       if(preview?.source==="library:"+entry.id)setPreview(null);
       setNotice(result.cleanupPending?"Entry removed; stored copy cleanup is pending.":"Deleted");
     }catch(cause){if(scope.current===target)setError(cause instanceof Error?cause.message:"Could not delete entry. Try again.");}
@@ -97,7 +103,7 @@ function Library({ departmentId }: { departmentId: string }) {
     {notice ? <p role="status">{t(notice)}</p> : null}
     {error ? <p role="alert">{t(error)}{!entries && <> <button type="button" onClick={() => setRefresh(value => value + 1)}>{t("Retry")}</button></>}</p> : null}
     {!entries && !error ? <p role="status">{t("Loading library…")}</p> : null}
-    {entries && loadedScope===departmentId && <>
+    {entries && loadedScope===url && <>
       <div className="department-library-forms">
         <form onSubmit={event => void save(event, "file")}>
           <label>{t("File copy (up to 20 MB)")}<input key={fileInput} type="file" required disabled={busy||Boolean(deleting)} onChange={event => setFile(event.target.files?.[0] || null)} /></label>
