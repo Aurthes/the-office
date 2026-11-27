@@ -69,7 +69,7 @@ export function SessionRefresh({ client, threadId, onClose, intent, onIntent, on
   return <section ref={root} role="dialog" aria-modal="true" aria-label={t("Refresh session")} tabIndex={-1} className="absolute inset-0 z-40 flex min-h-0 min-w-0 flex-col bg-[var(--background)] text-[var(--foreground)]" onKeyDown={event => {
     if (event.key === "Escape") { event.stopPropagation(); onClose(); }
     if (event.key === "Tab") {
-      const items = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),summary,[tabindex="0"]')].filter(item => item.getClientRects().length > 0);
+      const items = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),summary,[tabindex="0"]')].filter(item => item.getClientRects().length > 0 && !item.closest("details:not([open]) > :not(summary)"));
       const first = items[0], last = items.at(-1);
       if (event.shiftKey && (document.activeElement === first || document.activeElement === root.current)) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
