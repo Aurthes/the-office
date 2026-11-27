@@ -1074,3 +1074,31 @@ it("loads the same saved Agent State into a clean replacement native conversatio
   expect((injected[1][1] as {threadId:string}).threadId).toBe("replacement-native");
   expect(restarted.read(id)).toMatchObject({ id, revision: 1, sections });
 });
+
+
+it.each(["CEO", "Head", "Manager", "Worker"])("delivers iteration elapsed reporting to %s on its old thread once and reuses restored cache", async title => {
+  const f = fixture();
+  const id = title === "CEO" ? (f.store.ensureCeo(), CEO_ID) : await session(f);
+  f.store.companyContext = () => ({ agentId: id, title, canRecruit: false });
+  const rule = "At the end of each completed task iteration, report total elapsed wall time and a short breakdown of the large blocks that occurred (coding, reasoning/evidence, builds, tests, network stalls, discussion/waiting for replies or other work). Reuse timestamps; label estimates and unknowns. Explain parallel overlap without adding it to the total; do not dump unclassified time into reasoning or count teammates' time as your own.";
+  await f.store.call("turn/start", { threadId: id, input: [] });
+  const injections = () => f.client.call.mock.calls.filter(([method]) => method === "thread/inject_items");
+  const payload = (injections()[0][1] as { items: Array<{ content: Array<{ text: string }> }> }).items[0].content[0].text;
+  expect(payload.split(rule)).toHaveLength(2);
+  expect(payload).toContain("Ordinary unit cases must finish within 10ms");
+  expect(payload).toContain("Decompose only as far as needed");
+  expect(payload).toContain("Don't use messages as an execution log.");
+  const nativeThreadId = f.store.get(id).codexThreadId;
+  const previous = payload.replace(" " + rule, "");
+  expect(previous).not.toBe(payload);
+  f.store.get(id).projectContext = createHash("sha256").update(previous).digest("hex"); f.store.save();
+  const restored = new CodexOfficeStore(f.directory, f.client); restored.companyContext = f.store.companyContext;
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const update = injections()[1][1] as { threadId: string; items: Array<{ role: string; content: Array<{ text: string }> }> };
+  expect(update.threadId).toBe(nativeThreadId); expect(update.items[0].role).toBe("developer"); expect(update.items[0].content[0].text).toBe(payload);
+  await restored.call("turn/start", { threadId: id, input: [] });
+  const again = new CodexOfficeStore(f.directory, f.client); again.companyContext = f.store.companyContext;
+  await again.call("turn/start", { threadId: id, input: [] });
+  expect(injections()).toHaveLength(2);
+  expect(f.client.call.mock.calls.filter(([method]) => method === "thread/start")).toHaveLength(1);
+});
