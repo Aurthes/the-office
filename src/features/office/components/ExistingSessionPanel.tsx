@@ -82,6 +82,14 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   const [questionTarget, setQuestionTarget] = useState<{ ownerId: string; target: MessageSearchTarget } | null>(null);
   const shownMessageTarget = messageTarget || (questionTarget?.ownerId === threadId ? questionTarget.target : null);
 
+  const [stateTarget, setStateTarget] = useState<{ ownerId: string; request: number } | null>(null);
+  const refreshReturn = useRef<string | null>(null);
+  const stateRequest = stateTarget?.ownerId === threadId ? stateTarget.request : 0;
+  const openRefreshState = () => {
+    refreshReturn.current = threadId;
+    setStateTarget(previous => ({ ownerId: threadId, request: (previous?.request || 0) + 1 }));
+    setWorkspaceOpen(true); setRefreshOpen(false); onOpenWorkspace?.();
+  };
   const [refreshOpen, setRefreshOpen] = useState(false);
   const [nextTopic, setNextTopic] = useState<{ ownerId: string; intent: RefreshIntent } | null>(null);
   const nextIntent = nextTopic?.ownerId === threadId ? nextTopic.intent : undefined;
@@ -99,7 +107,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
   const [messages, setMessages] = useState<Message[]>([]);
   const messagesRef = useRef(messages);
   const owner = useRef(threadId);
-  useLayoutEffect(() => { owner.current = threadId; }, [threadId]);
+  useLayoutEffect(() => { owner.current = threadId; refreshReturn.current = null; }, [threadId]);
   useLayoutEffect(() => { messagesRef.current = messages; }, [messages]);
   const [recoveryStatus, setRecoveryStatus] = useState<string | null>(null);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
@@ -335,7 +343,7 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
         <AgentInterfaceActions preset={interfacePreset} onOpenBoard={onOpenTeaserBoard} placement="inline" />
         {characterOpen ? <button type="button" onClick={() => setCharacterMode("chat")} className="session-action-back"><ArrowLeft size={14} />{t("Back to chat")}</button> : null}
         {!characterOpen ? <button type="button" aria-label={t(workspaceOpen ? "Close workspace" : "Open workspace")} aria-expanded={workspaceOpen} title={t("Workspace")}
-          disabled={!data?.controlsAvailable} className="session-action-back session-workspace-toggle" onClick={() => { setWorkspaceOpen(value => !value); if (!workspaceOpen) onOpenWorkspace?.(); }}><PanelRight size={15} /><span>{t("Workspace")}</span></button> : null}
+          disabled={!data?.controlsAvailable} className="session-action-back session-workspace-toggle" onClick={() => { if (workspaceOpen) refreshReturn.current = null; setWorkspaceOpen(value => !value); if (!workspaceOpen) onOpenWorkspace?.(); }}><PanelRight size={15} /><span>{t("Workspace")}</span></button> : null}
         <details className="session-actions relative" aria-label={t("Session information")}>
           <summary aria-label={t("Session information")} className="session-actions-trigger"><MoreHorizontal size={18} aria-hidden="true" /></summary>
           <div className="session-actions-popover">
@@ -404,11 +412,11 @@ export function ExistingSessionPanel({ client, threadId, active = true, focusMod
     {data?.id === threadId && data.controlsAvailable ? <SessionControls key={threadId} active={active && !shownMessageTarget} client={client} threadId={threadId} onItems={onLiveItems} onHistorySync={onHistorySync} onHistoryReset={onHistoryReset} onActiveTurnChange={setActiveTurnId} onRecoveryChange={setRecoveryStatus} onSendState={onSendState} refreshIntent={nextIntent} onRefreshIntentConsumed={() => setNextTopic(null)} voice={voice} onOpenThread={onOpenThread} onFork={onFork} onRenamed={name => { setData(previous => previous ? { ...previous, name } : previous); onSessionRenamed?.(name); }} /> : null}
     </div>
     {workspaceOpen ? <SessionListDivider pane="workspace" /> : null}
-    {workspaceOpen ? <SessionWorkspace libraryRequest={libraryRequest} key={`${gateway}:${threadId}`} noteAgents={noteAgents} gateway={gateway} connected={connected} library={<SessionLibrary threadId={threadId} organization={organization} gateway={gateway} />} toolbox={<SessionToolbox threadId={threadId} organization={organization} />} taskProgress={taskProgress} progressRequest={progressRequest} active={active && !shownMessageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
+    {workspaceOpen ? <SessionWorkspace stateRequest={stateRequest} onAgentStateSaved={() => { if (owner.current === threadId && refreshReturn.current === threadId) { refreshReturn.current = null; setRefreshOpen(true); } }} libraryRequest={libraryRequest} key={`${gateway}:${threadId}`} noteAgents={noteAgents} gateway={gateway} connected={connected} library={<SessionLibrary threadId={threadId} organization={organization} gateway={gateway} />} toolbox={<SessionToolbox threadId={threadId} organization={organization} />} taskProgress={taskProgress} progressRequest={progressRequest} active={active && !shownMessageTarget} client={client} threadId={threadId} asset={previewAsset} terminalAvailable={data?.terminalAvailable}
       assets={[...new Map(messages.flatMap(message => message.assets || []).map(asset => [asset.url, asset])).values()].slice(-40)}
-      onSelectAsset={setPreviewAsset} onRefreshSession={() => setRefreshOpen(true)} onClose={() => setWorkspaceOpen(false)} /> : null}
+      onSelectAsset={setPreviewAsset} onRefreshSession={() => setRefreshOpen(true)} onClose={() => { refreshReturn.current = null; setWorkspaceOpen(false); }} /> : null}
     </div>
     </div>
-    {refreshOpen ? <SessionRefresh key={threadId} client={client} threadId={threadId} intent={nextIntent} onIntent={intent => setNextTopic(intent ? { ownerId: threadId, intent } : null)} onClose={() => setRefreshOpen(false)} /> : null}
+    {refreshOpen ? <SessionRefresh onOpenAgentState={openRefreshState} key={threadId} client={client} threadId={threadId} intent={nextIntent} onIntent={intent => setNextTopic(intent ? { ownerId: threadId, intent } : null)} onClose={() => setRefreshOpen(false)} /> : null}
   </section></SessionPreviewContext.Provider></LibraryContext.Provider>;
 }

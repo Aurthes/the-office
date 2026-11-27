@@ -16,18 +16,18 @@ type Listing = { root?: string; roots?: string[]; path: string; entries: { name:
 type FileRead = { path: string; content?: string; asset?: SessionAsset };
 type Tab = "files" | "preview" | "terminal" | "browser" | "schedules" | "progress" | "library" | "toolbox" | "notes" | "agent-state";
 
-export function SessionWorkspace({ client, threadId, active = true, asset, assets, onSelectAsset, onClose, onRefreshSession, terminalAvailable = true, taskProgress, toolbox, library, libraryRequest = 0, progressRequest = 0, noteAgents, gateway = "", connected = true }: {
+export function SessionWorkspace({ client, threadId, active = true, asset, assets, onSelectAsset, onClose, onRefreshSession, onAgentStateSaved, stateRequest = 0, terminalAvailable = true, taskProgress, toolbox, library, libraryRequest = 0, progressRequest = 0, noteAgents, gateway = "", connected = true }: {
   client: SessionClient; threadId: string; asset: SessionAsset | null; assets: SessionAsset[];
   active?: boolean; noteAgents?: readonly InterfaceAgent[]; gateway?: string; connected?: boolean; taskProgress?: ReactNode; toolbox?: ReactNode; library?: ReactNode; libraryRequest?: number; progressRequest?: number;
-  onSelectAsset: (asset: SessionAsset | null) => void; onClose: () => void; onRefreshSession?: () => void; terminalAvailable?: boolean;
+  onSelectAsset: (asset: SessionAsset | null) => void; onClose: () => void; onRefreshSession?: () => void; onAgentStateSaved?: () => void; stateRequest?: number; terminalAvailable?: boolean;
 
 }) {
   const t = useUiText();
   const workspaceId = useId();
   const hasTaskProgress = !!taskProgress;
-  const [selection, setSelection] = useState({ tab: (libraryRequest ? "library" : asset ? "preview" : hasTaskProgress && progressRequest ? "progress" : "files") as Tab, progressRequest, hasTaskProgress, libraryRequest, selectedAsset: asset });
-  if (selection.progressRequest !== progressRequest || selection.hasTaskProgress !== hasTaskProgress || selection.libraryRequest !== libraryRequest || selection.selectedAsset !== asset) {
-    setSelection(previous => ({ progressRequest, hasTaskProgress, libraryRequest, selectedAsset: asset, tab: libraryRequest !== previous.libraryRequest ? "library" : asset && asset !== previous.selectedAsset ? "preview" : !hasTaskProgress && previous.tab === "progress" ? "files" : hasTaskProgress && progressRequest !== previous.progressRequest ? "progress" : previous.tab }));
+  const [selection, setSelection] = useState({ tab: (stateRequest ? "agent-state" : libraryRequest ? "library" : asset ? "preview" : hasTaskProgress && progressRequest ? "progress" : "files") as Tab, progressRequest, hasTaskProgress, libraryRequest, selectedAsset: asset, stateRequest });
+  if (selection.stateRequest !== stateRequest || selection.progressRequest !== progressRequest || selection.hasTaskProgress !== hasTaskProgress || selection.libraryRequest !== libraryRequest || selection.selectedAsset !== asset) {
+    setSelection(previous => ({ progressRequest, hasTaskProgress, libraryRequest, selectedAsset: asset, stateRequest, tab: stateRequest !== previous.stateRequest ? "agent-state" : libraryRequest !== previous.libraryRequest ? "library" : asset && asset !== previous.selectedAsset ? "preview" : !hasTaskProgress && previous.tab === "progress" ? "files" : hasTaskProgress && progressRequest !== previous.progressRequest ? "progress" : previous.tab }));
   }
   const tab = selection.tab;
   const [stateOpened, setStateOpened] = useState(false);
@@ -76,7 +76,7 @@ export function SessionWorkspace({ client, threadId, active = true, asset, asset
     </div>
     {error ? <p role="alert" className="px-4 py-3 text-xs text-amber-200">{t(error)}</p> : null}
     <div role="tabpanel" id={`${workspaceId}-panel-${tab}`} aria-labelledby={`${workspaceId}-tab-${tab}`} className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {stateOpened ? <div className={tab === "agent-state" ? "flex min-h-0 flex-1 flex-col" : "hidden"}><SessionAgentState key={threadId} client={client} agentId={threadId} gateway={gateway} connected={connected} /></div> : null}
+      {stateOpened ? <div className={tab === "agent-state" ? "flex min-h-0 flex-1 flex-col" : "hidden"}><SessionAgentState key={threadId} client={client} agentId={threadId} gateway={gateway} connected={connected} onSaved={onAgentStateSaved} /></div> : null}
       {notesOpened ? <div className={tab === "notes" ? "flex min-h-0 flex-1 flex-col" : "hidden"}><SessionNotes client={client} threadId={threadId} gateway={gateway} agents={noteAgents} connected={connected} /></div> : null}
       {tab === "notes" || tab === "agent-state" ? null : tab === "library" ? library || <p className="p-4 text-sm">{t("No department could be identified for this chat.")}</p> : tab === "toolbox" ? toolbox || <p className="p-4 text-sm">{t("Department tools are unavailable.")}</p> : tab === "progress" ? taskProgress : tab === "files" ? <>
         {listing?.roots && listing.roots.length > 1 ? <label className="px-3 pt-2 text-xs text-white/60">{t("Project folder")}<select aria-label={t("Project folder")} className="mt-1 min-h-10 w-full min-w-0 rounded bg-[#152b35] px-2 text-xs" value={root || ""} disabled={busy} onChange={e => { setFile(null); onSelectAsset(null); void list("", e.target.value); }}>
