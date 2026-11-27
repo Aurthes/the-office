@@ -69,13 +69,12 @@ class CodexSessionRefresh {
     const snap = this.snapshot(row.id), state = this.controls.state(row.id);
     if (p.expectedVersion !== snap.version || p.stateRevision !== snap.stateRevision) throw error("Conversation or State revision changed. Review it before checkpointing.");
     if (!snap.nativeThreadId || !p.turnId || p.turnId !== (state.activeTurnId || state.lastTurnId || row.lastTurnId)) throw error("Checkpoint must identify this conversation's actual latest turn.");
-    if (!snap.stateRevision || !Object.values(snap.saved.sections).some(text => text.trim())) throw error("Save a nonempty Agent State before checkpointing.");
-    if (p.stateVerified !== true || p.noUntrackedWork !== true || p.noPendingReports !== true) throw error("Explicitly verify this State revision and declare no unrecorded work or pending reports.");
+    if (p.noUntrackedWork !== true || p.noPendingReports !== true) throw error("Declare no unrecorded work or pending reports. Empty Agent State is a valid fresh start.");
     if (!p.closedScope || typeof p.closedScope !== "object" || !["conversation", "task"].includes(p.closedScope.kind)) throw error("Declare the scope concluded at this checkpoint.");
     const scope = p.closedScope.kind === "conversation" ? { kind: "conversation", turnId: p.turnId }
       : { kind: "task", taskId: identity(p.closedScope.taskId, "closed task ID"), ...(p.closedScope.phaseId ? { phaseId: identity(p.closedScope.phaseId, "closed phase ID") } : {}) };
     const value = { id: p.requestId, nativeThreadId: snap.nativeThreadId, version: snap.version, stateRevision: snap.stateRevision,
-      turnId: p.turnId, closedScope: scope, stateFingerprint: snap.stateFingerprint, configuration: snap.configuration, declared: { stateVerified: true, noUntrackedWork: true, noPendingReports: true }, createdAt: this.now() };
+      turnId: p.turnId, closedScope: scope, stateFingerprint: snap.stateFingerprint, configuration: snap.configuration, declared: { stateVerified: p.stateVerified === true, noUntrackedWork: true, noPendingReports: true }, createdAt: this.now() };
     const previous = row.refreshCheckpoint;
     if (previous?.id === value.id) { if (digest({ ...previous, createdAt: 0 }) !== digest({ ...value, createdAt: 0 })) throw error("Checkpoint request ID conflict"); return previous; }
     row.refreshCheckpoint = value;
@@ -95,8 +94,7 @@ class CodexSessionRefresh {
     if (this.store.mutableOperations?.get(id)?.size) reasons.push("A settings or conversation mutation is in flight");
     if (this.controls.approvalCount(id) || this.controls.questions(id).some(q => !q.submitted) || this.store.pendingQuestions(id).length) reasons.push("An approval or question is unresolved");
     try {
-      const saved = this.states.read(id);
-      if (!saved.revision || !Object.values(saved.sections).some(text => text.trim())) reasons.push("Save and review a nonempty Agent State first");
+      this.states.read(id); // Empty is valid; unreadable or invalid State is not.
     } catch { reasons.push("Agent State is unavailable or invalid"); }
     try { reasons.push(...this.facts(id, trigger)); } catch { reasons.push("Refresh safety facts are unavailable"); }
     return [...new Set(reasons)];
@@ -157,7 +155,7 @@ class CodexSessionRefresh {
           || cp.version !== snap.version || cp.nativeThreadId !== snap.nativeThreadId || cp.stateRevision !== snap.stateRevision || cp.invalidated || cp.stateFingerprint !== snap.stateFingerprint || cp.configuration !== snap.configuration
           || cp.turnId !== this.controls.state(row.id).lastTurnId || this.controls.state(row.id).turnStatus !== "completed") reasons.push("Automatic refresh needs a current explicit checkpoint and one exact independent-new-topic request");
         if (cp?.consumedBy && cp.consumedBy !== p.triggerRequestId) reasons.push("This checkpoint was already consumed by another request");
-      } else if (p.stateVerified !== true || p.noUntrackedWork !== true || p.noPendingReports !== true) reasons.push("Verify the current State and explicitly declare no unrecorded work or pending reports");
+      } else if (p.noUntrackedWork !== true || p.noPendingReports !== true) reasons.push("Explicitly declare no unrecorded work or pending reports");
       if (fence.cancelled) throw error("Refresh was cancelled before preparation; the original conversation remains current.", "SESSION_REFRESH_CANCELLED");
       if (reasons.length) return this.put(row, { ...op, status: "blocked", reasons: [...new Set(reasons)], finishedAt: this.now(), oldConversationUsable: true });
       const packet = this.context.packet(row, snap.saved, snap.company, snap.taskContext);

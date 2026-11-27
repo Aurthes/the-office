@@ -35,13 +35,13 @@ export function SessionRefresh({ client, threadId, onClose, intent, onIntent, on
     return () => previous?.focus();
   }, []);
   const act = async (checkpoint: boolean) => {
-    if (busy || receiptNeeded || !status || !saved || !verified || status.blockers.length || !hasSavedState || stateChanged) return;
+    if (busy || receiptNeeded || !status || !saved || !verified || status.blockers.length || stateChanged) return;
     setBusy(true); setError("");
     const requestId = crypto.randomUUID(); operationId.current = checkpoint ? undefined : requestId;
     try {
       const result = await client.call(checkpoint ? "session.refresh.checkpoint" : "session.refresh", {
         threadId, requestId, expectedVersion: status.conversationVersion, stateRevision: saved.revision,
-        stateVerified: true, noUntrackedWork: true, noPendingReports: true,
+        noUntrackedWork: true, noPendingReports: true,
         ...(checkpoint ? { turnId: status.lastTurnId, closedScope: { kind: "conversation" } } : {}),
       }) as Operation;
       if (!alive.current || owner.current !== threadId) return;
@@ -62,7 +62,7 @@ export function SessionRefresh({ client, threadId, onClose, intent, onIntent, on
   const pending = busy || receiptNeeded || status?.preparing;
   const hasSavedState = !!saved && saved.revision > 0 && Object.values(saved.sections).some(value => value.trim());
   const stateChanged = !!saved && saved.revision !== status?.stateRevision;
-  const blocked = !!status && (status.blockers.length > 0 || !hasSavedState || stateChanged);
+  const blocked = !!status && (status.blockers.length > 0 || stateChanged);
   // These are links to authoritative task codes, never a rule for permitting refresh.
   const taskCodes = [...new Set(status?.blockers.flatMap(reason => reason.match(/\bT[1-9]\d*\b/g) || []) || [])];
   const actionStyle = blocked ? { opacity: 0.4, cursor: "not-allowed", background: "transparent", borderStyle: "dashed" } : undefined;
@@ -81,22 +81,22 @@ export function SessionRefresh({ client, threadId, onClose, intent, onIntent, on
       {error ? <p role="alert" className="text-amber-500">{t(error)}</p> : null}
       {!status ? <p role="status">{t("Loading…")}</p> : <>
         <p>{t("Conversation")} v{status.conversationVersion} · {t("Agent State")} r{saved?.revision ?? "?"}</p>
+        {!hasSavedState ? <p role="status">{t("No saved notes will be carried in. A fresh conversation starts with this employee’s identity and rules. Agent State is optional.")}</p> : null}
         <details><summary>{t("Review saved Agent State")}</summary>{saved ? Object.entries(saved.sections).map(([key, value]) => <div key={key} className="mt-2"><strong>{t(stateLabels[key] || key)}</strong><p className="whitespace-pre-wrap break-words">{value || t("Empty")}</p></div>) : t("Unavailable")}</details>
         <div id={requirementsId} role="status" aria-live="polite" className="rounded-lg border border-current/25 p-3">
-          <strong>{t(blocked ? status.operation ? "Refresh unavailable" : "Not refreshed — requirements are not met" : pending ? "Checking refresh status…" : verified ? "Ready to refresh" : "Review and confirm before refreshing")}</strong>
+          <strong>{t(blocked ? status.operation ? "Refresh unavailable" : "Not refreshed — requirements are not met" : pending ? "Checking refresh status…" : verified ? "Ready to refresh" : "Confirm the current work is concluded")}</strong>
           {blocked ? <>
             <p className="mt-1">{t("No refresh will run until these requirements are resolved. Checking the confirmation box does not override them.")}</p>
             <ul className="mt-2 list-disc pl-5">{status.blockers.map(reason => <li key={reason}>{t(reason)}</li>)}
-              {!hasSavedState ? <li>{t("Save a nonempty Agent State for this employee, then review the saved revision.")}</li> : null}
               {stateChanged ? <li>{t("Saved State changed. Check status again and review the latest revision.")}</li> : null}
             </ul>
           </> : null}
           <div className="mt-3 flex flex-wrap gap-2">
-            {onOpenAgentState ? <button type="button" className="session-action-back" disabled={busy || status.preparing} onClick={onOpenAgentState}>{t(hasSavedState ? "View or edit Agent State" : "Save Agent State in Workspace")}</button> : null}
+            {onOpenAgentState ? <button type="button" className="session-action-back" disabled={busy || status.preparing} onClick={onOpenAgentState}>{t(hasSavedState ? "View or edit Agent State" : "Add optional Agent State")}</button> : null}
             {taskCodes.map(code => openTask ? <button type="button" key={code} className="session-action-back" disabled={busy} onClick={() => { onClose(); openTask(code); }}>{t("View task")} {code}</button> : <span key={code}>{t("View task")} {code} · {t("Task board")}</span>)}
           </div>
         </div>
-        <label className="flex items-start gap-2"><input type="checkbox" checked={verified} disabled={pending || !hasSavedState || stateChanged} onChange={event => setVerified(event.target.checked)} /><span>{t("I reviewed this saved State. The current scope is concluded, with no unrecorded work or pending reports.")}</span></label>
+        <label className="flex items-start gap-2"><input type="checkbox" checked={verified} disabled={pending || stateChanged} onChange={event => setVerified(event.target.checked)} /><span>{t("The current scope is concluded, with no unrecorded work or pending reports.")}</span></label>
         <div className="flex flex-wrap gap-2"><button type="button" aria-describedby={requirementsId} title={blocked ? t("Resolve the requirements above before refreshing") : undefined} style={actionStyle} className="session-action-back" disabled={pending || !verified || blocked} onClick={() => void act(false)}>{blocked ? <LockKeyhole size={14} aria-hidden="true" /> : null}{t("Refresh now")}</button><button type="button" aria-describedby={requirementsId} style={actionStyle} className="session-action-back" disabled={pending || !verified || blocked || !status.lastTurnId} onClick={() => void act(true)}>{t("Checkpoint · next message is a new topic")}</button><button type="button" className="session-action-back" disabled={busy} onClick={() => { setBusy(true); setVerified(false); void reload().finally(() => { if (alive.current) setBusy(false); }); }}>{t("Check status")}</button></div>
         {intent ? <p role="status">{t("Only your next submitted message carries the independent new-topic intent. Safety gates may keep the current conversation.")} <button type="button" className="underline" onClick={() => onIntent(undefined)}>{t("Cancel intent")}</button></p> : null}
         {status.nextRequest ? <p role="status">{t("An exact next-topic input is reserved. Inspect its send receipt; use Stop to cancel the reservation. Do not send a replacement blindly.")}</p> : null}
